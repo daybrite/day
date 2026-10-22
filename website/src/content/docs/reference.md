@@ -1,6 +1,6 @@
 ---
-title: Reference index
-description: Widget and subsystem references from the framework documentation.
+title: Reference
+description: Look up app APIs, command-line options, configuration, platform requirements, and terminology.
 order: 61
 section: Reference
 ---
@@ -12,149 +12,26 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 These reference pages are published from the repository’s `docs/` directory. They cover API
 details, platform support, implementation decisions, and edge cases. Start with the task guides
-for usage examples, or use the [Glossary](/docs/glossary) to look up framework terminology.
+for usage examples, or use the [Glossary](/docs/reference/glossary) to look up framework terminology.
 
-<!-- BEGIN GENERATED: internal-docs-index (integrations/gallery.mjs, from src/lib/internal-groups.mjs) -->
-## Core & UI
-
-Framework-level UI: navigation, lists, layout containers, drawing, text, and the cross-cutting concerns every app touches.
-
-| Page | Covers |
-|---|---|
-| [text](/docs/internal/text) | labels, fonts, semantic styles, wrapping |
-| [text-runs](/docs/internal/text-runs) | styled runs inside one label |
-| [markdown](/docs/internal/markdown) | inline Markdown in labels |
-| [buttons](/docs/internal/buttons) | button styles per backend |
-| [navigation](/docs/internal/navigation) | nav host/stack mapping per platform, routes |
-| [android-adaptive-navigation-proposal](/docs/internal/android-adaptive-navigation-proposal) | proposed: compact predictive Back and fold-aware panes on Android |
-| [deep-links](/docs/internal/deep-links) | custom URL schemes, delivery, launcher shortcuts |
-| [manifest](/docs/internal/manifest) | additional URL schemes declared in Day.toml with `url_schemes` |
-| [dialogs](/docs/internal/dialogs) | alert/confirm/prompt, native presentation, results |
-| [commands](/docs/internal/commands) | reusable application operations across buttons, menus and toolbars |
-| [menus](/docs/internal/menus) | app menu bar, context menus, the Dock menu, roles and shortcuts |
-| [toolbars](/docs/internal/toolbars) | window toolbars: the item vocabulary, symbol icons, per-desktop realization |
-| [windows](/docs/internal/windows) | secondary windows, the Preferences window, the cover fallback, window properties |
-| [settings](/docs/internal/settings) | the Settings and About surface: typed prefs, groups and rows, per-platform presentation |
-| [window-chrome](/docs/internal/window-chrome) | frameless and overlay title bars, transparent and material backgrounds, drag regions |
-| [status-item](/docs/internal/status-item) | menu-bar and tray items, Dock and taskbar progress, keeping the app running |
-| [window-image](/docs/internal/window-image) | capturing the app's own window as a PNG |
-| [grid](/docs/internal/grid) | the eager grid: rows, spans, flexible columns |
-| [forms](/docs/internal/forms) | form/section/labeled groupings |
-| [baseline](/docs/internal/baseline) | baseline alignment across toolkits |
-| [size-classes](/docs/internal/size-classes) | size classes and navigation re-presentation |
-| [scroll](/docs/internal/scroll) | scrolling and programmatic scroll targets |
-| [search](/docs/internal/search) | searchable() surfaces per platform |
-| [cover](/docs/internal/cover) | fullscreen covers and dismissal control |
-| [inspector](/docs/internal/inspector) | the trailing properties pane: native splits, the compact sheet |
-| [split](/docs/internal/split) | two panes and a dragged divider: native splitters, the composed tier |
-| [focus](/docs/internal/focus) | keyboard focus as a signal: bindings, rules, per-backend map |
-| [cursor](/docs/internal/cursor) | the pointer's shape over a piece: one vocabulary, per-toolkit realization, toolkit-only extras |
-| [list](/docs/internal/list) | the native recycling list: row protocol, heights, selection |
-| [tree](/docs/internal/tree) | the hierarchical tree: nesting, expansion, drag-to-reparent (plan) |
-| [canvas](/docs/internal/canvas) | the canvas display list and gestures |
-| [frames](/docs/internal/frames) | native display-frame callbacks for animations: FrameClock, FrameHandle, per-window links |
-| [tween](/docs/internal/tween) | canvas transitions: Lerp (OKLab colors), Timing, stagger, animate, Tweened |
-| [fonts](/docs/internal/fonts) | the platform font list, canvas fonts, and text measurement |
-| [shapes](/docs/internal/shapes) | canvas drawing, shape pieces, gestures |
-| [progress](/docs/internal/progress) | determinate bars and spinners |
-| [picker](/docs/internal/picker) | the built-in one-of-N picker: menu, segmented, and inline styles |
-| [textfield](/docs/internal/textfield) | single-line text: password entry, keyboard purpose, length limit |
-| [textarea](/docs/internal/textarea) | multi-line text: editing, selection, spell-check |
-| [texteditor](/docs/internal/texteditor) | `day-piece-texteditor` — editing a StyledText in each platform's rich-text view |
-| [localization](/docs/internal/localization) | Fluent mechanics, arguments, fallback |
-| [snippet-catalog](/docs/internal/snippet-catalog) | Fluent messages and resource setup for the documentation examples |
-| [accessibility](/docs/internal/accessibility) | roles, per-backend attribute mapping, the audit |
-| [lifecycle](/docs/internal/lifecycle) | app phases and their per-platform availability |
-| [async](/docs/internal/async) | tasks, resources, and the runtime rules |
-| [state](/docs/internal/state) | where state lives: per-window and app-wide Ambient values, the focused-window rule |
-| [model](/docs/internal/model) | the per-property observable store and the Observable derive |
-| [persistence](/docs/internal/persistence) | SQLite storage for the model: ModelContainer, the Model derive, migrations |
-| [resources](/docs/internal/resources) | asset packaging and the zero-copy runtime path |
-| [vectors](/docs/internal/vectors) | resolution-independent SVG glyphs and the `vector` piece |
-| [images](/docs/internal/images) | raster images from bytes: decode, draw, read, and write back out |
-| [color](/docs/internal/color) | the `Color`/`Paint` currency, what a native picker returns, and a proposal to widen it |
-| [icons](/docs/internal/icons) | `day icon build`: every platform's app-icon set from one master |
-| [drag-and-drop](/docs/internal/drag-and-drop) | native data transfer within and between applications |
-| [drag-and-drop-plan](/docs/internal/drag-and-drop-plan) | transfer architecture, platform constraints, and implementation plan |
-| [files](/docs/internal/files) | file I/O and platform paths |
-| [documents](/docs/internal/documents) | Document types and file activation |
-| [sharing](/docs/internal/sharing) | native URL sharing, chooser lifecycle, and explicit clipboard fallbacks |
-| [applications](/docs/internal/applications) | which app the OS hands a URL, MIME type or extension to, and opening with one |
-
-## Pieces
-
-Standalone UI Pieces: native widgets that live in their own crates and plug in without any core changes.
-
-| Page | Covers |
-|---|---|
-| [swiftui](/docs/internal/swiftui) | `day-piece-swiftui` — embed your own SwiftUI views (macOS, iOS) |
-| [webview-eval](/docs/internal/webview-eval) | web view JavaScript evaluation: API and per-platform support |
-| [map](/docs/internal/map) | `day-piece-map` — native maps |
-| [media](/docs/internal/media) | `day-piece-media` — audio/video playback |
-| [combobox](/docs/internal/combobox) | `day-piece-combobox` — free-form text plus a native dropdown |
-| [searchfield](/docs/internal/searchfield) | `day-piece-searchfield` — the search input |
-| [activity](/docs/internal/activity) | `day-piece-activity` — activity spinners |
-| [pullrefresh](/docs/internal/pullrefresh) | `day-piece-pullrefresh` — pull-to-refresh for scrollables |
-| [datepicker](/docs/internal/datepicker) | `day-piece-datetime` — native date & time pickers |
-| [colorpicker](/docs/internal/colorpicker) | `day-piece-colorpicker` — a color well: the platform chooser, or one Day composes |
-| [stepper](/docs/internal/stepper) | `day-piece-stepper` — a numeric field with increment/decrement arrows |
-| [badge](/docs/internal/badge) | app-icon badge: a count, text or dot |
-| [tweaks](/docs/internal/tweaks) | per-toolkit native configuration: accessors, packaged tweaks, recipes |
-
-## Parts
-
-Headless capability crates, the non-UI counterpart of Pieces. They provide device and system access without any widgets.
-
-| Page | Covers |
-|---|---|
-| [battery](/docs/internal/battery) | `day-part-battery` |
-| [clipboard](/docs/internal/clipboard) | `day-part-clipboard` |
-| [prefs](/docs/internal/prefs) | `day-part-prefs` |
-| [fs](/docs/internal/fs) | `day-part-fs` |
-| [notify](/docs/internal/notify) | `day-part-local-notify` (proposed successor design) |
-| [network](/docs/internal/network) | `day-part-network` |
-| [sensors](/docs/internal/sensors) | `day-part-sensors` |
-| [haptics](/docs/internal/haptics) | `day-part-haptics` |
-| [sound](/docs/internal/sound) | `day-part-sound` |
-| [wakelock](/docs/internal/wakelock) | `day-part-wakelock` |
-| [deviceinfo](/docs/internal/deviceinfo) | `day-part-deviceinfo` |
-| [http](/docs/internal/http) | `day-part-http` |
-| [downloads](/docs/internal/downloads) | `day-part-downloads` |
-| [permissions](/docs/internal/permissions) | `day-part-permissions` |
-| [location](/docs/internal/location) | `day-part-location` |
-
-## Platform & tooling
-
-Platform backends, the extension model for writing your own Pieces, per-backend support matrices, API conventions, and tooling.
-
-| Page | Covers |
-|---|---|
-| [sandbox](/docs/internal/sandbox) | macOS App Sandbox, entitlements, and persistent file access |
-| [native-project-migration](/docs/internal/native-project-migration) | generated native projects: migration procedure and release ordering |
-| [harmonyos](/docs/internal/harmonyos) | OpenHarmony toolchain setup and quirks |
-| [winui](/docs/internal/winui) | the `windows-winui` target — the XAML backend on WinUI 3 and the Windows App SDK |
-| [web](/docs/internal/web) | the `web-dom` backend — wasm build, dayscript bridge, static hosting |
-| [extending](/docs/internal/extending) | piece registration internals |
-| [bridge](/docs/internal/bridge) | daybridge: foreign-language arms of a Rust API |
-| [android-jni](/docs/internal/android-jni) | java_class! bindings: typed JNI calls, the startup check, R8 keep rules |
-| [coverage-matrix](/docs/internal/coverage-matrix) | which piece kinds each backend renders (generated, CI-gated) |
-| [duty-matrix](/docs/internal/duty-matrix) | which backend implements which Toolkit duty (generated, CI-gated) |
-| [recorder-matrix](/docs/internal/recorder-matrix) | event → recorded dayscript step coverage (generated, CI-gated) |
-| [logging](/docs/internal/logging) | the `log` facade, levels, per-platform sinks, DAY_LOG, custom loggers |
-| [break](/docs/internal/break) | `day-piece-break` crash capture, reports, and delivery |
-| [store](/docs/internal/store) | store listings and `day store` |
-| [screenshot-archive](/docs/internal/screenshot-archive) | the screenshots.tar.xz bundle `day screenshot pack` writes, and normalized captures |
-| [flavors](/docs/internal/flavors) | `Day-<name>.toml` and `--flavor`: one source tree, several shipped apps |
-| [agent](/docs/internal/agent) | dayscript sessions, `day drive`, and the agent-facing tooling |
-| [element-ids](/docs/internal/element-ids) | typed id! declarations, compiled registries, and dayscript coverage gates |
-| [testing](/docs/internal/testing) | `day test`: #[day::test] cases run inside the app, the conformance app, the evidence |
-| [api-style](/docs/internal/api-style) | the API design conventions Day itself follows |
-| [vscode](/docs/internal/vscode) | editor setup |
-| [environment](/docs/internal/environment) | toolchain/SDK discovery env vars (DAY_CPPWINRT, DAY_WINDOWS_KITS_ROOT, …) |
-<!-- END GENERATED: internal-docs-index -->
+Use the reference index below for app contracts. [Backend contracts](/contributing/backend-contracts),
+[design records](/contributing/design), and [explanations](/docs/explanation) have separate indexes.
 
 ## Related projects
 
 The [web view piece](https://github.com/daybrite/day-piece-webview) and
 [Day Lite](https://github.com/daybrite/day-lite), for embedded JavaScript and TypeScript apps,
 have their own repositories and documentation.
+
+## Find a technical task
+
+| Task | Procedure | Contract or explanation |
+| --- | --- | --- |
+| Fetch data and cancel work | [HTTP](/docs/how-to/guide-http) | [HTTP reference](/docs/reference/http), [async ownership](/docs/explanation/async) |
+| Save settings or files | [Storage](/docs/how-to/guide-storage) | [Preferences](/docs/reference/prefs), [file storage](/docs/reference/fs) |
+| Request consent and post reminders | [Permissions](/docs/how-to/guide-permissions), [notifications](/docs/how-to/guide-notifications) | [Permission states](/docs/reference/permissions), [notification defaults](/docs/reference/notify) |
+| Share an action across UI surfaces | [Commands](/docs/how-to/guide-commands) | [Command ownership](/docs/reference/commands) |
+| Open documents or another window | [Documents](/docs/how-to/guide-documents), [desktop UI](/docs/how-to/guide-desktop) | [File handling](/docs/reference/documents), [window defaults](/docs/reference/windows) |
+| Localize text and bundle data | [Localization](/docs/how-to/localization), [resources](/docs/how-to/resources) | [Text](/docs/reference/text), [resource contract](/docs/reference/resources) |
+| Make UI accessible | [Accessibility](/docs/how-to/accessibility) | [Annotations](/docs/reference/accessibility) |
+| Diagnose or package an app | [Troubleshooting](/docs/how-to/troubleshooting), [packaging](/docs/how-to/packaging) | [CLI defaults](/docs/reference/cli#defaults-and-errors), [compatibility](/docs/reference/platforms) |

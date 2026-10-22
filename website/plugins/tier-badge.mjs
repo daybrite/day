@@ -4,7 +4,7 @@
 // Rehype plugin — render support-tier links as tier badges.
 //
 // Wherever a docs page links to the tier definitions with link text that starts "Tier N"
-// (`[Tier 3](/docs/platforms#support-tiers)`, `[Tier 1 · Supported](…)`), stamp the anchor with
+// (`[Tier 3](/docs/reference/platforms#support-tiers)`, `[Tier 1 · Supported](…)`), stamp the anchor with
 // `class="tier-badge" data-tier="N"`; global.css turns that into the pill. The markdown stays a
 // plain link, so the same source reads correctly on GitHub and in an editor, and a link that
 // stops matching simply renders as an ordinary link again.
@@ -14,7 +14,7 @@
 
 import { tiers } from '../src/lib/platforms.mjs';
 
-const ANCHOR = '/docs/platforms#support-tiers';
+const ANCHOR = '/docs/reference/platforms#support-tiers';
 
 /** Collect an element's text, so `[**Tier 1**](…)` matches like `[Tier 1](…)` does. */
 function textOf(node) {

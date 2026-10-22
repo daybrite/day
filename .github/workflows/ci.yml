@@ -1434,7 +1434,7 @@ jobs:
   # build is portable (the core crates need no features and the `day` umbrella uses its headless
   # `mock` backend), so no native toolkit is installed and it runs on a stock runner. Crate list
   # + `cargo doc` invocations live in scripts/build-api-docs.sh, driven by
-  # website/src/data/api-crates.json (the same file /docs/api reads).
+  # website/src/data/api-crates.json (the same file /docs/reference/api reads).
   # ---------------------------------------------------------------------------
   website:
     name: website
@@ -1451,20 +1451,21 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
-          # Keyed apart from the build legs: this job only ever runs `cargo doc`, and a cache
-          # shared with the matrix's would evict on every framework change for no benefit.
+          # Keep documentation examples and Rustdoc artifacts separate from native matrix builds.
           shared-key: website-rustdoc
-
-      - name: Build the Rust API reference (dist/api)
-        # /docs/api bridges into this bundle. GitHub Pages deploys one artifact, so the job that
-        # feeds the deploy has to assemble all of it.
-        run: scripts/build-api-docs.sh --out website/dist/api
 
       - uses: actions/setup-node@v6
         with:
           node-version: 22
           cache: npm
           cache-dependency-path: website/package-lock.json
+
+      - name: Compile documentation recipes and priority excerpts
+        env:
+          CARGO_NET_OFFLINE: 'false'
+        run: |
+          python3 -B scripts/docs/verify-recipes.py
+          python3 -B scripts/docs/verify-excerpts.py
 
       - name: Build the site (indexes each app's published screenshots)
         working-directory: website
@@ -1482,7 +1483,21 @@ jobs:
           DAY_REQUIRE_SHOWCASE: ${{ github.repository == 'daybrite/day' && github.event_name != 'pull_request' && '1' || '' }}
         run: |
           npm ci
+          npm run docs:check
+          npm run docs:test
+          npm run docs:architecture
           npm run build
+
+      - name: Build the Rust API reference (dist/api)
+        # Astro clears dist during its build. Add Rustdoc afterward so the Pages artifact
+        # contains the bundle linked from /docs/reference/api.
+        run: scripts/build-api-docs.sh --out website/dist/api
+
+      - name: Check the API bundle is included
+        run: node website/scripts/check-api-bundle.mjs
+
+      - name: Check API reference links
+        run: python3 -B scripts/docs/check-api-links.py
 
       - name: Check for broken links
         working-directory: website

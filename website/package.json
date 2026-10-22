@@ -11,10 +11,14 @@
     "dev": "astro dev",
     "start": "astro dev",
     "build": "astro build && pagefind --site dist",
+    "build:force": "astro build --force && pagefind --site dist",
     "linkcheck": "node scripts/linkcheck.mjs",
     "preview": "astro preview",
     "assemble": "node scripts/assemble-gallery.mjs",
-    "astro": "astro"
+    "astro": "astro",
+    "docs:check": "node scripts/docs-check.mjs",
+    "docs:test": "node --test scripts/docs-check.test.mjs",
+    "docs:architecture": "node scripts/check-content-routes.mjs && node --test scripts/content-routes.test.mjs"
   },
   "dependencies": {
     "@astrojs/markdown-remark": "^7.2.3",

@@ -1,0 +1,107 @@
+---
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: CC-BY-SA-4.0
+import { render } from 'astro:content';
+import DocsLayout from '../layouts/DocsLayout.astro';
+import ContentIndex from '../components/ContentIndex.astro';
+import PlatformIcon from '../components/PlatformIcon.astro';
+import { contentPages } from '../lib/content';
+import { hubs } from '../lib/content-routes.mjs';
+import { platformsById, primaryPlatforms, tierOf } from '../lib/platforms.mjs';
+import { url, site } from '../lib/site';
+
+export async function getStaticPaths() {
+  const all = [...await contentPages(), ...hubs];
+  const seen = new Set();
+  return all.map((page) => {
+    if (seen.has(page.route)) throw new Error(`Duplicate content route: ${page.route}`);
+    seen.add(page.route);
+    return { params: { slug: page.route.slice(1) }, props: { page } };
+  });
+}
+
+const { page } = Astro.props;
+const pages = await contentPages();
+const rendered = 'entry' in page ? await render(page.entry) : undefined;
+const Content = rendered?.Content;
+const isHub = !Content || page.route === '/docs/reference';
+const children = pages.filter((p) => p.route.startsWith(page.route + '/'))
+  .sort((a, b) => a.order - b.order || a.title.localeCompare(b.title));
+const categories = hubs.filter((h) => h.route.startsWith(page.route + '/') &&
+  !h.route.slice(page.route.length + 1).includes('/'));
+const platformId = page.route.startsWith('/docs/reference/platforms/') ? page.route.split('/').pop() : undefined;
+const platform = platformId && platformsById[platformId];
+const tier = platform ? tierOf(platform.tier) : undefined;
+const known = new Set(Object.keys(import.meta.glob('../icons/*.svg')).map((p) => p.split('/').pop()!.replace('.svg', '')));
+const icon = platformId && known.has(platformId) ? platformId : undefined;
+const root = page.audience === 'contributor' ? '/contributing' : page.audience === 'app developer' ? '/docs' : '/';
+---
+<DocsLayout title={page.title} description={page.description} route={page.route} audience={page.audience}>
+  <nav aria-label="Breadcrumb" data-pagefind-ignore>
+    <a href={url(root)}>{page.audience === 'contributor' ? 'Contributing' : page.audience === 'app developer' ? 'Documentation' : 'Explore Day'}</a>
+    {page.type && <span> / {page.type}</span>}
+  </nav>
+  {(!Content || page.collection === 'docs') && <div class="doc-title">
+    {icon && <PlatformIcon id={icon} class="doc-title-icon" />}
+    <h1>{page.title}</h1>
+    {tier && <a class="tier-badge" data-tier={tier.n} href={url('docs/reference/platforms#support-tiers')}>Tier {tier.n} · {tier.name}</a>}
+  </div>}
+  {page.status && <p class="status-note"><strong>Status:</strong> {page.status}. See the linked app reference for current API guidance.</p>}
+  {Content ? <Content /> : <p>{page.description}</p>}
+  {page.route === '/docs' && <>
+    <h2>Build your first app</h2>
+    <p>Build a Session counter with the <a href={url('docs/tutorials/first-app')}>six-lesson macOS learning path</a>. Open a window, handle events, update state, arrange controls, navigate, and test the finished app. Other platforms branch from the completed app.</p>
+    <h2>What are you working on?</h2>
+    <ContentIndex pages={[
+      { route: '/docs/how-to/navigation', title: 'Connect your screens', description: 'Share state between destinations and adapt navigation to the available space.' },
+      { route: '/docs/how-to/guide-storage', title: 'Save people’s work', description: 'Store settings and app files between launches.' },
+      { route: '/docs/how-to/guide-http', title: 'Connect to a service', description: 'Fetch data, handle errors, and cancel requests when they are no longer needed.' },
+      { route: '/docs/how-to/localization', title: 'Add another language', description: 'Translate interface text and accessibility labels with Fluent.' },
+    ]} />
+    <h2>Browse documentation</h2>
+    <ContentIndex pages={[...categories, { route: '/docs/reference', title: 'Reference', description: 'Look up APIs, CLI commands, configuration, compatibility, and terminology.' }]} />
+    <p>For framework implementation, visit <a href={url('contributing')}>Contributing</a>.</p>
+  </>}
+  {page.route === '/contributing' && <>
+    <ContentIndex pages={[...children.filter((p) => !p.route.slice('/contributing/'.length).includes('/')), ...categories]} />
+    <p>The repository’s <a href={`${site.repo}/blob/main/DESIGN.md`}>DESIGN.md</a> remains the architectural authority. It includes proposals and historical sections; consult their status before treating them as implemented contracts.</p>
+  </>}
+  {page.route === '/platforms' && <>
+    <h2>Supported desktop and mobile targets</h2>
+    <p>Share the app’s interface and logic, then test the native behavior on each target you choose. Tiers record the project’s declared maintenance priority; they are not a new runtime test result.</p>
+    <table>
+      <thead><tr><th>Platform</th><th>UI toolkit</th><th>Support tier</th></tr></thead>
+      <tbody>{primaryPlatforms.filter((p) => p.tier <= 2).map((p) => <tr>
+        <td><a href={url(`docs/reference/platforms/${p.id}`)}>{p.os}</a></td>
+        <td>{p.toolkit}</td><td>Tier {p.tier} · {tierOf(p.tier)?.name}</td>
+      </tr>)}</tbody>
+    </table>
+    <h2>Check the features your app needs</h2>
+    <p>Toolkit widgets, composed controls, custom drawing, and device services have different support boundaries. Read the per-target limitations and test your main workflow, including keyboard and assistive-technology use.</p>
+    <h2>Experimental and additional targets</h2>
+    <p><a href={url('docs/reference/platforms/harmony-arkui')}>HarmonyOS / ArkUI</a> and the <a href={url('docs/reference/platforms/web-dom')}>browser / DOM target</a> are Tier 3 experimental. GTK and Qt combinations on other host systems are Tier 4 development targets. System XAML is Tier 5 deprecated.</p>
+    <p><a href={url('docs/reference/platforms')}>All targets, package formats, and limitations →</a></p>
+    <p><a href={url('docs/reference/system-requirements')}>Find the tools for your host →</a></p>
+  </>}
+  {page.route === '/community' && <>
+    <h2>Bring a problem from your app</h2>
+    <p>A small reproducible example helps others understand what you need. Include the target, Day revision, expected behavior, and what happened.</p>
+    <p><a href={`${site.repo}/issues`}>Report an issue →</a></p>
+    <h2>Share what you know</h2>
+    <p>If you know a native toolkit, help improve its controls or device integrations. If you have just learned Day, point out the step that held you up or contribute a clearer example.</p>
+    <p><a href={url('contributing/setup')}>Read the contribution workflow →</a></p>
+    <h2>Discuss an app or an extension</h2>
+    <p>Describe the people you’re building for and the workflow you want to support. That gives a discussion about APIs and platform differences a concrete place to start.</p>
+    <p><a href={`${site.repo}/discussions`}>Open project discussions →</a></p>
+  </>}
+  {isHub && !['/docs', '/contributing', '/platforms', '/community'].includes(page.route) && <>
+    {page.route === '/docs/reference' && <p><a href={url('docs/reference/api')}>Generated Rust API reference</a></p>}
+    <ContentIndex pages={children} />
+  </>}
+</DocsLayout>
+<style>
+  .doc-title { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-block: 20px; }
+  .doc-title h1 { margin: 0; }
+  .doc-title :global(.doc-title-icon) { width: 40px; height: 40px; }
+  .status-note { border-left: 3px solid var(--border); padding-left: 16px; }
+</style>

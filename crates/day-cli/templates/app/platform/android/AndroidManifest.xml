@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
     Android-only additions Day merges into its generated manifest; delete the file to use the
-    defaults. https://daybrite.dev/docs/platforms/android-mdc#manifest-customization
+    defaults. https://daybrite.dev/docs/reference/platforms/android-mdc#manifest-customization
 -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
           xmlns:tools="http://schemas.android.com/tools">

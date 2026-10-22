@@ -105,6 +105,13 @@ pub fn register_nav(ctrl: NavController) -> NavToken {
     });
     let ctrl = Rc::new(ctrl);
     NAV_STACK.with(|s| s.borrow_mut().push((token, ctrl.clone())));
+    // A newly mounted surface can retain the path signal from an earlier visit. An
+    // absolute destination replaces that path just as it does for a resident surface;
+    // otherwise register-time delivery appends before navigate_absolute can reset it.
+    // With no pending destination, a bare reopen keeps the remembered path.
+    if PENDING.with(|p| !p.borrow().is_empty()) {
+        let _ = (ctrl.push)("");
+    }
     // Feed pending absolute segments to the just-mounted surface (front-first, stop at the
     // first refusal, since deeper segments wait for deeper surfaces).
     while let Some(front) = PENDING.with(|p| p.borrow().first().cloned()) {

@@ -24,7 +24,7 @@ native pieces      renderer! per toolkit              a NEW widget kind
 ```
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
-[example messages](snippet-catalog.md) and [catalog setup](https://daybrite.dev/docs/localization).
+[example messages](snippet-catalog.md) and [catalog setup](https://daybrite.dev/docs/how-to/localization).
 
 ## The portable surface
 

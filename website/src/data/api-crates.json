@@ -1,6 +1,6 @@
 {
   "//": "Single source of truth for the generated Rust API reference. Consumed by BOTH the CI doc",
-  "//2": "generator (scripts/build-api-docs.sh, via jq) and the /docs/api bridge page (api.astro).",
+  "//2": "generator (scripts/build-api-docs.sh, via jq) and the /docs/reference/api bridge page.",
   "//3": "`pkg` is the crate name; its rustdoc directory is pkg with '-' replaced by '_'. `features`",
   "//4": "(optional) is passed to `cargo doc --features` for crates that need one backend to compile",
   "//5": "(only the `day` umbrella does — the headless `mock` backend keeps the doc build portable).",

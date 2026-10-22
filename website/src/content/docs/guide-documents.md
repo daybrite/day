@@ -2,7 +2,7 @@
 title: Opening documents
 description: "Register file types, import files, and handle Finder, file-manager and installed web app activations."
 order: 34
-section: Guides
+section: How-to guides
 ---
 
 Declare supported files in `Day.toml`:
@@ -56,12 +56,40 @@ is disposed.
 
 Use the same import function for the native file picker. A reusable command can expose it in
 the desktop File menu with `Shortcut::primary("o")`, and in a mobile toolbar. See
-[Reusable commands](/docs/guide-commands/).
+[Reusable commands](/docs/how-to/guide-commands/).
 
 The app decides what an open request does. A reader can import into its private library,
 deduplicate by content hash, and call `day::open_window` with a stable book key on desktop.
 On mobile, it can navigate to the reader in the current window. File registration does not
 create windows or overwrite documents automatically.
+
+## Compile a bounded file reader
+
+`FileUrl` belongs to the facade prelude. This function returns bytes to an app-owned importer;
+it does not infer a file format or display raw error text. Use it from an `on_open_files`
+callback through `day::task`. The other Rust block above is an integration fragment.
+
+Complete module for `src/documents.rs` in the [technical recipe harness](/docs/reference/examples/catalog#technical-recipes).
+The harness compiles this exact block; it is not a standalone app. Add the catalog entries below
+to `resource/locales/en/app.ftl` and declare the module in `src/lib.rs`.
+
+<!-- technical-example: documents -->
+```rust
+use day::prelude::*;
+
+pub async fn read_import(locator: String) -> std::io::Result<Vec<u8>> {
+    FileUrl::new(locator).read_limited(64 * 1024 * 1024).await
+}
+```
+
+<!-- technical-catalog: documents -->
+```ftl
+import_failed = The document could not be opened.
+```
+
+The 64 MiB bound is a recipe policy; choose a limit for your format. Map IO errors to localized
+messages such as `res::str::import_failed()` on the UI thread. Compile validation does not test
+file associations, provider grants, or Finder activation.
 
 ## Platform differences
 
@@ -86,5 +114,5 @@ Some desktop activations start a new process rather than contacting an existing 
 `editor` role tells the system the app edits these files; the app still receives a copy to read,
 and persistent mobile provider grants are not part of this API.
 
-The [document reference](/docs/internal/documents) covers the full platform mapping, cache
+The [document reference](/docs/reference/documents) covers the full platform mapping, cache
 lifetime, command-line delivery, manifest fields, testing, and native API references.

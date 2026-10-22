@@ -12,7 +12,7 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 Day embeds Fluent catalogs and generates Rust accessors for their messages. The runtime
 resolves each message using a shared locale signal and the catalog attached to the accessor.
-The [localization guide](https://daybrite.dev/docs/localization) covers setup and translation
+The [localization guide](https://daybrite.dev/docs/how-to/localization) covers setup and translation
 workflows. This reference defines the generation, lookup, and tooling contracts.
 
 ## Catalog generators
@@ -345,7 +345,7 @@ Store copy lives in `store/storefront.toml`, as `[storefront.metadata]` with a t
 from UI messages. `day store stage` maps project locale tags to each store's spelling and
 generates fastlane metadata. Website locale
 configuration lives in `website/site.toml`; the app site uses store text and localized
-screenshot metadata. See [store listings](store.md) and [DayScript](https://daybrite.dev/docs/dayscript).
+screenshot metadata. See [store listings](store.md) and [DayScript](https://daybrite.dev/docs/how-to/dayscript).
 
 ## Adding and removing locales
 

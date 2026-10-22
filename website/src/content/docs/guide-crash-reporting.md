@@ -2,7 +2,7 @@
 title: Crash reporting
 description: "Local crash reports and user-approved delivery by HTTP, GitHub, or email."
 order: 34
-section: Guides
+section: How-to guides
 ---
 
 <!--
@@ -18,7 +18,7 @@ a crash, display the report after restarting, and let the user decide whether to
 SIGILL, SIGFPE, SIGABRT, SIGTRAP) are caught on the Unix targets (macOS, iOS, Linux, Android, and
 HarmonyOS), and Android also records uncaught Java exceptions. Windows records panics but not native
 faults yet, and on the web `init` is a no-op. The full matrix is in [the break
-reference](/docs/internal/break).
+reference](/docs/reference/break).
 
 ## 1. Initialize reporting before launch
 
@@ -62,7 +62,7 @@ on Android, an uncaught Java exception. A panic that day-core contains at its tr
 
 A report is versioned JSON: app id, version, and build; the day version and backend; OS,
 device model, and locale; the session id and uptime; the panic message and source location, or
-the signal's number and addresses; and a backtrace. The [reference](/docs/internal/break) lists every field.
+the signal's number and addresses; and a backtrace. The [reference](/docs/reference/break) lists every field.
 Panic messages may contain user data supplied by your app; use `.redact(…)` to remove sensitive
 values before storage. The signal handlers chain to the previous disposition, so the platform's crash
 reporter (Android tombstones, HarmonyOS faultlogs) still runs alongside.
@@ -142,6 +142,6 @@ a failure.
 
 ## Reference
 
-[break](/docs/internal/break) — the full design: the report schema, signal-handler
+[break](/docs/reference/break) — the full design: the report schema, signal-handler
 discipline, the session sentinel, app identity and symbolication, transports, and how it's
 tested.

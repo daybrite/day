@@ -29,7 +29,7 @@ Once a discussion lands on "yes, send a patch":
 2. Build and run through the `day` CLI (`day build`, `day launch`), not bare `cargo`.
 3. To exercise your change in a real app (the showcase, or your own), build that app against
    your checkout with `day patch --local` —
-   [Developing Day and an app together](https://daybrite.dev/docs/local-development) covers the
+   [Developing Day and an app together](https://daybrite.dev/contributing/local-development) covers the
    workflow. A framework feature usually lands with a Day-Showcase screen that demonstrates it,
    as a second PR that follows the framework change.
 4. Before reporting work ready to commit or push, run `cargo fmt --all` and
@@ -46,11 +46,23 @@ Once a discussion lands on "yes, send a patch":
 5. Update the documentation the change affects in the same PR: the relevant `docs/*.md` page,
    and the `DESIGN.md` section that describes what you changed.
 
+## Documentation authoring
+
+Follow the [writing style guide](STYLE_GUIDE.md),
+[documentation conventions](website/authoring/style-guide.md),
+[authoring workflow and checks](website/authoring/authoring.md), and
+[page templates](website/authoring/templates/README.md). Use the existing
+[shared glossary](website/src/lib/glossary.mjs) as the terminology source.
+AI authors should also read the [concise instructions](AGENTS.md).
+Use the [documentation maintenance checklist](website/authoring/maintenance.md) for review,
+freshness, platform-claim changes, and publication checks. Named documentation ownership remains
+deferred; record the reviewer and evidence for each change without assigning a permanent owner.
+
 ## Platform support tiers
 
 Every `(OS, toolkit)` target sits in a support tier, from Tier 1 (supported: thoroughly tested,
 highest attention to quality) down to Tier 4 (development: compatibility combinations no app
-ships on). The [Platform support](https://daybrite.dev/docs/platforms#support-tiers) page defines
+ships on). The [Platform support](https://daybrite.dev/docs/reference/platforms#support-tiers) page defines
 all four and says where each target stands today.
 
 A tier records the maintenance a target has, not a verdict on the platform, so a target moves up

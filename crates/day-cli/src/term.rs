@@ -61,7 +61,7 @@ pub fn help_footer() -> String {
     format!(
         "{SUN}Create an app:{SUN:#}  {SKY_BOLD}day new app{SKY_BOLD:#}\n\
          {SUN}Command help:{SUN:#}   {SKY_BOLD}day help{SKY_BOLD:#} {SKY}<COMMAND>{SKY:#}\n\n\
-         Docs: https://daybrite.dev/docs/cli/"
+         Docs: https://daybrite.dev/docs/reference/cli"
     )
 }
 

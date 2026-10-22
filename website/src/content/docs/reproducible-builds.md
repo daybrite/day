@@ -2,7 +2,7 @@
 title: Reproducible builds
 description: What Day guarantees about rebuilding the same commit twice, what breaks per platform, and how to verify a build yourself with diffoscope.
 order: 34
-section: Build & ship
+section: Explanation
 ---
 
 <!--
@@ -299,7 +299,7 @@ It finds the SBOM shipped with the artifact, reads the repository and commit tha
 compares your installed tool versions against the ones recorded at build time, clones that commit
 into a temporary directory, packs it again, and compares the two artifacts.
 
-```
+```text
  Environment 6 tool(s) match the artifact
     Cloning https://github.com/you/my-app @ 342a2be1606d
  Rebuilding macos-appkit (release) in /tmp/day-rebuild-my-app-macos-appkit/src/apps/my-app
@@ -319,7 +319,7 @@ The environment check runs before the clone, so a machine that cannot reproduce 
 reports that immediately rather than after a long build. It never installs anything; it reports
 what is missing and what to run:
 
-```
+```text
       Error the build environment does not match the artifact:
   rust: this machine has rustc 1.97.0 (2d8144b78 2026-07-07)
       the artifact was built with rustc 1.90.0 (1159e78c4 2025-09-14)
@@ -388,4 +388,3 @@ shows the same load command if you prefer.
 Read the output against the sections above before filing a bug. A differing `LC_UUID` on Apple
 platforms, a differing signature block, or a differing `.dmg` is expected. A differing `.so`, `.exe`,
 or Mach-O executable, once the UUID is accounted for, is not.
-

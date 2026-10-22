@@ -188,10 +188,10 @@ enum CoverageCommand {
 #[allow(clippy::large_enum_variant)] // one Cmd per process, parsed once and matched once; `launch` is simply the command with the most flags
 enum Cmd {
     /// Print the CLI version and build information
-    #[command(after_help = "Docs: https://daybrite.dev/docs/cli/")]
+    #[command(after_help = "Docs: https://daybrite.dev/docs/reference/cli")]
     Version,
     /// Create an app, piece, or part; prompt when no kind is given
-    #[command(after_help = "Docs: https://daybrite.dev/docs/cli/")]
+    #[command(after_help = "Docs: https://daybrite.dev/docs/reference/cli")]
     New {
         #[command(subcommand)]
         what: Option<NewKind>,
@@ -200,7 +200,7 @@ enum Cmd {
         describe: bool,
     },
     /// Build an app for one or more targets
-    #[command(after_help = "Docs: https://daybrite.dev/docs/project-structure/")]
+    #[command(after_help = "Docs: https://daybrite.dev/docs/reference/project-structure")]
     Build {
         /// Targets to build (repeatable; a toolkit alone, like gtk, means this host's target)
         #[arg(
@@ -223,13 +223,13 @@ enum Cmd {
         patch_local: Vec<PathBuf>,
     },
     /// Generate app icons for each platform
-    #[command(after_help = "Docs: https://daybrite.dev/docs/guide-icons/")]
+    #[command(after_help = "Docs: https://daybrite.dev/docs/how-to/guide-icons")]
     Icon {
         #[command(subcommand)]
         cmd: IconCmd,
     },
     /// Build and run an app on one or more targets
-    #[command(after_help = "Docs: https://daybrite.dev/docs/cli/")]
+    #[command(after_help = "Docs: https://daybrite.dev/docs/reference/cli")]
     Launch {
         /// Targets to launch (repeatable; a toolkit alone, like gtk, means this host's target;
         /// default: this host's desktop toolkit)
@@ -332,7 +332,7 @@ enum Cmd {
         capture_size: Option<String>,
     },
     /// Rebuild a package from its recorded sources and compare the result
-    #[command(after_help = "Docs: https://daybrite.dev/docs/reproducible-builds/")]
+    #[command(after_help = "Docs: https://daybrite.dev/docs/explanation/reproducible-builds")]
     Rebuild {
         /// Package to verify (.dmg, .ipa, .apk, .flatpak, .msix, or .hap)
         artifact: std::path::PathBuf,
@@ -350,7 +350,7 @@ enum Cmd {
         from_dir: Option<std::path::PathBuf>,
     },
     /// Build, sign, and package an app for distribution
-    #[command(after_help = "Docs: https://daybrite.dev/docs/packaging/")]
+    #[command(after_help = "Docs: https://daybrite.dev/docs/how-to/packaging")]
     Pack {
         /// Targets to build (repeatable)
         #[arg(
@@ -384,13 +384,15 @@ enum Cmd {
         artifact_name: Option<String>,
     },
     /// Check signing settings, sign a built package, or query a notarization submission
-    #[command(after_help = "Docs: https://daybrite.dev/docs/packaging/#signing-configuration")]
+    #[command(
+        after_help = "Docs: https://daybrite.dev/docs/how-to/packaging#signing-configuration"
+    )]
     Sign {
         #[command(subcommand)]
         cmd: SignCmd,
     },
     /// Check installed toolchains and SDKs
-    #[command(after_help = "Docs: https://daybrite.dev/docs/system-requirements/")]
+    #[command(after_help = "Docs: https://daybrite.dev/docs/reference/system-requirements")]
     #[command(args_conflicts_with_subcommands = true)]
     Doctor {
         #[command(subcommand)]
@@ -401,13 +403,13 @@ enum Cmd {
         toolkits: Vec<String>,
     },
     /// Manage an existing app project
-    #[command(after_help = "Docs: https://daybrite.dev/docs/cli/")]
+    #[command(after_help = "Docs: https://daybrite.dev/docs/reference/cli")]
     Project {
         #[command(subcommand)]
         cmd: ProjectCmd,
     },
     /// Show project settings and supported targets
-    #[command(after_help = "Docs: https://daybrite.dev/docs/project-structure/")]
+    #[command(after_help = "Docs: https://daybrite.dev/docs/reference/project-structure")]
     Metadata {
         /// Print project metadata as JSON
         #[arg(long)]
@@ -446,7 +448,7 @@ enum Cmd {
         command: CoverageCommand,
     },
     /// Check project files, translations, and element IDs
-    #[command(after_help = "Docs: https://daybrite.dev/docs/cli/#linting")]
+    #[command(after_help = "Docs: https://daybrite.dev/docs/reference/cli#linting")]
     Lint {
         /// Exit 10 if findings remain, except codes listed with --allow
         #[arg(long)]
@@ -462,7 +464,7 @@ enum Cmd {
         fix: bool,
     },
     /// Change Day dependency sources in .cargo/config.toml, or verify them
-    #[command(after_help = "Docs: https://daybrite.dev/docs/local-development/")]
+    #[command(after_help = "Docs: https://daybrite.dev/contributing/local-development")]
     Patch {
         /// Local Day, piece, or part checkout to use (repeatable)
         #[arg(long, value_name = "CHECKOUT")]
@@ -475,7 +477,9 @@ enum Cmd {
         check: bool,
     },
     /// Generate the icons and source files required by native projects
-    #[command(after_help = "Docs: https://daybrite.dev/docs/guide-icons/#native-projects-and-ci")]
+    #[command(
+        after_help = "Docs: https://daybrite.dev/docs/how-to/guide-icons#native-projects-and-ci"
+    )]
     Prepare {
         /// Targets to prepare (repeatable; default: all targets in Day.toml)
         #[arg(
@@ -490,7 +494,7 @@ enum Cmd {
         check: bool,
     },
     /// Prepare and open a native project in its IDE
-    #[command(after_help = "Docs: https://daybrite.dev/docs/project-structure/")]
+    #[command(after_help = "Docs: https://daybrite.dev/docs/reference/project-structure")]
     Open {
         /// Target to open in Xcode, Android Studio, or DevEco Studio
         #[arg(
@@ -505,31 +509,31 @@ enum Cmd {
         print_path: bool,
     },
     /// Create and prepare app store listings
-    #[command(after_help = "Docs: https://daybrite.dev/docs/cli/#store-listings")]
+    #[command(after_help = "Docs: https://daybrite.dev/docs/reference/cli#store-listings")]
     Store {
         #[command(subcommand)]
         cmd: StoreCmd,
     },
     /// Manage locales across the app, store listings, and website
-    #[command(after_help = "Docs: https://daybrite.dev/docs/localization/")]
+    #[command(after_help = "Docs: https://daybrite.dev/docs/how-to/localization")]
     Localize {
         #[command(subcommand)]
         cmd: LocalizeCmd,
     },
     /// Build a gallery index from screenshots
-    #[command(after_help = "Docs: https://daybrite.dev/docs/dayscript/")]
+    #[command(after_help = "Docs: https://daybrite.dev/docs/how-to/dayscript")]
     Screenshot {
         #[command(subcommand)]
         cmd: ScreenshotCmd,
     },
     /// Tools for web apps
-    #[command(after_help = "Docs: https://daybrite.dev/docs/platforms/web-dom/")]
+    #[command(after_help = "Docs: https://daybrite.dev/docs/reference/platforms/web-dom")]
     Web {
         #[command(subcommand)]
         cmd: WebCmd,
     },
     /// Stop apps launched by Day
-    #[command(after_help = "Docs: https://daybrite.dev/docs/cli/")]
+    #[command(after_help = "Docs: https://daybrite.dev/docs/reference/cli")]
     Stop {
         /// Targets to stop (repeatable)
         #[arg(
@@ -544,14 +548,14 @@ enum Cmd {
         all: bool,
     },
     /// Stop recorded sessions and remove build outputs
-    #[command(after_help = "Docs: https://daybrite.dev/docs/cli/")]
+    #[command(after_help = "Docs: https://daybrite.dev/docs/reference/cli")]
     Clean {
         /// List files and their sizes without deleting them
         #[arg(long)]
         dry_run: bool,
     },
     /// Stop, rebuild, and restart apps
-    #[command(after_help = "Docs: https://daybrite.dev/docs/cli/")]
+    #[command(after_help = "Docs: https://daybrite.dev/docs/reference/cli")]
     Relaunch {
         /// Targets to restart (repeatable; omit with --all-running)
         #[arg(
@@ -572,7 +576,7 @@ enum Cmd {
         locale: Option<String>,
     },
     /// Run dayscript steps in a running app
-    #[command(after_help = "Docs: https://daybrite.dev/docs/for-agents/")]
+    #[command(after_help = "Docs: https://daybrite.dev/docs/reference/for-agents")]
     Drive {
         /// Target with the running app to control
         #[arg(
@@ -587,7 +591,7 @@ enum Cmd {
         steps_json: String,
     },
     /// Run the app's `#[day::test]` tests on a target (docs/testing.md)
-    #[command(after_help = "Docs: https://daybrite.dev/docs/testing/")]
+    #[command(after_help = "Docs: https://daybrite.dev/contributing/backend-contracts/testing")]
     Test {
         /// Targets to run on (repeatable; a toolkit alone, like gtk, means this host's target;
         /// default: this host's desktop toolkit)
@@ -640,17 +644,19 @@ enum Cmd {
         case_timeout: Option<f64>,
     },
     /// Serve Day tools over MCP using standard input and output
-    #[command(after_help = "Docs: https://daybrite.dev/docs/for-agents/")]
+    #[command(after_help = "Docs: https://daybrite.dev/docs/reference/for-agents")]
     McpServer {},
     /// List and manage simulators, emulators, and devices
-    #[command(after_help = "Docs: https://daybrite.dev/docs/cli/#simulators-emulators-and-devices")]
+    #[command(
+        after_help = "Docs: https://daybrite.dev/docs/reference/cli#simulators-emulators-and-devices"
+    )]
     Devices {
         #[command(subcommand)]
         cmd: DevicesCmd,
     },
     /// Run the native Xcode build callback (internal)
     #[command(name = "xcode-backend", hide = true)]
-    #[command(after_help = "Docs: https://daybrite.dev/docs/project-structure/")]
+    #[command(after_help = "Docs: https://daybrite.dev/docs/reference/project-structure")]
     XcodeBackend {
         /// Build action requested by the native project
         #[arg(default_value = "build")]
@@ -658,7 +664,7 @@ enum Cmd {
     },
     /// Run the native Gradle build callback (internal)
     #[command(name = "gradle-backend", hide = true)]
-    #[command(after_help = "Docs: https://daybrite.dev/docs/project-structure/")]
+    #[command(after_help = "Docs: https://daybrite.dev/docs/reference/project-structure")]
     GradleBackend {
         /// Build action requested by the native project
         #[arg(default_value = "build")]
@@ -680,24 +686,24 @@ enum Cmd {
 #[derive(Subcommand)]
 pub enum StoreCmd {
     /// Write listing text tables for each locale into store/storefront.toml, leaving existing ones
-    #[command(after_help = "Docs: https://daybrite.dev/docs/cli/#store-listings")]
+    #[command(after_help = "Docs: https://daybrite.dev/docs/reference/cli#store-listings")]
     Init,
     /// Fold a store/<locale>/*.txt layout into store/storefront.toml [storefront.metadata] tables
-    #[command(after_help = "Docs: https://daybrite.dev/docs/cli/#store-listings")]
+    #[command(after_help = "Docs: https://daybrite.dev/docs/reference/cli#store-listings")]
     Migrate {
         /// Keep the store/<locale>/ directories after folding them in
         #[arg(long)]
         keep: bool,
     },
     /// Write the whole listing, resolved per target, store and locale, as one JSON document
-    #[command(after_help = "Docs: https://daybrite.dev/docs/cli/#store-listings")]
+    #[command(after_help = "Docs: https://daybrite.dev/docs/reference/cli#store-listings")]
     Export {
         /// Write to this file instead of standard output
         #[arg(long, value_name = "FILE")]
         out: Option<PathBuf>,
     },
     /// Prepare store listings for upload with fastlane
-    #[command(after_help = "Docs: https://daybrite.dev/docs/cli/#store-listings")]
+    #[command(after_help = "Docs: https://daybrite.dev/docs/reference/cli#store-listings")]
     Stage {
         /// Target to prepare (default: all store targets)
         #[arg(
@@ -720,7 +726,7 @@ pub enum StoreCmd {
         allow_placeholders: bool,
     },
     /// Check a gallery index's listing screenshots against each store's rules
-    #[command(after_help = "Docs: https://daybrite.dev/docs/cli/#store-listings")]
+    #[command(after_help = "Docs: https://daybrite.dev/docs/reference/cli#store-listings")]
     Screenshots {
         /// The gallery index: the site's published gallery.json by URL, or a local one
         #[arg(value_name = "URL|PATH")]
@@ -745,14 +751,14 @@ pub enum StoreCmd {
 #[derive(Subcommand)]
 pub enum WebCmd {
     /// Print the path to the bundled browser automation driver
-    #[command(after_help = "Docs: https://daybrite.dev/docs/platforms/web-dom/")]
+    #[command(after_help = "Docs: https://daybrite.dev/docs/reference/platforms/web-dom")]
     Driver,
 }
 
 #[derive(Subcommand)]
 pub enum ScreenshotCmd {
     /// Merge screenshot directories into gallery.json
-    #[command(after_help = "Docs: https://daybrite.dev/docs/dayscript/")]
+    #[command(after_help = "Docs: https://daybrite.dev/docs/how-to/dayscript")]
     Index {
         /// Screenshot directories (repeatable; default: build/day/screenshots)
         #[arg(long = "screenshot-paths", value_name = "PATH", num_args = 1..)]
@@ -762,7 +768,7 @@ pub enum ScreenshotCmd {
         out: Option<PathBuf>,
     },
     /// Bundle capture trees into screenshots.tar.xz
-    #[command(after_help = "Docs: https://daybrite.dev/docs/dayscript/")]
+    #[command(after_help = "Docs: https://daybrite.dev/docs/how-to/dayscript")]
     Pack {
         /// Capture trees to bundle (repeatable; each is one stream of the bundle)
         #[arg(long, value_name = "DIR", required = true)]
@@ -781,7 +787,7 @@ pub enum ScreenshotCmd {
         each: Option<PathBuf>,
     },
     /// Check a bundle against its SHA256SUMS and write its captures back as PNG files
-    #[command(after_help = "Docs: https://daybrite.dev/docs/dayscript/")]
+    #[command(after_help = "Docs: https://daybrite.dev/docs/how-to/dayscript")]
     Unpack {
         /// The screenshots.tar.xz
         archive: PathBuf,
@@ -797,16 +803,16 @@ pub enum ScreenshotCmd {
 #[derive(Subcommand)]
 pub enum LocalizeCmd {
     /// List locales and report differences between app, store, and website
-    #[command(after_help = "Docs: https://daybrite.dev/docs/localization/")]
+    #[command(after_help = "Docs: https://daybrite.dev/docs/how-to/localization")]
     List,
     /// Add locales to the app, store listings, and website
-    #[command(after_help = "Docs: https://daybrite.dev/docs/localization/")]
+    #[command(after_help = "Docs: https://daybrite.dev/docs/how-to/localization")]
     Add {
         /// Locale tags, such as fr or de (repeatable or comma-separated)
         locales: Vec<String>,
     },
     /// Remove locales from the project; the default locale cannot be removed
-    #[command(after_help = "Docs: https://daybrite.dev/docs/localization/")]
+    #[command(after_help = "Docs: https://daybrite.dev/docs/how-to/localization")]
     Remove {
         /// Locale tags to remove (repeatable or comma-separated)
         locales: Vec<String>,
@@ -816,7 +822,7 @@ pub enum LocalizeCmd {
 #[derive(Subcommand)]
 enum NewKind {
     /// Create a reusable UI component
-    #[command(after_help = "Docs: https://daybrite.dev/docs/extending/")]
+    #[command(after_help = "Docs: https://daybrite.dev/contributing/extending")]
     Piece {
         /// Crate name (prompted if omitted)
         name: Option<String>,
@@ -859,7 +865,7 @@ enum NewKind {
         java_in_src: Option<bool>,
     },
     /// Create a platform service without a user interface
-    #[command(after_help = "Docs: https://daybrite.dev/docs/tutorial-part/")]
+    #[command(after_help = "Docs: https://daybrite.dev/contributing/tutorials/part")]
     Part {
         /// Crate name (prompted if omitted)
         name: Option<String>,
@@ -895,7 +901,7 @@ enum NewKind {
         java_in_src: Option<bool>,
     },
     /// Create an app
-    #[command(after_help = "Docs: https://daybrite.dev/docs/getting-started/")]
+    #[command(after_help = "Docs: https://daybrite.dev/docs/tutorials/first-app")]
     App {
         /// App name (prompted if omitted)
         name: Option<String>,
@@ -957,7 +963,7 @@ enum NewKind {
 pub enum ProjectCmd {
     /// Add targets to Day.toml and create their native projects
     #[command(name = "add-target")]
-    #[command(after_help = "Docs: https://daybrite.dev/docs/cli/")]
+    #[command(after_help = "Docs: https://daybrite.dev/docs/reference/cli")]
     AddTarget {
         /// Targets to add, such as android-mdc (repeatable or comma-separated)
         targets: Vec<String>,
@@ -973,7 +979,9 @@ pub enum ProjectCmd {
 #[derive(clap::Subcommand)]
 pub enum DevicesCmd {
     /// List available simulators, emulators, and connected devices
-    #[command(after_help = "Docs: https://daybrite.dev/docs/cli/#simulators-emulators-and-devices")]
+    #[command(
+        after_help = "Docs: https://daybrite.dev/docs/reference/cli#simulators-emulators-and-devices"
+    )]
     List {
         /// Filter by target: ios-uikit, android-mdc, or harmony-arkui
         #[arg(
@@ -986,7 +994,7 @@ pub enum DevicesCmd {
     },
     /// Start a simulator or emulator
     #[command(
-        after_help = "OpenHarmony: --headless starts Oniro without a window; boot always waits for readiness.\n--device names the panel (phone 360x720, tablet 1280x800, or WxH) and --orientation turns it;\nID and --os are not supported for this target. The image is DAY_OHOS_EMULATOR (default\n~/ohos/emulator/images): an Oniro image (OpenHarmony 6.x) or an ohos-qemu x86_64_virt one (7.0).\n\nDocs: https://daybrite.dev/docs/cli/#simulators-emulators-and-devices"
+        after_help = "OpenHarmony: --headless starts Oniro without a window; boot always waits for readiness.\n--device names the panel (phone 360x720, tablet 1280x800, or WxH) and --orientation turns it;\nID and --os are not supported for this target. The image is DAY_OHOS_EMULATOR (default\n~/ohos/emulator/images): an Oniro image (OpenHarmony 6.x) or an ohos-qemu x86_64_virt one (7.0).\n\nDocs: https://daybrite.dev/docs/reference/cli#simulators-emulators-and-devices"
     )]
     Boot {
         /// Device target: ios-uikit, android-mdc, or harmony-arkui
@@ -1019,7 +1027,9 @@ pub enum DevicesCmd {
         headless: bool,
     },
     /// Stop a running simulator or emulator
-    #[command(after_help = "Docs: https://daybrite.dev/docs/cli/#simulators-emulators-and-devices")]
+    #[command(
+        after_help = "Docs: https://daybrite.dev/docs/reference/cli#simulators-emulators-and-devices"
+    )]
     Shutdown {
         /// Device target: ios-uikit, android-mdc, or harmony-arkui
         #[arg(
@@ -1034,7 +1044,9 @@ pub enum DevicesCmd {
         id: String,
     },
     /// Create or update an Android virtual device
-    #[command(after_help = "Docs: https://daybrite.dev/docs/cli/#simulators-emulators-and-devices")]
+    #[command(
+        after_help = "Docs: https://daybrite.dev/docs/reference/cli#simulators-emulators-and-devices"
+    )]
     Setup {
         /// Device target (android-mdc only)
         #[arg(
@@ -1074,7 +1086,7 @@ pub enum DevicesCmd {
 #[derive(Subcommand)]
 pub enum IconCmd {
     /// Build platform icons from an existing source icon
-    #[command(after_help = "Docs: https://daybrite.dev/docs/guide-icons/")]
+    #[command(after_help = "Docs: https://daybrite.dev/docs/how-to/guide-icons")]
     Build {
         /// Source icon (default: resource/icons/icon.svg, day-icon.svg, or icon.png)
         master: Option<PathBuf>,
@@ -1088,7 +1100,7 @@ pub enum IconCmd {
         platforms: Vec<String>,
     },
     /// Create a source icon and build its platform icons
-    #[command(after_help = "Docs: https://daybrite.dev/docs/guide-icons/")]
+    #[command(after_help = "Docs: https://daybrite.dev/docs/how-to/guide-icons")]
     New {
         /// Targets to build icons for (repeatable; default: all)
         #[arg(
@@ -1109,7 +1121,7 @@ pub enum IconCmd {
         out: Option<PathBuf>,
     },
     /// Check platform icons without writing files; exit 5 if they differ
-    #[command(after_help = "Docs: https://daybrite.dev/docs/guide-icons/")]
+    #[command(after_help = "Docs: https://daybrite.dev/docs/how-to/guide-icons")]
     Check {
         /// Source icon (default: resource/icons/icon.svg, day-icon.svg, or icon.png)
         master: Option<PathBuf>,
@@ -1127,17 +1139,21 @@ pub enum IconCmd {
 #[derive(Subcommand)]
 pub enum SignCmd {
     /// Check signing credentials and files without printing secrets
-    #[command(after_help = "Docs: https://daybrite.dev/docs/packaging/#signing-configuration")]
+    #[command(
+        after_help = "Docs: https://daybrite.dev/docs/how-to/packaging#signing-configuration"
+    )]
     Check,
     /// Check a notarization submission
-    #[command(after_help = "Docs: https://daybrite.dev/docs/packaging/#signing-configuration")]
+    #[command(
+        after_help = "Docs: https://daybrite.dev/docs/how-to/packaging#signing-configuration"
+    )]
     Status {
         /// Notarization submission ID
         id: String,
     },
     /// Sign a package that already exists, without rebuilding it
     #[command(
-        after_help = "Docs: https://daybrite.dev/docs/packaging/#signing-an-existing-package"
+        after_help = "Docs: https://daybrite.dev/docs/how-to/packaging#signing-an-existing-package"
     )]
     Apply {
         /// The package to sign (.aab, .apk, .ipa, .hap, or .app; a macOS .app is signed into a Mac App Store .pkg)
@@ -1172,7 +1188,7 @@ pub enum SignCmd {
 #[derive(Subcommand)]
 pub enum DoctorCmd {
     /// Build and package test apps to verify this machine
-    #[command(after_help = "Docs: https://daybrite.dev/docs/cli/#checking-the-machine")]
+    #[command(after_help = "Docs: https://daybrite.dev/docs/reference/cli#checking-the-machine")]
     Verify {
         /// Targets to check (repeatable or comma-separated; default: available host targets)
         #[arg(

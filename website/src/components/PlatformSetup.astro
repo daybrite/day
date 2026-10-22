@@ -23,7 +23,7 @@ const setup: Record<string, { hosts: string[]; needs: string; section: string }>
   {primaryPlatforms.map((p) => (
     <section data-setup-target={p.id} data-hosts={setup[p.id].hosts.join(',')}>
       <h3>{p.os} · {p.toolkit}</h3>
-      <p>Build on {setup[p.id].hosts.join(', ')}. <a class="tier-badge" data-tier={p.tier} href={url('docs/platforms#support-tiers')} title={tierOf(p.tier)?.blurb}>Tier {p.tier} · {tierOf(p.tier)?.name}</a></p>
+      <p>Build on {setup[p.id].hosts.join(', ')}. <a class="tier-badge" data-tier={p.tier} href={url('docs/reference/platforms#support-tiers')} title={tierOf(p.tier)?.blurb}>Tier {p.tier} · {tierOf(p.tier)?.name}</a></p>
       <p>{setup[p.id].needs} <a href={url(`docs/system-requirements#${setup[p.id].section}`)}>Installation instructions</a>.</p>
       <p>Check the <a href={url(`docs/platforms/${p.id}`)}>platform’s capabilities and limitations</a> before choosing it for a release.</p>
       <pre><code>{`day new app hello --toolkit ${p.id} --appid com.example.hello\ncd hello\nday launch -t ${p.id}`}</code></pre>

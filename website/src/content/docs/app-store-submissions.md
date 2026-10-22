@@ -2,7 +2,7 @@
 title: App Store Submissions
 description: Prepare store listings, configure signing credentials, and submit iOS, Mac App Store and Android releases through GitHub Actions.
 order: 33
-section: Build & ship
+section: How-to guides
 ---
 
 <!--
@@ -24,8 +24,8 @@ place in each store's console.
 > [App Fair submission guide](https://appfair.org/docs/getting-started/) for that process.
 
 This page covers iOS, Mac App Store and Android submissions through your own accounts. For
-desktop downloads, see [Packaging & distribution](/docs/packaging). For the build workflow, see
-[GitHub Actions](/docs/github-actions).
+desktop downloads, see [Packaging & distribution](/docs/how-to/packaging). For the build workflow, see
+[GitHub Actions](/docs/how-to/github-actions).
 
 ## Prepare the listing
 
@@ -55,7 +55,7 @@ default = ["home", "editor", "search"]
 The Mac App Store is opt-in: an app publishes there only when its listing has a
 `[storefront.macos-appkit.mac-app-store.*]` table, as above.
 
-Screenshot names refer to captures in your [dayscript tests](/docs/dayscript). Run the tests on
+Screenshot names refer to captures in your [dayscript tests](/docs/how-to/dayscript). Run the tests on
 the required phone and tablet profiles, then check the listing and captures:
 
 ```sh
@@ -65,7 +65,7 @@ day store screenshots build/day/screenshots/gallery.json
 
 The second command needs the `gallery.json` produced by `day screenshot index` or downloaded
 from CI. It checks screenshot sizes and locale/device coverage. These checks catch submission
-errors; they do not guarantee store approval. See the [store listing reference](/docs/internal/store)
+errors; they do not guarantee store approval. See the [store listing reference](/docs/how-to/store)
 for the schema and screenshot selection rules.
 
 ## Create the store records
@@ -107,7 +107,7 @@ notarized the same way from the environment the `signing-environment` input name
 Store upload job signs its own `.pkg` from the same unsigned app with the `DAY_MAS_*` secrets. A platform
 without secrets packs as on any branch: an unsigned iOS package, a development-signed Android
 one. The signing secrets therefore need no `[signing]` table in `Day.toml`, though one still
-serves [local release packs](/docs/packaging#signing-configuration). An API key authorizes
+serves [local release packs](/docs/how-to/packaging#signing-configuration). An API key authorizes
 uploads; it does not replace the signing certificate or upload key. An upload switched on
 without its signing secrets is refused when the workflow decides the uploads, naming the secrets
 to set. Unsigned iOS packages and Android packages signed with the development key cannot be
@@ -115,7 +115,7 @@ uploaded to these stores.
 
 ## Enable store uploads
 
-Add these inputs to the `app` job in the [CI workflow](/docs/github-actions#the-workflow):
+Add these inputs to the `app` job in the [CI workflow](/docs/how-to/github-actions#the-workflow):
 
 ```yaml
 with:
@@ -160,8 +160,8 @@ by the listing. Its default is `false`, which retains the existing screenshots.
 ## Release and update
 
 Update `version` in `Cargo.toml`, increment `[app] build` in `Day.toml`, and revise the release
-notes. Account for platform or [flavor](/docs/flavors) overrides. Commit those changes, then
-[push a version tag](/docs/github-actions#create-a-release). Inspect the workflow's upload jobs
+notes. Account for platform or [flavor](/docs/how-to/flavors) overrides. Commit those changes, then
+[push a version tag](/docs/how-to/github-actions#create-a-release). Inspect the workflow's upload jobs
 and the status in each store console.
 
 A GitHub release and a store release are separate. GitHub's draft or pre-release setting does
@@ -180,7 +180,7 @@ google-play-id = "com.example.app"
 
 `day pack` builds the packages; `day store stage` writes fastlane projects under
 `build/day/store/<target>/`. For local validation and upload commands, see
-[Uploading](/docs/internal/store#uploading).
+[Uploading](/docs/how-to/store#uploading).
 
 A project with its own `fastlane/Fastfile` uses those lanes instead of generated ones. It must
 handle metadata, screenshots and submission policy itself. The generated iOS submission lanes
@@ -190,7 +190,7 @@ do not describe your app.
 ## The Mac App Store
 
 The Mac App Store takes a `.pkg` rather than the `.dmg` you offer as a download
-([Packaging](/docs/packaging#the-mac-app-store)). Try the first upload from your Mac before a
+([Packaging](/docs/how-to/packaging#the-mac-app-store)). Try the first upload from your Mac before a
 release tag does it:
 
 1. In the Apple Developer portal, create a **Mac Installer Distribution** certificate and a

@@ -1,0 +1,16 @@
+---
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: CC-BY-SA-4.0
+import { url } from '../lib/site';
+interface Props { pages: { route: string; title: string; description: string }[] }
+const { pages } = Astro.props;
+---
+<ul class="content-index">
+  {pages.map((page) => <li><a href={url(page.route)}>{page.title}</a><p>{page.description}</p></li>)}
+</ul>
+<style>
+  .content-index { list-style: none; padding: 0; }
+  .content-index li { margin-block: 20px; }
+  .content-index a { font-weight: 650; }
+  .content-index p { margin: 4px 0; }
+</style>

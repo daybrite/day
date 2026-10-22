@@ -22,7 +22,7 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 Write a normal SwiftPM package inside the app repo. It has its own module and its own transitive
 SwiftPM dependencies, and `swift test` tests it:
 
-```
+```text
 swiftui/
   Package.swift
   Sources/MyViews/Hello.swift     public struct Hello: View { public init(name: String) { … } }

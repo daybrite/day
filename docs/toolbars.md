@@ -19,7 +19,7 @@ For an operation shared across surfaces, use a [reusable `Command`](commands.md)
 title, availability, optional check state, icon, shortcut, and handler once.
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
-[example messages](snippet-catalog.md) and [catalog setup](https://daybrite.dev/docs/localization).
+[example messages](snippet-catalog.md) and [catalog setup](https://daybrite.dev/docs/how-to/localization).
 A localized label, tooltip or search prompt follows a language change in place: a fixed list
 relabels its registered items (`relabel_contribution`) and a derived list re-runs on the locale,
 and either way the words reach the bar as `ToolbarPatch::Label` and `ToolbarPatch::Placeholder`

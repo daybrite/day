@@ -2,7 +2,7 @@
 title: Navigation
 description: "Sidebar and tab selection, push/pop stacks, routes, and deep links, with native containers underneath."
 order: 20
-section: Guides
+section: How-to guides
 ---
 
 <!--
@@ -12,10 +12,10 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 Day has two navigation pieces: `nav` selects a section, and `nav_stack` opens detail pages with
 a path back. Both use platform navigation controls and keep their state in
-[signals](/docs/glossary#signal). Routes connect that state to deep links and automated tests.
+[signals](/docs/reference/glossary#signal). Routes connect that state to deep links and automated tests.
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
-[example messages](/docs/internal/snippet-catalog) and [catalog setup](/docs/localization).
+[example messages](/docs/reference/examples/catalog) and [catalog setup](/docs/how-to/localization).
 
 ## Sections: `nav`
 
@@ -34,8 +34,8 @@ The selection signal holds the active item's key. Set it from anywhere
 (`section.set("settings".into())`) and the nav host switches; the UI and programmatic navigation
 can't disagree because they're the same state. Residency differs by style: `Tabs` builds every page at mount and keeps them alive, so tab
 pages retain their state (field contents, scroll position) across switches; `Sidebar` builds
-the selected page on demand and disposes it when the selection changes, so sidebar page state
-lives in your signals, not in the widgets. The cost is that a nav host with many heavy pages pays for all
+the selected page on demand and disposes it when the selection changes, so state that must survive a switch belongs in signals created above the destination builder.
+Signals created inside that builder are disposed with its page. A Tabs host with many heavy pages pays for all
 of them up front; keep expensive content behind a `when` inside the page if that
 matters.
 
@@ -54,20 +54,17 @@ The path signal is the navigation stack: `["album:42"]` means one page pushed ab
 (`path.update(|p| p.push(key))`) or, more commonly, the helpers:
 
 ```rust
-nav_link(res::str::open_album(), "album:42")   // a button that pushes
+nav_link(res::str::open_album(), "album:42");  // a button that pushes
 navigate("album:42");                    // push from code; returns false if no surface (nav host, tabs, or stack) recognizes it
 nav_back();                              // pop
 current_route();                         // Option<String>
 ```
 
-Underneath, `nav_stack` uses the platform's navigation machinery (`UINavigationController` on
-iOS, the androidx Fragment back stack on Android), so the iOS edge-swipe back gesture and Android's
-back button both pop the stack. On Android 14+ the back gesture is fully
-**predictive**: the system seeks the actual pop transition under your finger; the page
-tracks it and either completes the pop or springs back when you release (on Android 13/14 the OS gates
-this behind Developer options → "Predictive back animations"; Android 15 enables it by
-default). On desktop, pushed pages get an in-window back header: a chevron and title above
-the page on macOS and Qt, libadwaita's header on GTK.
+`nav_stack` delegates native back handling to each backend, including UIKit navigation
+controllers and Android back callbacks. Guarded and unguarded navigation can use different
+gesture paths. Check edge swipes, system back, and any predictive preview on the OS versions
+you ship; the repository implementation is not evidence of those behaviors passing on devices.
+Desktop back headers also depend on the chosen toolkit.
 
 ## Data-driven items
 
@@ -82,7 +79,7 @@ nav(current)
 
 Rows are added and removed on the native widget as the signal changes; if the selected item
 disappears the selection resets. A data-driven item is a label plus an optional icon (the native
-row). For a rich master list (avatar, preview, badge) use a [`list`](/docs/internal/list).
+row). For a rich master list (avatar, preview, badge) use a [`list`](/docs/reference/list).
 
 Mark a nav host `.local()` when it is a *second* one-of-N control inside an already-routing page (a
 filter strip beside the main tabs). Two routed nav hosts at the same level both feed
@@ -116,7 +113,7 @@ nav_stack(path, editor())
 ```
 
 Return `Proceed` to pop now or `Handled` to consume it; a `Handled` guard can hold the
-`BackRequest` and call `proceed()` later. While a guard is armed Day stops the [toolkit](/docs/glossary#toolkit) from
+`BackRequest` and call `proceed()` later. While a guard is armed Day stops the [toolkit](/docs/reference/glossary#toolkit) from
 auto-popping on a native gesture and routes the back through your guard instead: on iOS the
 swipe is disabled and the back button is intercepted, on Android a back callback takes priority
 (the predictive-back preview is unavailable while armed), on GTK the page's swipe is disabled.
@@ -152,8 +149,8 @@ out, `navigate(&saved)` on the way back in.
 For a single surface, `.restore(key)` does that for you without any `current_route()` calls:
 
 ```rust
-nav(section).restore("nav.section")   // reopens on the last-viewed section
-nav_stack(path, home).restore("mail.path")     // rebuilds the pushed path
+nav(section).restore("nav.section");  // reopens on the last-viewed section
+nav_stack(path, home).restore("mail.path");    // rebuilds the pushed path
 ```
 
 It saves the selected key (or the stack's path) on every change and reads it back at build. A
@@ -161,7 +158,7 @@ launch deep link outranks it, and a saved value that no longer fits is ignored. 
 through the app's preferences, which `day::launch` sets up, and they are disk-backed, so restore
 also survives an Android process death.
 
-[dayscript](/docs/dayscript) uses the same mechanism: `navigate: { route: controls }` in a script
+[dayscript](/docs/how-to/dayscript) uses the same mechanism: `navigate: { route: controls }` in a script
 performs the write your UI would, and `assert_route` compares the full `current_route()`. A
 navigation test asserts on route strings, and `day lint` checks that every literal route in your
 sources and scripts starts with a declared item key, so a typo is a lint warning instead of a
@@ -189,7 +186,7 @@ nav(section)
 
 A sidebar keys on `Option<Section>` (`None` is the collapsed mobile list); tabs key on the bare
 enum since a tab is always selected. Each variant maps to its declared string, so
-deep links, [dayscript](/docs/glossary#dayscript), and `current_route()` are unchanged.
+deep links, [dayscript](/docs/reference/glossary#dayscript), and `current_route()` are unchanged.
 
 Typed routes pay off most for **routes that carry data**. Implement the `Route` trait by hand
 (`key()` encodes, `from_key()` parses), and stack destinations receive the typed value:
@@ -246,15 +243,81 @@ stringly, move to an enum when the app grows, mix the two freely (a typed nav ho
   detail pane `.grow()` or it collapses to its content width.
 - **State restoration:** `.restore(key)` persists and restores selection and path through the
   installed nav store, as described above. Persist your own signals (see
-  [parts: prefs](/docs/parts)) only for custom state beyond navigation.
-- **More windows:** `day::open_window` opens secondary windows on every [backend](/docs/glossary#backend)
+  [parts: prefs](/docs/reference/parts)) only for custom state beyond navigation.
+- **More windows:** `day::open_window` opens secondary windows on every [backend](/docs/reference/glossary#backend)
   (`WindowKind::Normal`, `Preferences` or `About`; `day-piece-settings` registers the
   Settings and About windows for you): native windows on the desktop backends, iPad scenes, Android activities, and OHOS
   abilities; iPhone and the web present them as a fullscreen cover. See
-  [windows](/docs/internal/windows). Dialogs and alerts are separate
-  ([dialogs reference](/docs/internal/dialogs)).
+  [windows](/docs/reference/windows). Dialogs and alerts are separate
+  ([dialogs reference](/docs/reference/dialogs)).
 - **Android process death:** if Android kills a backgrounded process, relaunch is a cold start,
   but `.restore` reads back through the disk-backed prefs store, so navigation state survives
   it.
 
-The [navigation reference](/docs/internal/navigation) has the per-platform mapping details.
+The [navigation reference](/docs/reference/navigation) has the per-platform mapping details.
+
+## Verify route and state lifetime
+
+The examples above are integration fragments; app page functions and route enums must be
+provided. Use the [navigation lesson](/docs/tutorials/navigation) for complete compiled code.
+The current signatures are `nav<K: Route, S: Binding<K>>(selection: S) -> Nav<S, K>` and
+`nav_stack<K: Route, S: Binding<Vec<K>>>(path: S, root: impl Piece) -> NavStack<S, K>`.
+A route is not limited to `String`; its encode/parse contract is part of the app's data model.
+
+Keep shared state above replaceable destination closures. Persisted navigation restores route
+selection/path, not arbitrary page signals. `navigate(&str) -> bool` reports whether routing
+succeeded; it does not validate application data or grant permission to open a document.
+Secondary windows have app-owned lifetimes and do not extend captured page-local signals.
+
+Evidence: [navigation builders](https://github.com/daybrite/day/blob/main/crates/day-pieces/src/nav.rs),
+[route dispatch](https://github.com/daybrite/day/blob/main/crates/day-core/src/nav.rs), and
+[prefs nav store](https://github.com/daybrite/day/blob/main/parts/day-part-prefs/src/lib.rs).
+Test unknown routes, back behavior, restoration, and close/reopen on the target you ship.
+
+## Share state between sections
+
+Create shared signals before the replaceable page builders. Both pages below read the same
+count; switching away from the counter does not discard it. Section keys are protocol data,
+while the labels are localized. The selection is supplied by the caller for programmatic
+navigation and tests.
+
+Complete module for `src/navigation_recipe.rs` in the
+[technical recipe harness](/docs/reference/examples/catalog#technical-recipes).
+Add the matching Fluent messages below. This module is compiled as part of the harness;
+it is not a standalone app.
+
+<!-- technical-example: navigation_recipe -->
+```rust
+use crate::res;
+use day::prelude::*;
+
+day::routes! {
+    pub enum Section { Counter => "counter", Summary => "summary" }
+}
+
+pub fn sections(section: Signal<Section>, count: Signal<i64>) -> impl Piece {
+    nav(section)
+        .style(NavStyle::Sidebar)
+        .item(Section::Counter, res::str::section_counter(), move || {
+            crate::events::counter(count)
+        })
+        .item(Section::Summary, res::str::section_summary(), move || {
+            label(res::str::section_total(count))
+                .id(id!(section_total))
+                .padding(Space::L)
+        })
+        .id(id!(recipe_sections))
+        .grow()
+}
+```
+
+<!-- technical-catalog: navigation_recipe -->
+```ftl
+section_counter = Counter
+section_summary = Summary
+section_total = Total: { $count }
+```
+
+This module also uses the [event module](/docs/explanation/reactivity#handle-an-event-and-update-state).
+For the mobile sidebar's unselected list state, use `Signal<Option<Section>>` and set it to
+`None`. The bare enum above always names a selected section.

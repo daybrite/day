@@ -1,8 +1,8 @@
 ---
 title: Android (Material Components)
-description: Build Day apps for Android with Material Components — SDK setup, the Gradle pipeline, per-platform caveats, and which Android View every Day piece becomes.
+description: "Android with Material Components: SDK requirements, native controls, packaging, and target-specific limitations."
 order: 33.3
-section: Platforms
+section: Reference
 ---
 
 {/*
@@ -10,23 +10,20 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 */}
 
-import PlatformShots from '../../../components/PlatformShots.astro';
-
-`android-mdc` renders [Material Components](https://github.com/material-components/material-components-android)
-widgets over JNI, inside a generated Gradle project. The app theme is
-`Theme.Material3Expressive.DayNight.NoActionBar`, so light and dark follow the system.
-
-<PlatformShots platform="android-mdc" shots={["home", "controls", "list", "menus"]} />
+`android-mdc` is a Tier 1 target for Android apps. Its native integration uses Android views
+and Material Components through JNI, with a Gradle host project. Check permissions and input
+behavior on the Android devices your app needs to serve.
 
 ## Getting started
 
 You need the Android SDK and NDK, JDK 17 or newer, and [`cargo-ndk`](https://crates.io/crates/cargo-ndk);
 `day doctor --toolkit android` checks each one and prints what's missing. To work in Android Studio,
 you also need Android Studio 2026.1.4 or newer
-([system requirements](/docs/system-requirements#android)).
+([system requirements](/docs/reference/system-requirements#android)).
 
 ```sh
-cargo install day-cli cargo-ndk
+cargo install --git https://github.com/daybrite/day day-cli
+cargo install cargo-ndk
 day new app my-app --toolkit android-mdc
 cd my-app
 day launch -t android-mdc         # installs on every connected device/emulator, right ABI each
@@ -59,7 +56,7 @@ resource-overlays = ["platform/android/res"]
 ```
 
 Release builds shrink and rename with R8. It keeps the Java classes and methods your Rust calls,
-because every binding declares them (`java_class!`, [internal reference](/docs/internal/android-jni)).
+because every binding declares them (`java_class!`, [internal reference](/contributing/backend-contracts/android-jni)).
 `optimize = true` also turns on R8's optimizations, such as inlining and class merging. They are off
 by default because some libraries look up their own classes in ways their published rules miss.
 Turn them on once your release build passes its walkthrough with them.
@@ -121,8 +118,8 @@ removes a matching lower-priority declaration. Invalid XML and unresolved confli
 Gradle build with the relevant manifest paths and Android's merge diagnostics. See Android's
 [manifest merge rules](https://developer.android.com/build/manage-manifests).
 
-Keep identity, version, [window configuration](/docs/project-structure), and portable
-[permissions](/docs/guide-permissions) in `Day.toml`. Use the overlay for Android-specific declarations
+Keep identity, version, [window configuration](/docs/reference/project-structure), and portable
+[permissions](/docs/how-to/guide-permissions) in `Day.toml`. Use the overlay for Android-specific declarations
 those settings do not express: package visibility queries, features, services, providers, and
 application metadata. Leave `package` and `uses-sdk` out: Day and Gradle supply app identity
 and SDK versions.
@@ -135,10 +132,10 @@ project. A custom host that does not apply Day's plugin must configure merging i
 
 - Immersive top chrome is an opt-in. A `dev.daybrite.day.EDGE_TO_EDGE` `<meta-data>` entry in
   the app manifest makes the status bar transparent and floats the nav bar over full-bleed pages;
-  nav host items marked [`.immersive()`](/docs/navigation) keep the floating scrim bar, other pages
+  nav host items marked [`.immersive()`](/docs/how-to/navigation) keep the floating scrim bar, other pages
   get an opaque `colorPrimary` bar. Content pads itself by `day::safe_area()`
-  ([Layout](/docs/layout)). Without the opt-in, content renders below the bars.
-- Accessibility annotations are partial; see [the current limits](/docs/accessibility#current-limits).
+  ([Layout](/docs/explanation/layout)). Without the opt-in, content renders below the bars.
+- Accessibility annotations are partial; see [the current limits](/docs/how-to/accessibility#current-limits).
 - Process death is a cold start unless your app persists its own state. Day does not restore a
   navigation stack for you.
 - `day-piece-map` has no Android arm (it would pull in a Google Play services dependency); it
@@ -150,7 +147,7 @@ project. A custom host that does not apply Day's plugin must configure merging i
 
 ## What each piece becomes
 
-The generated [coverage matrix](/docs/internal/coverage-matrix), checked in CI, covers every backend;
+The generated [coverage matrix](/contributing/backend-contracts/coverage-matrix), checked in CI, covers every backend;
 this table adds links and notes.
 
 Pieces map to both Material Components and framework `android.widget` classes; the table names which

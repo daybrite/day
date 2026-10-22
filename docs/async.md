@@ -19,12 +19,12 @@ resolves back in the task, where the result goes into a signal like any other va
 thread of your own returns its results through `Setter` or `on_main`, because signals cannot
 move between threads.
 
-For app examples, see [HTTP requests](https://daybrite.dev/docs/guide-http) and
-[Local storage](https://daybrite.dev/docs/guide-storage). This reference covers task lifetimes,
+For app examples, see [HTTP requests](https://daybrite.dev/docs/how-to/guide-http) and
+[Local storage](https://daybrite.dev/docs/how-to/guide-storage). This reference covers task lifetimes,
 cancellation, and the rules for implementing asynchronous parts.
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
-[example messages](snippet-catalog.md) and [catalog setup](https://daybrite.dev/docs/localization).
+[example messages](snippet-catalog.md) and [catalog setup](https://daybrite.dev/docs/how-to/localization).
 
 ## `day::task` and `TaskHandle`
 
@@ -66,8 +66,8 @@ day::task(async move {
     let parsed = day::spawn_blocking(move || parse_feed(&bytes)).await; // a pool thread
     match parsed {                                                     // the UI thread again
         Ok(Ok(feed)) => items.set(feed.items),
-        Ok(Err(e)) => status.set(e.to_string()),
-        Err(e) => status.set(e.to_string()),                           // panicked, or never ran
+        Ok(Err(_)) => status.set(res::str::request_failed().format()),
+        Err(_) => status.set(res::str::operation_failed(res::str::request_failed().format()).format()),                           // panicked, or never ran
     }
 });
 ```
@@ -120,7 +120,7 @@ let stations = Resource::new(
 );
 load(stations, |s| station_list(s.get()))                  // the three states as subtrees
     .loading(spinner)
-    .failed(|e| label(e.to_string()).secondary());
+    .failed(|_| label(res::str::request_failed()).secondary());
 stations.refetch();                                         // force, even if region is unchanged
 ```
 
@@ -227,3 +227,19 @@ particular executor:
   completion's wake from the delegate queue is exactly the cross-thread path production uses.
 - Missing installs fail loudly: `on_main` and the spawner panic with "backend not started"
   rather than dropping work.
+
+## Reading and checking these examples
+
+The Rust blocks above are integration fragments with app-defined values and functions; they
+are not standalone apps. Use the [compiled HTTP recipe](https://daybrite.dev/docs/how-to/guide-http)
+for complete imports, catalog keys, and the validation harness. `request_failed` is defined in
+that recipe's catalog; other generated messages come from [the snippet catalog](snippet-catalog.md).
+
+`on_main` takes a `Send + 'static` closure and requires an installed main poster. It cannot
+capture a `Signal`; pass data through a `Setter` instead. `day::task` accepts a non-`Send`
+`Future<Output = ()>` and eagerly polls it once. Keep CPU or blocking IO work out of that poll.
+Dropping a task handle does not abort its task; call `abort` or use a scope-owned `Resource`.
+
+See [executor and shutdown](../crates/day-core/src/present.rs),
+[Resource and Setter](../crates/day-reactive/src/lib.rs), and
+[blocking pool](../crates/day-async/src/lib.rs) for implementation details.

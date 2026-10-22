@@ -2,42 +2,20 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: CC-BY-SA-4.0
 import BaseLayout from './BaseLayout.astro';
-import { getCollection } from 'astro:content';
-import { url, internalTitle } from '../lib/site';
-import { navigation, groupOf } from '../lib/docs-navigation.mjs';
-import { orderedIds } from '../lib/internal-groups.mjs';
+import { url } from '../lib/site';
+import { contentPages } from '../lib/content';
+import { navigation, hubs } from '../lib/content-routes.mjs';
 
-interface Props { title: string; description?: string; slug?: string; active?: string }
-const { title, description, slug, active = 'docs' } = Astro.props;
-
-// Highlight the pinned "API reference" sidebar link when we're on that page.
-const isApi = Astro.url.pathname.replace(/\/$/, '').endsWith('/docs/api');
-
-const docs = (await getCollection('docs')).sort((a, b) => a.data.order - b.data.order);
-
-// The prev/next pager: within the curated docs normally, and within the internal reference's
-// own curated order (src/lib/internal-groups.mjs) on an internal page — before this, internal
-// pages passed no slug, so the pager silently vanished and the sidebar highlighted nothing.
-let prev: { href: string; title: string } | null = null;
-let next: { href: string; title: string } | null = null;
-if (active === 'internal' && slug) {
-  const internal = await getCollection('internal');
-  const titleOf = (id: string) =>
-    internal.find((e) => e.id === id)?.data.title ?? internalTitle(id);
-  const i = orderedIds.indexOf(slug);
-  if (i > 0) prev = { href: url(`docs/internal/${orderedIds[i - 1]}`), title: titleOf(orderedIds[i - 1]) };
-  if (i >= 0 && i < orderedIds.length - 1)
-    next = { href: url(`docs/internal/${orderedIds[i + 1]}`), title: titleOf(orderedIds[i + 1]) };
-} else {
-  const current = docs.find((d) => d.id === slug);
-  const sequence = current ? navigation(docs).find((group) => group.name === groupOf(current))?.pages ?? [] : [];
-  const idx = sequence.findIndex((d) => d.id === slug);
-  if (idx > 0) prev = { href: url(`docs/${sequence[idx - 1].id}`), title: sequence[idx - 1].data.title };
-  if (idx >= 0 && idx < sequence.length - 1)
-    next = { href: url(`docs/${sequence[idx + 1].id}`), title: sequence[idx + 1].data.title };
-}
-
-const sections = navigation(docs);
+interface Props { title: string; description?: string; route?: string; audience?: string; active?: string }
+const { title, description, route = Astro.url.pathname.replace(/\/$/, ''), audience = 'app developer' } = Astro.props;
+const active = audience === 'contributor' ? 'contributing' : audience === 'evaluator' ? 'product' : 'docs';
+const pages = await contentPages();
+const sections = navigation(pages, audience);
+const sequence = sections.find((group) => group.pages.some((p) => p.route === route))?.pages ?? [];
+const idx = sequence.findIndex((p) => p.route === route);
+const prev = idx > 0 ? { href: url(sequence[idx - 1].route), title: sequence[idx - 1].title } : null;
+const next = idx >= 0 && idx < sequence.length - 1 ? { href: url(sequence[idx + 1].route), title: sequence[idx + 1].title } : null;
+const home = audience === 'contributor' ? '/contributing' : '/docs';
 
 ---
 <BaseLayout title={title} description={description} active={active}>
@@ -45,24 +23,28 @@ const sections = navigation(docs);
     <aside class="sidebar" data-pagefind-ignore>
       <details class="docs-menu" open>
         <summary class="docs-menu-toggle">Browse documentation</summary>
-      <nav aria-label="Documentation">
-        <a class="side-link" href={url('docs')}>Documentation home</a>
-        {sections.map((s) => (
-          <details open={s.pages.some((d) => d.id === slug) || (s.name === 'Reference' && isApi) || (s.name === 'Contribute' && active === 'internal')}>
-            <summary class="side-h">{s.name}</summary>
-            {s.pages.map((d) => (
-              <a
-                href={url(`docs/${d.id}`)}
-                class:list={['side-link', { on: d.id === slug }]}
-                title={d.data.navTitle ? d.data.title : undefined}
-              >
-                {d.data.navTitle ?? d.data.title}
-              </a>
-            ))}
-            {s.name === 'Reference' && <a href={url('docs/api')} class:list={['side-link', { on: isApi }]}>API reference</a>}
-            {s.name === 'Contribute' && <a href={url('docs/internal')} class:list={['side-link', { on: active === 'internal' }]}>Implementation notes</a>}
-          </details>
-        ))}
+      <nav aria-label={audience === 'contributor' ? 'Contributor documentation' : 'Documentation'}>
+        {audience === 'evaluator' ? <>
+          <a class="side-link" href={url()}>Home</a>
+          <a class="side-link" href={url('features')}>Features</a>
+          <a class="side-link" href={url('examples')}>Examples</a>
+          {hubs.filter((h) => h.audience === 'evaluator').map((h) => <a class="side-link" href={url(h.route)} aria-current={h.route === route ? 'page' : undefined}>{h.title}</a>)}
+          <a class="side-link" href={url('docs')}>Documentation</a>
+        </> : <>
+          <a class="side-link" href={url(home)}>{audience === 'contributor' ? 'Contributing home' : 'Start here'}</a>
+          {sections.map((section) => (
+            <details open={route === section.route || section.pages.some((p) => p.route === route)}>
+              <summary class="side-h">{section.name}</summary>
+              <a class="side-link" href={url(section.route)}>{section.name} index</a>
+              {section.pages.map((page) => <a href={url(page.route)}
+                class:list={['side-link', { on: page.route === route }]}
+                aria-current={page.route === route ? 'page' : undefined}
+                title={page.navTitle ? page.title : undefined}>{page.navTitle ?? page.title}</a>)}
+              {section.name === 'Reference' && <a class="side-link" href={url('docs/reference/api')}>Rust API reference</a>}
+            </details>
+          ))}
+          <a class="side-link" href={url(audience === 'contributor' ? 'docs' : 'contributing')}>{audience === 'contributor' ? 'App documentation' : 'Contributing'}</a>
+        </>}
 
       </nav>
       </details>

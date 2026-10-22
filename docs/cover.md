@@ -87,7 +87,7 @@ zstack((
   (`Event::CoverHidden` on the cover node), so the surface never blanks mid-animation.
   Scope cleanups (the natural save-on-exit hook) run at that moment.
 
-### The `CoverHidden` delivery contract
+## The `CoverHidden` delivery contract
 
 App teardown hangs off this one event, so its delivery is a hard guarantee, not a
 best-effort animation callback:

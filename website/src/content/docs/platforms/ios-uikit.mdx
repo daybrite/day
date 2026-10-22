@@ -1,8 +1,8 @@
 ---
 title: iOS (UIKit)
-description: Build Day apps for iPhone and iPad with UIKit — Simulator and device workflow, .ipa packaging, per-platform caveats, and which UIKit class every Day piece becomes.
+description: "iPhone and iPad with UIKit: host requirements, native controls, device builds, and target-specific limitations."
 order: 33.2
-section: Platforms
+section: Reference
 ---
 
 {/*
@@ -10,14 +10,9 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 */}
 
-import PlatformShots from '../../../components/PlatformShots.astro';
-
-`ios-uikit` renders `UINavigationController` pushes, a `UITabBarController`, and system text
-handling, driven from Rust through [`objc2`](https://docs.rs/objc2). The scaffold is a checked-in
-Xcode project whose build phase calls back into `day`, so Xcode, `day launch` and CI all build the
-same way.
-
-<PlatformShots platform="ios-uikit" shots={["home", "controls", "dates", "stack-detail"]} />
+`ios-uikit` is a Tier 1 target for iPhone and iPad apps. Day connects shared Rust UI code to
+UIKit controls. Building for this target needs Apple’s tools; device distribution also requires
+the relevant signing and provisioning setup.
 
 ## Getting started
 
@@ -25,7 +20,7 @@ Install **full Xcode 27 or newer** to open the generated JSON5 `project.xcproj` 
 
 ```sh
 sudo xcode-select -s /Applications/Xcode.app # Xcode 27+, with an iOS Simulator runtime
-cargo install day-cli
+cargo install --git https://github.com/daybrite/day day-cli
 day new app my-app --toolkit ios-uikit
 cd my-app
 day launch -t ios-uikit          # boots a Simulator and installs
@@ -37,7 +32,7 @@ through the project's build phase.
 
 `day build` also generates a local SwiftPM package at `build/day/ios/DayPieces` (the Swift shims
 pieces contribute, their SwiftPM dependencies, and the generated
-[SwiftUI embedding](/docs/internal/swiftui) glue), which the generated (or optionally checked-in) Xcode project links. A
+[SwiftUI embedding](/docs/reference/swiftui) glue), which the generated (or optionally checked-in) Xcode project links. A
 piece's `platform` metadata key raises the deployment floor: `day build` prints a `Raising`
 status and passes `IPHONEOS_DEPLOYMENT_TARGET=<floor>` to xcodebuild. That setting does not reach
 ⌘R builds inside Xcode, so for IDE work raise the value in `platform/ios/DayApp.xcconfig`.
@@ -50,7 +45,7 @@ day pack -t ios-uikit
 
 With `signing.ios` configured you get a signed App Store export; without it you get an unsigned
 device build (`<stem>-ios-uikit-unsigned.ipa`) for sideloading or your own signing. See
-[packaging](/docs/packaging).
+[packaging](/docs/how-to/packaging).
 
 ## Caveats
 
@@ -70,7 +65,7 @@ device build (`<stem>-ios-uikit-unsigned.ipa`) for sideloading or your own signi
 
 ## What each piece becomes
 
-The generated [coverage matrix](/docs/internal/coverage-matrix), checked in CI, covers every backend;
+The generated [coverage matrix](/contributing/backend-contracts/coverage-matrix), checked in CI, covers every backend;
 this table adds links and notes.
 
 | Day piece | UIKit class |

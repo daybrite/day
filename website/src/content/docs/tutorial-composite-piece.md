@@ -2,7 +2,7 @@
 title: "Tutorial: A composite piece (no native code)"
 description: A step-by-step guide to building a reusable widget (a star rating) by composing Day's core primitives, with no platform-specific code. It works on every backend.
 order: 41
-section: Extend
+section: Contributing
 ---
 
 <!--
@@ -24,7 +24,7 @@ Day has two kinds of pieces:
 | Per-toolkit code | one renderer per backend (Obj-C, C++, Java…) | none |
 | Cargo features | `appkit` / `gtk` / `qt` / `uikit` / `mdc` / `xaml` / `winui` | none |
 | Extra build assets | `build.rs`, shims, Gradle/SwiftPM entries | none |
-| Reference | [the native-piece tutorial](/docs/tutorial-native-piece) · `day-piece-searchfield` | this tutorial · `day-piece-rating` |
+| Reference | [the native-piece tutorial](/contributing/tutorials/native-piece) · `day-piece-searchfield` | this tutorial · `day-piece-rating` |
 
 A native piece exists to introduce a native widget Day does not already have. A star rating is a
 row of small drawings that react to taps, and Day already gives you `row`, `canvas` (a native 2D
@@ -94,7 +94,7 @@ day-build = { git = "https://github.com/daybrite/day.git" }
 > [!NOTE] Inside the Day workspace
 > These are `{ workspace = true }` instead of a version. A native piece's `Cargo.toml` also
 > carries a `[features]` block (one feature per backend) and often a `build.rs`; see
-> [the native-piece tutorial](/docs/tutorial-native-piece).
+> [the native-piece tutorial](/contributing/tutorials/native-piece).
 
 Now `src/lib.rs`. Everything comes from the pieces prelude; `RNode` also comes from `day-core`,
 because it is the return type of `Piece::build`:
@@ -112,7 +112,7 @@ return `Self` so calls chain. The two-way value is a `Signal` passed in by the c
 reads it to draw and writes it back on tap. This compact implementation uses `Signal<usize>`;
 the shipped piece accepts any `Binding<usize>` and reactive editability.
 
-Give the piece a [private catalog](/docs/localization#give-a-crate-a-private-catalog).
+Give the piece a [private catalog](/docs/how-to/localization#give-a-crate-a-private-catalog).
 In `build.rs`, call `day_build::generate_locales().expect("localization codegen");` from
 `main`, and add `day_fluent::locales!();` at the root of `src/lib.rs`. In
 `resource/locales/en-US/app.ftl`:
@@ -179,7 +179,7 @@ The shipped crate also provides `.star_id(|n| id!(rating_star, n))`. It assigns 
 tappable star a typed ID using its 1-based position; `.id(id!(rating_row))` separately names
 the whole piece. A dayscript can then `tap: { id: 'rating_star:3' }`.
 The old `.id(prefix)` string-prefix setter is no longer supported. See
-[element IDs](/docs/internal/element-ids) for keyed families and canonical spellings.
+[element IDs](/contributing/backend-contracts/element-ids) for keyed families and canonical spellings.
 
 ## 4. Compose the body
 

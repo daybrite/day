@@ -1,6 +1,6 @@
 <h1 align="center">
   <a href="https://daybrite.dev">
-    <img width="120" alt="Day" src="https://raw.githubusercontent.com/daybrite/day-vscode/main/media/day-icon.png" />
+    <img width="120" alt="Day" src="website/public/favicon.svg" />
   </a>
   <br />
   Day
@@ -12,76 +12,84 @@
 [![Build Status](https://github.com/daybrite/day/actions/workflows/ci.yml/badge.svg)](https://github.com/daybrite/day/actions/workflows/ci.yml)
 [![Rust Version](https://img.shields.io/badge/rust-1.89%2B-blue.svg)](https://www.rust-lang.org)
 [![Edition](https://img.shields.io/badge/edition-2024-blue.svg)](https://doc.rust-lang.org/edition-guide/rust-2024/)
-[![Gallery](https://img.shields.io/badge/Screenshots-Gallery-purple.svg)](https://daybrite.dev/gallery/)
+[![Examples](https://img.shields.io/badge/Day-Examples-purple.svg)](https://daybrite.dev/examples/)
 
 </p>
 
 ## About Day
 
-Day is a Rust framework for multi-platform application development. It provides a declarative interface over the platform's native underlying GUI toolkit. A single Rust codebase can be used to build mobile apps for iOS, Android, and HarmonyOS, as well as desktop apps for macOS, Windows, and Linux (Gnome/GTK and KDE/Qt).
+Day lets you build native desktop and mobile apps with shared Rust code. Describe the interface,
+connect it to your app’s state, and use the controls provided by each target’s UI toolkit.
+Translations, UI walkthroughs, and packaging live alongside the app in the same project.
 
-Day takes a third path among cross-platform toolkits. Web-view shells (Tauri, Electron, Dioxus, Capacitor) render the interface in a browser engine, and custom renderers (Flutter, egui, Slint, Iced) draw every pixel themselves. Day's declarative API and reactive engine operate directly on the platform's own toolkit: they build the native widget tree and keep it in sync with your state. So a `button()` is a `UIButton` on iOS, an `NSButton` on macOS, a `MaterialButton` on Android, a `GtkButton` or `QPushButton` on Linux, and a XAML `Button` on Windows.
+For standard controls, Day creates toolkit widgets: an AppKit `NSButton` on macOS, a UIKit
+`UIButton` on iOS, a Material button on Android, and GTK, Qt, or WinUI controls on desktop.
+Composed controls combine other controls; custom drawing uses the canvas API. Appearance,
+capabilities, and accessibility behavior vary by backend and need target-specific testing.
 
-This enables you to use Day to create user interfaces that are indistinguishable from ones built directly with the first-party toolkit provided by the mobile or desktop vendor. And because it is Rust, it has bare-metal performance and unmatched efficiency _everywhere_ without sacrificing memory safety and without relying on any additional runtime or garbage collector. Using the first-party native toolkit widgets also gives Day excellent accessibility support out of the box, so screen readers and other assistive technologies can interoperate flawlessly with Day apps.
+Day is useful when you want to bring a Rust library to people through an app, maintain desktop
+and mobile interfaces together, or share a native integration with other creators. Test the
+screen or device feature your app depends on before planning a full port. See
+[Is Day a good fit?](https://daybrite.dev/features) and the
+[examples](https://daybrite.dev/examples).
 
-Day is a complete framework, and the UI layer is one part of it. The `day` command line creates a project, lints it, builds and launches it on any of the thirteen targets, and packs the installer each platform expects. The [Day extension for VS Code](https://marketplace.visualstudio.com/items?itemName=daybrite.day-vscode) does the same from the editor and opens the host projects in Xcode and Android Studio. A reusable [GitHub Actions workflow](https://github.com/daybrite/actions) builds every target on each push, drives the app's own dayscript walkthrough on simulators and emulators, and uploads to the stores on a tag. Localization with Fluent, accessibility through each platform's own tree, and dayscript automation are in every app from the first build.
+## A working example
 
-Applications created in Day are compact and follow the platform's native packaging idioms, which result in installation packages that are often just a few megabytes. The CI workflow also generates a landing page for each app with its screenshots and install links.
+The tutorial builds a small counter with generated Fluent messages and symbolic control IDs.
+The website shows [the exact source and an AppKit capture](https://daybrite.dev/examples#tutorial-capture),
+with a record tying the image to its source files. The tutorial continues through layout,
+navigation, and an automated walkthrough.
 
-See the Day Gallery at https://daybrite.dev/gallery/ for examples of applications built with Day and their individual landing pages.
+[Build your first app](https://daybrite.dev/docs/tutorials/first-app).
 
 ## Platforms
 
-Day targets thirteen `(OS, toolkit)` pairs. Each one is built from that toolkit's own widgets, and
-`day pack` produces the package that platform's users install. The
-[support tier](https://daybrite.dev/docs/platforms/#support-tiers) records how much testing and
-maintenance a target gets today, independent of how complete its backend is.
+Start with the supported desktop and mobile targets. These are declared maintenance tiers,
+not a claim that every feature or release has passed on every device.
 
-| Target | OS | Toolkit | Tier | Packaging |
-|---|---|---|---|---|
-| [`macos-appkit`](https://daybrite.dev/docs/platforms/macos-appkit/) | macOS | AppKit | 1 · Supported | `.dmg` |
-| [`ios-uikit`](https://daybrite.dev/docs/platforms/ios-uikit/) | iOS and iPadOS | UIKit | 1 · Supported | `.ipa` |
-| [`android-mdc`](https://daybrite.dev/docs/platforms/android-mdc/) | Android | Material Components | 1 · Supported | `.apk` and `.aab` |
-| [`linux-gtk`](https://daybrite.dev/docs/platforms/linux-gtk/) | Linux | GTK 4 | 2 · Demi-supported | `.flatpak` and `.appimage` |
-| [`linux-qt`](https://daybrite.dev/docs/platforms/linux-qt/) | Linux | Qt 6 Widgets | 2 · Demi-supported | `.flatpak` and `.appimage` |
-| [`windows-winui`](https://daybrite.dev/docs/platforms/windows-winui/) | Windows | WinUI 3 | 2 · Demi-supported | `.msix` and installer |
-| [`harmony-arkui`](https://daybrite.dev/docs/platforms/harmony-arkui/) | HarmonyOS | ArkUI | 3 · Experimental | `.hap` |
-| [`web-dom`](https://daybrite.dev/docs/platforms/web-dom/) | Web | DOM, via WebAssembly | 3 · Experimental | static `dist/` |
-| `macos-gtk` | macOS | GTK 4 | 4 · Development | none |
-| `macos-qt` | macOS | Qt 6 | 4 · Development | none |
-| `windows-gtk` | Windows | GTK 4 | 4 · Development | none |
-| `windows-qt` | Windows | Qt 6 | 4 · Development | none |
-| `windows-xaml` | Windows | system XAML | 5 · Deprecated | `.msix` and installer |
+| Target | Toolkit | Declared tier |
+|---|---|---|
+| [macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit) | AppKit | 1 · Supported |
+| [iOS and iPadOS](https://daybrite.dev/docs/reference/platforms/ios-uikit) | UIKit | 1 · Supported |
+| [Android](https://daybrite.dev/docs/reference/platforms/android-mdc) | Material Components | 1 · Supported |
+| [Linux](https://daybrite.dev/docs/reference/platforms/linux-gtk) | GTK 4 / libadwaita | 2 · Demi-supported |
+| [Linux](https://daybrite.dev/docs/reference/platforms/linux-qt) | Qt 6 Widgets | 2 · Demi-supported |
+| [Windows](https://daybrite.dev/docs/reference/platforms/windows-winui) | WinUI 3 | 2 · Demi-supported |
 
-All of them except `windows-xaml` build in CI on every push (the `windows-winui` legs are written but have not run on
-GitHub yet). Every target except the Windows development combos and HarmonyOS also runs the
-Showcase app's full dayscript walkthrough there, and those captures are what the
-[gallery](https://daybrite.dev/gallery/) shows. The Tier 4 combos exist for compatibility testing
-and to show one toolkit running on several operating systems; real applications aren't expected
-to ship on them. `windows-xaml` is the same XAML backend built against the system XAML in
-Windows instead of WinUI 3: it still builds, packs and runs for existing projects, but new apps
-should not choose it (`day project add-target windows-winui` moves a project). The
-[Platforms page](https://daybrite.dev/docs/platforms/) carries the per-target notes and known
-gaps.
+HarmonyOS and the browser target are experimental. Additional GTK/Qt combinations are for
+framework development; system XAML is deprecated. All thirteen targets, package formats,
+configured CI checks, and known gaps remain in the
+[platform reference](https://daybrite.dev/docs/reference/platforms).
 
-## Getting Started
+## Development and distribution
 
-To get a feel for how a Day application feels on your desktop, download the Day Showcase application for your platform from https://showcase.daybrite.dev or build and launch it from source with the commands (requires [`rustup`](https://rustup.rs)):
+The Day CLI creates projects, checks installed tools, builds and launches apps, runs UI
+walkthroughs, and produces desktop installers and mobile packages. Generated `res::str`
+accessors connect UI text to Fluent catalogs; symbolic IDs let tests address controls without
+matching a translated label.
 
-```bash
-cargo install day-cli
-day launch --git https://github.com/daybrite/Day-Showcase.git@main
+Builds need the target’s SDKs. Distribution also needs the relevant signing credentials,
+store accounts, and submission tools. Packaging support does not guarantee store acceptance;
+see [packaging and distribution](https://daybrite.dev/docs/how-to/packaging).
+
+Use the [system requirements](https://daybrite.dev/docs/reference/system-requirements) for your
+host, then follow the [tutorial](https://daybrite.dev/docs/tutorials/first-app), which uses macOS/AppKit.
+
+Build and launch [Day Showcase](https://github.com/daybrite/Day-Showcase) from source:
+
+```sh
+day launch --git https://github.com/daybrite/Day-Showcase
 ```
 
-See https://daybrite.dev/docs/getting-started/ and https://daybrite.dev/docs/system-requirements/ for more details about getting set up. 
+The [VS Code extension](https://daybrite.dev/docs/how-to/vscode) adds project and target commands
+to your editor. Use the [GitHub Actions guide](https://daybrite.dev/docs/how-to/github-actions)
+to automate builds and [store submission](https://daybrite.dev/docs/how-to/app-store-submissions).
 
-> [!TIP]
-> To explore using day for development, the [`day-vscode`](https://vscode.daybrite.dev) plugin is recommended but not required.
+## Contributing
 
-
-## About Daybrite
-
-The goal of the Daybrite Project is to become the single go-to framework that Rust developers can use for most application-building needs across the spectrum of consumer-facing computing devices.
+Help another creator reach a platform or use a feature you know well. A small reproduction of a
+bug, a correction to a guide, or a tested native integration can all help.
+[Contribution instructions](CONTRIBUTING.md) explain setup and review expectations.
 
 ## License
 

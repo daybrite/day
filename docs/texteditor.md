@@ -52,7 +52,7 @@ column((
 ```
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
-[example messages](snippet-catalog.md) and [catalog setup](https://daybrite.dev/docs/localization).
+[example messages](snippet-catalog.md) and [catalog setup](https://daybrite.dev/docs/how-to/localization).
 
 ## 1. Every toolkit already has one
 

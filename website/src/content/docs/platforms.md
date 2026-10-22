@@ -2,7 +2,7 @@
 title: Platform support
 description: "Compare platform support, CI coverage, packaging options, and known limitations."
 order: 33
-section: Build & ship
+section: Reference
 ---
 
 <!--
@@ -12,7 +12,7 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 Day’s targets differ in testing coverage, packaging, and available features. The tables below
 summarize support tiers and CI checks; the [platform notes](#per-platform-notes) describe known
-limitations. Installation instructions are in [System requirements](/docs/system-requirements).
+limitations. Installation instructions are in [System requirements](/docs/reference/system-requirements).
 
 ## Support tiers
 
@@ -22,11 +22,11 @@ still lacking release packaging or regular testing on physical hardware.
 
 | Tier | Intended use | Testing and maintenance |
 |---|---|---|
-| [Tier 1 · Supported](/docs/platforms#support-tiers) | Shipping applications | Full walkthrough coverage; regressions block releases |
-| [Tier 2 · Demi-supported](/docs/platforms#support-tiers) | Shipping applications | CI coverage, with less manual testing and production use |
-| [Tier 3 · Experimental](/docs/platforms#support-tiers) | Evaluation and testing | Walkthrough coverage, but no shipping applications yet |
-| [Tier 4 · Development](/docs/platforms#support-tiers) | Compatibility testing | Development combinations without release packaging |
-| [Tier 5 · Deprecated](/docs/platforms#support-tiers) | Existing projects only | Superseded by another target; still builds, packs and runs, but not for new apps, and due for removal |
+| [Tier 1 · Supported](/docs/reference/platforms#support-tiers) | Shipping applications | Highest declared maintenance priority; verify current CI and runtime evidence |
+| [Tier 2 · Demi-supported](/docs/reference/platforms#support-tiers) | Shipping applications | Declared support with less testing than Tier 1 |
+| [Tier 3 · Experimental](/docs/reference/platforms#support-tiers) | Evaluation and testing | Experimental; validate the required capabilities before choosing it |
+| [Tier 4 · Development](/docs/reference/platforms#support-tiers) | Compatibility testing | Development combinations without release packaging |
+| [Tier 5 · Deprecated](/docs/reference/platforms#support-tiers) | Existing projects only | Superseded by another target; use the replacement for new apps |
 
 The target table below assigns each platform to a tier. Support badges throughout the
 documentation link back to this section.
@@ -37,33 +37,32 @@ for the responsibilities, including hardware testing, bug triage, and patch revi
 
 ## Status at a glance
 
-All targets below build in CI. The walkthrough column describes how CI runs the Showcase UI
-tests, including navigation, input, dialogs, and screenshots. Captures appear in the
-[gallery](/gallery).
+The table lists the checks configured in CI and the package formats the CLI produces.
+Signing requires the platform's tools and credentials. Android walkthrough failures do not
+fail CI; the HarmonyOS job also tolerates build and packaging failures.
 
 | Target | Tier | UI walkthrough in CI | Package formats |
 |---|---|---|---|
-| `macos-appkit` | [Tier 1](/docs/platforms#support-tiers) | Full | `.dmg` |
-| `ios-uikit` | [Tier 1](/docs/platforms#support-tiers) | Full, Simulator | `.ipa` |
-| `android-mdc` | [Tier 1](/docs/platforms#support-tiers) | Full, emulator; failures tolerated | `.apk`, `.aab` |
-| `linux-gtk` | [Tier 2](/docs/platforms#support-tiers) | Full, headless X | `.flatpak`, `.appimage` |
-| `linux-qt` | [Tier 2](/docs/platforms#support-tiers) | Full, headless X | `.flatpak`, `.appimage` |
-| `windows-winui` | [Tier 2](/docs/platforms#support-tiers) | Full | `.msix`, installer |
-| `harmony-arkui` | [Tier 3](/docs/platforms#support-tiers) | Best-effort, emulator | `.hap` |
-| `web-dom` | [Tier 3](/docs/platforms#support-tiers) | Full, headless Chromium | Static `dist/` |
-| `macos-gtk` | [Tier 4](/docs/platforms#support-tiers) | Full | None |
-| `macos-qt` | [Tier 4](/docs/platforms#support-tiers) | Full | None |
-| `windows-gtk` | [Tier 4](/docs/platforms#support-tiers) | Best-effort | None |
-| `windows-qt` | [Tier 4](/docs/platforms#support-tiers) | Best-effort | None |
-| `windows-xaml` (deprecated) | [Tier 5](/docs/platforms#support-tiers) | None | `.msix`, installer |
+| `macos-appkit` | [Tier 1](/docs/reference/platforms#support-tiers) | Full | `.dmg` |
+| `ios-uikit` | [Tier 1](/docs/reference/platforms#support-tiers) | Full, Simulator | `.ipa` |
+| `android-mdc` | [Tier 1](/docs/reference/platforms#support-tiers) | Full, emulator; failures tolerated | `.apk`, `.aab` |
+| `linux-gtk` | [Tier 2](/docs/reference/platforms#support-tiers) | Full, headless X | `.flatpak`, `.appimage` |
+| `linux-qt` | [Tier 2](/docs/reference/platforms#support-tiers) | Full, headless X | `.flatpak`, `.appimage` |
+| `windows-winui` | [Tier 2](/docs/reference/platforms#support-tiers) | Full | `.msix`, installer |
+| `harmony-arkui` | [Tier 3](/docs/reference/platforms#support-tiers) | Best-effort, emulator | `.hap` |
+| `web-dom` | [Tier 3](/docs/reference/platforms#support-tiers) | Full, headless Chromium | Static `dist/` |
+| `macos-gtk` | [Tier 4](/docs/reference/platforms#support-tiers) | Full | None |
+| `macos-qt` | [Tier 4](/docs/reference/platforms#support-tiers) | Full | None |
+| `windows-gtk` | [Tier 4](/docs/reference/platforms#support-tiers) | Best-effort | None |
+| `windows-qt` | [Tier 4](/docs/reference/platforms#support-tiers) | Best-effort | None |
+| `windows-xaml` (deprecated) | [Tier 5](/docs/reference/platforms#support-tiers) | None | `.msix`, installer |
 
-Android emulator failures do not block CI, but build failures do. HarmonyOS build and packaging
-failures block CI; its QEMU emulator checks tolerate failures. Windows GTK and Qt jobs are marked
-experimental in CI. These exceptions are worth considering alongside a target’s support tier.
+Check the [CI run](https://github.com/daybrite/day/actions/workflows/ci.yml) for the revision you
+intend to ship. A tolerated failure does not block the remaining jobs.
 
-Outside CI, a Day-based Matrix client exercises login, encrypted rooms, timelines, and media on
-`macos-appkit`, `macos-gtk`, `macos-qt`, `ios-uikit` in the Simulator, and `android-mdc`.
-The macOS AppKit target also runs a shipping Matrix client.
+Earlier project records describe additional Matrix-client usage. Those external apps and
+shipping claims were not inspected in this repository-only review and are not validation evidence
+for the current checkout.
 
 ### Development combinations
 
@@ -73,22 +72,22 @@ They do not have release packaging. The GTK combinations also lack an accessibil
 Windows GTK and Qt use MSYS2. Under CI’s x86-64 MinGW linker, external piece renderers fail to
 register and appear as placeholders; an MSYS2 environment using Clang and `lld` retains them.
 Windows GTK also lacks WebKitGTK 6. See the
-[Windows toolkit setup](/docs/platforms/windows-winui#qt-and-gtk-on-a-windows-host) for details.
+[Windows toolkit setup](/docs/reference/platforms/windows-winui#qt-and-gtk-on-a-windows-host) for details.
 
 ## Per-platform notes
 
 Each primary target has a setup guide, known limitations, and a mapping from Day pieces to native
 controls, with links to the platform’s API documentation.
 
-### macOS (`macos-appkit`) — [full page](/docs/platforms/macos-appkit)
-[Tier 1 · Supported](/docs/platforms#support-tiers)
+### macOS (`macos-appkit`) — [full page](/docs/reference/platforms/macos-appkit)
+[Tier 1 · Supported](/docs/reference/platforms#support-tiers)
 Day drives AppKit directly through `objc2`, with a native menu bar, dialogs, and window
 management. Builds require full **Xcode 27 or newer** for the JSON5 host project.
 Packaging produces a signed, notarized `.dmg` when credentials are configured
-([packaging](/docs/packaging)).
+([packaging](/docs/how-to/packaging)).
 
-### iOS (`ios-uikit`) — [full page](/docs/platforms/ios-uikit)
-[Tier 1 · Supported](/docs/platforms#support-tiers)
+### iOS (`ios-uikit`) — [full page](/docs/reference/platforms/ios-uikit)
+[Tier 1 · Supported](/docs/reference/platforms#support-tiers)
 Day derives a JSON5 Xcode project under `build/day/xcode/`, requiring **Xcode 27 or newer**.
 A checked-in project remains an optional customization override.
 Its build phase calls back into `day` for the
@@ -97,51 +96,52 @@ development targets the Simulator; App Store `.ipa` export exists in `day pack` 
 Apple credentials. Without `signing.ios` configuration, the output is an unsigned device archive
 with an `-unsigned.ipa` filename. Physical-device debugging gets less use than the Simulator.
 
-### Android (`android-mdc`) — [full page](/docs/platforms/android-mdc)
-[Tier 1 · Supported](/docs/platforms#support-tiers)
+### Android (`android-mdc`) — [full page](/docs/reference/platforms/android-mdc)
+[Tier 1 · Supported](/docs/reference/platforms#support-tiers)
 Day renders Material Components widgets over JNI, with a generated Gradle project and the same
 callback-build pattern. `day launch` installs on every connected device/emulator at once, each
 with the right ABI. Accessibility annotations are partial
-([details](/docs/accessibility#current-limits)), and process-death restoration is a cold
+([details](/docs/how-to/accessibility#current-limits)), and process-death restoration is a cold
 start unless your app persists its own state.
 
-### Linux (`linux-gtk`, `linux-qt`) — full pages: [GTK](/docs/platforms/linux-gtk), [Qt](/docs/platforms/linux-qt)
-[Tier 2 · Demi-supported](/docs/platforms#support-tiers)
+### Linux (`linux-gtk`, `linux-qt`) — full pages: [GTK](/docs/reference/platforms/linux-gtk), [Qt](/docs/reference/platforms/linux-qt)
+[Tier 2 · Demi-supported](/docs/reference/platforms#support-tiers)
 Day renders GTK 4 + libadwaita via `gtk4-rs`, and Qt 6 Widgets via a small compiled C++ shim.
-Both run the full walkthrough headlessly in CI. Flatpak packages both. The runtime supplies the
+The configured walkthrough uses a headless display. Flatpak packages both. The runtime supplies the
 toolkit, so bundles stay app-sized. Pick GTK by default; pick Qt for its cross-OS accessibility bridge or for the Qt library set. The webview piece is
 functional on GTK/Linux (WebKitGTK) and Qt (QtWebEngine).
 
-### Windows (`windows-winui`) — [full page](/docs/platforms/windows-winui)
-[Tier 2 · Demi-supported](/docs/platforms#support-tiers)
+### Windows (`windows-winui`) — [full page](/docs/reference/platforms/windows-winui)
+[Tier 2 · Demi-supported](/docs/reference/platforms#support-tiers)
 Day renders WinUI 3 controls from the Windows App SDK 2.5.1, hosted in a Win32 window through the
 SDK's `DesktopWindowXamlSource`. It builds with MSVC, and its C++/WinRT shim follows the same
 pattern as Qt's. Development builds need the Windows App Runtime installed; `day pack` ships the
 runtime inside the `.msix` and installer, so users install nothing extra. Fewer applications have
 shipped on it than on the Apple, Linux, and Android targets.
 
-### Windows, system XAML (`windows-xaml`) — [full page](/docs/platforms/windows-xaml)
-[Tier 5 · Deprecated](/docs/platforms#support-tiers)
+### Windows, system XAML (`windows-xaml`) — [full page](/docs/reference/platforms/windows-xaml)
+[Tier 5 · Deprecated](/docs/reference/platforms#support-tiers)
 The same XAML backend built against the system XAML that ships with Windows, hosted through XAML
 Islands. It still builds, packs and runs for existing projects, but new apps should use
 `windows-winui`; move a project with `day project add-target windows-winui`.
 
-### HarmonyOS (`harmony-arkui`) — [full page](/docs/platforms/harmony-arkui)
-[Tier 3 · Experimental](/docs/platforms#support-tiers)
+### HarmonyOS (`harmony-arkui`) — [full page](/docs/reference/platforms/harmony-arkui)
+[Tier 3 · Experimental](/docs/reference/platforms#support-tiers)
 The newest backend drives ArkUI via the NDK C API, packaged as a `.hap` by hvigor with
 an ArkTS host project. The toolchain requires the OpenHarmony SDK and command-line tools, which
 take the most setup steps of the supported platforms; `day doctor --toolkit harmonyos`
-and the [HarmonyOS notes](/docs/internal/harmonyos) cover the install. CI allows failures in the emulator checks.
+and the [HarmonyOS notes](/docs/how-to/harmonyos) cover the install. CI allows failures in the emulator checks.
 
-### Web (`web-dom`) — [full page](/docs/platforms/web-dom)
-[Tier 3 · Experimental](/docs/platforms#support-tiers)
+### Web (`web-dom`) — [full page](/docs/reference/platforms/web-dom)
+[Tier 3 · Experimental](/docs/reference/platforms#support-tiers)
 The same Rust compiled to WebAssembly drives DOM elements (`<button>`, `<dialog>`,
 `<input type="range">`) that the browser lays out and draws; the build runs through cargo and
-the [`day` CLI](/docs/glossary#day-cli) alone. `day build -t web-dom` emits a self-contained static `dist/` you can host
-anywhere; there is no `day pack` step because `dist/` is already the artifact. It is experimental: most external pieces (web view, map, Lottie, pickers, search field) render
-[placeholders](/docs/glossary#placeholder), there are no file dialogs or context menus, the list is emulated rather than
-recycled, and accessibility is thinner than on native because pieces that realize as `<div>`s
-carry no compensating ARIA roles. The
+the [`day` CLI](/docs/reference/glossary#day-cli) alone. `day build -t web-dom` emits a self-contained static `dist/` you can host
+anywhere; there is no `day pack` step because `dist/` is already the artifact. It is experimental. The DOM backend now reports native file-dialog support and emulated list,
+tree, toolbar, and app-menu capabilities. External-piece coverage varies; inspect the
+[coverage matrix](/contributing/backend-contracts/coverage-matrix) and enable the piece's DOM feature where present.
+Browser permissions, user-activation requirements, and accessibility behavior still need runtime
+checks; neither API presence nor an emulated capability proves desktop-equivalent behavior. The
 [live build](https://showcase.daybrite.dev/webapp/) is deployed by the showcase's CI.
 
 ## Cross-cutting gaps
@@ -155,16 +155,31 @@ list:
   (`Cap::Animation` reports unsupported), because Day never ticks its own frames for native
   widgets. An animated background *color* interpolates on UIKit and ArkUI only, and the enter/exit
   `.transition` surface is not implemented.
-- **Multi-window:** [secondary windows](/docs/internal/windows) work on every backend — native
+- **Multi-window:** [secondary windows](/docs/reference/windows) work on every backend — native
   windows on AppKit, GTK, Qt, XAML, and Android, UIScenes on iPad, a multiton ability on
   HarmonyOS; iPhone and web present them as a fullscreen cover in the primary window. Probe
   `Cap::MultiWindow` to adapt chrome.
 - **Semantic color tokens**: custom colors have no automatic dark-mode variant
-  ([styling](/docs/styling#color-backgrounds-shape)).
-- **Keyboard shortcuts** beyond native menu accelerators; no general key-event API.
-- **Gestures**: tap and drag are wired; pinch, rotation, and long-press are not.
-- **Forms**: no validation framework; roll your own with [signals](/docs/glossary#signal) and memos.
-- **Hot reload**: not present; see [the tradeoffs page](/docs/benefits#allow-for-the-development-workflow).
+  ([styling](/docs/explanation/styling#color-backgrounds-shape)).
+- **Keyboard input:** `Decorate::on_key` exists and has a focused-event conformance case. Menu
+  accelerators remain a separate surface; delivery depends on focus and the backend.
+- **Gestures:** `Decorate::on_pinch` exists with a conformance case. Do not infer every gesture
+  or target from it; inspect the decorator and backend implementation for the needed gesture.
+- **Forms**: no validation framework; roll your own with [signals](/docs/reference/glossary#signal) and memos.
+- **Hot reload**: not present; see [the tradeoffs page](/features#allow-for-the-development-workflow).
 
 Check this list before you adopt the framework; if something you need is missing from it and
 doesn't work, report it as a bug.
+
+## Interpret compatibility evidence
+
+`Support::Native`, `Emulated`, and `Unsupported` describe one runtime capability, not a support
+tier. A source-generated coverage row records implementation branches; it cannot establish native
+interaction, accessibility quality, screenshots, or release readiness. Query capabilities for the
+operation you use and handle its return/error contract.
+
+Evidence: [Toolkit and Cap](https://github.com/daybrite/day/blob/main/crates/day-spec/src/lib.rs),
+[DOM capability implementation](https://github.com/daybrite/day/blob/main/toolkits/day-dom/src/lib.rs),
+[key and pinch decorators](https://github.com/daybrite/day/blob/main/crates/day-pieces/src/decorators.rs),
+and [target registry](https://github.com/daybrite/day/blob/main/crates/day-cli/src/targets.rs).
+HarmonyOS emulator acceptance belongs in CI; local validation must stop at compile/lint checks.

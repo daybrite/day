@@ -22,7 +22,7 @@ anchor (fine for a dozen items; ten thousand would all be built up front). `list
 the rows the native widget currently shows.
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
-[example messages](snippet-catalog.md) and [catalog setup](https://daybrite.dev/docs/localization).
+[example messages](snippet-catalog.md) and [catalog setup](https://daybrite.dev/docs/how-to/localization).
 
 ## API: row sources, shared with `each`
 
@@ -65,7 +65,7 @@ list(
 > **A recycled row needs a reactive ID.** Use `.id_of(move || id!(message_row, row.key()))`
 > so the ID follows the item occupying the cell. An eager `.id(id!(message_row, row.key()))`
 > would retain its first item's ID. Sender names and message previews are user content;
-> app-owned actions and empty states belong in the [Fluent catalog](https://daybrite.dev/docs/localization).
+> app-owned actions and empty states belong in the [Fluent catalog](https://daybrite.dev/docs/how-to/localization).
 
 The row builder receives an `ItemSlot<T, K>` (Copy handle, tracked `get()`, memoised `field()`
 projections). Because cells are recycled, the builder must read through the slot rather than

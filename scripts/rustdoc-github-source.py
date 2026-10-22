@@ -25,6 +25,17 @@ import sys
 # page.
 LINK = re.compile(r'(?:\.\./)+src/([A-Za-z0-9_]+)/(.+?\.rs)\.html#(\d+)(?:-(\d+))?')
 
+# Re-exported standard-library documentation can retain relative links even when
+# rustdoc otherwise uses hosted std URLs. These crates are not included in our bundle.
+STDLIB_LINK = re.compile(r'''(href=["'])(?:\.\./)+(std|core|alloc)/([^"']+)(["'])''')
+
+
+def hosted_std_links(text):
+    return STDLIB_LINK.subn(
+        lambda match: f'{match[1]}https://doc.rust-lang.org/stable/{match[2]}/{match[3]}{match[4]}',
+        text,
+    )
+
 
 def crate_src_dirs():
     """Map each workspace crate's rustdoc dir name (underscored) -> its lib source dir, repo-relative."""
@@ -66,7 +77,7 @@ def main():
     # Rewrite .html and .js: rustdoc's trait.impl/ & type.impl/ .js carry pre-rendered impl blocks that
     # can hold source links too. Absolute std links (https://doc.rust-lang.org/.../src/…) lack the
     # leading ../ so the regex never touches them; only relative Day-crate links match.
-    files, links = 0, 0
+    files, links, std_links = 0, 0, 0
     for dirpath, _dirs, names in os.walk(args.doc_dir):
         rel = os.path.relpath(dirpath, args.doc_dir)
         if rel == "src" or rel.startswith("src" + os.sep):
@@ -78,7 +89,9 @@ def main():
             with open(fp, encoding="utf-8") as fh:
                 text = fh.read()
             new, n = LINK.subn(repl, text)
-            if n:
+            new, std_count = hosted_std_links(new)
+            std_links += std_count
+            if n or std_count:
                 with open(fp, "w", encoding="utf-8") as fh:
                     fh.write(new)
                 files += 1
@@ -93,6 +106,7 @@ def main():
         pass
 
     print(f"rustdoc-github-source: rewrote {links} Source links across {files} files -> {base}")
+    print(f"rustdoc-github-source: repointed {std_links} relative standard-library links to hosted docs")
     if unknown:
         print(f"  warning: unmapped crates left untouched: {', '.join(sorted(unknown))}", file=sys.stderr)
     # Fail loudly if any local source link survived outside the (now-deleted) src/ tree.

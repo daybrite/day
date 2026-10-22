@@ -45,7 +45,7 @@ cannot open presents as a cover inside the first one ([docs/windows.md](windows.
 right splash on a phone.
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
-[example messages](snippet-catalog.md) and [catalog setup](https://daybrite.dev/docs/localization).
+[example messages](snippet-catalog.md) and [catalog setup](https://daybrite.dev/docs/how-to/localization).
 
 ## Chrome
 

@@ -2,7 +2,7 @@
 title: API tour
 description: A guided tour of Pieces, signals, layout, inputs, navigation, localization, and extensibility.
 order: 10
-section: Concepts
+section: Reference
 ---
 
 <!--
@@ -10,17 +10,20 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-The examples below cover common Day controls and UI patterns, drawn from the Showcase app in
-the [gallery](/gallery). They use `day::prelude::*` for the common APIs. For the underlying
-concepts, see [Pieces](/docs/pieces), [Reactivity](/docs/reactivity), and [Layout](/docs/layout).
+The examples below are API fragments showing common controls and UI patterns. They are not
+complete apps, and no screenshot-to-code attribution is established for them. Use the
+[beginner journey](/docs/tutorials/first-app) and
+[technical recipes](/docs/reference/examples/catalog#technical-recipes) for designated compiled code. They use `day::prelude::*` for the common APIs. For the underlying
+concepts, see [Pieces](/docs/explanation/pieces), [Reactivity](/docs/explanation/reactivity), and [Layout](/docs/explanation/layout).
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
-[example messages](/docs/internal/snippet-catalog) and [catalog setup](/docs/localization).
+[example messages](/docs/reference/examples/catalog) and [catalog setup](/docs/how-to/localization).
 
 ## A first app
 
-`launch` takes window options and a `root` closure that returns the top Piece. It owns the native
-main loop.
+`launch` takes window options and a `root` closure that returns a Piece. Entry points and loop
+ownership vary by backend; mobile/web hosts can own the loop. The desktop fragment below needs
+a manifest, build script, and resource catalog as shown in the first-app tutorial.
 
 ```rust
 use day::prelude::*;
@@ -38,10 +41,10 @@ fn root() -> impl Piece {
 
 ## Signals: state that binds
 
-A `Signal<T>` is a `Copy` [reactive](/docs/glossary#reactive) cell; copying copies a handle to one shared slot, not the
-value, so the same [signal](/docs/glossary#signal) can live in as many closures as you like. Reading inside
+A `Signal<T>` is a `Copy` [reactive](/docs/reference/glossary#reactive) cell; copying copies a handle to one shared slot, not the
+value, so the same [signal](/docs/reference/glossary#signal) can live in as many closures as you like. Reading inside
 a bound closure subscribes it; writing re-runs exactly the closures that read it
-([Reactivity](/docs/reactivity) explains the model).
+([Reactivity](/docs/explanation/reactivity) explains the model).
 
 ```rust
 let count = Signal::new(0i64);
@@ -54,7 +57,7 @@ count.get_untracked();  // read without creating a dependency
 ```
 
 A closure passed to a reactive property, such as a label’s text, tracks its signal reads.
-Changing the signal reruns that [binding](/docs/glossary#binding). An ordinary closure or event
+Changing the signal reruns that [binding](/docs/reference/glossary#binding). An ordinary closure or event
 handler does not become reactive just because it reads a signal.
 
 ```rust
@@ -64,7 +67,7 @@ label(res::str::click_count(count))
 
 ## Text, buttons, and layout
 
-([Layout](/docs/layout) is the full model behind the containers here.)
+([Layout](/docs/explanation/layout) is the full model behind the containers here.)
 
 Pieces compose with plain function calls; containers take a tuple of children and expose builder
 methods for spacing, padding, and alignment.
@@ -94,7 +97,7 @@ Wrap any subtree in `scroll(...)` to make it scroll natively.
 
 ## Inputs
 
-(Each input is a [piece](/docs/glossary#piece); [Pieces](/docs/pieces) covers the vocabulary.)
+(Each input is a [piece](/docs/reference/glossary#piece); [Pieces](/docs/explanation/pieces) covers the vocabulary.)
 
 Editable controls take a signal directly. User input changes the signal, and changes from
 your code update the control.
@@ -148,7 +151,7 @@ Keyboard focus is a binding too: `.focused(editing)` ties a control to a `Signal
 `.focused((field, Field::Name))` binds one control of a form sharing a `Signal<Option<Field>>`:
 native focus changes write the signal, writing the signal moves focus (and `None` dismisses the
 soft keyboard on mobile). `text_field(...).on_submit(...)` handles the Return key, so chaining
-fields is one signal write. The [focus reference](/docs/internal/focus) has the rules and the
+fields is one signal write. The [focus reference](/docs/reference/focus) has the rules and the
 per-platform map.
 
 ## Conditionals and collections
@@ -188,7 +191,7 @@ canvas(move |d, size| {
 
 ## Navigation
 
-(The whole model, with per-platform mappings: [Navigation](/docs/navigation).)
+(The whole model, with per-platform mappings: [Navigation](/docs/how-to/navigation).)
 
 Navigation state lives in signals too. Changing a selection or path updates the native
 container; using its tabs or back button updates the signal. Choose between two containers:
@@ -217,16 +220,16 @@ nav_stack(path, home_view).destination(|key| detail_view(key))
 // the native back button writes the pop back into `path`.
 ```
 
-Each navigation surface uses a separate signal. A `Tabs` [nav host](/docs/glossary#nav host) or a `nav_stack`
+Each navigation surface uses a separate signal. A `Tabs` [nav host](/docs/reference/glossary#nav host) or a `nav_stack`
 inside a `Sidebar` nav host can be nested without additional state synchronization. Keys don't have to be strings: declare a
 `day::routes! { enum Section { Home => "home", … } }` enum (or implement `Route` by hand for
 keys that carry data, like `Item { id: u32 }` ↔ `"item-42"`) and bind the nav host to
 `Signal<Option<Section>>` and the stack to `Signal<Vec<Item>>`. It's the same API, compile-checked
-([navigation guide](/docs/navigation#typed-routes)).
+([navigation guide](/docs/how-to/navigation#typed-routes)).
 
 ## Deep links and dayscript
 
-A string-route adapter maps those signals to routes, so keys also serve as [routes](/docs/glossary#route):
+A string-route adapter maps those signals to routes, so keys also serve as [routes](/docs/reference/glossary#route):
 
 ```rust
 navigate("settings");   // select the settings section / tab
@@ -235,12 +238,12 @@ current_route();        // the full path, outermost surface first
 ```
 
 The same keys drive deep links (`DAY_DEEPLINK=settings`;
-[deep links reference](/docs/internal/deep-links)) and [dayscript](/docs/glossary#dayscript) automation
-(`navigate: { route: settings }`; [testing with dayscript](/docs/dayscript)).
+[deep links reference](/docs/reference/deep-links)) and [dayscript](/docs/reference/glossary#dayscript) automation
+(`navigate: { route: settings }`; [testing with dayscript](/docs/how-to/dayscript)).
 
 ## Localization and accessibility
 
-Text localizes through [Fluent](/docs/glossary#fluent) with `tr`, including interpolated signal arguments. Every Piece can
+Text localizes through [Fluent](/docs/reference/glossary#fluent) with `tr`, including interpolated signal arguments. Every Piece can
 carry accessibility metadata.
 
 ```rust
@@ -275,11 +278,11 @@ let flavor  = Signal::new(String::new());   // the typed-or-picked text
 combo_box(flavors, flavor).id(id!(flavor_combo))
 ```
 
-Day Pieces ship as ordinary Rust crates. [The extension model](/docs/extending) explains the
+Day Pieces ship as ordinary Rust crates. [The extension model](/contributing/extending) explains the
 tiers, from pure composition to per-toolkit native code. On macOS and iOS the same mechanism
 hosts your own SwiftUI: declare a local Swift package and call the generated typed constructor
 (`crate::swiftui::MyView(title, count)`) like any other piece
-([SwiftUI embedding](/docs/internal/swiftui)).
+([SwiftUI embedding](/docs/reference/swiftui)).
 
-Next: [Pieces](/docs/pieces) for the model behind all of this, or the
-[CLI & projects](/docs/cli) that build, launch, and script it.
+Next: [Pieces](/docs/explanation/pieces) for the model behind all of this, or the
+[CLI & projects](/docs/reference/cli) that build, launch, and script it.

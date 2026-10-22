@@ -13,7 +13,8 @@ interface Props {
 }
 const { title, description = site.description, active } = Astro.props;
 const fullTitle = title ? `${title} — Day` : `Day — ${site.tagline}`;
-const canonical = Astro.site ? new URL(Astro.url.pathname, Astro.site).href : undefined;
+const canonicalPath = Astro.url.pathname.replace(/\/$/, '') || '/';
+const canonical = Astro.site ? new URL(canonicalPath, Astro.site).href : undefined;
 // og:image must be an ABSOLUTE URL (scrapers don't resolve relative ones) — built from the
 // configured site origin + base. public/og-card.png is the 1200×630 share card.
 const ogImage = Astro.site ? new URL(url('og-card.png'), Astro.site).href : undefined;
@@ -54,7 +55,7 @@ const ogImage = Astro.site ? new URL(url('og-card.png'), Astro.site).href : unde
     <Nav active={active} />
     {/* data-pagefind-body scopes the search index to page content; chrome (nav/footer/sidebar/
         gallery grids) is excluded with data-pagefind-ignore where it lives. */}
-    <main id="main" data-pagefind-body>
+    <main id="main" tabindex="-1" data-pagefind-body>
       <slot />
     </main>
     <Footer />

@@ -1,6 +1,6 @@
 ---
 title: "Activity spinner"
-description: "The indeterminate activity spinner piece, native on every backend, and when to prefer progress instead."
+description: "The activity spinner API, defaults, and native renderer availability."
 ---
 
 <!--
@@ -10,8 +10,9 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 # Activity spinner (external piece)
 
-> **Status: implemented** as `day-piece-activity`, an external Day Piece (like `day-piece-media`)
-> registered link-time into each backend's renderer slice without touching day. It wraps each
+> **Status:** `day-piece-activity` is implemented in this repository as an optional Piece crate.
+> Enable its matching backend feature. Renderer presence is not runtime verification; web and
+> mock do not supply a native activity renderer in this checkout. It wraps each
 > toolkit's native indeterminate activity/loading spinner. Unlike the media player it has an
 > **intrinsic size** (a spinner is a small square control), so it is a natural-size leaf: no
 > `.frame(w, h)` is required to make it visible.
@@ -100,3 +101,12 @@ bound signal both ways, and must never panic: `cargo test -p day-piece-activity`
 For a live check, wire the showcase activity page to a spinner bound to a `Signal<bool>` and a toggle
 over the same signal; the walkthrough navigates to the route, toggles the control, and screenshots
 (one always-animating `.large` spinner keeps a visible spinning indicator in the shot).
+
+## Contract evidence
+
+`activity() -> Activity` defaults to animating with regular size. `Activity::large(self) -> Self`
+is parameterless; do not copy the stale `.large(bool)` wording from a source comment.
+`.animating<M>(impl IntoReactive<bool, M>)` accepts a constant, signal, or reactive closure.
+See [the implementation](../pieces/day-piece-activity/src/lib.rs) and
+[generated coverage](coverage-matrix.md). The authoring block is an integration fragment;
+`cargo test -p day-piece-activity` exercises mock behavior, not native animation or timing.

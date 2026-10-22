@@ -299,7 +299,7 @@ width, and each line holds as many as the window fits. `Wrap` keeps each child a
 width, so the lines come out ragged, which is right for chips of unequal weight and wrong for a set
 of peers that should read as a grid (a keypad, a palette, a row of equal choices):
 
-```
+```text
 Wrap          [Item 1][ Item 2 ][Item 3][ Item 4 ]     WrapColumns   [ Item 1 ][ Item 2 ][ Item 3 ]
               [ Item 5 ][Item 6][ Item 7 ]                           [ Item 4 ][ Item 5 ][ Item 6 ]
 ```

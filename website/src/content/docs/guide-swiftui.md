@@ -2,7 +2,7 @@
 title: Embed SwiftUI views
 description: "Ship a SwiftPM package inside your app and call its SwiftUI views from Rust as generated, typed constructors — on macOS and iOS."
 order: 27
-section: Guides
+section: How-to guides
 ---
 
 <!--
@@ -20,7 +20,7 @@ crate::swiftui::TemperatureDial(room_name, 21.5)
 
 **Works on:** `macos-appkit`, `ios-uikit`. Every other target compiles the same code and you
 gate the UI with a support probe (below). The full contract is in
-[the swiftui reference](/docs/internal/swiftui).
+[the swiftui reference](/docs/reference/swiftui).
 
 ## 1. Write the package
 
@@ -99,7 +99,7 @@ and built inside the same xcodebuild run.
 
 The room name and formatted temperature come from the app's Fluent catalog. The Swift view
 receives the translated text; it does not assemble a second message in Swift. Add `living_room`
-and `temperature_celsius` from the [example catalog](/docs/internal/snippet-catalog).
+and `temperature_celsius` from the [example catalog](/docs/reference/examples/catalog).
 
 ## 3. Call it
 
@@ -189,10 +189,10 @@ same mechanism.
   raise `platform/ios/DayApp.xcodeproj` by hand if you build from the IDE.
 - Provider not found renders `⟨name?⟩`. A misspelled `@objc(DayView_…)` name or a package
   missing from the metadata shows a visible error view rather than crashing; the
-  [reference](/docs/internal/swiftui) has the checklist.
+  [reference](/docs/reference/swiftui) has the checklist.
 
 ## Reference
 
-[swiftui](/docs/internal/swiftui) — the scanned subset, hosting and ownership details, the
+[swiftui](/docs/reference/swiftui) — the scanned subset, hosting and ownership details, the
 macOS build leg, and every v1 limit. The extension model behind it is
-[extending](/docs/extending).
+[extending](/contributing/extending).

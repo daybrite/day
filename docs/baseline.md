@@ -27,7 +27,7 @@ row((label(res::str::total()), label(res::str::sample_total()).font(Font::Title2
 ```
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
-[example messages](snippet-catalog.md) and [catalog setup](https://daybrite.dev/docs/localization).
+[example messages](snippet-catalog.md) and [catalog setup](https://daybrite.dev/docs/how-to/localization).
 
 ## What day asks the toolkit
 

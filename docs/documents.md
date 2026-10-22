@@ -21,7 +21,7 @@ MIME types; wildcards are rejected. Both arrays are required. Supply the establi
 when one exists. Otherwise Day generates an app-specific identifier under the app id
 (`<app-id>.document.<n>`).
 
-### The app's own format
+## The app's own format
 
 A format the app defines takes three more keys:
 

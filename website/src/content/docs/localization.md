@@ -2,7 +2,7 @@
 title: Localization
 description: "Organize Fluent catalogs by app, crate, or source module; use generated Rust accessors; add languages and check translations."
 order: 21
-section: Guides
+section: How-to guides
 ---
 
 <!--
@@ -116,6 +116,7 @@ column((
 ))
 ```
 
+`Ada` stands in for a user's name; the greeting itself belongs in Fluent.
 Generated functions return `LocalizedText`. Arguments accept values or signals. A missing
 function, the wrong number of arguments, or a string passed to a numeric plural selector is a
 compile error. Every locale must use the same parameter names. A message with one parameter
@@ -133,7 +134,7 @@ label(res::str::items_moved(res::str::ItemsMoved {
 }))
 ```
 
-The [example catalog](/docs/internal/snippet-catalog) defines the messages used throughout
+The [example catalog](/docs/reference/examples/catalog) defines the messages used throughout
 the UI snippets. Copy the messages your example needs into your app's catalog.
 
 Keep numbers numeric so Fluent can choose the plural form and format the digits. Use
@@ -145,7 +146,7 @@ last_saved = Saved { DATETIME($when, dateStyle: "long", timeStyle: "short") }
 ```
 
 `DATETIME()` accepts civil date/time strings or Unix seconds rendered as UTC. The
-[formatting reference](/docs/internal/localization#formatted-values-number-and-datetime)
+[formatting reference](/docs/reference/localization#formatted-values-number-and-datetime)
 lists the supported options. Day also provides `format_decimal`, locale-aware sorting, and
 search matching for values outside messages.
 
@@ -161,6 +162,13 @@ let title = if finished {
     crate::res::str::resume()
 };
 button(title)
+```
+
+Add the corresponding messages to each locale:
+
+```ftl
+play_again = Play again
+resume = Resume
 ```
 
 The dynamic `tr(key)` API remains available for keys known only at runtime. It uses the global
@@ -213,7 +221,7 @@ the app's locale signal. Reinstalling the app catalog leaves private catalogs in
 
 The two include macros both declare `res`. Use one at a given module location. If a crate
 needs both generators, include their output files under separate modules, as described in the
-[reference](/docs/internal/localization#combining-resource-and-private-catalog-generation).
+[reference](/docs/reference/localization#combining-resource-and-private-catalog-generation).
 
 ## Split a catalog by source module
 
@@ -247,10 +255,10 @@ moves = { NUMBER($count) } moves
 The generated calls are:
 
 ```rust
-crate::res::str::game_title()
-crate::res::board::str::heading()
-crate::res::board::str::moves(4_i64)
-crate::res::board::str::close()
+crate::res::str::game_title();
+crate::res::board::str::heading();
+crate::res::board::str::moves(4_i64);
+crate::res::board::str::close();
 ```
 
 `board.ftl` imports the same locale's `app.ftl`. Its generated module includes accessors for
@@ -315,7 +323,7 @@ store and platform spellings during generation. Keep identity text, permission r
 platform shortcut labels in the app's root catalogs because platform metadata tools read
 those catalogs. Store descriptions and release notes live separately in `store/storefront.toml`, one
 `[storefront.metadata.<tag>]` table per locale.
-See [store listings](/docs/internal/store) and [permission reasons](/docs/guide-permissions).
+See [store listings](/docs/how-to/store) and [permission reasons](/docs/how-to/guide-permissions).
 
 `day localize remove fr` removes the locale from the app surfaces that `add` manages. It refuses
 to remove the default locale. Remove the corresponding dependency catalogs and CI entries
@@ -386,7 +394,7 @@ does by restarting it.
 A missing private message falls back to that catalog's default language. It does not search
 another crate or the app catalog for a matching key. The global app catalog retains the
 app-to-core fallback used by dialog buttons and menu commands. The
-[lookup reference](/docs/internal/localization#lookup-and-fallback) gives both lookup orders.
+[lookup reference](/docs/reference/localization#lookup-and-fallback) gives both lookup orders.
 
 Right-to-left layout direction is chosen at launch. Switching locale while the app runs
 updates strings, but changing between left-to-right and right-to-left layout requires a new
@@ -422,7 +430,7 @@ used it, call its generated `res::locales::register()` or
 `res::board::locales::register()` during setup. Bare assertion keys keep their global meaning.
 Keep element IDs unchanged across locales so the same script can drive each language.
 
-In a [Day app workflow](/docs/github-actions), set both inputs:
+In a [Day app workflow](/docs/how-to/github-actions), set both inputs:
 
 ```yaml
 with:
@@ -434,5 +442,61 @@ with:
 locale first, so `day localize add` reaches CI as well. Name the locales instead and that list is
 yours to update. Localized screenshot titles and
 captions belong in the DayScript screenshot metadata; the generated app website uses those
-alongside the translated store descriptions. See [DayScript](/docs/dayscript) for assertions,
+alongside the translated store descriptions. See [DayScript](/docs/how-to/dayscript) for assertions,
 captures, and gallery metadata.
+
+## Check message lifetime and build failures
+
+Use generated message values directly where a piece accepts `IntoText`; call `.format()` only
+where an API needs a `String`. Formatting creates a snapshot. To follow locale changes, keep
+message inputs in state and format inside a tracked UI closure. A callback with a `Send` bound
+should send data through a `Setter`; do not format UI messages on its worker thread.
+
+The Rust blocks on this page are setup excerpts and integration fragments. For a complete,
+compiled catalog and app, use [the first-app lesson](/docs/tutorials/first-app); the
+[technical recipes](/docs/reference/examples/catalog#technical-recipes) also compile their exact
+catalog blocks. Undefined generated names are compiler errors, while invalid catalog/schema
+input can fail `prebuild_project`, whose return is `Result<(), String>`. Keep the error handling
+in `build.rs` so generation failure stops the build.
+
+Source: [generation entry points](https://github.com/daybrite/day/blob/main/crates/day-build/src/lib.rs),
+[Fluent runtime](https://github.com/daybrite/day/tree/main/crates/day-fluent), and
+[locale runtime](https://github.com/daybrite/day/tree/main/crates/day-l10n).
+A compile check is not translation-quality or all-locale rendering validation.
+
+## Bind complete messages to state
+
+The caller supplies a user's name and a count. Both labels follow signal and locale changes.
+The second message uses named arguments so the wording and order remain in Fluent.
+
+Complete module for `src/localization_recipe.rs` in the
+[technical recipe harness](/docs/reference/examples/catalog#technical-recipes).
+Add the matching Fluent messages below. This module is compiled as part of the harness;
+it is not a standalone app.
+
+<!-- technical-example: localization_recipe -->
+```rust
+use crate::res;
+use day::prelude::*;
+
+pub fn greeting(name: Signal<String>, count: Signal<i64>) -> impl Piece {
+    column((
+        label(res::str::recipe_greeting(name)).id(id!(recipe_greeting)),
+        label(res::str::recipe_unread(res::str::RecipeUnread {
+            count,
+            name,
+        }))
+        .id(id!(recipe_unread)),
+    ))
+    .spacing(Space::M)
+}
+```
+
+<!-- technical-catalog: localization_recipe -->
+```ftl
+recipe_greeting = Hello, { $name }!
+recipe_unread = { $count ->
+    [one] { $name }, you have one unread note.
+   *[other] { $name }, you have { $count } unread notes.
+}
+```

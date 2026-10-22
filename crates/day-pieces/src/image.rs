@@ -214,7 +214,7 @@ impl Piece for Image {
 
 /// A bundled vector glyph, resolved by name through whatever form the backend loads natively
 /// (§18.3: a VectorDrawable on Android, a catalog entry on Apple, an SVG on the web, a
-/// build-rasterized PNG where the toolkit has no vector path). Distinct from [`image`] on
+/// build-rasterized PNG where the toolkit has no vector path). Distinct from [`image()`] on
 /// purpose: only a typed [`VectorName`](day_spec::VectorName) is accepted, and the modifiers
 /// are the vector-appropriate ones: [`tint`](Vector::tint) recolors a monochrome glyph where
 /// the backend can (template rendering on Apple, drawable tint on Android, pixel recolor on

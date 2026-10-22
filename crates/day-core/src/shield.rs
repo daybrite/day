@@ -8,7 +8,7 @@
 //!
 //! Gesture deferral and the status bar flow straight to the backend
 //! (`Toolkit::defer_system_gestures`, `Toolkit::set_status_bar_hidden`) on every change. Dismiss-disabled is a *query*: the `cover` piece reads it (reactively, via the
-//! change [`Trigger`]) when deciding whether a native back may close it and when patching the
+//! change [`day_reactive::Trigger`]) when deciding whether a native back may close it and when patching the
 //! presented surface's `isModalInPresentation`-style flag.
 
 use std::cell::{Cell, RefCell};

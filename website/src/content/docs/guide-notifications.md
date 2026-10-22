@@ -2,7 +2,7 @@
 title: Local notifications
 description: "Immediate and scheduled notifications, permissions, and tap handling."
 order: 28
-section: Guides
+section: How-to guides
 ---
 
 <!--
@@ -14,12 +14,49 @@ Local notifications let an app deliver reminders and status updates through the 
 system. `day-part-local-notify` supports immediate and scheduled delivery, including reminders
 due after the app has closed. Posting a notification requires permission and a configured channel:
 
-**Works on:** iOS, macOS, and Android. Support is selected by `target_os` and applies to every backend on those operating systems. Linux, Windows, HarmonyOS, and the web compile the same code and report
-`NotifyError::Unsupported`; gate the UI with `capabilities()` (step 6). The full design and the
-per-platform details are in [the notify reference](/docs/internal/notify).
+**Works on:** iOS, macOS, Android, and HarmonyOS. Support is selected by operating system.
+HarmonyOS schedules only while the app remains alive; Apple and Android can retain schedules
+after exit. Linux, Windows, and the browser return `NotifyError::Unsupported`. Gate the UI with
+`capabilities()` (step 6); see the [per-platform table](/docs/reference/notify#platform-capabilities).
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
-[example messages](/docs/internal/snippet-catalog) and [catalog setup](/docs/localization).
+[example messages](/docs/reference/examples/catalog) and [catalog setup](/docs/how-to/localization).
+
+## Register a localized channel and post
+
+Call this module on the UI thread after notification permission is granted. Add the two
+notification dependencies described below. Channel IDs are protocol identifiers; the channel
+name and notification title are user-facing and must use generated accessors.
+
+Complete module for `src/notify.rs` in the [technical recipe harness](/docs/reference/examples/catalog#technical-recipes).
+The harness compiles this exact block; it is not a standalone app. Add the catalog entries below
+to `resource/locales/en/app.ftl` and declare the module in `src/lib.rs`.
+
+<!-- technical-example: notify -->
+```rust
+use crate::res;
+use day_part_local_notify::{Channel, Importance, NotifId, Notification, NotifyError};
+
+pub fn post_reminder() -> Result<NotifId, NotifyError> {
+    Channel::new("reminders", Importance::High)
+        .name(res::str::reminders_channel().format())
+        .sound(true)
+        .register();
+    Notification::new(res::str::reminder_title().format())
+        .channel("reminders")
+        .post()
+}
+```
+
+<!-- technical-catalog: notify -->
+```ftl
+reminders_channel = Reminders
+reminder_title = Your reminder is ready.
+```
+
+`Channel::register` returns `()`. `post` returns an ID or `NotifyError`; success is acceptance,
+not proof that the user saw a banner. The title is a localized snapshot, so a scheduled
+notification does not change language later. The remaining code blocks are integration fragments.
 
 ## 1. Declare the permission
 
@@ -58,7 +95,7 @@ if status(Permission::Notifications) != Status::Granted {
 ```
 
 The callback may run on another thread, so use a `Setter` to update UI state. Ask when the
-user enables a feature that needs notifications. The [permissions guide](/docs/guide-permissions)
+user enables a feature that needs notifications. The [permissions guide](/docs/how-to/guide-permissions)
 explains how to handle a denial and offer a link to system settings.
 
 ## 3. Post one now
@@ -71,6 +108,7 @@ sound. Register the channel once, before posting to it; registration is idempote
 use day_part_local_notify::{Channel, Importance, Notification};
 
 Channel::new("timers", Importance::High)
+    .name(res::str::reminders_channel().format())
     .sound(true)
     .register();
 
@@ -166,13 +204,13 @@ notifications section can hide itself.
   `willPresent`. The crate ships that delegate; it shows the banner, the list entry, and the
   channel's sound, and its `didReceive` delivers taps. If you install your own
   `UNUserNotificationCenterDelegate`, you take that job over.
-- `day launch` runs an unbundled binary, and `UNUserNotificationCenter` does not exist without a
-  bundle identifier; the crate reports `Unsupported` rather than crashing. Run `day pack -t
-  macos-appkit` and launch the `.app` to see real notifications in the dev loop.
+- The current AppKit CLI path launches an Xcode host bundle. A manually run bare binary has
+  different notification behavior; check the bundle identifier and granted consent before
+  attributing a failure to `post()`. The recipe check compiles but does not deliver notifications.
 
 ## Reference
 
-[notify](/docs/internal/notify) — the full API, the per-platform capability matrix, scheduling
+[notify](/docs/reference/notify) — the full API, the per-platform capability matrix, scheduling
 internals, and plans for platforms not yet supported.
-[permissions](/docs/internal/permissions) covers the consent half, and
-[Permissions](/docs/guide-permissions) covers the app configuration and runtime requests.
+[permissions](/docs/reference/permissions) covers the consent half, and
+[Permissions](/docs/how-to/guide-permissions) covers the app configuration and runtime requests.

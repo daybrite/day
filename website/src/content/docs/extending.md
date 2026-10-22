@@ -2,7 +2,7 @@
 title: The extension model
 description: "How new widgets and capabilities plug into Day as ordinary crates: composite pieces, native pieces, parts, and the registration machinery."
 order: 40
-section: Extend
+section: Contributing
 ---
 
 <!--
@@ -12,14 +12,22 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 Day extensions are Cargo crates that compose existing pieces, configure native widgets, or add
 new platform implementations. The amount of native code depends on the approach. Composition
-reuses existing backends; a [tweak](/docs/tweaks) configures a widget; a native piece adds a control.
+reuses existing backends; a [tweak](/docs/how-to/tweaks) configures a widget; a native piece adds a control.
 Day’s build tools include the extension’s declared sources and dependencies.
+
+The code blocks here are conceptual excerpts, not compilable files. Ellipses and missing
+application types are intentional; use the linked crate source as the contract. These extension
+tiers describe implementation approaches and are separate from platform maintenance tiers.
+
+The code blocks here are conceptual excerpts, not compilable files. Ellipses and missing
+application types are intentional; use the linked crate source as the contract. These extension
+tiers describe implementation approaches and are separate from platform maintenance tiers.
 
 ## Tier 0: pieces composed from existing pieces
 
-A composite [piece](/docs/glossary#piece) is Rust code that arranges existing Pieces. It needs no native code or
-registration, and it works on every [target](/docs/glossary#target) automatically because it bottoms out in Pieces that
-already do.
+A composite [piece](/docs/reference/glossary#piece) is Rust code that arranges existing Pieces. It needs no native code or
+registration. Its support follows the pieces and capabilities it uses; composition does not
+supply missing backend behavior.
 
 ```rust
 pub fn rating(value: Signal<usize>) -> Rating { … }   // a row of tappable canvas stars
@@ -30,12 +38,12 @@ rating(stars).max(5).editable(true)
 
 Most reusable UI in a Day app is this tier: cards, badges, form rows, charts drawn with
 `canvas`. The shipped `day-piece-rating` and `day-piece-settings` crates are composite pieces,
-and the [composite piece tutorial](/docs/tutorial-composite-piece) provides a complete example.
+and the [composite piece tutorial](/contributing/tutorials/composite-piece) provides a complete example.
 
 ## Tier 1: a native leaf widget per toolkit
 
 When the platform has a control Day doesn't wrap (a combo box, a web view, a map), you write a
-**native piece**: one cross-platform front end plus a renderer per [toolkit](/docs/glossary#toolkit) you support.
+**native piece**: one cross-platform front end plus a renderer per [toolkit](/docs/reference/glossary#toolkit) you support.
 
 The front end defines the piece's identity and its props/patch protocol, and creates a leaf node
 (abridged from `pieces/day-piece-combobox`):
@@ -58,7 +66,7 @@ impl Piece for ComboBox {
 }
 ```
 
-Each [backend](/docs/glossary#backend) contributes `make` (create the native widget) and `update` (apply a patch),
+Each [backend](/docs/reference/glossary#backend) contributes `make` (create the native widget) and `update` (apply a patch),
 registered at link time:
 
 ```rust
@@ -81,7 +89,7 @@ renderer uses `dom_renderer!` and registers at runtime from the piece's construc
 
 A piece that implements some toolkits and not others renders a labeled placeholder on the rest,
 so the gap is visible and coverage can grow toolkit by toolkit. The
-[native piece tutorial](/docs/tutorial-native-piece) walks through all six desktop/mobile
+[native piece tutorial](/contributing/tutorials/native-piece) walks through all six desktop/mobile
 backends for one control.
 
 ### Native dependencies without scaffold edits
@@ -114,7 +122,7 @@ ets = ["platform/harmony/ets"]          # ArkTS components (HarmonyOS)
 uses = ["camera"]           # portable permission names, mapped per platform
 ```
 
-The [extending reference](/docs/internal/extending) documents every key.
+The [extending reference](/contributing/backend-contracts/extending) documents every key.
 
 At build time, `day build` resolves every piece in your app's dependency graph via
 `cargo metadata` and regenerates the glue the platform projects reference: a local SwiftPM
@@ -131,16 +139,16 @@ Swift, Java, ArkTS, or C++ sources, declares them under `[package.metadata.day.<
 its tier-1 Rust renderer adopts the views those shims create.
 
 For code that must be *written* in Swift, that need is covered today by
-[SwiftUI embedding](/docs/internal/swiftui): a SwiftPM package's public views become typed Rust
+[SwiftUI embedding](/docs/reference/swiftui): a SwiftPM package's public views become typed Rust
 constructors (`crate::swiftui::MyView(…)`) on macos-appkit and ios-uikit. The matching
 Kotlin/Compose leg is not built yet.
 
 ## Parts: capabilities without UI
 
-Extensions that don't render (battery, clipboard, Bluetooth) are [parts](/docs/parts), which
-skip all of the above machinery: a [part](/docs/glossary#part) is plain `#[cfg]`-dispatched functions, with no [kind](/docs/glossary#kind),
+Extensions that don't render (battery, clipboard, Bluetooth) are [parts](/docs/reference/parts), which
+skip all of the above machinery: a [part](/docs/reference/glossary#part) is plain `#[cfg]`-dispatched functions, with no [kind](/docs/reference/glossary#kind),
 renderer, or registry (plus the same Cargo-metadata mechanism when Android needs Java or permissions). The
-[part tutorial](/docs/tutorial-part) covers six platform implementations of one API.
+[part tutorial](/contributing/tutorials/part) covers six platform implementations of one API.
 
 ## Choosing a tier
 
@@ -148,12 +156,12 @@ renderer, or registry (plus the same Cargo-metadata mechanism when Android needs
 does it render anything?
  ├─ no  → part
  └─ yes → is it an existing widget that just needs configuring?
-           ├─ yes → tweak                      (/docs/tweaks — configure a widget)
+           ├─ yes → tweak                      (/docs/how-to/tweaks — configure a widget)
            └─ no  → can you build it from existing pieces (incl. canvas)?
                      ├─ yes → composite piece  (uses existing backends)
                      └─ no  → native piece     (per-toolkit renderers, placeholder elsewhere)
                                └─ implementation must live in Swift/Kotlin itself?
-                                   ├─ Swift  → SwiftUI embedding (/docs/internal/swiftui)
+                                   ├─ Swift  → SwiftUI embedding (/docs/reference/swiftui)
                                    └─ Kotlin → Compose leg not built yet
 ```
 

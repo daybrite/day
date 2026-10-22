@@ -79,7 +79,7 @@ the dashboard without clearing the selected section.
    from unguarded compact navigation.
 2. Keep page identity/title/role and Day-owned content separate from their fragment
    presentation wrappers. Reuse content across layout changes. Do not change an
-   existing fragment's container ID or dispose Rust scopes simply to move a pane.
+   existing fragment's container ID or dispose Rust scopes to move a pane.
 3. Add Android placement for the existing `Pane::List`/`.content_list(...)` contract.
    Today Android advertises NavContentList unsupported and the shared layer builds
    list and reader together. That prevents the toolkit from independently placing

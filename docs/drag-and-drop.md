@@ -56,7 +56,7 @@ before `.drop_target(...)` when the identifier must still address the canvas its
 transfer decorator creates a native wrapper. The source and target may be the same piece.
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
-[example messages](snippet-catalog.md) and [catalog setup](https://daybrite.dev/docs/localization).
+[example messages](snippet-catalog.md) and [catalog setup](https://daybrite.dev/docs/how-to/localization).
 
 ## Acceptance and completion
 

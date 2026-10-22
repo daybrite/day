@@ -2,7 +2,7 @@
 title: Logging
 description: "Day emits through the `log` facade: levels, per-platform sinks, DAY_LOG, and how to install env_logger, tracing, or your own logger."
 order: 25
-section: Guides
+section: How-to guides
 ---
 
 <!--
@@ -47,7 +47,7 @@ In a browser each level maps to the matching console method, so devtools' level 
 Day's output the way it does on your page's. Lines read `LEVEL target: message`, where the target
 names the crate and module that emitted them:
 
-```
+```text
 INFO  my_app: importing 412 rows
 WARN  day_core::nav: .restore("app.section") has no NavStore installed — …
 ```
@@ -63,7 +63,7 @@ you redirect to a file, when `NO_COLOR` is set, and on the targets with no termi
 Xcode's console, the browser). Under `day launch` the app's stderr is a pipe, so
 `day launch` does the coloring instead, tagging each line with the target it came from:
 
-```
+```text
 [macos-appkit] ERROR my_app: the database is unreadable
 [macos-appkit] INFO  my_app: importing 412 rows
 ```

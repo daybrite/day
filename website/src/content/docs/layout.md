@@ -2,7 +2,7 @@
 title: Layout
 description: "Arrange controls, manage flexible space, and understand how Day measures a screen."
 order: 13
-section: Concepts
+section: Explanation
 ---
 
 <!--
@@ -14,8 +14,14 @@ Day measures and positions the UI through a shared layout engine. Native toolkit
 text and controls; Day uses those measurements to calculate frames and place widgets in their
 containers. This gives the app a consistent layout API while respecting native control sizes.
 
+The opening blocks are API excerpts and layout fragments. The
+[complete layout module](#build-a-labeled-settings-row) and [layout lesson](/docs/tutorials/layout)
+provide compilable examples. Source contracts live in
+[container builders](https://github.com/daybrite/day/blob/main/crates/day-pieces/src/containers.rs)
+and [core layout](https://github.com/daybrite/day/blob/main/crates/day-core/src/layout.rs).
+
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
-[example messages](/docs/internal/snippet-catalog) and [catalog setup](/docs/localization).
+[example messages](/docs/reference/examples/catalog) and [catalog setup](/docs/how-to/localization).
 
 ## Arrange controls
 
@@ -25,7 +31,7 @@ the gap between children; `.padding()` adds space around a group.
 ```rust
 column((
     label(res::str::account()).font(Font::Title),
-    row((label(res::str::notifications()), spacer(), toggle(enabled))),
+    labeled(res::str::notifications(), toggle(enabled).id(id!(notifications_toggle))),
 ))
 .spacing(Space::M)
 .padding(Space::L)
@@ -34,8 +40,8 @@ column((
 Here, `enabled` is a `Signal<bool>`. `Space` is the spacing scale: `XS` (4), `S` (8), `M` (12),
 `L` (16) and `XL` (24) points, accepted wherever a gap or an inset is, beside a raw `f64`. Use
 the steps the way you use `Font::Headline` instead of a point size: `S` between siblings, `M`
-between groups, `L` for a page's edge inset, `XL` between major regions. The spacer takes the row’s remaining horizontal space,
-leaving the label and toggle at opposite ends. Use `scroll(content)` when the content can be
+between groups, `L` for a page's edge inset, `XL` between major regions. `labeled` lays out the title and control
+and supplies the control’s accessible name. Use `scroll(content)` when the content can be
 taller than its window.
 
 Containers fit their content by default. Add `.grow()` when a pane should take the available
@@ -51,16 +57,16 @@ label(res::str::total())
     .padding(Insets::symmetric(12.0, 6.0))  // or .padding(Space::S) for all edges; Insets::horizontal(12.0),
                                             // ::vertical, ::top, ::bottom, ::leading, ::trailing for one side or pair
     .frame(200.0, 44.0)                     // fixed size (or .width / .height for one axis)
-    .grow()                                 // take flexible space in the parent's axis
+    .grow();                                // take flexible space in the parent's axis
 
-column((a, b, c)).spacing(Space::S).align(HAlign::Leading)
-row((x, spacer(), y))                       // spacer pushes x and y apart
-zstack((photo, badge)).align(Alignment::TopTrailing)
-scroll(long_column)
+column((a, b, c)).spacing(Space::S).align(HAlign::Leading);
+row((x, spacer(), y));                      // spacer pushes x and y apart
+zstack((photo, badge)).align(Alignment::TopTrailing);
+scroll(long_column);
 ```
 
 `padding`, `frame`, and friends are layout-only wrapper nodes: they exist in Day's tree but
-create no native widget, so nesting them is cheap. They wrap in call order; `.id(..)` names the
+create no native widget, so they add layout work without adding native widgets. They wrap in call order; `.id(..)` names the
 piece's own node wherever it sits in the chain, and `.card()` is the platform's grouped surface
 (rounded, with a `Space::M` inset) in one call.
 
@@ -78,7 +84,8 @@ pub trait Layout {
 }
 ```
 
-The two-phase pass looks like this for a simple form row:
+The excerpt omits the `Layout: 'static` bound and optional `baseline` method. The two-phase
+pass looks like this for a form row:
 
 ```text
 measure                                     place
@@ -107,8 +114,9 @@ content.
 
 Leaf Pieces answer `measure` by asking the real widget. This matters most for text, which is
 **height-for-width**: propose a width, and the toolkit's text engine (Core Text, Pango,
-minikin, QFontMetrics) reports the wrapped height. Day never guesses at glyph metrics, so a
-label wraps exactly where the platform would wrap it, in every script and [locale](/docs/glossary#locale).
+minikin, QFontMetrics) reports the wrapped height. The result depends on the backend’s measurement implementation and available fonts. Check
+wrapping in the scripts and [locales](/docs/reference/glossary#locale) your app ships; source
+inspection alone does not establish identical measurement and rendering on every target.
 
 The cost is that measurement is a real call into the toolkit, and on Android it's a JNI
 round-trip. Negotiation multiplies these probes, so Day carries a **measure cache** per node,
@@ -118,7 +126,7 @@ a caching regression fails tests.
 
 ## Incremental relayout
 
-When a [binding](/docs/glossary#binding) changes something size-affecting (a label's text grows, a font changes), the node
+When a [binding](/docs/reference/glossary#binding) changes something size-affecting (a label's text grows, a font changes), the node
 is marked dirty and the change propagates to the nearest **layout boundary**: a node whose size is
 externally fixed, like the window root, a `scroll`, or a node with an explicit two-axis
 `.frame(w, h)`. At the turn boundary, layout re-enters *there*, not at the root:
@@ -154,24 +162,60 @@ Mock-toolkit golden tests pin this behavior down.
   and pad the content by those insets to run it under the system bars.
 - **Right-to-left**: since Day owns placement, RTL is a single x-mirror applied at place time.
   `Layout` implementations are written using leading/trailing coordinates, and the
-  [backends](/docs/glossary#backend) set the native per-view direction so text, cursors, and assistive technology agree
+  [backends](/docs/reference/glossary#backend) set the native per-view direction so text, cursors, and assistive technology agree
   with the mirrored layout.
 
 ## Tradeoffs
 
 Owning layout gives Day the same negotiation on every platform, testable on the
-[mock toolkit](/docs/rendering#the-mock-toolkit) without a display, and it is why per-locale
+[mock toolkit](/contributing/rendering#the-mock-toolkit) without a display, and it is why per-locale
 reflow and RTL are features of the framework that every backend shares. It also has costs:
 
 - Native layout idioms don't apply: Auto Layout constraints, Compose modifiers, and GTK size groups
   have no effect inside a Day window.
 - Measurement crosses the FFI. The cache keeps this off the hot path, but a pathological
   layout (thousands of unique text leaves invalidating at once) pays real per-leaf costs,
-  especially over JNI. The native [`list`](/docs/internal/list) exists so that long
+  especially over JNI. The native [`list`](/docs/reference/list) exists so that long
   scrolling content doesn't become that case.
-- Deep negotiation is O(children) per level. SwiftUI has the same cost; it is rarely a
-  problem, but it becomes visible when you build a custom `Layout`.
+- A custom `Layout` controls its own probing strategy. Measure-call tests can catch excessive
+  probes; no cross-framework complexity or performance comparison is established here.
 
 ---
 
-Next: [Styling](/docs/styling), what you can restyle and what stays native.
+Next: [Styling](/docs/explanation/styling), what you can restyle and what stays native.
+
+## Build a labeled settings row
+
+Use `labeled` to associate a visible title with a control. Put the stable ID on the control
+itself. This example leaves text height flexible and scrolls when space is limited.
+
+Complete module for `src/layout_recipe.rs` in the
+[technical recipe harness](/docs/reference/examples/catalog#technical-recipes).
+Add the matching Fluent messages below. This module is compiled as part of the harness;
+it is not a standalone app.
+
+<!-- technical-example: layout_recipe -->
+```rust
+use crate::res;
+use day::prelude::*;
+
+pub fn settings(enabled: Signal<bool>) -> impl Piece {
+    scroll(
+        column((
+            label(res::str::layout_heading()).font(Font::Title),
+            labeled(
+                res::str::layout_notifications(),
+                toggle(enabled).id(id!(layout_notifications)),
+            ),
+        ))
+        .spacing(Space::M)
+        .padding(Space::L),
+    )
+}
+```
+
+<!-- technical-catalog: layout_recipe -->
+```ftl
+layout_heading = Settings
+layout_notifications = Notifications
+```

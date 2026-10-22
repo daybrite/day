@@ -1,8 +1,8 @@
 ---
 title: Linux (Qt 6)
-description: Build Day apps for Linux with Qt 6 Widgets — dependencies, optional Qt modules, flatpak packaging, per-platform caveats, and which Qt class every Day piece becomes.
+description: "Linux with Qt 6 Widgets: dependencies, optional modules, packaging, and target-specific limitations."
 order: 33.5
-section: Platforms
+section: Reference
 ---
 
 {/*
@@ -10,14 +10,9 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 */}
 
-import PlatformShots from '../../../components/PlatformShots.astro';
-
-`linux-qt` renders Qt 6 Widgets through a small compiled C++ shim. It's the toolkit beneath KDE
-Plasma, its `QAccessible` layer bridges to the native accessibility API on every OS (no other Day
-backend does that today), and it is portable enough to also be a development target on macOS and
-Windows.
-
-<PlatformShots platform="linux-qt" shots={["home", "controls", "canvas", "tabs-one"]} />
+`linux-qt` is a Tier 2 desktop target using Qt 6 Widgets through a C++ integration. Choose it
+when a Qt interface fits your Linux audience. Available controls and services depend on the
+Qt modules in the build; inspect those requirements before distributing the app.
 
 ## Getting started
 
@@ -29,7 +24,7 @@ sudo apt install qt6-base-dev qt6-svg-dev pkg-config    # Debian/Ubuntu
 sudo dnf install qt6-qtbase-devel qt6-qtsvg-devel pkgconf  # Fedora
 brew install qt pkg-config                    # macOS, for the macos-qt dev combo
 
-cargo install day-cli
+cargo install --git https://github.com/daybrite/day day-cli
 day new app my-app --toolkit linux-qt
 cd my-app
 day launch -t linux-qt
@@ -40,7 +35,7 @@ native vector renderer. That package also installs the Qt SVG runtime used by bu
 vector icons and Day's shared symbol fallbacks.
 
 Sound effects play through libpulse, which a desktop already has
-([system requirements](/docs/system-requirements#optional-sound-effects)).
+([system requirements](/docs/reference/system-requirements#optional-sound-effects)).
 
 Two optional modules enable two pieces; without a module the build still succeeds and the piece
 degrades:
@@ -79,16 +74,16 @@ the built binary to decide.
 - Lottie and map have no Qt arm; each renders its placeholder. `cover()` presents as
   a topmost window-sized child (no transition, programmatic dismissal only).
 - Qt on macOS and Windows (`macos-qt`, `windows-qt`) is a development combo, and stays at
-  [Tier 4](/docs/platforms#support-tiers), so `day pack` skips it.
+  [Tier 4](/docs/reference/platforms#support-tiers), so `day pack` skips it.
   Windows builds against MSYS2's Qt 6 with a GNU Rust toolchain
-  ([setup](/docs/platforms/windows-winui#qt-and-gtk-on-a-windows-host)) and is marked experimental in CI.
+  ([setup](/docs/reference/platforms/windows-winui#qt-and-gtk-on-a-windows-host)) and is marked experimental in CI.
   MSYS2 has no Qt 6 WebEngine, so the web view degrades to its URL label there. CI's x86-64 MinGW
   `ld` additionally drops external piece renderer registrations, so those pieces draw placeholders
   on that build; a clang/`lld` MSYS2 environment keeps them.
 
 ## What each piece becomes
 
-The generated [coverage matrix](/docs/internal/coverage-matrix), checked in CI, covers every backend;
+The generated [coverage matrix](/contributing/backend-contracts/coverage-matrix), checked in CI, covers every backend;
 this table adds links and notes.
 
 | Day piece | Qt class |

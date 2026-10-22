@@ -45,7 +45,7 @@ pub fn window() -> day::WindowOptions {
     res::window_options().size(960.0, 640.0)
 }
 
-// Typed names for everything under `resource/` (https://daybrite.dev/docs/resources).
+// Typed names for everything under `resource/` (https://daybrite.dev/docs/how-to/resources).
 day::resources!();
 
 /// The first window's content: the registered GUI cases to browse, inside the test host that

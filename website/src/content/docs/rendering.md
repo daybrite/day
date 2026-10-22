@@ -2,7 +2,7 @@
 title: How rendering works
 description: "Following a widget through the system: mounting, the realized tree, patches, events, the turn, and the mock toolkit."
 order: 51
-section: Under the hood
+section: Contributing
 ---
 
 <!--
@@ -12,7 +12,7 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 Day’s renderer connects the piece tree to native widgets. This page follows widget creation,
 event handling, and signal updates through that process. It complements the
-[architecture guide](/docs/architecture) and is intended for developers working on the framework.
+[architecture guide](/contributing/architecture) and is intended for developers working on the framework.
 
 ## The realized tree
 
@@ -29,9 +29,9 @@ NodeData
 └─ measure cache   proposal → size, plus a needs_measure flag
 ```
 
-The `handle` is whatever the [backend](/docs/glossary#backend) wants it to be: a retained `NSView` pointer on AppKit, a
+The `handle` is whatever the [backend](/docs/reference/glossary#backend) wants it to be: a retained `NSView` pointer on AppKit, a
 JNI `GlobalRef` on Android, an opaque C++ pointer on Qt. `day-core` never looks inside it; it
-only hands it back to the [toolkit](/docs/glossary#toolkit).
+only hands it back to the [toolkit](/docs/reference/glossary#toolkit).
 
 The tree has no shadow copy for diffing; it is the only representation of the UI that Day keeps.
 
@@ -41,14 +41,14 @@ When a Piece's `build` runs, the node is created, and (for native kinds) the bac
 to realize it:
 
 ```text
-cx.leaf("day.button", &ButtonProps { title: "Save" })
+button(res::str::save()) → Piece::build (conceptual flow)
   │
   ├─ insert node into the arena, under the current parent
   ├─ toolkit.realize("day.button", props, node_id)  → native NSButton, returns Handle
   ├─ compute native insertion index                  (skipping layout-only ancestors:
-  │                                                   a column has no native counterpart,
-  │                                                   so its children flatten into the
-  │                                                   nearest real native container)
+  │                                                   padding wrappers have no native counterpart;
+  │                                                   row/column create native containers;
+  │                                                   flatten only layout-only ancestors)
   ├─ toolkit.insert(parent_handle, handle, index)
   └─ mark ancestors needs_measure
 ```
@@ -60,9 +60,10 @@ jobs the mock-toolkit golden tests pin down.
 
 ## Updates are patches
 
-Nothing ever re-builds a mounted widget. Changes arrive as **patches**, small enums per kind
+Bound attributes normally update an existing widget. Structural changes may dispose and rebuild
+subtrees. Attribute changes arrive as **patches**, small enums per kind
 (`LabelPatch::Text(String)`, `SliderPatch::Value(f64)`), produced by the bindings that
-[reactivity](/docs/reactivity) re-runs:
+[reactivity](/docs/explanation/reactivity) re-runs:
 
 ```text
 signal write ─► binding re-runs ─► eq-gate ─► tree.patch(node, patch, affects_size)
@@ -72,9 +73,9 @@ signal write ─► binding re-runs ─► eq-gate ─► tree.patch(node, patch
                                                        mark needs_measure, bubble to boundary
 ```
 
-The `affects_size` flag is decided by the [piece](/docs/glossary#piece) author: a text change might, a color change
+The `affects_size` flag is decided by the [piece](/docs/reference/glossary#piece) author: a text change might, a color change
 doesn't. Size-affecting patches queue incremental relayout
-([how that works](/docs/layout#incremental-relayout)); everything else is done after one native
+([how that works](/docs/explanation/layout#incremental-relayout)); everything else is done after one native
 call.
 
 ## Event delivery
@@ -82,9 +83,9 @@ call.
 Backends register native callbacks once per widget and translate them to a uniform
 `(NodeId, Event)` stream. On AppKit, for instance, a Rust-defined Objective-C class holds the
 node id and is set as the widget's target; its action method classifies the sender (switch →
-`ToggleChanged`, slider → `ValueChanged`, button → `Pressed`) and emits. Every backend's sink
-only enqueues; user code runs after the native callback returns, which makes re-entrancy
-problems (a handler mutating the tree mid-native-dispatch) impossible.
+`ToggleChanged`, slider → `ValueChanged`, button → `Pressed`) and emits. Core queues events for batched delivery. Backend callbacks and custom extensions must still
+respect native re-entrancy rules; queued dispatch is not a guarantee that arbitrary native
+callbacks cannot re-enter toolkit code.
 
 ```text
 user clicks NSButton
@@ -116,7 +117,8 @@ native event(s)
 ```
 
 Each turn runs at most one layout pass and groups native mutations where the toolkit wants them.
-There is no per-frame tick, so an idle Day app runs no code.
+Bindings do not require a continuous rebuild loop. Timers, animations, background services,
+and toolkit work can still run while the app has no user input.
 
 ## Drawing: canvas as a display list
 
@@ -133,35 +135,31 @@ rasterizing anything itself.
 
 `day-mock` implements the full `Toolkit` trait with no display: handles are plain structs,
 measurement is deterministic (fixed metrics per kind), and every call appends to an op log.
-Tests mount real Pieces against it inside ordinary `cargo test`; this is condensed from Day's
-own test suite:
-
-```rust
-let (mock, probe) = MockToolkit::new();
-day_core::launch_with(mock, options, || counter_ui());
-
-probe.clear_log();
-probe.emit(button_node, Event::Pressed);            // synthesize the click
-
-let muts = probe.mutations();
-assert_eq!(muts.len(), 1);                          // one native mutation for the click
-assert!(muts[0].contains("update day.label"));
-assert!(probe.measure_calls() <= 6);                // relayout stayed on the label's path
-```
-
-CI runs those assertions as golden tests over the op log, so a click that causes two native
-mutations, or an unbounded measure count, fails the build. Your own component tests run the same
-way, in an ordinary `cargo test` process that takes milliseconds per test.
+Tests mount real Pieces with this toolkit and inspect mutations, frames, and event behavior.
+Use the actual [mock integration tests](https://github.com/daybrite/day/blob/main/crates/day-pieces/tests/mock_e2e.rs)
+for the harness API, rather than assuming probe helpers or timing assertions from pseudocode.
+Run `cargo test --locked -p day-pieces --test mock_e2e` from the repository root. Mock success
+establishes shared behavior with deterministic measurement, not native rendering or accessibility.
 
 ## Teardown
 
 When structure changes (`when` flips, an `each` row leaves), the subtree's scope is disposed
 (bindings and handlers die with it), and the nodes go onto a release queue drained at the turn
 boundary, where the backend frees the native widgets (with toolkit-appropriate deferral, like Qt's
-`deleteLater`). A signal write racing a disposed binding is a checked no-op. The scope owns the
-[reactive](/docs/glossary#reactive) machinery, the tree owns the handles, and both are torn down
+`deleteLater`). Writes to a disposed signal are ignored; reads can panic. A task that reads after scope
+disposal therefore still needs ownership or cancellation handling. The scope owns the
+[reactive](/docs/reference/glossary#reactive) machinery, the tree owns the handles, and both are torn down
 together at the turn boundary.
 
 ---
 
 The [reference section](/docs/reference) documents each subsystem in more depth.
+
+## Evidence and limits
+
+Source review: [tree](https://github.com/daybrite/day/blob/main/crates/day-core/src/tree.rs),
+[build context](https://github.com/daybrite/day/blob/main/crates/day-core/src/build.rs), and
+[container realization](https://github.com/daybrite/day/blob/main/crates/day-pieces/src/containers.rs).
+Diagrams are conceptual flows, not literal call signatures or measured operation counts.
+Per-backend controlled input, native measurement, and release ordering require their target
+regression tests; this page does not certify them on all platforms.

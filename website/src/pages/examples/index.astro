@@ -1,0 +1,46 @@
+---
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: CC-BY-SA-4.0
+import BaseLayout from '../../layouts/BaseLayout.astro';
+import TutorialPreview from '../../components/TutorialPreview.astro';
+import gallery from '../../data/gallery-manifest.json';
+import { url } from '../../lib/site';
+---
+<BaseLayout title="Examples" description="Start with a verified Day tutorial app, inspect its Rust source, and find projects and guides for your own app." active="product">
+  <section class="section">
+    <div class="container">
+      <p class="eyebrow">From a working screen to your own app</p>
+      <h1>See what you can build on.</h1>
+      <p class="lead">Start with a small app whose source you can read in one sitting. Then use the task guides to add the parts your app needs.</p>
+      <div class="split" id="tutorial-capture">
+        <div>
+          <h2>A counter with native controls</h2>
+          <p>This is the app from lesson 3, running on macOS with AppKit. A scripted run pressed <strong>Add one</strong> twice and checked the translated count before capturing the screen.</p>
+          <p>The capture uses English, the light theme, and an 800 × 640 pixel window at 2× scale. It shows this AppKit build; it does not establish how another target looks or behaves.</p>
+          <p><a href={url('docs/tutorials/first-app')}>Build the tutorial app →</a></p>
+          <p><a href={url('images/tutorial/provenance.json')}>Source and capture record</a></p>
+        </div>
+        <TutorialPreview />
+      </div>
+      <h2>Choose a task from your app</h2>
+      <div class="cards">
+        <article><h3>Work with local data</h3><p>Build a tool that saves people’s work between launches.</p><a href={url('docs/how-to/guide-storage')}>Storage example →</a></article>
+        <article><h3>Connect to a service</h3><p>Fetch data while handling cancellation, response limits, and errors.</p><a href={url('docs/how-to/guide-http')}>HTTP example →</a></article>
+        <article><h3>Reach another language</h3><p>Use one Fluent catalog across your screens and their accessible labels.</p><a href={url('docs/how-to/localization')}>Localization example →</a></article>
+      </div>
+      <h2>Explore project sources</h2>
+      <p>These links lead to separately maintained projects. Check each repository’s current build instructions and target support.</p>
+      <div class="cards">
+        {gallery.apps.map((app) => <article><h3><a href={url(`gallery/${app.id}`)}>{app.label}</a></h3><a href={app.repo}>Open source repository →</a></article>)}
+      </div>
+      <p><a href={url('gallery')}>Explore the screenshot gallery</a> to see these apps across platforms, languages, and themes.</p>
+    </div>
+  </section>
+</BaseLayout>
+<style>
+  h1 { font-size: clamp(2rem, 4.6vw, 3rem); }
+  h2 { margin-top: 48px; }
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 20px; }
+  article { padding: 24px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); }
+  article p { color: var(--muted); }
+</style>

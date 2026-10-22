@@ -763,7 +763,7 @@ impl<K> NavItem<K> {
         self
     }
     /// A bundled-image name for the item's native icon (typed [`ImageName`](day_spec::ImageName),
-    /// resolved like [`image`], e.g. `res::images::nav_home`), or an absolute local image path
+    /// resolved like [`image()`], e.g. `res::images::nav_home`), or an absolute local image path
     /// supplied as an owned string. Shown beside the label where the backend's nav supports it
     /// (the Windows NavigationView, the iOS/macOS source list); backends that can't decorate
     /// rows ignore it. AppKit/UIKit preserve the colors of local files; bundled glyphs remain
@@ -2626,7 +2626,7 @@ impl<K: Route, S: Binding<K>> Nav<S, K> {
     /// nav(section)
     ///     .style(NavStyle::Sidebar)
     ///     .searchable(Search::new(query).prompt(res::str::search()).reveal(SearchReveal::OnPull))
-    ///     .items(nav_items(move || destinations().filter(|d| matches(d, &query.get())), …))
+    ///     .items(nav_items(move || destinations().filter(|d| matches_query(d, &query.get())), destination_row))
     /// ```
     pub fn searchable(mut self, search: Search) -> Self {
         let (hides_on_scroll, initially_hidden) = match search.reveal {

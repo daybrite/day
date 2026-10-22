@@ -1,6 +1,6 @@
 plugins {
     // Configures this module from Day.toml and the app's pieces
-    // (https://daybrite.dev/docs/platforms/android-mdc#the-gradle-project).
+    // (https://daybrite.dev/docs/reference/platforms/android-mdc#the-gradle-project).
     id("dev.daybrite.day.android")
 }
 

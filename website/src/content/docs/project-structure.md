@@ -2,7 +2,7 @@
 title: Project structure & builds
 description: The anatomy of a conventional Day app, how each target is built, and how resources are packaged for runtime access.
 order: 31
-section: Build & ship
+section: Reference
 ---
 
 <!--
@@ -49,7 +49,7 @@ my-app/
   `[signing]`, and `[sbom]` sections live here, while `name` and `version` are derived from
   Cargo.toml's `[package]`, so they can never drift. The identity properties (`id`, `title`,
   `artifact`, `build`) can be overridden per platform (`[app.ios]`), per
-  [toolkit](/docs/glossary#toolkit) (`[app.qt]`), or per target (`[app.macos-appkit]`); the platform
+  [toolkit](/docs/reference/glossary#toolkit) (`[app.qt]`), or per target (`[app.macos-appkit]`); the platform
   scaffolds read the resolved values at build time.
 - Native hosts load the Rust library and provide its root view. Apple keeps its Swift sources
   under `platform/`. Apple project documents, Android Gradle scaffolds and HarmonyOS hvigor
@@ -57,11 +57,11 @@ my-app/
   creates an app-owned override under `platform/` when manual customization is needed.
 - Generated files are written to `build/` (mostly `build/day/`): Cargo target directories (one per target and profile,
   so parallel builds never contend), staged resources, packed artifacts, and
-  [dayscript](/docs/glossary#dayscript) screenshots all live under one ignorable directory.
+  [dayscript](/docs/reference/glossary#dayscript) screenshots all live under one ignorable directory.
 - `website/site.toml` enables a localized app website in the shared Actions workflow.
   `website/theme.css` supplies optional style overrides. Add `daysite.config.mjs` for reusable
   theme/component customization, or an Astro configuration and source tree for your own pages.
-  See [App websites](/docs/websites) for setup, customization, Pages, and custom domains.
+  See [App websites](/docs/how-to/websites) for setup, customization, Pages, and custom domains.
 
 ## How a build works
 
@@ -85,8 +85,8 @@ day build -t <target>
     └── harmony   cargo + hvigor + sign  → app.hap     (bundles the cargo cdylib)
 ```
 
-One [backend](/docs/glossary#backend) is compiled per binary. The AppKit build contains no GTK code, the Android build only
-its JNI bridge. Standalone [pieces](/docs/glossary#piece) (say, a Lottie or map piece) contribute their own native code and
+One [backend](/docs/reference/glossary#backend) is compiled per binary. The AppKit build contains no GTK code, the Android build only
+its JNI bridge. Standalone [pieces](/docs/reference/glossary#piece) (say, a Lottie or map piece) contribute their own native code and
 dependencies through Cargo metadata, so the app never re-declares per-piece build wiring.
 
 ### Desktop: `macos-appkit`, `linux-gtk`, `linux-qt`, `windows-winui`, and the GTK/Qt combinations
@@ -262,11 +262,11 @@ adb install … && am start DayActivity                   (day launch)
 ```
 
 An optional app-owned `platform/android/AndroidManifest.xml` supplies manifest customizations
-without persisting the Gradle project; see [manifest customization](/docs/platforms/android-mdc#manifest-customization).
+without persisting the Gradle project; see [manifest customization](/docs/reference/platforms/android-mdc#manifest-customization).
 An existing `platform/android/` Gradle project takes precedence over the generated default.
 `day open -t android-mdc` prepares and opens the selected project in Android Studio.
 Day's Gradle plugin configures that project from `build/day/android/`
-([The Gradle project](/docs/platforms/android-mdc#the-gradle-project)). A build started from Android
+([The Gradle project](/docs/reference/platforms/android-mdc#the-gradle-project)). A build started from Android
 Studio packages the Rust `.so` from the last `day build`.
 
 ### HarmonyOS: `harmony-arkui`
@@ -369,10 +369,10 @@ by-name API (`UIImage(named:)`, `R.drawable`, `gtk_picture_new_for_resource`, `Q
 `resource://RAWFILE/…`), so density variants like `logo@2x.png` map onto the platform's own
 scale-selection mechanism.
 
-[Fluent](/docs/glossary#fluent) translations under `resource/locales/` take a different path: they
-are embedded into the binary at compile time with `include_str!`, so [locale](/docs/glossary#locale)
+[Fluent](/docs/reference/glossary#fluent) translations under `resource/locales/` take a different path: they
+are embedded into the binary at compile time with `include_str!`, so [locale](/docs/reference/glossary#locale)
 switching never touches the filesystem.
 
 The full per-platform details, including the limits (what gets optimized where, and which stores
-allow zero-copy), are in the [resources reference](/docs/internal/resources); the HarmonyOS
-pipeline has its own [reference page](/docs/internal/harmonyos).
+allow zero-copy), are in the [resources reference](/docs/reference/resources); the HarmonyOS
+pipeline has its own [reference page](/docs/how-to/harmonyos).

@@ -38,6 +38,6 @@ the app menu; on a phone, Settings is a section. The app reopens on the section 
   app-owned native files, and Day generates the native projects under `build/`.
 - `store/` and `website/` hold the store listing and the website settings.
 - `.github/workflows/ci.yml` builds and tests every target through the shared
-  [Day workflow](https://daybrite.dev/docs/github-actions).
+  [Day workflow](https://daybrite.dev/docs/how-to/github-actions).
 
 `day lint` checks routes, element ids, and locale coverage. Apple builds need Xcode 27 or newer.

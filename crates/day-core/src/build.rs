@@ -173,7 +173,7 @@ pub fn piece_fn<F: FnOnce(&mut BuildCx) -> RNode + 'static>(f: F) -> PieceFn<F> 
 /// concrete, so the branch costs nothing and the chosen arm's type survives into the parent:
 ///
 /// ```ignore
-/// if compact { Either::Left(row(…)) } else { Either::Right(column(…)) }
+/// if compact { Either::Left(row(children)) } else { Either::Right(column(children)) }
 /// ```
 ///
 /// For a branch on a signal, one that must re-evaluate, use `when(…).otherwise(…)` instead.
@@ -193,7 +193,7 @@ impl<A: Piece, B: Piece> Piece for Either<A, B> {
 }
 
 /// An optional piece (§5.1): `Some` builds the piece, `None` builds the same zero-size,
-/// layout-transparent anchor a false [`when`](../day_pieces/fn.when.html) leaves behind, so
+/// layout-transparent anchor a false [`when`](/api/day_pieces/fn.when.html) leaves behind, so
 /// the slot keeps its place in a tuple without drawing anything.
 ///
 /// ```ignore
@@ -248,7 +248,7 @@ mod any_piece_tests {
 /// `Vec` or array of one piece type, or an `Option` of a piece. Implemented for exactly those
 /// shapes, never via a blanket, to stay coherent. All of them are build-time children:
 /// evaluated once when the parent builds, with no keyed identity or reconciliation. A child
-/// that must come and go at runtime is a [`when`](../day_pieces/fn.when.html), a
+/// that must come and go at runtime is a [`when`](/api/day_pieces/fn.when.html), a
 /// `keyed`, or an `each`.
 pub trait PieceSeq: 'static {
     fn build_each(self, cx: &mut BuildCx);

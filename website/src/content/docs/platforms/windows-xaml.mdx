@@ -2,7 +2,7 @@
 title: Windows (XAML, deprecated)
 description: The deprecated windows-xaml target — system XAML in a Win32 window through XAML Islands, superseded by windows-winui, and how to move a project over.
 order: 33.65
-section: Platforms
+section: Reference
 ---
 
 {/*
@@ -11,10 +11,10 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 */}
 
 > [!WARNING] Deprecated
-> `windows-xaml` is [Tier 5 · Deprecated](/docs/platforms#support-tiers): superseded by
-> [`windows-winui`](/docs/platforms/windows-winui), the Windows target new apps get. It still
-> builds, packs and runs for existing projects, but not for new apps, and is due for removal. Every
-> build prints `warning: windows-xaml is deprecated; move to windows-winui`.
+> `windows-xaml` is [Tier 5 · Deprecated](/docs/reference/platforms#support-tiers): superseded by
+> [`windows-winui`](/docs/reference/platforms/windows-winui), the Windows target new apps get. It remains in the target registry for
+> existing projects; current build, packaging, and runtime success are not established here. The
+> CLI prints `warning: windows-xaml is deprecated; move to windows-winui`.
 
 ## Moving to `windows-winui`
 
@@ -25,7 +25,7 @@ day project add-target windows-winui
 Then drop `windows-xaml` from `Day.toml`. The Rust code needs no changes: both targets build the
 same XAML backend and the same C++/WinRT shim. Development machines need the Windows App Runtime
 2.5.1 or newer; a packed `windows-winui` app is self-contained, so its users install nothing extra.
-The [Windows (WinUI 3)](/docs/platforms/windows-winui) page covers setup, packing, caveats, and
+The [Windows (WinUI 3)](/docs/reference/platforms/windows-winui) page covers setup, packing, caveats, and
 which control each Day piece becomes.
 
 ## What differs

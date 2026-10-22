@@ -13,7 +13,7 @@ This is that surface: `day::font_families()`, `CanvasFont` on canvas text, and
 `day::measure_text()`.
 
 Text samples use generated Fluent accessors; see the [example catalog](snippet-catalog.md)
-and [localization setup](https://daybrite.dev/docs/localization).
+and [localization setup](https://daybrite.dev/docs/how-to/localization).
 
 ## The font list
 

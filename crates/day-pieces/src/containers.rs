@@ -241,7 +241,7 @@ pub struct Grid<C: PieceSeq> {
 /// width evenly, and a non-row child becomes a full-width cell spanning every column. `spacer()`
 /// inside a row is an inert empty cell that still occupies its column (a grid has explicit
 /// gutters, so stack-style push-apart spacers don't apply). Cells opt into spans and per-cell
-/// alignment with [`Decorate::grid_span`] / [`Decorate::grid_align`].
+/// alignment with [`Decorated::grid_span`](crate::decorators::Decorated::grid_span) / [`Decorate::grid_align`](crate::decorators::Decorate::grid_align).
 pub fn grid<C: PieceSeq>(children: C) -> Grid<C> {
     Grid {
         children,
@@ -434,9 +434,9 @@ impl<P: Piece> Piece for Scroll<P> {
 
 /// A z-stack: children are layered back-to-front (the first child sits at the bottom), all
 /// sharing the container bounds and positioned by the stack's [`Alignment`]. The stack sizes to
-/// the union (max width/height) of its children; contrast [`Decorate::overlay`], which sizes to
+/// the union (max width/height) of its children; contrast [`Decorate::overlay`](crate::decorators::Decorate::overlay), which sizes to
 /// its content and treats the overlaid piece as a non-sizing annotation. Pure composition: it is
-/// the same native panel as [`column`]/[`row`], so there is no per-backend work.
+/// the same native panel as [`column()`]/[`row()`], so there is no per-backend work.
 pub struct ZStack<C: PieceSeq> {
     children: C,
     align: Alignment,

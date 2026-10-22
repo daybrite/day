@@ -29,13 +29,13 @@ label(text).runs(runs)
 > and its emphasis in Fluent, then use `label(res::str::save_instructions()).markdown()`.
 > Translators can reorder it without changing byte ranges or assembling English fragments.
 > Use `TextBuilder` for structured user-authored content or styles that Markdown cannot express.
-> See [Localization](https://daybrite.dev/docs/localization).
+> See [Localization](https://daybrite.dev/docs/how-to/localization).
 
 `TextBuilder` returns the plain string and the runs that style it, which is exactly what
 `label().runs()` takes. `.runs_from(builder)` does both in one call.
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
-[example messages](snippet-catalog.md) and [catalog setup](https://daybrite.dev/docs/localization).
+[example messages](snippet-catalog.md) and [catalog setup](https://daybrite.dev/docs/how-to/localization).
 
 ## Why not several labels in a row
 

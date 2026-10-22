@@ -89,7 +89,7 @@ Scope: the rules bind the **app-facing surface** (day-pieces, the Day umbrella, 
 changing it would ripple through every backend for internal call sites only.
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
-[example messages](snippet-catalog.md) and [catalog setup](https://daybrite.dev/docs/localization).
+[example messages](snippet-catalog.md) and [catalog setup](https://daybrite.dev/docs/how-to/localization).
 
 ## Typed builders and erasure
 

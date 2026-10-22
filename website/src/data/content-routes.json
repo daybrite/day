@@ -1,0 +1,1143 @@
+{
+  "internal/accessibility": {
+    "route": "/docs/reference/accessibility",
+    "source": "docs/accessibility.md",
+    "type": "reference",
+    "audience": "app developer"
+  },
+  "internal/activity": {
+    "route": "/docs/reference/activity",
+    "source": "docs/activity.md",
+    "type": "reference",
+    "audience": "app developer"
+  },
+  "internal/agent": {
+    "route": "/docs/reference/agent",
+    "source": "docs/agent.md",
+    "type": "reference",
+    "audience": "app developer"
+  },
+  "internal/android-adaptive-navigation-proposal": {
+    "route": "/contributing/design/android-adaptive-navigation-proposal",
+    "source": "docs/android-adaptive-navigation-proposal.md",
+    "type": "explanation",
+    "audience": "contributor",
+    "status": "design record; verify implementation status before use"
+  },
+  "internal/android-jni": {
+    "route": "/contributing/backend-contracts/android-jni",
+    "source": "docs/android-jni.md",
+    "type": "reference",
+    "audience": "contributor"
+  },
+  "internal/api-style": {
+    "route": "/contributing/backend-contracts/api-style",
+    "source": "docs/api-style.md",
+    "type": "reference",
+    "audience": "contributor"
+  },
+  "internal/applications": {
+    "route": "/docs/reference/applications",
+    "source": "docs/applications.md",
+    "type": "reference",
+    "audience": "app developer"
+  },
+  "internal/async": {
+    "route": "/docs/explanation/async",
+    "source": "docs/async.md",
+    "type": "explanation",
+    "audience": "app developer"
+  },
+  "internal/badge": {
+    "route": "/docs/reference/badge",
+    "source": "docs/badge.md",
+    "type": "reference",
+    "audience": "app developer"
+  },
+  "internal/baseline": {
+    "route": "/docs/explanation/baseline",
+    "source": "docs/baseline.md",
+    "type": "explanation",
+    "audience": "app developer"
+  },
+  "internal/battery": {
+    "route": "/docs/reference/battery",
+    "source": "docs/battery.md",
+    "type": "reference",
+    "audience": "app developer"
+  },
+  "internal/break": {
+    "route": "/docs/reference/break",
+    "source": "docs/break.md",
+    "type": "reference",
+    "audience": "app developer"
+  },
+  "internal/bridge": {
+    "route": "/contributing/backend-contracts/bridge",
+    "source": "docs/bridge.md",
+    "type": "reference",
+    "audience": "contributor"
+  },
+  "internal/buttons": {
+    "route": "/docs/reference/buttons",
+    "source": "docs/buttons.md",
+    "type": "reference",
+    "audience": "app developer"
+  },
+  "internal/canvas": {
+    "route": "/docs/reference/canvas",
+    "source": "docs/canvas.md",
+    "type": "reference",
+    "audience": "app developer"
+  },
+  "internal/clipboard": {
+    "route": "/docs/reference/clipboard",
+    "source": "docs/clipboard.md",
+    "type": "reference",
+    "audience": "app developer"
+  },
+  "internal/color": {
+    "route": "/docs/reference/color",
+    "source": "docs/color.md",
+    "type": "reference",
+    "audience": "app developer"
+  },
+  "internal/colorpicker": {
+    "route": "/docs/reference/colorpicker",
+    "source": "docs/colorpicker.md",
+    "type": "reference",
+    "audience": "app developer"
+  },
+  "internal/combobox": {
+    "route": "/docs/reference/combobox",
+    "source": "docs/combobox.md",
+    "type": "reference",
+    "audience": "app developer"
+  },
+  "internal/commands": {
+    "route": "/docs/reference/commands",
+    "source": "docs/commands.md",
+    "type": "reference",
+    "audience": "app developer"
+  },
+  "internal/cover": {
+    "route": "/docs/reference/cover",
+    "source": "docs/cover.md",
+    "type": "reference",
+    "audience": "app developer"
+  },
+  "internal/coverage-matrix": {
+    "route": "/contributing/backend-contracts/coverage-matrix",
+    "source": "docs/coverage-matrix.md",
+    "type": "reference",
+    "audience": "contributor"
+  },
+  "internal/cursor": {
+    "route": "/docs/reference/cursor",
+    "source": "docs/cursor.md",
+    "type": "reference",
+    "audience": "app developer"
+  },
+  "internal/datepicker": {
+    "route": "/docs/reference/datepicker",
+    "source": "docs/datepicker.md",
+    "type": "reference",
+    "audience": "app developer"
+  },
+  "internal/deep-links": {
+    "route": "/docs/reference/deep-links",
+    "source": "docs/deep-links.md",
+    "type": "reference",
+    "audience": "app developer"
+  },
+  "internal/deviceinfo": {
+    "route": "/docs/reference/deviceinfo",
+    "source": "docs/deviceinfo.md",
+    "type": "reference",
+    "audience": "app developer"
+  },
+  "internal/dialogs": {
+    "route": "/docs/reference/dialogs",
+    "source": "docs/dialogs.md",
+    "type": "reference",
+    "audience": "app developer"
+  },
+  "internal/documents": {
+    "route": "/docs/reference/documents",
+    "source": "docs/documents.md",
+    "type": "reference",
+    "audience": "app developer"
+  },
+  "internal/downloads": {
+    "route": "/docs/reference/downloads",
+    "source": "docs/downloads.md",
+    "type": "reference",
+    "audience": "app developer"
+  },
+  "internal/drag-and-drop-plan": {
+    "route": "/contributing/design/drag-and-drop-plan",
+    "source": "docs/drag-and-drop-plan.md",
+    "type": "explanation",
+    "audience": "contributor",
+    "status": "design record; verify implementation status before use"
+  },
+  "internal/drag-and-drop": {
+    "route": "/docs/reference/drag-and-drop",
+    "source": "docs/drag-and-drop.md",
+    "type": "reference",
+    "audience": "app developer"
+  },
+  "internal/duty-matrix": {
+    "route": "/contributing/backend-contracts/duty-matrix",
+    "source": "docs/duty-matrix.md",
+    "type": "reference",
+    "audience": "contributor"
+  },
+  "internal/element-ids": {
+    "route": "/contributing/backend-contracts/element-ids",
+    "source": "docs/element-ids.md",
+    "type": "reference",
+    "audience": "contributor"
+  },
+  "internal/environment": {
+    "route": "/docs/reference/environment",
+    "source": "docs/environment.md",
+    "type": "reference",
+    "audience": "app developer"
+  },
+  "internal/extending": {
+    "route": "/contributing/backend-contracts/extending",
+    "source": "docs/extending.md",
+    "type": "reference",
+    "audience": "contributor"
+  },
+  "internal/files": {
+    "route": "/docs/reference/files",
+    "source": "docs/files.md",
+    "type": "reference",
+    "audience": "app developer"
+  },
+  "internal/flavors": {
+    "route": "/docs/reference/flavors",
+    "source": "docs/flavors.md",
+    "type": "reference",
+    "audience": "app developer"
+  },
+  "internal/focus": {
+    "route": "/docs/reference/focus",
+    "source": "docs/focus.md",
+    "type": "reference",
+    "audience": "app developer"
+  },
+  "internal/fonts": {
+    "route": "/docs/reference/fonts",
+    "source": "docs/fonts.md",
+    "type": "reference",
+    "audience": "app developer"
+  },
+  "internal/forms": {
+    "route": "/docs/reference/forms",
+    "source": "docs/forms.md",
+    "type": "reference",
+    "audience": "app developer"
+  },
+  "internal/frames": {
+    "route": "/docs/reference/frames",
+    "source": "docs/frames.md",
+    "type": "reference",
+    "audience": "app developer"
+  },
+  "internal/fs": {
+    "route": "/docs/reference/fs",
+    "source": "docs/fs.md",
+    "type": "reference",
+    "audience": "app developer"
+  },
+  "internal/grid": {
+    "route": "/docs/reference/grid",
+    "source": "docs/grid.md",
+    "type": "reference",
+    "audience": "app developer"
+  },
+  "internal/haptics": {
+    "route": "/docs/reference/haptics",
+    "source": "docs/haptics.md",
+    "type": "reference",
+    "audience": "app developer"
+  },
+  "internal/harmonyos": {
+    "route": "/docs/how-to/harmonyos",
+    "source": "docs/harmonyos.md",
+    "type": "how-to",
+    "audience": "app developer"
+  },
+  "internal/history/native-project-migration-2026-10": {
+    "route": "/contributing/history/native-project-migration-2026-10",
+    "source": "docs/history/native-project-migration-2026-10.md",
+    "type": "reference",
+    "audience": "contributor"
+  },
+  "internal/http": {
+    "route": "/docs/reference/http",
+    "source": "docs/http.md",
+    "type": "reference",
+    "audience": "app developer"
+  },
+  "internal/icons": {
+    "route": "/docs/how-to/icons",
+    "source": "docs/icons.md",
+    "type": "how-to",
+    "audience": "app developer"
+  },
+  "internal/images": {
+    "route": "/docs/reference/images",
+    "source": "docs/images.md",
+    "type": "reference",
+    "audience": "app developer"
+  },
+  "internal/inspector": {
+    "route": "/docs/reference/inspector",
+    "source": "docs/inspector.md",
+    "type": "reference",
+    "audience": "app developer"
+  },
+  "internal/lifecycle": {
+    "route": "/docs/explanation/lifecycle",
+    "source": "docs/lifecycle.md",
+    "type": "explanation",
+    "audience": "app developer"
+  },
+  "internal/list": {
+    "route": "/docs/reference/list",
+    "source": "docs/list.md",
+    "type": "reference",
+    "audience": "app developer"
+  },
+  "internal/localization": {
+    "route": "/docs/reference/localization",
+    "source": "docs/localization.md",
+    "type": "reference",
+    "audience": "app developer"
+  },
+  "internal/location": {
+    "route": "/docs/reference/location",
+    "source": "docs/location.md",
+    "type": "reference",
+    "audience": "app developer"
+  },
+  "internal/logging": {
+    "route": "/docs/reference/logging",
+    "source": "docs/logging.md",
+    "type": "reference",
+    "audience": "app developer"
+  },
+  "internal/manifest": {
+    "route": "/docs/reference/manifest",
+    "source": "docs/manifest.md",
+    "type": "reference",
+    "audience": "app developer"
+  },
+  "internal/map": {
+    "route": "/docs/reference/map",
+    "source": "docs/map.md",
+    "type": "reference",
+    "audience": "app developer"
+  },
+  "internal/markdown": {
+    "route": "/docs/reference/markdown",
+    "source": "docs/markdown.md",
+    "type": "reference",
+    "audience": "app developer"
+  },
+  "internal/media": {
+    "route": "/docs/reference/media",
+    "source": "docs/media.md",
+    "type": "reference",
+    "audience": "app developer"
+  },
+  "internal/menus": {
+    "route": "/docs/reference/menus",
+    "source": "docs/menus.md",
+    "type": "reference",
+    "audience": "app developer"
+  },
+  "internal/model": {
+    "route": "/docs/explanation/model",
+    "source": "docs/model.md",
+    "type": "explanation",
+    "audience": "app developer"
+  },
+  "internal/native-project-migration": {
+    "route": "/contributing/backend-contracts/native-project-migration",
+    "source": "docs/native-project-migration.md",
+    "type": "reference",
+    "audience": "contributor"
+  },
+  "internal/navigation": {
+    "route": "/docs/reference/navigation",
+    "source": "docs/navigation.md",
+    "type": "reference",
+    "audience": "app developer"
+  },
+  "internal/network": {
+    "route": "/docs/reference/network",
+    "source": "docs/network.md",
+    "type": "reference",
+    "audience": "app developer"
+  },
+  "internal/notify": {
+    "route": "/docs/reference/notify",
+    "source": "docs/notify.md",
+    "type": "reference",
+    "audience": "app developer"
+  },
+  "internal/permissions": {
+    "route": "/docs/reference/permissions",
+    "source": "docs/permissions.md",
+    "type": "reference",
+    "audience": "app developer"
+  },
+  "internal/persistence": {
+    "route": "/docs/reference/persistence",
+    "source": "docs/persistence.md",
+    "type": "reference",
+    "audience": "app developer"
+  },
+  "internal/picker": {
+    "route": "/docs/reference/picker",
+    "source": "docs/picker.md",
+    "type": "reference",
+    "audience": "app developer"
+  },
+  "internal/prefs": {
+    "route": "/docs/reference/prefs",
+    "source": "docs/prefs.md",
+    "type": "reference",
+    "audience": "app developer"
+  },
+  "internal/progress": {
+    "route": "/docs/reference/progress",
+    "source": "docs/progress.md",
+    "type": "reference",
+    "audience": "app developer"
+  },
+  "internal/pullrefresh": {
+    "route": "/docs/reference/pullrefresh",
+    "source": "docs/pullrefresh.md",
+    "type": "reference",
+    "audience": "app developer"
+  },
+  "internal/recorder-matrix": {
+    "route": "/contributing/backend-contracts/recorder-matrix",
+    "source": "docs/recorder-matrix.md",
+    "type": "reference",
+    "audience": "contributor"
+  },
+  "internal/resources": {
+    "route": "/docs/reference/resources",
+    "source": "docs/resources.md",
+    "type": "reference",
+    "audience": "app developer"
+  },
+  "internal/sandbox": {
+    "route": "/docs/how-to/sandbox",
+    "source": "docs/sandbox.md",
+    "type": "how-to",
+    "audience": "app developer"
+  },
+  "internal/screenshot-archive": {
+    "route": "/docs/reference/screenshot-archive",
+    "source": "docs/screenshot-archive.md",
+    "type": "reference",
+    "audience": "app developer"
+  },
+  "internal/scroll": {
+    "route": "/docs/reference/scroll",
+    "source": "docs/scroll.md",
+    "type": "reference",
+    "audience": "app developer"
+  },
+  "internal/search": {
+    "route": "/docs/reference/search",
+    "source": "docs/search.md",
+    "type": "reference",
+    "audience": "app developer"
+  },
+  "internal/searchfield": {
+    "route": "/docs/reference/searchfield",
+    "source": "docs/searchfield.md",
+    "type": "reference",
+    "audience": "app developer"
+  },
+  "internal/sensors": {
+    "route": "/docs/reference/sensors",
+    "source": "docs/sensors.md",
+    "type": "reference",
+    "audience": "app developer"
+  },
+  "internal/settings": {
+    "route": "/docs/reference/settings",
+    "source": "docs/settings.md",
+    "type": "reference",
+    "audience": "app developer"
+  },
+  "internal/shapes": {
+    "route": "/docs/reference/shapes",
+    "source": "docs/shapes.md",
+    "type": "reference",
+    "audience": "app developer"
+  },
+  "internal/sharing": {
+    "route": "/docs/reference/sharing",
+    "source": "docs/sharing.md",
+    "type": "reference",
+    "audience": "app developer"
+  },
+  "internal/size-classes": {
+    "route": "/docs/reference/size-classes",
+    "source": "docs/size-classes.md",
+    "type": "reference",
+    "audience": "app developer"
+  },
+  "internal/snippet-catalog": {
+    "route": "/docs/reference/examples/catalog",
+    "source": "docs/snippet-catalog.md",
+    "type": "reference",
+    "audience": "app developer"
+  },
+  "internal/sound": {
+    "route": "/docs/reference/sound",
+    "source": "docs/sound.md",
+    "type": "reference",
+    "audience": "app developer"
+  },
+  "internal/split": {
+    "route": "/docs/reference/split",
+    "source": "docs/split.md",
+    "type": "reference",
+    "audience": "app developer"
+  },
+  "internal/state": {
+    "route": "/docs/explanation/state",
+    "source": "docs/state.md",
+    "type": "explanation",
+    "audience": "app developer"
+  },
+  "internal/status-item": {
+    "route": "/docs/reference/status-item",
+    "source": "docs/status-item.md",
+    "type": "reference",
+    "audience": "app developer"
+  },
+  "internal/stepper": {
+    "route": "/docs/reference/stepper",
+    "source": "docs/stepper.md",
+    "type": "reference",
+    "audience": "app developer"
+  },
+  "internal/store": {
+    "route": "/docs/how-to/store",
+    "source": "docs/store.md",
+    "type": "how-to",
+    "audience": "app developer"
+  },
+  "internal/swiftui": {
+    "route": "/docs/reference/swiftui",
+    "source": "docs/swiftui.md",
+    "type": "reference",
+    "audience": "app developer"
+  },
+  "internal/testing": {
+    "route": "/contributing/backend-contracts/testing",
+    "source": "docs/testing.md",
+    "type": "reference",
+    "audience": "contributor"
+  },
+  "internal/text-runs": {
+    "route": "/docs/reference/text-runs",
+    "source": "docs/text-runs.md",
+    "type": "reference",
+    "audience": "app developer"
+  },
+  "internal/text": {
+    "route": "/docs/reference/text",
+    "source": "docs/text.md",
+    "type": "reference",
+    "audience": "app developer"
+  },
+  "internal/textarea": {
+    "route": "/docs/reference/textarea",
+    "source": "docs/textarea.md",
+    "type": "reference",
+    "audience": "app developer"
+  },
+  "internal/texteditor": {
+    "route": "/docs/reference/texteditor",
+    "source": "docs/texteditor.md",
+    "type": "reference",
+    "audience": "app developer"
+  },
+  "internal/textfield": {
+    "route": "/docs/reference/textfield",
+    "source": "docs/textfield.md",
+    "type": "reference",
+    "audience": "app developer"
+  },
+  "internal/toolbars": {
+    "route": "/docs/reference/toolbars",
+    "source": "docs/toolbars.md",
+    "type": "reference",
+    "audience": "app developer"
+  },
+  "internal/tree": {
+    "route": "/docs/reference/tree",
+    "source": "docs/tree.md",
+    "type": "reference",
+    "audience": "app developer"
+  },
+  "internal/tweaks": {
+    "route": "/docs/reference/tweaks",
+    "source": "docs/tweaks.md",
+    "type": "reference",
+    "audience": "app developer"
+  },
+  "internal/tween": {
+    "route": "/docs/reference/tween",
+    "source": "docs/tween.md",
+    "type": "reference",
+    "audience": "app developer"
+  },
+  "internal/vectors": {
+    "route": "/docs/reference/vectors",
+    "source": "docs/vectors.md",
+    "type": "reference",
+    "audience": "app developer"
+  },
+  "internal/vscode": {
+    "route": "/docs/how-to/vscode",
+    "source": "docs/vscode.md",
+    "type": "how-to",
+    "audience": "app developer"
+  },
+  "internal/wakelock": {
+    "route": "/docs/reference/wakelock",
+    "source": "docs/wakelock.md",
+    "type": "reference",
+    "audience": "app developer"
+  },
+  "internal/web": {
+    "route": "/docs/how-to/web",
+    "source": "docs/web.md",
+    "type": "how-to",
+    "audience": "app developer"
+  },
+  "internal/webview-eval": {
+    "route": "/docs/reference/webview-eval",
+    "source": "docs/webview-eval.md",
+    "type": "reference",
+    "audience": "app developer"
+  },
+  "internal/window-chrome": {
+    "route": "/docs/reference/window-chrome",
+    "source": "docs/window-chrome.md",
+    "type": "reference",
+    "audience": "app developer"
+  },
+  "internal/window-image": {
+    "route": "/docs/reference/window-image",
+    "source": "docs/window-image.md",
+    "type": "reference",
+    "audience": "app developer"
+  },
+  "internal/windows": {
+    "route": "/docs/reference/windows",
+    "source": "docs/windows.md",
+    "type": "reference",
+    "audience": "app developer"
+  },
+  "internal/winui": {
+    "route": "/docs/how-to/winui",
+    "source": "docs/winui.md",
+    "type": "how-to",
+    "audience": "app developer"
+  },
+  "docs/accessibility": {
+    "route": "/docs/how-to/accessibility",
+    "source": "website/src/content/docs/accessibility.md",
+    "type": "how-to",
+    "audience": "app developer"
+  },
+  "docs/ai": {
+    "route": "/docs/tutorials/ai-assisted-app",
+    "source": "website/src/content/docs/ai.mdx",
+    "type": "tutorial",
+    "audience": "app developer"
+  },
+  "docs/api-tour": {
+    "route": "/docs/reference/api-tour",
+    "source": "website/src/content/docs/api-tour.md",
+    "type": "reference",
+    "audience": "app developer"
+  },
+  "docs/app-store-submissions": {
+    "route": "/docs/how-to/app-store-submissions",
+    "source": "website/src/content/docs/app-store-submissions.md",
+    "type": "how-to",
+    "audience": "app developer"
+  },
+  "docs/architecture": {
+    "route": "/contributing/architecture",
+    "source": "website/src/content/docs/architecture.md",
+    "type": "explanation",
+    "audience": "contributor"
+  },
+  "docs/benefits": {
+    "route": "/features",
+    "source": "website/src/content/docs/benefits.md",
+    "type": "product",
+    "audience": "evaluator"
+  },
+  "docs/cli": {
+    "route": "/docs/reference/cli",
+    "source": "website/src/content/docs/cli.md",
+    "type": "reference",
+    "audience": "app developer"
+  },
+  "docs/dayscript": {
+    "route": "/docs/how-to/dayscript",
+    "source": "website/src/content/docs/dayscript.md",
+    "type": "how-to",
+    "audience": "app developer"
+  },
+  "docs/extending": {
+    "route": "/contributing/extending",
+    "source": "website/src/content/docs/extending.md",
+    "type": "explanation",
+    "audience": "contributor"
+  },
+  "docs/flavors": {
+    "route": "/docs/how-to/flavors",
+    "source": "website/src/content/docs/flavors.md",
+    "type": "how-to",
+    "audience": "app developer"
+  },
+  "docs/for-agents": {
+    "route": "/docs/reference/for-agents",
+    "source": "website/src/content/docs/for-agents.md",
+    "type": "reference",
+    "audience": "app developer"
+  },
+  "docs/getting-started": {
+    "route": "/docs/tutorials/first-app",
+    "source": "website/src/content/docs/getting-started.md",
+    "type": "tutorial",
+    "audience": "app developer"
+  },
+  "docs/github-actions": {
+    "route": "/docs/how-to/github-actions",
+    "source": "website/src/content/docs/github-actions.md",
+    "type": "how-to",
+    "audience": "app developer"
+  },
+  "docs/glossary": {
+    "route": "/docs/reference/glossary",
+    "source": "website/src/content/docs/glossary.mdx",
+    "type": "reference",
+    "audience": "app developer"
+  },
+  "docs/guide-commands": {
+    "route": "/docs/how-to/guide-commands",
+    "source": "website/src/content/docs/guide-commands.md",
+    "type": "how-to",
+    "audience": "app developer"
+  },
+  "docs/guide-crash-reporting": {
+    "route": "/docs/how-to/guide-crash-reporting",
+    "source": "website/src/content/docs/guide-crash-reporting.md",
+    "type": "how-to",
+    "audience": "app developer"
+  },
+  "docs/guide-desktop": {
+    "route": "/docs/how-to/guide-desktop",
+    "source": "website/src/content/docs/guide-desktop.md",
+    "type": "how-to",
+    "audience": "app developer"
+  },
+  "docs/guide-documents": {
+    "route": "/docs/how-to/guide-documents",
+    "source": "website/src/content/docs/guide-documents.md",
+    "type": "how-to",
+    "audience": "app developer"
+  },
+  "docs/guide-http": {
+    "route": "/docs/how-to/guide-http",
+    "source": "website/src/content/docs/guide-http.md",
+    "type": "how-to",
+    "audience": "app developer"
+  },
+  "docs/guide-icons": {
+    "route": "/docs/how-to/guide-icons",
+    "source": "website/src/content/docs/guide-icons.md",
+    "type": "how-to",
+    "audience": "app developer"
+  },
+  "docs/guide-notifications": {
+    "route": "/docs/how-to/guide-notifications",
+    "source": "website/src/content/docs/guide-notifications.md",
+    "type": "how-to",
+    "audience": "app developer"
+  },
+  "docs/guide-permissions": {
+    "route": "/docs/how-to/guide-permissions",
+    "source": "website/src/content/docs/guide-permissions.md",
+    "type": "how-to",
+    "audience": "app developer"
+  },
+  "docs/guide-storage": {
+    "route": "/docs/how-to/guide-storage",
+    "source": "website/src/content/docs/guide-storage.md",
+    "type": "how-to",
+    "audience": "app developer"
+  },
+  "docs/guide-swiftui": {
+    "route": "/docs/how-to/guide-swiftui",
+    "source": "website/src/content/docs/guide-swiftui.md",
+    "type": "how-to",
+    "audience": "app developer"
+  },
+  "docs/layout": {
+    "route": "/docs/explanation/layout",
+    "source": "website/src/content/docs/layout.md",
+    "type": "explanation",
+    "audience": "app developer"
+  },
+  "docs/local-development": {
+    "route": "/contributing/local-development",
+    "source": "website/src/content/docs/local-development.md",
+    "type": "how-to",
+    "audience": "contributor"
+  },
+  "docs/localization": {
+    "route": "/docs/how-to/localization",
+    "source": "website/src/content/docs/localization.md",
+    "type": "how-to",
+    "audience": "app developer"
+  },
+  "docs/logging": {
+    "route": "/docs/how-to/logging",
+    "source": "website/src/content/docs/logging.md",
+    "type": "how-to",
+    "audience": "app developer"
+  },
+  "docs/navigation": {
+    "route": "/docs/how-to/navigation",
+    "source": "website/src/content/docs/navigation.md",
+    "type": "how-to",
+    "audience": "app developer"
+  },
+  "docs/overview": {
+    "route": "/docs/explanation/overview",
+    "source": "website/src/content/docs/overview.md",
+    "type": "explanation",
+    "audience": "app developer"
+  },
+  "docs/packaging": {
+    "route": "/docs/how-to/packaging",
+    "source": "website/src/content/docs/packaging.md",
+    "type": "how-to",
+    "audience": "app developer"
+  },
+  "docs/parts": {
+    "route": "/docs/reference/parts",
+    "source": "website/src/content/docs/parts.md",
+    "type": "reference",
+    "audience": "app developer"
+  },
+  "docs/pieces": {
+    "route": "/docs/explanation/pieces",
+    "source": "website/src/content/docs/pieces.md",
+    "type": "explanation",
+    "audience": "app developer"
+  },
+  "docs/platforms": {
+    "route": "/docs/reference/platforms",
+    "source": "website/src/content/docs/platforms.md",
+    "type": "reference",
+    "audience": "app developer"
+  },
+  "docs/platforms/android-mdc": {
+    "route": "/docs/reference/platforms/android-mdc",
+    "source": "website/src/content/docs/platforms/android-mdc.mdx",
+    "type": "reference",
+    "audience": "app developer"
+  },
+  "docs/platforms/harmony-arkui": {
+    "route": "/docs/reference/platforms/harmony-arkui",
+    "source": "website/src/content/docs/platforms/harmony-arkui.mdx",
+    "type": "reference",
+    "audience": "app developer"
+  },
+  "docs/platforms/ios-uikit": {
+    "route": "/docs/reference/platforms/ios-uikit",
+    "source": "website/src/content/docs/platforms/ios-uikit.mdx",
+    "type": "reference",
+    "audience": "app developer"
+  },
+  "docs/platforms/linux-gtk": {
+    "route": "/docs/reference/platforms/linux-gtk",
+    "source": "website/src/content/docs/platforms/linux-gtk.mdx",
+    "type": "reference",
+    "audience": "app developer"
+  },
+  "docs/platforms/linux-qt": {
+    "route": "/docs/reference/platforms/linux-qt",
+    "source": "website/src/content/docs/platforms/linux-qt.mdx",
+    "type": "reference",
+    "audience": "app developer"
+  },
+  "docs/platforms/macos-appkit": {
+    "route": "/docs/reference/platforms/macos-appkit",
+    "source": "website/src/content/docs/platforms/macos-appkit.mdx",
+    "type": "reference",
+    "audience": "app developer"
+  },
+  "docs/platforms/web-dom": {
+    "route": "/docs/reference/platforms/web-dom",
+    "source": "website/src/content/docs/platforms/web-dom.mdx",
+    "type": "reference",
+    "audience": "app developer"
+  },
+  "docs/platforms/windows-winui": {
+    "route": "/docs/reference/platforms/windows-winui",
+    "source": "website/src/content/docs/platforms/windows-winui.mdx",
+    "type": "reference",
+    "audience": "app developer"
+  },
+  "docs/platforms/windows-xaml": {
+    "route": "/docs/reference/platforms/windows-xaml",
+    "source": "website/src/content/docs/platforms/windows-xaml.mdx",
+    "type": "reference",
+    "audience": "app developer"
+  },
+  "docs/project-structure": {
+    "route": "/docs/reference/project-structure",
+    "source": "website/src/content/docs/project-structure.md",
+    "type": "reference",
+    "audience": "app developer"
+  },
+  "docs/reactivity": {
+    "route": "/docs/explanation/reactivity",
+    "source": "website/src/content/docs/reactivity.md",
+    "type": "explanation",
+    "audience": "app developer"
+  },
+  "docs/reference": {
+    "route": "/docs/reference",
+    "source": "website/src/content/docs/reference.md",
+    "type": "reference",
+    "audience": "app developer"
+  },
+  "docs/rendering": {
+    "route": "/contributing/rendering",
+    "source": "website/src/content/docs/rendering.md",
+    "type": "explanation",
+    "audience": "contributor"
+  },
+  "docs/reproducible-builds": {
+    "route": "/docs/explanation/reproducible-builds",
+    "source": "website/src/content/docs/reproducible-builds.md",
+    "type": "explanation",
+    "audience": "app developer"
+  },
+  "docs/resources": {
+    "route": "/docs/how-to/resources",
+    "source": "website/src/content/docs/resources.md",
+    "type": "how-to",
+    "audience": "app developer"
+  },
+  "docs/styling": {
+    "route": "/docs/explanation/styling",
+    "source": "website/src/content/docs/styling.md",
+    "type": "explanation",
+    "audience": "app developer"
+  },
+  "docs/system-requirements": {
+    "route": "/docs/reference/system-requirements",
+    "source": "website/src/content/docs/system-requirements.md",
+    "type": "reference",
+    "audience": "app developer"
+  },
+  "docs/troubleshooting": {
+    "route": "/docs/how-to/troubleshooting",
+    "source": "website/src/content/docs/troubleshooting.md",
+    "type": "how-to",
+    "audience": "app developer"
+  },
+  "docs/tutorial-composite-piece": {
+    "route": "/contributing/tutorials/composite-piece",
+    "source": "website/src/content/docs/tutorial-composite-piece.md",
+    "type": "tutorial",
+    "audience": "contributor"
+  },
+  "docs/tutorial-native-piece": {
+    "route": "/contributing/tutorials/native-piece",
+    "source": "website/src/content/docs/tutorial-native-piece.md",
+    "type": "tutorial",
+    "audience": "contributor"
+  },
+  "docs/tutorial-part": {
+    "route": "/contributing/tutorials/part",
+    "source": "website/src/content/docs/tutorial-part.md",
+    "type": "tutorial",
+    "audience": "contributor"
+  },
+  "docs/tweaks": {
+    "route": "/docs/how-to/tweaks",
+    "source": "website/src/content/docs/tweaks.md",
+    "type": "how-to",
+    "audience": "app developer"
+  },
+  "docs/websites": {
+    "route": "/docs/how-to/websites",
+    "source": "website/src/content/docs/websites.md",
+    "type": "how-to",
+    "audience": "app developer"
+  },
+  "internal/design/badge": {
+    "route": "/contributing/design/badge",
+    "source": "docs/design/badge.md",
+    "type": "explanation",
+    "audience": "contributor",
+    "status": "historical design; includes unimplemented proposals"
+  },
+  "internal/design/notify": {
+    "route": "/contributing/design/notify",
+    "source": "docs/design/notify.md",
+    "type": "explanation",
+    "audience": "contributor",
+    "status": "historical design; includes unimplemented proposals"
+  },
+  "internal/design/tree": {
+    "route": "/contributing/design/tree",
+    "source": "docs/design/tree.md",
+    "type": "explanation",
+    "audience": "contributor",
+    "status": "historical design; includes unimplemented proposals"
+  },
+  "internal/design/color": {
+    "route": "/contributing/design/color",
+    "source": "docs/design/color.md",
+    "type": "explanation",
+    "audience": "contributor",
+    "status": "proposal; not implemented"
+  },
+  "internal/design/focus": {
+    "route": "/contributing/design/focus",
+    "source": "docs/design/focus.md",
+    "type": "explanation",
+    "audience": "contributor",
+    "status": "resolved design discussion"
+  },
+  "internal/backend-contracts/focus": {
+    "route": "/contributing/backend-contracts/focus",
+    "source": "docs/backend-contracts/focus.md",
+    "type": "reference",
+    "audience": "contributor",
+    "status": "implementation notes; runtime claims not reverified"
+  },
+  "internal/design/grid": {
+    "route": "/contributing/design/grid",
+    "source": "docs/design/grid.md",
+    "type": "explanation",
+    "audience": "contributor",
+    "status": "deferred design"
+  },
+  "internal/backend-contracts/grid": {
+    "route": "/contributing/backend-contracts/grid",
+    "source": "docs/backend-contracts/grid.md",
+    "type": "reference",
+    "audience": "contributor",
+    "status": "normative implementation contract"
+  },
+  "internal/design/deep-links": {
+    "route": "/contributing/design/deep-links",
+    "source": "docs/design/deep-links.md",
+    "type": "explanation",
+    "audience": "contributor",
+    "status": "historical proposals; some superseded by implementation"
+  },
+  "repository/setup": {
+    "route": "/contributing/setup",
+    "source": "CONTRIBUTING.md",
+    "type": "how-to",
+    "audience": "contributor"
+  },
+  "repository/style-guide": {
+    "route": "/contributing/documentation/style-guide",
+    "source": "website/authoring/style-guide.md",
+    "type": "reference",
+    "audience": "contributor"
+  },
+  "repository/authoring": {
+    "route": "/contributing/documentation/authoring",
+    "source": "website/authoring/authoring.md",
+    "type": "how-to",
+    "audience": "contributor"
+  },
+  "docs/tutorial-events": {
+    "route": "/docs/tutorials/events",
+    "source": "website/src/content/docs/tutorial-events.md",
+    "type": "tutorial",
+    "audience": "app developer"
+  },
+  "docs/tutorial-state": {
+    "route": "/docs/tutorials/state",
+    "source": "website/src/content/docs/tutorial-state.md",
+    "type": "tutorial",
+    "audience": "app developer"
+  },
+  "docs/tutorial-layout": {
+    "route": "/docs/tutorials/layout",
+    "source": "website/src/content/docs/tutorial-layout.md",
+    "type": "tutorial",
+    "audience": "app developer"
+  },
+  "docs/tutorial-navigation": {
+    "route": "/docs/tutorials/navigation",
+    "source": "website/src/content/docs/tutorial-navigation.md",
+    "type": "tutorial",
+    "audience": "app developer"
+  },
+  "docs/tutorial-complete-app": {
+    "route": "/docs/tutorials/complete-app",
+    "source": "website/src/content/docs/tutorial-complete-app.md",
+    "type": "tutorial",
+    "audience": "app developer"
+  },
+  "docs/tutorial-other-platforms": {
+    "route": "/docs/tutorials/other-platforms",
+    "source": "website/src/content/docs/tutorial-other-platforms.md",
+    "type": "tutorial",
+    "audience": "app developer"
+  },
+  "repository/maintenance": {
+    "route": "/contributing/documentation/maintenance",
+    "source": "website/authoring/maintenance.md",
+    "type": "how-to",
+    "audience": "contributor"
+  },
+  "internal/history/documentation-overhaul": {
+    "route": "/contributing/history/documentation-overhaul",
+    "source": "docs/history/documentation-overhaul.md",
+    "type": "explanation",
+    "audience": "contributor",
+    "status": "historical documentation migration and maintainer decisions"
+  },
+  "internal/history/documentation-validation": {
+    "route": "/contributing/history/documentation-validation",
+    "source": "docs/history/documentation-validation.md",
+    "type": "reference",
+    "audience": "contributor",
+    "status": "historical scoped validation results"
+  }
+}

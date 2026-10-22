@@ -121,9 +121,6 @@ pub mod model {
     pub use day_model::*;
 }
 
-/// Wire an [`model::UndoStack`] to the platform: native fronts (the stock Edit menu, ⌘Z,
-/// iOS's three-finger gestures) where the toolkit has them, and the stack's own signals for
-/// the app's buttons everywhere (docs/model.md). One call, after the stack exists.
 pub use day_core::{install_edit_bridge, invoke_edit};
 pub use day_spec::EditState;
 /// MIME-typed text and binary clipboard data, with async browser support.
@@ -132,6 +129,9 @@ pub mod clipboard {
 }
 pub use day_spec::EditOp;
 
+/// Wire a [`model::UndoStack`] to the platform: native fronts (the stock Edit menu, ⌘Z,
+/// iOS's three-finger gestures) where the toolkit has them, and the stack's own signals for
+/// the app's buttons everywhere (docs/model.md). One call, after the stack exists.
 #[cfg(feature = "model")]
 pub fn install_undo(stack: &day_model::UndoStack) {
     let s = stack.clone();
@@ -282,7 +282,7 @@ pub use day_core::{lifecycle_supported, on_lifecycle};
 /// [`Cursor`](day_spec::Cursor) itself is in the prelude; this module carries the shapes only
 /// one toolkit names, each behind that toolkit's feature, so `day::cursor::appkit::DRAG_COPY`
 /// is a compile error in a GTK build rather than a silent arrow. Wrap a use in the same
-/// `#[cfg(feature = "…")]` the constant carries. Every constant is a [`Cursor::Native`] value:
+/// `#[cfg(feature = "…")]` the constant carries. Every constant is a [`Cursor::Native`](day_spec::Cursor::Native) value:
 /// the named backend resolves it by its own table and any other backend ignores it.
 pub mod cursor {
     pub use day_spec::Cursor;

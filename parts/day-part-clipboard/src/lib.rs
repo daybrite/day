@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MPL-2.0
 
 //! Headless cross-platform clipboard access for text and arbitrary encoded bytes. Use
-//! [`read`] / [`write`] with MIME [`Representation`]s for binary content and explicit errors;
+//! [`read`] / [`write()`] with MIME [`Representation`]s for binary content and explicit errors;
 //! [`set_text`] / [`get_text`] / [`has_text`] remain convenient plain-text helpers.
 //!
 //! ```no_run

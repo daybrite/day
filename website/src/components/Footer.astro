@@ -12,16 +12,29 @@ import { url, site } from '../lib/site';
     </div>
     <nav class="foot-cols" aria-label="Footer">
       <div>
-        <h4>Docs</h4>
-        <a href={url('docs/overview')}>Overview</a>
-        <a href={url('docs/getting-started')}>Getting started</a>
-        <a href={url('docs/benefits')}>Is Day a good fit?</a>
-        <a href={url('docs/api-tour')}>API tour</a>
-        <a href={url('docs/cli')}>CLI &amp; projects</a>
+        <h2>Documentation</h2>
+        <a href={url('docs')}>Start here</a>
+        <a href={url('docs/tutorials')}>Tutorials</a>
+        <a href={url('docs/how-to')}>How-to guides</a>
+        <a href={url('docs/reference')}>Reference</a>
+        <a href={url('docs/explanation')}>Explanation</a>
       </div>
       <div>
-        <h4>Explore</h4>
-        <a href={url('gallery')}>Screenshot gallery</a>
+        <h2>Explore Day</h2>
+        <a href={url('features')}>Features</a>
+        <a href={url('platforms')}>Platforms</a>
+        <a href={url('gallery')}>Gallery</a>
+        <a href={url('showcase')}>Showcase</a>
+        <a href={url('examples')}>Examples</a>
+        <a href={url('community')}>Community</a>
+      </div>
+      <div>
+        <h2>Contributing</h2>
+        <a href={url('contributing/setup')}>Setup and contribution rules</a>
+        <a href={url('contributing/architecture')}>Architecture</a>
+        <a href={url('contributing/backend-contracts')}>Backend contracts</a>
+        <a href={url('contributing/documentation')}>Documentation</a>
+        <a href={url('contributing/design')}>Design records</a>
         <a href={site.repo} rel="noopener">Source ↗</a>
       </div>
     </nav>
@@ -33,8 +46,8 @@ import { url, site } from '../lib/site';
   .foot-inner { display: flex; flex-wrap: wrap; gap: 40px; justify-content: space-between; }
   .brand { display: inline-flex; align-items: center; gap: 9px; color: var(--text); font-weight: 750; font-size: 1.05rem; }
   .foot-tag { color: var(--faint); max-width: 34ch; margin: 12px 0 0; font-size: 0.92rem; }
-  .foot-cols { display: flex; gap: 56px; }
-  .foot-cols h4 { font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.12em; color: var(--faint); margin: 0 0 12px; }
+  .foot-cols { display: flex; flex-wrap: wrap; gap: 56px; }
+  .foot-cols h2 { font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.12em; color: var(--faint); margin: 0 0 12px; }
   .foot-cols a { display: block; color: var(--muted); font-size: 0.94rem; margin-bottom: 8px; }
   .foot-cols a:hover { color: var(--text); }
   @media (max-width: 560px) { .foot-cols { gap: 36px; } }

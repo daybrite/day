@@ -2,7 +2,7 @@
 title: Developing Day and an app together
 description: Build an app against a local day checkout with day patch, and the workflow for changing a framework crate and the app that demonstrates it in the same sitting.
 order: 35
-section: Build & ship
+section: Contributing
 ---
 
 <!--
@@ -36,7 +36,7 @@ day patch --git https://github.com/acme/day.git@acme
 rm .cargo/config.toml        # back to the git dependency
 ```
 
-### Trying a version for one build
+## Trying a version for one build
 
 `day patch` changes the project until you undo it. To build against another version once (to check
 whether a branch fixes a bug, say), pass `--day-src` to `day build` or `day launch` instead:
@@ -65,7 +65,7 @@ Each day-src also gets its own build tree, so you can leave two versions of the 
 once and switching between them is an incremental compile. In a debug build the window titles say
 which is which: `Day Rise (0.1.0+main-2d77edbf/appkit)` beside
 `Day Rise (0.1.0+experimental-nav-9f8e7d6c/appkit)`.
-[CLI & projects](/docs/cli#trying-another-version-of-day-itself) has the full flag.
+[CLI & projects](/docs/reference/cli#trying-another-version-of-day-itself) has the full flag.
 
 Reach for `day patch` when you're working on the framework and the app together over a session,
 and `--day-src` or `--patch-local` when you're comparing.

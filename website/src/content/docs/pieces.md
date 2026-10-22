@@ -2,7 +2,7 @@
 title: Pieces
 description: "Day's unit of UI: what a Piece is, how trees are composed, and what happens when one is built."
 order: 11
-section: Concepts
+section: Explanation
 ---
 
 <!--
@@ -12,11 +12,23 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 A **Piece** describes a control, layout, or group of controls in a Day interface. Pieces compose
 into a tree, and the selected backend creates the native widgets. For example, a `label` becomes
-an `NSTextField` on macOS or a `TextView` on Android. The [API tour](/docs/api-tour) has examples;
+an `NSTextField` on macOS or a `TextView` on Android. The [API tour](/docs/reference/api-tour) has examples;
 this page explains composition and construction.
 
+The Rust blocks on this page are API excerpts or integration fragments, not complete apps.
+Use the [beginner journey](/docs/tutorials/first-app) for compile-tested complete files.
+Source contracts: [Piece and PieceSeq](https://github.com/daybrite/day/blob/main/crates/day-core/src/build.rs),
+[containers](https://github.com/daybrite/day/blob/main/crates/day-pieces/src/containers.rs), and
+[structural pieces](https://github.com/daybrite/day/blob/main/crates/day-pieces/src/structure.rs).
+
+The Rust blocks on this page are API excerpts or integration fragments, not complete apps.
+Use the [beginner journey](/docs/tutorials/first-app) for compile-tested complete files.
+Source contracts: [Piece and PieceSeq](https://github.com/daybrite/day/blob/main/crates/day-core/src/build.rs),
+[containers](https://github.com/daybrite/day/blob/main/crates/day-pieces/src/containers.rs), and
+[structural pieces](https://github.com/daybrite/day/blob/main/crates/day-pieces/src/structure.rs).
+
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
-[example messages](/docs/internal/snippet-catalog) and [catalog setup](/docs/localization).
+[example messages](/docs/reference/examples/catalog) and [catalog setup](/docs/how-to/localization).
 
 ## Start with a control
 
@@ -71,7 +83,7 @@ fn status_badge(online: bool) -> AnyPiece {
 }
 ```
 
-An ordinary [page](/docs/glossary#page) or component function does **not** erase. It returns a concrete piece type, or
+An ordinary [page](/docs/reference/glossary#page) or component function does **not** erase. It returns a concrete piece type, or
 `impl Piece` to avoid naming that type:
 
 ```rust
@@ -119,13 +131,13 @@ The `day` prelude ships a small set of Pieces, grouped roughly as follows:
 | Presentation | `alert`, `confirm`, `prompt`, `cover`, menus |
 
 Anything beyond this vocabulary (a combo box, a map, a web view, a Lottie animation, an [embedded
-SwiftUI view](/docs/internal/swiftui)) lives in a separate *piece crate* (`day-piece-*`) that you
-add as an ordinary Cargo dependency. Optional widgets are separate dependencies, so apps include only the piece crates they use. The [extension model](/docs/extending)
+SwiftUI view](/docs/reference/swiftui)) lives in a separate *piece crate* (`day-piece-*`) that you
+add as an ordinary Cargo dependency. Optional widgets are separate dependencies, so apps include only the piece crates they use. The [extension model](/contributing/extending)
 explains how those crates plug in.
 
 Each built-in has a reference page with per-platform notes under
-[internal reference](/docs/reference), for example [text](/docs/internal/text),
-[lists](/docs/internal/list), and [dialogs](/docs/internal/dialogs).
+[internal reference](/docs/reference), for example [text](/docs/reference/text),
+[lists](/docs/reference/list), and [dialogs](/docs/reference/dialogs).
 
 ## What happens at build
 
@@ -142,11 +154,12 @@ Two parts of that signature matter.
 - **`build` takes `self`, not `&self`.** A Piece is consumed exactly once. There is no retained
   view description that Day re-runs and diffs against the last frame.
 - **It returns an `RNode`,** a handle to a node in the *realized tree*: the live structure that
-  owns the native widget, its layout state, and the [reactive](/docs/glossary#reactive) scope its [bindings](/docs/glossary#binding) live in.
+  owns the native widget, its layout state, and the [reactive](/docs/reference/glossary#reactive) scope its [bindings](/docs/reference/glossary#binding) live in.
 
-Your Piece functions run once, at mount time. Everything dynamic afterward flows through
-[signals](/docs/reactivity), which are bound to individual native attributes during that single
-build. The [reactivity page](/docs/reactivity) covers what that means for your code, including the
+Each Piece value is consumed once when built. Page and structural builders can be called again
+when their host mounts a new subtree. Everything dynamic afterward flows through
+[signals](/docs/explanation/reactivity), which are bound to individual native attributes during that single
+build. The [reactivity page](/docs/explanation/reactivity) covers what that means for your code, including the
 costs.
 
 
@@ -168,7 +181,7 @@ With `title = res::str::hi()`, the label's `build` creates three things that liv
 
 - The **node** records the Piece's kind, its place in the tree, its layout behavior, and its
   accessibility annotations.
-- The **native widget** is created immediately through the toolkit [backend](/docs/glossary#backend) (an `NSButton`, a
+- The **native widget** is created immediately through the toolkit [backend](/docs/reference/glossary#backend) (an `NSButton`, a
   `GtkEntry`, …) and inserted into its native parent at the right index. Containers like
   `column` and `row` get a plain native container view; decorators (`padding`, `frame`) get no
   widget at all and exist purely in Day's tree.
@@ -177,7 +190,7 @@ With `title = res::str::hi()`, the label's `build` creates three things that liv
   bindings and handlers in one step, and the native widget is released.
 
 The details of that machinery (the tree structure, measurement, and how events travel back)
-are on [How rendering works](/docs/rendering).
+are on [How rendering works](/contributing/rendering).
 
 ## Conditional and repeated structure
 
@@ -185,8 +198,8 @@ Because build runs once, structural change is explicit. Two Pieces express
 it:
 
 ```rust
-// A subtree that exists only while the condition holds. The closure re-runs
-// when `cond`'s signals change; the old arm's scope is disposed.
+// A subtree that exists only while the condition holds. The condition is tracked;
+// changing its boolean result switches arms and disposes the previous arm's scope.
 when(move || logged_in.get(), move || profile_panel())
 
 // With an else arm. Exactly one arm is mounted at a time, and the two need
@@ -206,13 +219,13 @@ each(
 ```
 
 `each` takes a *row source* and a row builder. `items(data, key_of)` is the row source for plain
-data; a [model](/docs/internal/model) collection supplies one directly, and `list` accepts the
+data; a [model](/docs/explanation/model) collection supplies one directly, and `list` accepts the
 same sources.
 
 `each` compares the old and new key sequences to decide which rows to keep, build, or remove. A
 `when` flip or a row removal is a real structural edit (native widgets are added and removed), so it
 costs more than a bound-attribute update. For long scrolling data, prefer
-[`list`](/docs/internal/list), which hands rows to the platform's recycling list widget instead of
+[`list`](/docs/reference/list), which hands rows to the platform's recycling list widget instead of
 materializing every row.
 
 ## Identity, for testing and accessibility
@@ -223,14 +236,14 @@ Any Piece can carry a declared, typed `ElementId`:
 button(res::str::save()).action(save).id(id!(save_button))
 ```
 
-[dayscript](/docs/dayscript) targets elements by id, [accessibility](/docs/accessibility) uses them
+[dayscript](/docs/how-to/dayscript) targets elements by id, [accessibility](/docs/how-to/accessibility) uses them
 as stable automation identifiers, and debug output prints them. They're optional everywhere, but pages you intend to test should id their
-interactive elements; `day lint` catches an id used twice and a `navigate` to a [route](/docs/glossary#route) that
+interactive elements; `day lint` catches an id used twice and a `navigate` to a [route](/docs/reference/glossary#route) that
 doesn't exist.
 
 `id!(save_button)` declares the ID; YAML refers to `save_button`. The catalog supplies
 the human-readable title independently. For recycled rows, use `.id_of` so the ID follows
-the current item. See [element IDs](/docs/internal/element-ids).
+the current item. See [element IDs](/contributing/backend-contracts/element-ids).
 
 ## Where Pieces come from
 
@@ -240,20 +253,20 @@ controls through separate crates:
 1. **Built-ins**: the vocabulary above, implemented in `day-pieces` with a renderer in every
    toolkit backend.
 2. **Composite pieces**: plain Rust functions or builder structs that compose existing Pieces.
-   They need no native code and work on every [target](/docs/glossary#target) automatically. Most of your app is this; so
+   They need no new native code; their target support is limited by the controls and capabilities they compose. Most of your app is this; so
    are the
    in-tree `day-piece-rating` and `day-piece-settings`, and the
-   [star-rating tutorial](/docs/tutorial-composite-piece).
+   [star-rating tutorial](/contributing/tutorials/composite-piece).
 3. **Native pieces**: a new leaf widget with a per-toolkit implementation, registered at link
    time. This is how `day-piece-webview` wraps `WKWebView`/`WebView`/`WebKitGTK`, how
-   `day-piece-swiftui` hosts [your own SwiftUI views](/docs/internal/swiftui) on macOS and iOS,
+   `day-piece-swiftui` hosts [your own SwiftUI views](/docs/reference/swiftui) on macOS and iOS,
    and how you'd wrap a platform control Day doesn't cover. See the
-   [native piece tutorial](/docs/tutorial-native-piece).
+   [native piece tutorial](/contributing/tutorials/native-piece).
 
 Composite pieces reuse existing widget implementations. Native pieces require an implementation
-for each [toolkit](/docs/glossary#toolkit) you support (a piece that only implements AppKit and UIKit renders a labeled
-[placeholder](/docs/glossary#placeholder) elsewhere, so the gap is visible and the app keeps running).
+for each [toolkit](/docs/reference/glossary#toolkit) you support (a piece that only implements AppKit and UIKit renders a labeled
+[placeholder](/docs/reference/glossary#placeholder) elsewhere, so the gap is visible and the app keeps running).
 
 ---
 
-Next: [Reactivity](/docs/reactivity), the [signals](/docs/glossary#signal) that update the widget tree.
+Next: [Reactivity](/docs/explanation/reactivity), the [signals](/docs/reference/glossary#signal) that update the widget tree.

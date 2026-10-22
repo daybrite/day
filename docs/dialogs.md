@@ -37,7 +37,7 @@ The request and its answer live in one closure. `day::task` is the one
 explicit opt-in ("this action starts an async flow").
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
-[example messages](snippet-catalog.md) and [catalog setup](https://daybrite.dev/docs/localization).
+[example messages](snippet-catalog.md) and [catalog setup](https://daybrite.dev/docs/how-to/localization).
 
 ## Layers
 

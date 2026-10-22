@@ -15,15 +15,17 @@
 # site URL instead. Code fences are exempt: a path in sample output is not a reference.
 
 import os
+import json
 import re
 import sys
+from pathlib import Path
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 DOCS = os.path.join(ROOT, "docs")
 
-existing = {f for f in os.listdir(DOCS) if f.endswith(".md")}
+existing = {str(p.relative_to(DOCS)) for p in Path(DOCS).rglob('*.md')}
 BARE = re.compile(r"docs/([a-z0-9-]+\.md)")
-REL_LINK = re.compile(r"\]\((?:docs/)?([a-z0-9-]+\.md)(?:#[a-zA-Z0-9_-]+)?\)")
+REL_LINK = re.compile(r"\]\(([^\s)#]+\.md)(?:#[^\s)]*)?\)")
 
 problems = []
 
@@ -55,28 +57,23 @@ def check(path, label):
             problems.append(f"{label}:{lineno}: bare reference to docs/{name} — make it a link")
         for m in REL_LINK.finditer(line):
             name = m.group(1)
-            if name not in existing:
-                problems.append(f"{label}:{lineno}: link target {name} does not exist in docs/")
+            if name.startswith(('https:', 'http:', '/')):
+                continue
+            if not (Path(path).parent / name).is_file():
+                problems.append(f"{label}:{lineno}: relative link target {name} does not exist")
 
 
 for f in sorted(existing):
     check(os.path.join(DOCS, f), f"docs/{f}")
 check(os.path.join(ROOT, "DESIGN.md"), "DESIGN.md")
 
-# Every doc must be placed in the shared curation (the /docs/internal index and the reference
-# index both derive from it); this is what stops a new doc from silently joining no index.
-groups_file = os.path.join(ROOT, "website", "src", "lib", "internal-groups.mjs")
-curated = re.findall(r"\['([a-z0-9-]+)',", open(groups_file).read())
-doc_ids = {f[:-3] for f in existing}
-for missing in sorted(doc_ids - set(curated)):
-    problems.append(f"docs/{missing}.md is not placed in website/src/lib/internal-groups.mjs")
-for ghost in sorted(set(curated) - doc_ids):
-    problems.append(f"internal-groups.mjs lists {ghost!r}, which has no docs/{ghost}.md")
-seen = set()
-for c in curated:
-    if c in seen:
-        problems.append(f"internal-groups.mjs lists {c!r} twice")
-    seen.add(c)
+# Canonical repository docs must have a published route. The website architecture check
+# validates the corresponding symlink, audience, and sidebar placement.
+catalog = json.loads((Path(ROOT) / "website/src/data/content-routes.json").read_text())
+for name in sorted(existing):
+    entry = catalog.get("internal/" + name[:-3])
+    if not entry or entry.get("source") != "docs/" + name:
+        problems.append(f"docs/{name} has no canonical content route")
 
 if problems:
     for p in problems:

@@ -1,5 +1,5 @@
 // Xcode build settings for the iOS app; Xcode's own settings and `day build` override them.
-// https://daybrite.dev/docs/project-structure#xcode-build-settings
+// https://daybrite.dev/docs/reference/project-structure#xcode-build-settings
 
 // Fallbacks for a checkout that has not built yet; the generated include below sets these from
 // Day.toml [app] and Cargo.toml [package] on every `day build`.

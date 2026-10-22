@@ -603,7 +603,7 @@ pub fn set_modifier_override(m: Option<day_spec::Modifiers>) {
 /// every invocation a platform route delivers comes back through `on_invoke`. On a toolkit
 /// with no native route, the `menu_role(Cut/Copy/Paste)` items dispatch here instead (the
 /// same standing-id fallback the undo pair uses). Call once, after launch; installing again
-/// replaces the wiring. Most apps want [`day::install_edit_commands`], which adds the
+/// replaces the wiring. Most apps want [`day::install_edit_commands`](/api/day/fn.install_edit_commands.html), which adds the
 /// clipboard transport.
 pub fn install_edit_bridge(
     state: impl Fn() -> day_spec::EditState + 'static,

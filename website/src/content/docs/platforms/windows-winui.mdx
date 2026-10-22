@@ -1,8 +1,8 @@
 ---
 title: Windows (WinUI 3)
-description: Build Day apps for Windows with WinUI 3 and the Windows App SDK in a Win32 window — build tools, the Windows App Runtime, self-contained MSIX and installer packaging, per-platform caveats, and which WinUI control every Day piece becomes.
+description: "Windows with WinUI 3: build tools, runtime requirements, packaging, and target-specific limitations."
 order: 33.6
-section: Platforms
+section: Reference
 ---
 
 {/*
@@ -10,20 +10,14 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 */}
 
-import PlatformShots from '../../../components/PlatformShots.astro';
-
-`windows-winui` is the Windows target. It renders [WinUI
-3](https://learn.microsoft.com/en-us/windows/apps/winui/winui3/) controls (`Microsoft.UI.Xaml`,
-from the [Windows App SDK](https://learn.microsoft.com/en-us/windows/apps/windows-app-sdk/) 2.5.1)
-in a Win32 window, hosted through the Windows App SDK's `DesktopWindowXamlSource`. `day new` gives
-a Windows project this target.
-
-<PlatformShots platform="windows-winui" shots={["home", "controls", "dates", "grid"]} />
+`windows-winui` is Day’s Tier 2 target for Windows apps, using WinUI 3 through the Windows App
+SDK. It shares Day’s XAML integration with the deprecated system-XAML target. Choose WinUI
+for a new Windows app and check its build and runtime requirements below.
 
 > [!QUESTION] WinUI 3 or system XAML?
 > Day has one XAML backend and one C++/WinRT shim, compiled against either of two XAML stacks.
 > `windows-winui` builds it against WinUI 3, whose controls carry the Fluent styles of Windows 11
-> (`XamlControlsResources`). The deprecated [`windows-xaml`](/docs/platforms/windows-xaml) target
+> (`XamlControlsResources`). The deprecated [`windows-xaml`](/docs/reference/platforms/windows-xaml) target
 > builds the same code against system XAML (`Windows.UI.Xaml`, part of Windows). Everything Day's
 > Rust code does with the backend applies to both; `day::toolkit_name()` reports `"WinUI"` here.
 > The links below point at the Windows App SDK's `Microsoft.UI.Xaml` API reference.
@@ -36,7 +30,7 @@ toolchain. The C++/WinRT shim is compiled by `build.rs` against the Windows SDK,
 
 ```powershell
 rustup default stable-msvc
-cargo install day-cli
+cargo install --git https://github.com/daybrite/day day-cli
 day new app my-app --toolkit windows-winui
 cd my-app
 day launch -t windows-winui
@@ -58,7 +52,7 @@ SDK's NuGet packages itself (about 270 MB, with the in-box `curl` and `tar`) int
 an offline machine; `DAY_WINAPPSDK_CACHE` moves the cache.
 
 A Windows machine can also build `windows-qt` and `windows-gtk` for development
-([Tier 4](/docs/platforms#support-tiers)); that runs the same codebase against three desktop
+([Tier 4](/docs/reference/platforms#support-tiers)); that runs the same codebase against three desktop
 toolkits.
 Those need MSYS2 and a GNU Rust toolchain alongside your MSVC default;
 [Qt and GTK on a Windows host](#qt-and-gtk-on-a-windows-host) has the recipe.
@@ -89,7 +83,7 @@ install nothing extra. They need Windows 10 version 1809 or later (Windows 11 re
 
 The NSIS installer is per-user: it runs without elevation, adds a normal Add/Remove Programs
 entry, and offers a silent `/S` mode for managed deployment. The Microsoft Store rules that
-[`day store`](/docs/cli) applies (`[microsoft-store]` in `store-rules.toml`) cover this target.
+[`day store`](/docs/reference/cli) applies (`[microsoft-store]` in `store-rules.toml`) cover this target.
 
 ## Caveats
 
@@ -125,7 +119,7 @@ A native piece's XAML half serves both XAML targets: a `winui` feature that impl
 `day_toolchain::winappsdk::shim_includes(&cppwinrt)` and defines `DAY_WINUI` when
 `day_toolchain::winappsdk::shim_is_winui()`, and the shim switches its includes and namespace on
 `DAY_WINUI`. `day new piece --toolkits winui` scaffolds this; the
-[native piece tutorial](/docs/tutorial-native-piece) walks through it.
+[native piece tutorial](/contributing/tutorials/native-piece) walks through it.
 
 ## Moving from `windows-xaml`
 
@@ -141,7 +135,7 @@ backend. Development machines need the Windows App Runtime (see
 
 ## What each piece becomes
 
-The generated [coverage matrix](/docs/internal/coverage-matrix), checked in CI, covers every backend;
+The generated [coverage matrix](/contributing/backend-contracts/coverage-matrix), checked in CI, covers every backend;
 this table adds links and notes.
 
 | Day piece | WinUI 3 control (`Microsoft.UI.Xaml.Controls`) |
@@ -165,7 +159,7 @@ this table adds links and notes.
 | `nav_menu` | `NavigationViewItem`s, or a [`ListView`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.listview) standalone |
 | `tabs` | [`Pivot`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.pivot) |
 | `image` | [`Image`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.image) |
-| `vector` | a [`Path`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.shapes.path) in a scaling [`Viewbox`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.viewbox) ([XAML geometry](/docs/resources#what-each-target-ships)); an [`Image`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.image) of the raster cache PNG for art outside the convertible subset |
+| `vector` | a [`Path`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.shapes.path) in a scaling [`Viewbox`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.viewbox) ([XAML geometry](/docs/how-to/resources#what-each-target-ships)); an [`Image`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.image) of the raster cache PNG for art outside the convertible subset |
 | `canvas` | [`Canvas`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.canvas) with a `Path` per shape |
 | dialogs / alerts / prompts | [`ContentDialog`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.contentdialog) |
 | file dialogs | [`FileOpenPicker`](https://learn.microsoft.com/en-us/uwp/api/windows.storage.pickers.fileopenpicker) / `FileSavePicker` |
@@ -187,7 +181,7 @@ after forcing layout when a templated control reports zero before the first asyn
 `windows-winui` is the target you ship on Windows. GTK and Qt are portable, so the same machine can
 also run `windows-qt` and `windows-gtk`, to check a change against three desktop toolkits before CI
 or to use one toolkit across Linux and Windows. Both are development combos ([Tier
-4](/docs/platforms#support-tiers)): `day pack` refuses them (bundling a toolkit into a Windows
+4](/docs/reference/platforms#support-tiers)): `day pack` refuses them (bundling a toolkit into a Windows
 installer is deferred), and `windows-gtk` has no accessibility tree.
 
 Each needs two things: the toolkit's development libraries from [MSYS2](https://www.msys2.org), and
@@ -285,4 +279,4 @@ compiled dependencies. Build times depend on the host, toolkit, and changed file
   those pieces as placeholders. The clang/`lld` toolchain used by `CLANGARM64` + `gnullvm` keeps
   them: a full sweep of the showcase there reports no dropped renderers beyond the GTK web view,
   which has no Windows build. If pieces render as placeholders on an x86-64 MinGW build, that linker
-  is the cause; see [Platform support](/docs/platforms).
+  is the cause; see [Platform support](/docs/reference/platforms).

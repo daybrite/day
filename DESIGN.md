@@ -1048,6 +1048,12 @@ Absolute route activation also feeds remaining segments to already-mounted desti
 when switching tabs; those surfaces do not re-register on selection. Resident-page route gates
 read the selection signal directly, so the newly selected page can receive its nested route
 within the same event batch, before its native presentation updates.
+Newly mounted navigation surfaces also reset their remembered path before consuming pending
+absolute-route segments. Reopening a Settings cover at `settings/general` therefore replaces
+its previous group rather than appending General above it; a bare `settings` reopen retains
+that group. The `absolute_route_replaces_remembered_path_in_newly_mounted_stack` regression
+in [mock_e2e.rs](crates/day-pieces/tests/mock_e2e.rs) covers replacement, preservation on a
+bare reopen, and returning to the root with one Back action on every toolkit.
 
 The **`Decorate`** extension trait carries the universal modifiers: `.id(id!(name))` / `.id(id!(family, key))`,
 `.padding()`, `.frame()` / `.width()` / `.height()`, `.grow()` variants, `.background()`,
@@ -2043,7 +2049,11 @@ through window creation.
 > permutes resident pages; `DocumentTabsPatch` changes chrome without replacing content.
 > `TreeOps::reparent` preserves the document subtree and scope while rejecting cycles and
 > window roots. `DocumentWindow` follows its toolbar contributions; `set_content_scope`
-> makes commands resolve in the focused document. Native order sync runs on focus and close,
+> makes commands resolve in the focused document. Focused ambient lookup invalidates reactive
+> menus on window activation and content-scope changes. Explicit focus requests update command
+> routing even if the OS omits a key-window notification. Dedicated document hosts can opt into
+> `hide_when_empty(true)` to remain hidden after the final document closes, preserving their
+> scopes for later New Window/New Tab actions without revealing an empty owner window. Native order sync runs on focus and close,
 > without a frame-clock subscription. The Qt bridge lives in `toolkits/day-macos-tabs`, so
 > day-core has no AppKit dependencies. `ButtonProps::selected` / `ButtonPatch::Selected` carry
 > a button's native selected state (the strip's current tab is a selected button, not a
@@ -3189,7 +3199,7 @@ Dayscript accepts explicit `package::key` / `package::file::key` names after fir
 use or explicit generated `register()`. Duplicate diagnostic names fail closed for scripts;
 static identity still isolates typed calls from two versions of a crate. `day lint` handles
 private workspace catalogs separately from app-global references. The
-[website guide](https://daybrite.dev/docs/localization) documents setup, migration, and
+[website guide](https://daybrite.dev/docs/how-to/localization) documents setup, migration, and
 translation review. The CLI's starter translation table covers navigation labels and the
 Items empty-state and untitled-item text in all twenty supported starter locales. Only keys
 present in the source locale are translated; app-specific text remains available for review.
@@ -4560,7 +4570,7 @@ hyphens without changing case (`App-Name` → `AppName`). Templates can use it i
 and contents, including a shared store ID such as `org.appfair.app.AppName`. This is
 not a general identifier sanitizer: other characters remain unchanged, and platform ID
 validation still applies. Existing `{{pascal}}`, `{{ident}}` and `{{id}}` semantics are unchanged.
-See the [template placeholder reference](https://daybrite.dev/docs/cli) and
+See the [template placeholder reference](https://daybrite.dev/docs/reference/cli) and
 `new::tests::template_repo_no_hyphens_preserves_case_for_shared_store_ids`.
 
 The app template defines its initial version (`0.1.0`) once in `[workspace.package]` and
@@ -5863,11 +5873,14 @@ scaffold's starter pages. Apps and pieces still depend on Day exactly as externa
 the `pieces/`, `parts/`, and `tweaks/` crates are the continuous proof that extensions never
 need core edits.
 
-Docs are two-layer by design: `docs/*.md` in this repo is normative per subsystem (and heavily
-cited from source comments); `website/` is the curated public site (Astro) — guides (overview,
-api-tour, reactivity, layout, dayscript, packaging, …) plus the internal reference, which
-**symlinks** `docs/*.md` under `/docs/internal/…` so it can never drift. A companion repo,
-`daybrite/actions`, publishes the reusable GitHub workflows external Day apps build and deploy with.
+Repository documents in `docs/` publish through symlinks in `website/src/content/internal/`.
+The content route catalog places app tutorials, how-to guides, reference, and explanations under
+`/docs/`, and framework development, contracts, design, and history under `/contributing/`.
+The website sidebar and page indexes derive from that catalog. Architecture checks validate
+canonical source paths and the public documentation URLs embedded in CLI help and app templates.
+Markdown lint discovers canonical pages automatically. Writing rules live in `STYLE_GUIDE.md`;
+documentation-specific conventions and templates live in `website/authoring/`.
+The `daybrite/actions` companion repository provides reusable workflows for external Day apps.
 
 ---
 
@@ -5914,7 +5927,7 @@ api-tour, reactivity, layout, dayscript, packaging, …) plus the internal refer
 > `daysite/public` and uploads `daysite/dist`. Default apps require no changes, and pinned
 > older renderers retain their original default build. GitHub Actions Pages custom domains
 > are configured in repository Settings and DNS, independently of the generated `CNAME`.
-> [App websites](https://daybrite.dev/docs/websites) documents setup and customization.
+> [App websites](https://daybrite.dev/docs/how-to/websites) documents setup and customization.
 
 `ci.yml`, in order:
 
@@ -6084,10 +6097,23 @@ api-tour, reactivity, layout, dayscript, packaging, …) plus the internal refer
    the gate; Actions has no workflow-level `if`). The daily schedule (06:00 UTC) was a
    website-only trigger until 2026-10; it now runs the complete workflow on `main`, so a
    runner-image, toolchain, emulator or dependency change surfaces on a day with no push. The `website` job builds the rustdoc bundle into
-   `dist/api` — Pages deploys one artifact, so the job that feeds the deploy assembles all of it —
+   `dist/api` after the Astro build, which clears `dist`. Pages deploys one artifact, so the job
+   that feeds the deploy assembles both outputs and checks every manifest-listed crate entry.
+   Rustdoc runs with a locked dependency graph and warnings denied; its item-link check follows
+   aliases and checks fragment destinations separately from the website link checker. Links to
+   private helpers remain prose, public links use resolvable paths, and re-exported standard-library
+   links point to the hosted Rust documentation. This artifact sequence
    which makes it the does-rustdoc-still-build check on crate changes too; the separate `api-docs`
    job it replaced is gone. The `screenshots-<combo>` artifacts the platform legs upload stay, as
    each run's evidence of what its walkthrough rendered.
+
+   Documentation authoring standards and unpublished templates live in `website/authoring/`;
+   the published guides retain their canonical-source symlinks and route-catalog entries.
+   `scripts/docs/` holds repeatable sample and rendered-output validators, which create fresh
+   `.cache/docs/` sessions with copied lockfiles. The tutorial image/source check gates publication builds via `DAY_REQUIRE_SHOWCASE`; local
+   previews can render while a changed example awaits recapture. Neither CI nor the website depends on the
+   archived overhaul workspace. The [documentation migration record](docs/history/documentation-overhaul.md)
+   preserves the accepted content structure and review limits.
 
 CI knowledge banked in the workflows from day one: JDK pinning, rustup toolchains for
 cross-std, `--locked` everywhere, emulator boot polling, screenshot content validation

@@ -1,6 +1,6 @@
 ---
 title: "App icon badge"
-description: "A count, text or dot on the app icon in the Dock, taskbar, launcher or home screen, and how each platform shows it."
+description: "Set app icon counts, text, and dots, with per-platform behavior and permission requirements."
 ---
 
 <!--
@@ -10,196 +10,42 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 # App icon badge
 
-> [!NOTE]
-> **Status: shipped on every platform with an API.** `AppBadge`, `Cap::AppBadge{Count,Text,Dot}`,
-> the defaulted `Toolkit::set_app_badge` duty and the `day::set_app_badge` facade, with arms on
-> AppKit, UIKit, web-dom, HarmonyOS, Linux GTK and Qt (the Unity launcher signal through the
-> `day-dbus` crate, `Emulated`), and Windows XAML (an overlay icon Day draws, compile-checked).
-> Android answers `Unsupported`: it has no API. [docs/duty-matrix.md](duty-matrix.md) and
-> [docs/coverage-matrix.md](coverage-matrix.md) carry the rows. Progress on the Dock or
-> taskbar icon shipped beside it as `day::set_app_progress` ([docs/status-item.md](status-item.md)).
->
-> The Showcase's Notifications & badge page has an "App badge" group — a stepper, Set/Clear, and a
-> macOS-only "Set text" button that appears only where `Cap::AppBadgeText` is `Native`.
->
-> One naming decision landed differently from the plan below: the surface is `app_badge`
-> throughout (`Toolkit::set_app_badge`, `Cap::AppBadgeCount`, `day::set_app_badge`), to keep it
-> clear of `NavItem::badge`.
+Use `day::set_app_badge(&AppBadge)` to set or clear the app icon badge. This is separate
+from a navigation item's badge. The function delegates to the running toolkit and returns `()`.
 
-## The recommendation: a Toolkit duty
+## API boundary
 
-**Do not make a `day-part-badge` crate.** Add a defaulted `Toolkit::set_badge` duty plus a small
-`day::badge` facade, the way `set_appearance` and `set_app_menu` already work.
+`AppBadge` has `None`, `Count(u32)`, `Text(String)`, and `Dot` variants. Probe
+`Cap::AppBadgeCount`, `Cap::AppBadgeText`, or `Cap::AppBadgeDot` through `capability` before
+choosing a payload. Unsupported payloads are ignored rather than converted to another kind.
+Localize app-owned text before constructing `AppBadge::Text`.
 
-There are three reasons, in order of weight.
+## Platform behavior
 
-**A badge is app chrome, and app chrome is already a duty.** `set_app_menu`, `set_toolbar`,
-`set_window_title`, and `set_appearance` are all Toolkit duties today. A Dock badge sits in exactly
-that category: it decorates the running application, it is per-toolkit, and it has no meaning
-outside a running app. Parts are for headless OS services that work in a plain `main` with no Day
-runtime ([docs/clipboard.md](clipboard.md) is explicit about this); a badge has nothing to say in that context.
+| Target | Count | Text | Dot | Behavior |
+| --- | --- | --- | --- | --- |
+| macOS / AppKit | Yes | Yes | Yes | Dock tile label; cleared when the process exits |
+| iOS / UIKit | Yes | No | No | Requires notification permission; the count survives app termination |
+| Windows / WinUI or XAML | Yes | No | Yes | Taskbar overlay; counts above 99 display as 99+ |
+| Linux / GTK or Qt | Emulated | No | No | Unity launcher D-Bus signal; the desktop shell decides whether to display it |
+| Android | No | No | No | Use a local notification's badge instead |
+| HarmonyOS / ArkUI | Yes | No | No | Notification Kit badge number |
+| Browser / DOM | Emulated | No | Emulated | Browser Badging API; requires browser and installed-app support |
 
-**The handle a badge needs is the one the toolkit already holds.** Windows attaches an overlay icon
-to an `HWND`. macOS needs `NSApplication`'s dock tile. A part reaching those would need a `day-core`
-edge for `WindowHandle` and still could not get at the `HWND` cleanly, which is a heavier dependency
-than any existing part takes and buys nothing.
+Only AppKit accepts arbitrary text. Other targets ignore `AppBadge::Text`; choose a count or
+omit the badge when `Cap::AppBadgeText` is unsupported.
 
-**A defaulted duty costs nothing where the platform cannot do it.** `set_appearance` is implemented
-by 4 of 9 backends; the other five inherit `fn set_appearance(&mut self, _dark: Option<bool>) {}`
-and answer `Cap::Appearance = Unsupported`. Badge support is at least as uneven, so the same shape
-carries it without forcing nine implementations.
+On iOS, request [notification permission](permissions.md) before setting a count. Clear the
+badge when its information is no longer relevant. A `WillTerminate` handler can clear it during
+an orderly exit, but iOS can terminate a suspended app without that callback; update it on the
+next launch as well. See [lifecycle events](lifecycle.md).
 
-The counter-argument is that on iOS the badge is part of the notification system
-(`UNUserNotificationCenter.setBadgeCount`, gated on the `.badge` authorization option), and on
-Android it is *only* reachable through notifications. That is an argument for folding it into
-`day-part-local-notify`. It loses because on macOS, Linux, and Windows the badge has no relationship
-to notifications at all, and a desktop app wanting a Dock count should not compile alarm receivers
-and boot re-arm to get one. The platforms that plumb it through notifications are an implementation
-detail a duty can hide, which is what a duty is for.
+Android derives launcher badges from notifications. Use `Notification::badge(n)` from
+[local notifications](notify.md); the launcher determines whether a count or dot appears.
 
-## What each platform will actually accept
+GTK and Qt on Linux emit the same Unity launcher signal. Stock GNOME Shell ignores it;
+shells or extensions that implement the protocol can display it. This is why the capability
+reports `Emulated` rather than promising a visible badge.
 
-This is the part that decides the API, because the payload differs more than the availability does.
-
-| target | count | text | dot | native API |
-|---|---|---|---|---|
-| macos-appkit | ✓ | **✓** | ✓ | `NSApp.dockTile.badgeLabel` — an arbitrary `String` |
-| ios-uikit | ✓ | – | – | `UNUserNotificationCenter.setBadgeCount` (iOS 16+); number only |
-| linux-gtk / linux-qt | ~ | – | – | `com.canonical.Unity.LauncherEntry` D-Bus signal (`count`, `count-visible`) through the `day-dbus` crate; `Emulated`, because whether it shows depends on the dock |
-| web-dom | ✓ | – | ✓ | `navigator.setAppBadge(n?)` / `clearAppBadge()` |
-| windows-winui | ✓ | – | ✓ | `ITaskbarList3::SetOverlayIcon` with a red disc Day draws holding the count (99+ past 99), or none for a dot |
-| android-mdc | – | – | ~ | none: the launcher derives a dot from posted notifications |
-| harmony-arkui | ✓ | – | – | `notificationManager.setBadgeNumber`, an ArkTS-only API reached through day-arkui's daybridge arm (`src/host.rs`) |
-
-Four findings follow from that table.
-
-**macOS is the only platform that takes arbitrary text.** `badgeLabel` is a `String`, so `"beta"` or
-`"99+"` render literally. Everywhere else the payload is a number or nothing.
-
-**Android cannot set a badge at all.** There is no AOSP API. The launcher dot is derived from active
-notifications, and `Notification.setNumber` is honored only by some launchers. The OEM broadcast
-workarounds (the ShortcutBadger approach) are per-vendor and break often. The answer is
-`Unsupported` on every badge cap, with the docs pointing at `day-part-local-notify`'s
-`Notification::badge(n)`, which is the correct Android path and already ships.
-
-**Windows takes a picture, not a number.** The unpackaged Win32 XAML host can only set an overlay
-`HICON`, so a count means rendering digits into an icon at runtime. A packaged MSIX build could use
-`BadgeUpdateManager` (1–99 plus a fixed glyph set) instead, but `day pack` also produces an
-unpackaged NSIS installer, so the backend cannot assume it. It is marked `~` because the work is
-real and deferred past v1.
-
-**Linux depends on the shell, not the toolkit.** The Unity launcher protocol is a plain D-Bus signal
-naming the app's `.desktop` id, so GTK and Qt behave identically, but KDE Plasma, Dash-to-Dock, and
-Docky honor it while stock GNOME Shell ignores it. `Cap` cannot see which shell is running, so this
-reports `Emulated`: the call is made and may do nothing.
-
-## The API
-
-The API is a `Badge` value, an imperative setter, and per-payload capabilities.
-
-```rust
-use day::badge::{self, Badge};
-
-badge::set(Badge::Count(7));         // the portable case
-badge::set(Badge::Text("99+"));      // macOS Dock only — ignored elsewhere
-badge::set(Badge::Dot);              // "something is waiting", no number
-badge::set(Badge::None);             // clear it
-```
-
-```rust
-pub enum Badge {
-    /// Clear the badge.
-    None,
-    /// A count. Zero clears, matching every platform's own convention.
-    Count(u32),
-    /// Short arbitrary text. Only macOS renders it; see `Cap::BadgeText` before using it.
-    Text(String),
-    /// An indicator with no value.
-    Dot,
-}
-```
-
-**There are three capabilities**, following the split `Cap::TextEditable` / `TextSelectable` /
-`TextSpellCheck` already uses, because one flag cannot express "counts yes, text no":
-
-```rust
-Cap::BadgeCount    // Badge::Count is honored
-Cap::BadgeText     // Badge::Text renders as written (macOS only)
-Cap::BadgeDot      // Badge::Dot is honored
-// Cap::BadgeImage — reserved, see "deferred" below
-```
-
-**Setting is fire-and-forget and never invents a fallback.** `set` returns nothing; an unsupported
-payload is ignored, and the app probes the cap first. This mirrors `set_appearance` exactly, whose
-own doc says "probe before showing a theme picker — on Unsupported backends the call is ignored."
-The alternative, silently degrading `Text("beta")` to `Count(1)`, would put a wrong number on a
-user's icon, which is worse than nothing. An app that wants a fallback writes it:
-
-```rust
-let b = if capability(Cap::BadgeText) == Support::Native {
-    Badge::Text(label)
-} else {
-    Badge::Count(unread)
-};
-badge::set(b);
-```
-
-### Persistence differs per platform
-
-An iOS badge is a property of the installed app and survives termination: an app that exits
-without clearing leaves an outdated number on the home screen, so a `WillTerminate` handler
-([docs/lifecycle.md](lifecycle.md)) is usually wanted. A macOS Dock badge dies with the process. The web badge
-persists for the installed PWA. This is documented here because it is the one behavior that
-differs and cannot be probed.
-
-### The iOS permission coupling
-
-`setBadgeCount` needs the `.badge` authorization option, which is part of the notification grant. So
-on iOS a badge is invisible until the user has allowed notifications, and the duty should declare
-`uses = ["notifications"]` through the same permission machinery `day-part-local-notify` uses
-([docs/permissions.md](permissions.md)). Two subsystems declaring the same permission is fine; the app grants once.
-
-## A naming collision to resolve first
-
-`badge` is already taken in the piece vocabulary: `NavItem::badge` is the count on a **sidebar
-row** (`crates/day-pieces/src/nav.rs`), and `Decorate::overlay_aligned`'s docs describe corner
-badges. Those are in-window annotations and have nothing to do with the app icon.
-
-The recommendation is to name the new surface **`app_badge`** at every layer
-(`Toolkit::set_app_badge`, `Cap::AppBadgeCount`, `day::app_badge::set`), so a reader grepping
-`badge` can tell which one a call site means.
-
-## Deferred, with the reason
-
-**Custom graphics.** macOS can host an arbitrary view on the Dock tile (`NSDockTile.contentView`)
-and Windows overlay icons are images by nature, so a `Badge::Image` is real on two targets. It needs
-a per-platform native image type and an encode path that Day does not have at this layer;
-`day-piece-remote-image` decodes bytes into a *widget*, which is a different thing. A `Cap::BadgeImage`
-would join the enum with it.
-
-**Progress** shipped as its own feature, `day::set_app_progress`
-([docs/status-item.md](status-item.md)), over the same three mechanisms: the Unity `progress`
-property, a bar on the Dock tile, and `ITaskbarList3::SetProgressValue`.
-
-## Phasing
-
-1. **`Cap::AppBadge{Count,Text,Dot}` + the defaulted duty + the `day::app_badge` facade + the
-   AppKit, UIKit, and web-dom arms.** Those three are small and cover the platforms with a real API:
-   `badgeLabel`, `setBadgeCount`, `setAppBadge`. Android answers `Unsupported` from the default and
-   its doc points at `Notification::badge`.
-2. **Linux** (done), over the Unity D-Bus signal through the std-only `day-dbus` crate. Reports
-   `Emulated`, because whether it shows depends on the shell.
-3. **HarmonyOS** (done: `setBadgeNumber` is ArkTS-only, so day-arkui carries a daybridge arm for
-   it and reports `Cap::AppBadgeCount` as `Native` wherever that arm is staged), and **Windows**
-   (done: Day draws the count into the overlay icon).
-
-Phase 1 stands on its own: it is three small arms, it needs no new crate, and one defaulted
-method makes every other backend report `Unsupported`.
-
-## Verification note
-
-A badge is drawn by the Dock, the launcher, or the home screen, outside the app's own window.
-`snapshot_window` cannot capture it and a dayscript cannot assert it, exactly like a notification
-banner ([docs/notify.md](notify.md)). Scripts can assert that `set` was called and what the caps report; that a
-number actually appeared on the icon needs a person looking at a device, and the CI gallery should
-not imply otherwise.
+See [app progress](status-item.md) for progress indicators. The
+[design record](design/badge.md) retains the earlier badge proposal and implementation history.

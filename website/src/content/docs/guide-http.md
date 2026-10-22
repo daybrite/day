@@ -2,7 +2,7 @@
 title: HTTP requests
 description: "Asynchronous HTTP requests, response handling, and cancellation."
 order: 30
-section: Guides
+section: How-to guides
 ---
 
 <!--
@@ -10,204 +10,110 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-Use `day-part-http` to fetch data without blocking the interface. This guide starts with a
-button that loads a response, then shows cancellation and requests that follow a page’s state.
-The examples use `day::task`, which resumes futures on the UI thread so they can update signals.
+Fetch a response with `day-part-http` and handle transport failures separately from HTTP status
+codes. Start with a working Day app and add `day-part-http` from the same checkout or pinned
+revision as `day`. Use the [recipe harness](/docs/reference/examples/catalog#technical-recipes)
+to compile the example without making a network request.
 
-> [!NOTE]
-> **Format UI messages on the UI thread.** The examples resolve generated messages with
-> `.format()` after `await`, where `day::task` resumes. A background callback should send
-> data through a `Setter`; format it in the UI's reactive label closure. A formatted `String`
-> is a snapshot: if a status must change language while displayed, retain the result data
-> and call its `res::str` accessor inside that closure. See [Localization](/docs/localization).
+## Fetch when the input changes
 
-The asynchronous API works on macOS, iOS, Android, Windows, Linux, HarmonyOS, and web.
-Blocking requests are unavailable on web; unknown targets return `Unsupported`.
+Keep the endpoint in a signal. Use `day::reactive::Resource` for a request owned by the current
+page scope: it starts on construction, supersedes the previous request when the endpoint changes,
+and aborts its task when the scope is disposed. This differs from an ordinary `day::task`, which
+continues after the page closes unless you abort it.
 
-The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
-[example messages](/docs/internal/snippet-catalog) and [catalog setup](/docs/localization).
+Complete module for `src/http.rs` in the [technical recipe harness](/docs/reference/examples/catalog#technical-recipes).
+The harness compiles this exact block; it is not a standalone app. Add the catalog entries below
+to `resource/locales/en/app.ftl` and declare the module in `src/lib.rs`.
 
-## 1. Fetch into UI state
-
-Add the crate to `Cargo.toml`. Use the same Day revision as the rest of your app:
-
-```toml
-[dependencies]
-day-part-http = { git = "https://github.com/daybrite/day.git" }
-```
-
-The button below starts a request and shows either the response or an error. Replace the
-example URL with your own endpoint. Handle errors inside the task: `day::task` expects
-`Output = ()`, so the task cannot return a `Result`.
-
+<!-- technical-example: http -->
 ```rust
+use crate::res;
 use day::prelude::*;
-use day_part_http::{Request, fetch_future};
+use day::reactive::Resource as AsyncResource;
+use day_part_http::{Client, HttpError, Request};
+use std::time::Duration;
 
-fn forecast_row() -> impl Piece {
-    let readout = Signal::new(String::new());
-    let loading = Signal::new(false);
-    column((
-        button(res::str::fetch()).action(move || {
-            loading.set(true);
-            day::task(async move {
-                match fetch_future(Request::get("https://api.example.com/data.json")).await {
-                    Ok(resp) if (200..300).contains(&resp.status) => {
-                        readout.set(resp.text().into_owned());
-                    }
-                    Ok(resp) => readout.set(res::str::http_status(i64::from(resp.status)).format()),
-                    Err(e) => readout.set(res::str::operation_failed(e.to_string()).format()),
-                }
-                loading.set(false);
-            });
-        }),
-        label(move || {
-            if loading.get() {
-                res::str::loading().format()
-            } else {
-                readout.get()
+pub fn response_panel(endpoint: Signal<String>) -> impl Piece {
+    let response = AsyncResource::new(
+        move || endpoint.get(),
+        |url| async move {
+            let response = Client::new()
+                .fetch_limited_future(
+                    Request::get(url)
+                        .timeout(Duration::from_secs(15))
+                        .timeout_total(Duration::from_secs(60)),
+                    1024 * 1024,
+                )
+                .await?;
+            if !(200..300).contains(&response.status) {
+                return Err(HttpError::Status(response.status));
             }
-        }),
-    ))
-    .spacing(Space::S)
+            Ok(response.text().into_owned())
+        },
+    );
+    load(response, |body| {
+        label(move || body.get()).id(id!(response_body))
+    })
+    .loading(|| label(res::str::request_loading()).id(id!(request_loading)))
+    .failed(|_| label(res::str::request_failed()).id(id!(request_failed)))
 }
 ```
 
-Check both the request result and the HTTP status:
-
-- 4xx/5xx are `Ok`. An HTTP error status is a response (`resp.status == 404`), not an `HttpError`,
-  which is why the sample checks the status range. Errors are transport-level only: `BadUrl`,
-  `Timeout`, `Dns`, `Connect`, `Tls`, `Io`, `Cancelled`, `Unsupported`.
-- `timeout` bounds progress, not the transfer. It covers connecting, awaiting the response head, and
-  idle gaps; a long download that keeps moving is never cut off. Default 30 s.
-
-`Response` is `{ status, headers, body }` plus `text()` (lossy UTF-8) and a case-insensitive
-`header(name)` lookup. There is no built-in JSON layer; parse `resp.body` with `serde_json`,
-added as an app dependency:
-
-```rust
-#[derive(serde::Deserialize)]
-struct Forecast { temperature: f64 }
-
-let data: Result<Forecast, _> = serde_json::from_slice(&resp.body);
+<!-- technical-catalog: http -->
+```ftl
+request_loading = Loading response…
+request_failed = The request could not be completed.
 ```
 
-## 2. Cancel an in-flight request
+The endpoint and response body are user/server data, not bundled resources or app-owned copy.
+Validate an endpoint before enabling this panel. This recipe buffers at most 1 MiB of decoded
+response bytes and returns `HttpError::BodyTooLarge` if the advertised or received body exceeds
+that limit. Use streaming for larger responses. The body limit and timeouts are example policy
+choices, not Day defaults. Keep raw transport diagnostics in logs and map
+errors to localized UI messages.
 
-Tasks are not owned by the scope that spawned them: leaving the page does not stop a running fetch.
-To cancel, keep the `TaskHandle` that `day::task` returns and call `.abort()`. Aborting drops the
-task's future, and dropping the `FetchFuture` cancels the platform request:
-`NSURLSessionTask.cancel` on Apple, OkHttp `Call.cancel` on Android, the fetch's `AbortController`
-on web. Windows and the Rust fallback can't cancel mid-flight; they run the request out on a worker
-thread and discard the result. Re-tapping below supersedes the previous request:
+## Choose request policy
 
-```rust
-let inflight: Rc<Cell<Option<day::TaskHandle>>> = Rc::new(Cell::new(None));
-button(res::str::check()).action(move || {
-    if let Some(prev) = inflight.take() {
-        prev.abort(); // drops the FetchFuture → platform cancel
-    }
-    let slot = inflight.clone();
-    let handle = day::task(async move {
-        match fetch_future(Request::get(url.get_untracked())).await {
-            Ok(resp) => readout.set(
-                res::str::http_summary(res::str::HttpSummary {
-                    status: i64::from(resp.status),
-                    bytes: resp.body.len() as i64,
-                })
-                .format(),
-            ),
-            Err(e) => readout.set(res::str::operation_failed(e.to_string()).format()),
-        }
-        slot.set(None);
-    });
-    inflight.set(Some(handle));
-});
-```
+| Contract | Behavior in the checked-out source |
+| --- | --- |
+| `fetch_future(Request) -> FetchFuture` | Starts immediately; awaiting yields `Result<Response, HttpError>` |
+| HTTP 4xx/5xx | Arrive as a response; the example explicitly converts rejected statuses to `HttpError::Status` |
+| `Request::timeout(Duration)` | Overrides the client's idle timeout, normally 30 seconds |
+| `Request::timeout_total(Duration)` | Bounds the whole request; the default client has no total limit |
+| Redirects | The default client follows up to 10; use `ClientBuilder` for another policy |
+| `Response::text()` | Lossy UTF-8; inspect `body` directly for binary data or strict decoding |
+| `Response::header(name)` | First matching header, ASCII case-insensitive; duplicates remain in `headers` |
+| Request defaults | Empty headers/body; expensive and constrained networking allowed; default cache policy; no explicit priority |
 
-Aborting a finished task is a no-op, and a write to a signal whose scope has since been
-disposed is a silent no-op, so a late completion can't crash a page the user already left.
+`Request::get`, `head`, and `delete` accept a URL. `post`, `put`, and `patch` also accept body
+bytes. `.header(name, value)` appends a header; `.body_file`, `.body_stream`, and `.form` offer
+other payload sources. JSON parsing is an app dependency, not a built-in HTTP response method.
+See the [HTTP reference](/docs/reference/http) for clients, cookies, redirects, credentials,
+streaming, body limits, and the complete non-exhaustive error enum.
 
-## 3. Load on mount with Resource
+## Cancel and handle callbacks
 
-Use `day::reactive::Resource` when a page should load data on arrival and reload when an input
-changes. In this example, `city` is a `Signal<String>`. Each change starts a new fetch, and
-`forecast` holds the loading, success, or failure state. The fetcher returns a `Result`;
-`Resource` turns an error into `Load::Failed`:
+Dropping a `FetchFuture` stops delivery and invokes the platform cancellation hook when available.
+Aborting its `TaskHandle` drops that future. Cancellation is not a rollback of a request the
+server has already accepted. Callback APIs take `Send + 'static` closures and may complete on an
+unspecified thread; capture a `Setter`, not a `Signal`. Awaiting inside `day::task` resumes on
+the UI thread. Format generated messages there or in a reactive label closure.
 
-```rust
-use day::reactive::{Load, Resource};
+## Account for the target
 
-let forecast: Resource<String> = Resource::new(
-    move || city.get(), // tracked — a city change refetches
-    |city| async move {
-        let url = format!("https://api.example.com/wx?city={city}");
-        let resp = day_part_http::fetch_future(Request::get(url)).await?;
-        Ok::<_, day_part_http::HttpError>(resp.text().into_owned())
-    },
-);
-load(forecast, |f| label(move || f.get())) // the three states as subtrees
-    .loading(|| label(res::str::loading()))
-    .failed(|e| label(res::str::operation_failed(e.to_string())))
-```
+The source selects NSURLSession on Apple, OkHttp on Android, WinHTTP on Windows, the browser
+transport on wasm32, and an ArkTS bridge on OpenHarmony. Linux uses system libcurl loaded at runtime. Unknown targets have no transport. `tier()` describes the HTTP implementation, not the website's maintenance tier;
+`capabilities()` describes available options.
 
-`load(state, ready)` builds one subtree per state: the ready arm, and optional `.loading` and
-`.failed` arms. The ready arm gets a `Loaded<T>` whose `get()` is a tracked read, so a refetch
-updates the label in place instead of rebuilding it. A `label` that only needs the text can
-also `match` on `forecast.with(|l| ..)` directly.
+Blocking `fetch`, `fetch_to_file`, and `fetch_streamed` must stay off the UI thread. Browser
+blocking calls return `Unsupported`; OpenHarmony also rejects blocking waits on its JS thread.
+Browser requests remain subject to CORS and restricted headers. TLS, cleartext, proxy, and
+credential behavior depend on the selected transport and host configuration.
 
-The latest source value wins. A source change aborts the in-flight fetch (dropping its
-`FetchFuture`, the same cancel path as above) and a stale completion writes nothing. Scope
-disposal aborts it too, with no handle bookkeeping, and `forecast.refetch()` forces a fresh
-fetch. Watch the import: the prelude's `Resource` is the bundled-asset handle; the async one is
-`day::reactive::Resource`.
+## Verify the result
 
-## 4. Other methods, headers, and bodies
-
-`Request` builds every common shape: `get`/`delete`/`head(url)`, and `post`/`put`/`patch(url,
-body)` taking the body bytes up front. `.header(name, value)` appends (duplicates allowed,
-sent in order), and `.allow_expensive(bool)` / `.allow_constrained(bool)` gate cellular and
-Low Data Mode use (native on Apple, advisory elsewhere):
-
-```rust
-let req = Request::post("https://api.example.com/notes", note_json_bytes)
-    .header("Content-Type", "application/json")
-    .timeout(std::time::Duration::from_secs(15));
-```
-
-For large downloads, `fetch_to_file(&req, &dest)` streams the body straight to disk, never
-holding it in memory; `fetch_streamed` adds per-chunk control (progress, hashing, mid-body
-cancel). To cache a response across launches, write `resp.body` with `day-part-fs`; see
-[Local storage](/docs/guide-storage).
-
-## Platform behavior
-
-Apple targets use `NSURLSession`, Android uses OkHttp, Windows uses WinHTTP, and the web uses
-`fetch()`. These implementations use platform networking settings, such as proxy configuration,
-VPN routing, certificate stores, and Low Data Mode where supported.
-Linux and HarmonyOS use a bundled ureq + rustls client, with proxy support limited to the
-`http_proxy` environment variables.
-
-`day_part_http::tier()` reports the compiled target’s support tier.
-
-## Pitfalls
-
-- Don't block the UI thread. `fetch`, `fetch_to_file`, and `fetch_streamed` block their
-  calling thread; run them on a worker thread, or use the futures under `day::task`. On web
-  the blocking calls return `Unsupported`; the single browser thread cannot wait.
-- `fetch_async` completes on a background thread. Never touch signals directly in its
-  callback; capture a `Setter` (`signal.setter()`), which hops to the UI thread itself. Under
-  `day::task`, `fetch_future` resumes on the UI thread and needs none of this.
-- Cleartext `http://` is platform policy. Apple's ATS refuses non-HTTPS URLs without a
-  scoped Info.plist exception (loopback is exempt); Android blocks cleartext app-wide since
-  targetSdk 28, loopback included; scope an exception in `network_security_config.xml`. The
-  Rust fallback enforces no such policy, another reason `tier()` exists.
-- The browser adds CORS. On web, cross-origin requests need the server's opt-in, and
-  browser-controlled request headers (`Host`, `Cookie`, `Origin`) are ignored per the fetch
-  spec. Network-level failures surface as `HttpError::Io`, since browsers hide DNS/TLS detail.
-
-## Reference
-
-[http](/docs/internal/http) — the full `Request`/`Response` contract, per-platform
-realization, error mapping, and the cancel matrix.
-[async](/docs/internal/async) — `day::task`, `TaskHandle`, `Resource`, and task lifetimes and main-thread updates.
+Run the exact-code check from the [recipe setup](/docs/reference/examples/catalog#technical-recipes).
+In your app, test a successful response, HTTP 404, timeout, replacement of an in-flight request,
+and leaving the page on each target you ship. API details: [request and future contracts](https://github.com/daybrite/day/blob/main/parts/day-part-http/src/lib.rs)
+and [client defaults](https://github.com/daybrite/day/blob/main/parts/day-part-http/src/client.rs).

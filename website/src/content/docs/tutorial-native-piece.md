@@ -2,7 +2,7 @@
 title: "Tutorial: A native piece (per-toolkit)"
 description: "Build a piece backed by a native control on each platform: a front-end in Rust plus per-toolkit backends (objc2 for AppKit/UIKit, gtk-rs, a Qt C++ shim, an Android Java factory, XAML), registered without touching any core Day crate."
 order: 42
-section: Extend
+section: Contributing
 ---
 
 <!--
@@ -18,7 +18,7 @@ in [`day-piece-searchfield`](https://github.com/daybrite/day/tree/main/pieces/da
 The resulting crate can be added to an app without changing Day’s core.
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
-[example messages](/docs/internal/snippet-catalog) and [catalog setup](/docs/localization).
+[example messages](/docs/reference/examples/catalog) and [catalog setup](/docs/how-to/localization).
 
 ## 1. When you need a native piece
 
@@ -503,7 +503,7 @@ contributing crates wins), and `swift-packages` entries may be **local**
 SwiftUI views are scanned and exported as typed `crate::swiftui::MyView(…)` bindings. A parallel
 `[package.metadata.day.macos]` table of the same shape covers the macos-appkit leg: `day build`
 hands the contributions to the `platform/macos/` Xcode host project. See the
-[SwiftUI embedding reference](/docs/internal/swiftui).
+[SwiftUI embedding reference](/docs/reference/swiftui).
 
 ## 5. Register and wire the features
 

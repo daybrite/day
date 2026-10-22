@@ -129,7 +129,7 @@ The Showcase's **Cursors** page (Controls group): every named shape as a tile to
 whose shape follows a picker, a nested pair that shows the nearest ancestor winning, and the
 toolkit's extras.
 
-```
+```sh
 day launch -t macos-appkit --script dayscript/cursors.yaml
 ```
 

@@ -1,10 +1,11 @@
 ---
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: CC-BY-SA-4.0
-// InstallCommand — the recommended one-liner that installs the `day` CLI from crates.io. Usable
+// InstallCommand — the recommended one-liner that installs the `day` CLI from the Day Git repository. Usable
 // from .astro pages and .mdx docs alike; the script is idempotent per element, so several copies
 // can coexist on one page.
-const command = 'cargo install day-cli';
+const command = 'cargo install --git https://github.com/daybrite/day day-cli';
+import { url } from '../lib/site';
 ---
 <div class="install-cmd" data-install-cmd>
   <div class="ic-row">
@@ -15,7 +16,8 @@ const command = 'cargo install day-cli';
     </button>
   </div>
   <p class="ic-note">
-    Installs the <code>day</code> CLI from crates.io. Requires a stable Rust toolchain (<a href="https://rustup.rs">rustup</a>).
+    Installs the <code>day</code> CLI from the Day Git repository. Requires a stable Rust toolchain (<a href="https://rustup.rs">rustup</a>).
+    Command not found? <a href={url('docs/how-to/troubleshooting#day-is-not-found')}>Check Cargo’s PATH setup.</a>
   </p>
 </div>
 

@@ -1,26 +1,9 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: CC-BY-SA-4.0
 
-// The gallery's extensibility surface: which Day apps daybrite.dev indexes, and nothing else.
-//
-// Model
-// -----
-// Every Day app's own website publishes the machine-readable screenshot index `day screenshot
-// index` writes, carrying each capture's absolute URL, shot id, localized title and caption,
-// source path, platform-toolkit, device, theme, locale and pixel size (docs/screenshots.md,
-// DESIGN.md §14.7) — and publishes it twice, once per build: the newest release's at
-// `<host>/gallery/gallery.json`, and the newest build of the default branch's at
-// `<host>/main/gallery/gallery.json`. This site READS one of those indexes and links the images
-// where they are hosted. Nothing is copied here, and daybrite.dev's build depends on no other
-// repository's CI: an app republishes its gallery on its own schedule, and the next website build
-// picks it up.
-//
-// Adding an app is one entry below. Its rows, columns, languages and themes all come from its own
-// index, so an app that captures a new screen or gains a platform shows it without a change here.
-// The optional `order` / `labels` / `hide` / `platforms` keys exist for apps whose dayscripts
-// carry thin metadata — a shot with no `title:` falls back to a label derived from its id.
-//
-// Each app gets its own page at /gallery/<id>/, and /gallery/ indexes them.
+// Apps and capture targets shown by the screenshot gallery. Each app publishes its own index;
+// scripts/assemble-gallery.mjs combines them and scripts/hero-shots.mjs builds the landing carousel.
+// See README.md, “Gallery and screenshot evidence”, for caching and publication checks.
 
 import { platforms as platformTable } from './src/lib/platforms.mjs';
 

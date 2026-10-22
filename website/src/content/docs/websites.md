@@ -2,7 +2,7 @@
 title: App websites
 description: Set up a localized app website, customize daysite or own its Astro pages, and publish with Day's GitHub Actions workflow and an optional custom domain.
 order: 32.6
-section: Build & ship
+section: How-to guides
 ---
 
 <!--
@@ -10,7 +10,7 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-Day's shared [GitHub Actions workflow](/docs/github-actions) can publish a complete app website:
+Day's shared [GitHub Actions workflow](/docs/how-to/github-actions) can publish a complete app website:
 localized app descriptions, download and store links, screenshot carousels, galleries, and an
 optional hosted web app. The [daysite template](https://github.com/daybrite/daysite) reads your
 existing app and store metadata. You can keep its default appearance, change its styles, select
@@ -34,7 +34,7 @@ An optional custom domain uses its own URL, such as `https://my-app.example.org`
 `host` sets the canonical URL, sitemap, social metadata, and Astro base path.
 
 The site gets its app identity and supported targets from `Day.toml`, localized listing text
-from `store/`, and captures from [dayscripts](/docs/dayscript). Keep those sources current
+from `store/`, and captures from [dayscripts](/docs/how-to/dayscript). Keep those sources current
 instead of duplicating their content in website configuration. A native-only app can have a
 website too; a web build is optional.
 
@@ -95,7 +95,7 @@ jobs:
 ```
 
 Choose targets and signing settings for your app as described in
-[GitHub Actions](/docs/github-actions). `scripts: auto` runs the app's dayscripts;
+[GitHub Actions](/docs/how-to/github-actions). `scripts: auto` runs the app's dayscripts;
 `locales` and `themes` select the capture variants. `deploy-web: true` requires a web build
 when a displayed development channel needs one, so omit it or use `false` for a native-only app.
 For an app below the repository root, also set `project-path`; its website directory belongs

@@ -22,9 +22,9 @@ checkout). With no `--toolkits` it emits a **composite** piece (front-end only);
 per backend plus the C++/Java/Swift glue each one needs. Either kind comes with `demo/`, a one-page
 app that shows the piece and runs its walkthrough (`--no-demo` skips it). The companion `day new part <name>` scaffolds
 a headless part. For full walkthroughs see the tutorials:
-[composite piece](https://daybrite.dev/docs/tutorial-composite-piece/),
-[native piece](https://daybrite.dev/docs/tutorial-native-piece/), and
-[part](https://daybrite.dev/docs/tutorial-part/).
+[composite piece](https://daybrite.dev/contributing/tutorials/composite-piece/),
+[native piece](https://daybrite.dev/contributing/tutorials/native-piece/), and
+[part](https://daybrite.dev/contributing/tutorials/part/).
 
 Extensibility rests on two mechanisms:
 
@@ -665,7 +665,7 @@ its own Qt + XAML C++ shims, and its own Android Java. It's verified on AppKit /
 Android and CI-built on XAML. Use it as a template. Its layout keeps the shared front-end and each
 toolkit backend in a separate file:
 
-```
+```text
 pieces/day-piece-searchfield/
 ├── Cargo.toml               # features + [package.metadata.day.android]
 ├── build.rs                 # compiles lib-qt-shim.cpp / lib-xaml-shim.cpp per feature

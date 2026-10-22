@@ -126,6 +126,7 @@ pub struct DocumentTabs<K: Route> {
     on_new: Option<Rc<dyn Fn()>>,
     on_close: Option<Rc<dyn Fn(K)>>,
     native: Rc<dyn Fn() -> bool>,
+    hide_when_empty: bool,
     chrome: Option<Rc<dyn Fn(TabActions<K>) -> AnyPiece>>,
     layout: Option<Box<dyn FnOnce(AnyPiece, AnyPiece) -> AnyPiece>>,
     strip_id: Option<day_core::ElementId>,
@@ -147,6 +148,7 @@ pub fn document_tabs<K: Route, P: Piece, N, C>(
         on_new: None,
         on_close: None,
         native: Rc::new(|| true),
+        hide_when_empty: false,
         chrome: None,
         layout: None,
         strip_id: None,
@@ -163,6 +165,13 @@ impl<K: Route> DocumentTabs<K> {
     /// Reactive preference. Switching chrome preserves every resident page and native view.
     pub fn native(mut self, native: impl Fn() -> bool + 'static) -> Self {
         self.native = Rc::new(native);
+        self
+    }
+    /// Keep the owning window hidden when no documents remain. The host and its scope
+    /// stay alive, so a later open can present documents again. Intended for a dedicated
+    /// document window; the default keeps the empty host visible.
+    pub fn hide_when_empty(mut self, hide: bool) -> Self {
+        self.hide_when_empty = hide;
         self
     }
     /// Fully app-owned emulated chrome. Use the supplied actions for shared close/reorder semantics.
@@ -445,6 +454,7 @@ impl<K: Route> Piece for DocumentTabs<K> {
                 controller_title,
                 controller_new,
                 controller_close,
+                self.hide_when_empty,
             );
         }
         root
@@ -658,6 +668,7 @@ fn install_window_tabs<K: Route>(
     title: TabTitle<K>,
     on_new: Option<Rc<dyn Fn()>>,
     on_close: Option<Rc<dyn Fn(K)>>,
+    hide_when_empty: bool,
 ) {
     let group = format!("day.documents.{host}");
     if let Some(f) = on_new {
@@ -756,7 +767,7 @@ fn install_window_tabs<K: Route>(
                 previous.borrow_mut().clear();
                 *last_selected.borrow_mut() = None;
                 if let Some(initial) = &initial {
-                    initial.set_visible(true);
+                    initial.set_visible(!hide_when_empty || !entries.is_empty());
                 }
                 return;
             }
@@ -905,7 +916,7 @@ fn install_window_tabs<K: Route>(
                 *previous.borrow_mut() = order;
             }
             if let Some(initial) = &initial {
-                initial.set_visible(windows.is_empty());
+                initial.set_visible(!hide_when_empty && windows.is_empty());
             }
             if added || *last_selected.borrow() != *selected {
                 *last_selected.borrow_mut() = selected.clone();

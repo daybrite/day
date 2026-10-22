@@ -63,7 +63,7 @@ fn action_for(route: &str) -> u64 {
 }
 
 /// Replace the launcher shortcuts the app sets while it runs (docs/deep-links.md "Launcher
-/// shortcuts"): "Resume <last document>", the three most recent chats. They show beside the
+/// shortcuts"): `Resume <last document>`, the three most recent chats. They show beside the
 /// Day.toml `[[shortcuts]]` on the iOS Home Screen, the Android launcher and the macOS Dock menu
 /// (`Cap::DynamicShortcuts`), and each opens its route like a deep link. Labels are shown as
 /// given, so pass localized text.

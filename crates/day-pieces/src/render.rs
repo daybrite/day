@@ -26,8 +26,8 @@ pub fn fill_measure<B: day_spec::Toolkit>(
 /// The author writes typed functions and one macro line; the macro supplies the
 /// `#[distributed_slice]`, the `Renderer {}` literal, and the `downcast_ref` in the bodies:
 /// ```ignore
-/// fn make(b: &mut AppKit, p: &MyProps, id: NodeId) -> Retained<NSView> { … }
-/// fn update(b: &mut AppKit, h: &Retained<NSView>, patch: &MyPatch) { … }
+/// fn make(b: &mut AppKit, p: &MyProps, id: NodeId) -> Retained<NSView> { todo!("construct the native view") }
+/// fn update(b: &mut AppKit, h: &Retained<NSView>, patch: &MyPatch) { todo!("construct the native view") }
 /// day_pieces::renderer!(day_appkit::RENDERERS, AppKit,
 ///     kind: KIND, props: MyProps, patch: MyPatch, make: make, update: update);
 /// ```
@@ -126,10 +126,10 @@ macro_rules! renderer {
 ///     kind: KIND, props: MyProps, patch: MyPatch, make: make, update: update, measure: measure);
 ///
 /// // lib.rs: a constructor always runs before the node it returns is realized.
-/// pub fn my_piece(…) -> MyPiece {
+/// pub fn my_piece() -> MyPiece {
 ///     #[cfg(all(feature = "dom", target_arch = "wasm32"))]
 ///     dom_impl::register();
-///     …
+///     todo!("construct the piece")
 /// }
 /// ```
 ///

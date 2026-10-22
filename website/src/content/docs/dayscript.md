@@ -2,7 +2,7 @@
 title: Testing with dayscript
 description: "The YAML automation language that drives a running Day app: steps, assertions, screenshots, and how it works."
 order: 23
-section: Guides
+section: How-to guides
 ---
 
 <!--
@@ -16,12 +16,12 @@ controls by stable identifiers, so a walkthrough can be reused across targets. W
 conditions rather than depending on fixed delays.
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
-[example messages](/docs/internal/snippet-catalog) and [catalog setup](/docs/localization).
+[example messages](/docs/reference/examples/catalog) and [catalog setup](/docs/how-to/localization).
 
 ## A script
 
 Give the controls you want to test stable IDs. The counter from
-[Getting started](/docs/getting-started) already declares them on its label and button:
+[Update state](/docs/tutorials/state) already declares them on its label and button:
 
 ```rust
 label(res::str::counter_value(count)).id(id!(counter_label)),
@@ -50,7 +50,7 @@ It assumes a fresh launch with the count at zero.
 > identity; YAML uses its canonical spelling, `increment_button`. `assert_text` resolves
 > `counter_value` with the supplied arguments in the active locale. Avoid English text
 > assertions for translated UI. IDs are not translated and do not replace accessible labels.
-> See [element IDs](/docs/internal/element-ids) and [localization](/docs/localization).
+> See [element IDs](/contributing/backend-contracts/element-ids) and [localization](/docs/how-to/localization).
 
 Run it on a configured target:
 
@@ -62,8 +62,8 @@ day launch -t android-mdc --script dayscript/counter.yaml
 `day launch` builds, starts the app with scripting enabled, executes the steps, and
 exits nonzero if any assertion fails (exit code 5). Screenshots land under
 `build/day/screenshots/<target>/<subdir>/`, where the subdirectory is the `--variant` name when
-given, else the [locale](/docs/glossary#locale), else `default`. Several `--script` flags run in sequence, and
-`--locale` makes the run a localization test at the same time; assertions can reference [Fluent](/docs/glossary#fluent)
+given, else the [locale](/docs/reference/glossary#locale), else `default`. Several `--script` flags run in sequence, and
+`--locale` makes the run a localization test at the same time; assertions can reference [Fluent](/docs/reference/glossary#fluent)
 keys instead of literal strings, so the same script passes in every language.
 
 For a walkthrough whose later steps require earlier navigation or downloads to succeed,
@@ -94,7 +94,7 @@ listing takes from it:
 `source` names the file the screen is drawn from. Which captures the App Store and Google Play
 listings show, and which the website's page for each target shows, is declared apart from the
 walkthrough, in `store/storefront.toml` `[storefront]`, by naming these steps
-([store listings](/docs/internal/store#screenshots)); the older `store: N` key on a step is ignored with
+([store listings](/docs/how-to/store#screenshots)); the older `store: N` key on a step is ignored with
 a warning. The keys never reach the app: the runner strips them and folds them into the
 target's `gallery.json` (a run on a device profile writes `<target>/<device>/gallery.json`, so
 two profiles never share one file).
@@ -151,11 +151,11 @@ mirror, keeping the step only where it names. Both take a target (`web-dom`), a 
 `windows`, `harmony`, `web`. Opt a step in by platform when it belongs to a few places
 (`only_on: [ios, web]`), and opt it out when one place lacks what it needs (`skip_on:
 [web-dom]`). A token that names nothing is reported as a likely misspelling. One walkthrough then
-covers every [backend](/docs/glossary#backend). `windows-winui` is the XAML backend built against
+covers every [backend](/docs/reference/glossary#backend). `windows-winui` is the XAML backend built against
 WinUI 3, so `xaml` and `windows-xaml` match it too; `winui` or `windows-winui` single out the
 WinUI build.
 
-The same two gates match a [build flavor](/docs/flavors), written `flavor:<name>`, with
+The same two gates match a [build flavor](/docs/how-to/flavors), written `flavor:<name>`, with
 `flavor:none` for the base app. A paid build and a free one then share one walkthrough:
 
 ```yaml
@@ -235,7 +235,7 @@ once, without forcing garbage collection or checking the peak between steps. Add
 The engine lives in `day-script`, compiled into your app. It activates only when the launcher enables it: the
 launcher passes a localhost port and a one-time token through the environment; without them the
 engine never binds a socket, in debug or release. Steps arrive as JSON over that socket and
-execute on the main thread between [reactive](/docs/glossary#reactive) flushes:
+execute on the main thread between [reactive](/docs/reference/glossary#reactive) flushes:
 
 ```text
 day launch --script …          your app process
@@ -256,7 +256,7 @@ layout is clean) rather than a timeout heuristic.
 The same scripts serve several jobs:
 
 - **CI walkthroughs:** every push builds the showcase on all targets and runs the walkthrough;
-  the [gallery](/gallery) is those screenshots. A content-validation step catches blank captures.
+  the [gallery](/examples) is those screenshots. A content-validation step catches blank captures.
   On an Android emulator, `day` turns off the system's "isn't responding" and crash dialogs and
   its "Viewing full screen" hint, and closes any of them already on screen before each
   screenshot. One launch covers the whole appearance matrix: `day launch --themes light,dark --locales
@@ -265,9 +265,9 @@ The same scripts serve several jobs:
 - **Iteration:** Day has no hot reload, so `--script goto-settings.yaml` after each relaunch puts
   you back on the screen you're editing.
 - **Accessibility audits:** the `a11y_audit` step diffs the native accessibility tree against
-  your declarations ([details](/docs/accessibility#auditing-the-native-tree)).
+  your declarations ([details](/docs/how-to/accessibility#auditing-the-native-tree)).
 - **Agent verification:** AI coding agents use dayscript to check their own work: write a
-  change, run a script, read the assertions ([for agents](/docs/for-agents)).
+  change, run a script, read the assertions ([for agents](/docs/reference/for-agents)).
 
 ## Capture size
 
@@ -361,6 +361,6 @@ keyboard, drive OS permission prompts or file dialogs, or assert native animatio
 practice is scripted coverage for everything Day-side plus a short manual pass per platform for
 those native surfaces. A permission prompt can be avoided rather than driven: `day launch --grant
 camera` marks the permission allowed on the device before the app starts, on Android and the iOS
-Simulator ([the CLI guide](/docs/cli#the-commands)), so a script that takes a photo or records
+Simulator ([the CLI guide](/docs/reference/cli#the-commands)), so a script that takes a photo or records
 audio runs the real path. Unit-level testing below the UI has a separate tool: the [mock
-toolkit](/docs/rendering#the-mock-toolkit) runs your Pieces headlessly in `cargo test`.
+toolkit](/contributing/rendering#the-mock-toolkit) runs your Pieces headlessly in `cargo test`.

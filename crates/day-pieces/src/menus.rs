@@ -20,7 +20,7 @@ use crate::{IntoReactive, IntoText, Reactive, TextSource};
 
 /// A menu entry under construction. Build a command with [`menu_item`], a nested submenu with
 /// [`sub_menu`], a standard system command with [`menu_role`], and a divider with [`menu_separator`].
-/// Attach to a Piece via [`Decorate::context_menu`] or install app-wide via [`app_menu`].
+/// Attach to a Piece via [`Decorate::context_menu`](crate::decorators::Decorate::context_menu) or install app-wide via [`app_menu`].
 #[derive(Clone)]
 pub struct MenuEntry {
     id: Option<String>,
@@ -147,7 +147,7 @@ pub fn sub_menu<M>(label: impl IntoText<M>, items: Vec<MenuEntry>) -> MenuEntry 
 /// an app menu and sits between the standard ones.
 ///
 /// ```ignore
-/// sub_menu(tr("menu-file"), vec![…]).bar_role(MenuBarRole::File)
+/// sub_menu(res::str::menu_file(), menu_items).bar_role(MenuBarRole::File)
 /// ```
 impl MenuEntry {
     pub fn bar_role(mut self, role: day_spec::MenuBarRole) -> MenuEntry {
@@ -417,7 +417,7 @@ pub fn app_menu<M>(menus: impl MenuContent<M>) {
 /// Install the app's Dock menu (docs/menus.md "Dock menu"): the entries macOS lists when the
 /// user right-clicks the app's Dock icon, above the app's `[[shortcuts]]` and the system's own
 /// Show / Hide / Quit items. Probe `Cap::DockMenu`; elsewhere the call does nothing. Live, like
-/// [`app_menu`]: "Resume <last document>", a checked "Do Not Disturb", the locale. Install
+/// [`app_menu`]: `Resume <last document>`, a checked "Do Not Disturb", the locale. Install
 /// once, at startup.
 ///
 /// The menu works while the app runs, so its actions are ordinary closures, unlike shortcuts,

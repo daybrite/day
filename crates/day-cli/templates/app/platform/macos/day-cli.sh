@@ -2,7 +2,7 @@
 # Runs the day CLI with the arguments given, wherever it is installed.
 # The Xcode script phases call this rather than `day` directly: `day build` exports DAY_BIN, but
 # a build started from the Xcode GUI runs on Xcode's own minimal PATH, with no shell profile and
-# so no ~/.cargo/bin, and has to find the CLI itself. https://daybrite.dev/docs/cli
+# so no ~/.cargo/bin, and has to find the CLI itself. https://daybrite.dev/docs/reference/cli
 
 if [ -z "${DAY_BIN:-}" ]; then
     DAY_BIN="$(command -v day || true)"

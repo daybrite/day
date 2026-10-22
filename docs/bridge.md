@@ -29,7 +29,7 @@ day_part_speech::speak(&res::str::forecast_rain().format())?;
 
 Resolve app-owned speech from the catalog on the UI thread, just like visible text.
 User-supplied text can be passed through directly. See the
-[example catalog](snippet-catalog.md) and [localization guide](https://daybrite.dev/docs/localization).
+[example catalog](snippet-catalog.md) and [localization guide](https://daybrite.dev/docs/how-to/localization).
 
 ## When to use one
 
@@ -594,7 +594,7 @@ except Kotlin and Java, where it is the recommendation.
 These are two separate requirements, and meeting the first does not meet the second.
 
 **Byte-stable output**, because generated sources are inputs to reproducible builds
-([docs/reproducible-builds](https://daybrite.dev/docs/reproducible-builds)): arms are emitted in declaration order, symbol lists are sorted, and
+([docs/reproducible-builds](https://daybrite.dev/docs/explanation/reproducible-builds)): arms are emitted in declaration order, symbol lists are sorted, and
 no timestamp, absolute path, or hostname appears in generated output. The repro CI leg covers
 bridge output like any other artifact.
 

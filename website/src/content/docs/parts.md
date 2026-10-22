@@ -2,7 +2,7 @@
 title: Device capabilities (parts)
 description: "Headless platform capabilities (battery, clipboard, preferences, sensors, network, permissions, location) as ordinary crates with per-OS implementations."
 order: 25
-section: Guides
+section: Reference
 ---
 
 <!--
@@ -15,125 +15,64 @@ sensors. It provides a shared Rust API with an implementation selected at compil
 the target operating system. Parts are Cargo dependencies and require no runtime plugin registry.
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
-[example messages](/docs/internal/snippet-catalog) and [catalog setup](/docs/localization).
+[example messages](/docs/reference/examples/catalog) and [catalog setup](/docs/how-to/localization).
 
 ## The catalog
 
 | Crate | What it does | Reference |
 |---|---|---|
-| `day-part-battery` | charge level and charging state | [battery](/docs/internal/battery) |
-| `day-part-clipboard` | read/write the system clipboard (text) | [clipboard](/docs/internal/clipboard) |
-| `day-part-prefs` | small key-value preference storage in the platform's conventional location | [prefs](/docs/internal/prefs) |
-| `day-part-fs` | app-local file storage: read, write, remove, list (sync and async) | [fs](/docs/internal/fs) |
-| `day-part-local-notify` | local notifications: post now or schedule, channels, tap-to-route | [notify](/docs/internal/notify) |
-| `day-part-network` | connectivity status | [network](/docs/internal/network) |
-| `day-part-deviceinfo` | device model, OS version | [deviceinfo](/docs/internal/deviceinfo) |
-| `day-part-sensors` | accelerometer and friends, as a live stream | [sensors](/docs/internal/sensors) |
-| `day-part-http` | HTTP through each platform's networking stack | [http](/docs/internal/http) |
-| `day-part-permissions` | ask the OS for the camera, location, notifications … and declare them at build time | [permissions](/docs/internal/permissions) |
-| `day-part-location` | the device's position, once or as a live stream | [location](/docs/internal/location) |
-| `day-part-haptics` | haptic feedback | [haptics](/docs/internal/haptics) |
-| `day-part-sound` | sound effects | [sound](/docs/internal/sound) |
-| `day-part-wakelock` | keeping the screen on | [wakelock](/docs/internal/wakelock) |
+| `day-part-battery` | charge level and charging state | [battery](/docs/reference/battery) |
+| `day-part-clipboard` | read/write the system clipboard (text) | [clipboard](/docs/reference/clipboard) |
+| `day-part-prefs` | small key-value preference storage in the platform's conventional location | [prefs](/docs/reference/prefs) |
+| `day-part-fs` | app-local file storage: read, write, remove, list (sync and async) | [fs](/docs/reference/fs) |
+| `day-part-local-notify` | local notifications: post now or schedule, channels, tap-to-route | [notify](/docs/reference/notify) |
+| `day-part-network` | connectivity status | [network](/docs/reference/network) |
+| `day-part-deviceinfo` | device model, OS version | [deviceinfo](/docs/reference/deviceinfo) |
+| `day-part-sensors` | accelerometer and friends, as a live stream | [sensors](/docs/reference/sensors) |
+| `day-part-http` | HTTP through each platform's networking stack | [http](/docs/reference/http) |
+| `day-part-permissions` | ask the OS for the camera, location, notifications … and declare them at build time | [permissions](/docs/reference/permissions) |
+| `day-part-location` | the device's position, once or as a live stream | [location](/docs/reference/location) |
+| `day-part-haptics` | haptic feedback | [haptics](/docs/reference/haptics) |
+| `day-part-sound` | sound effects | [sound](/docs/reference/sound) |
+| `day-part-wakelock` | keeping the screen on | [wakelock](/docs/reference/wakelock) |
 | `day-part-speech` | text to speech through each platform's speech API; in a separate repository | [day-part-speech](https://github.com/daybrite/day-part-speech) |
 
-## Using parts
+## Select an API by its completion model
 
-The APIs are small. Here are some examples from the crates:
+| Need | Entry point and result | Constraint |
+| --- | --- | --- |
+| Current battery reading | `day_part_battery::status() -> Option<BatteryStatus>` | Absence can mean no battery/API; inspect the returned fields |
+| Small preference | `day::prefs::get(&str) -> Option<String>`; `set(&str, &str) -> bool` | Synchronous; the default facade feature supplies it; false/None can include failure |
+| File data | `day_part_fs::read_future(&str)` | Await a result; native blocking forms must stay off the UI thread |
+| HTTP response | `day_part_http::fetch_future(Request)` | Check transport errors and HTTP status separately |
+| Permission | `day_part_permissions::status_future(Permission)` | Await authoritative status; a grant does not establish hardware availability |
+| Notification | `Notification::post() -> Result<NotifId, NotifyError>` | Consent and channel setup are separate; success does not establish delivery |
 
-```rust
-// Battery
-if let Some(b) = day_part_battery::status() {
-    println!("{:?}, {:?}%", b.state, b.percent());   // Charging, Some(80)
-}
+A part is a crate category, not a shared `Part` trait. There is no universal error or support
+contract: check each part's `capabilities`, `is_supported`, optional value, or error result.
+OS selection often uses conditional compilation; some parts also depend on a live host bridge.
+Enabling a UI backend feature does not prove that all parts are available.
 
-// Clipboard
-day_part_clipboard::set_text("hello");
-let text = day_part_clipboard::get_text();           // Option<String>
+For callbacks requiring `Send`, pass result data through a `Setter`. For futures awaited inside
+`day::task`, update signals and format generated localized messages on the UI thread. Keep task
+and scope lifetimes explicit. See [async ownership](/docs/explanation/async).
 
-// Preferences — strings in, strings out, stored where the platform expects
-day_part_prefs::set("theme", "dark");
-let theme = day_part_prefs::get("theme");            // Option<String>
-```
+## Complete tasks
 
-Wiring a part into UI is the usual [reactive](/docs/glossary#reactive) pattern (read into a [signal](/docs/glossary#signal), bind the signal):
+Use the compile-designated [HTTP](/docs/how-to/guide-http), [storage](/docs/how-to/guide-storage),
+[permission](/docs/how-to/guide-permissions), and [notification](/docs/how-to/guide-notifications)
+recipes. Clipboard's synchronous text helpers cannot express browser async permission behavior;
+consult the [clipboard reference](/docs/reference/clipboard) for its asynchronous content API.
 
-```rust
-let battery = Signal::new(day_part_battery::status());
+## Implement a part
 
-column((
-    label(move || match battery.get() {
-        Some(b) => res::str::battery_percent(i64::from(b.percent().unwrap_or(0))).format(),
-        None => res::str::battery_unknown().format(),
-    }),
-    button(res::str::refresh()).action(move || battery.set(day_part_battery::status())),
-))
-```
+A part can contribute native source, dependencies, and permissions through Cargo metadata.
+Follow the [part tutorial](/contributing/tutorials/part),
+[extension model](/contributing/extending), and [bridge contract](/contributing/backend-contracts/bridge)
+for implementation details. Inline bridge language arms are contributor material, not an
+additional app-facing Part interface.
 
-Returns are `Option`/`bool` rather than panics: a desktop without a battery reports `None`, a denied
-clipboard read reports `None`, and your UI decides what that means. Check each part's reference page
-for the per-platform support matrix; not every capability exists everywhere.
-
-<span id="writing-your-own"></span>
-
-## Implementing a part
-
-When you need a platform API Day doesn't cover (Bluetooth, a payment SDK, notification badges),
-you write a part. The implementation depends on the platform API:
-
-- Pure-Rust platforms are a `#[cfg]` branch and a system crate (`objc2` on Apple, `windows` on
-  Windows, sysfs/D-Bus on Linux).
-- Android usually needs a small Java shim; a part can carry its own Java sources, Android
-  [resources](/docs/glossary#resource), Gradle dependencies, ProGuard keep rules, and even manifest components (a
-  `BroadcastReceiver` for a scheduled notification), all declared in Cargo metadata and
-  aggregated into the app's Gradle project by `day build`, so the scaffold needs no manual edits.
-- The same channel covers the other platforms: system frameworks and Swift for iOS and macOS
-  (`[package.metadata.day.ios]` / `[package.metadata.day.macos]`), ArkTS sources for HarmonyOS.
-- Or write the platform half **inline in your Rust file**, one arm per platform, and let the build
-  generate both sides of the call (see below).
-- Permissions a part needs (say, vibration) are declared in the part's metadata and merged into
-  each platform's manifest the same way.
-
-`day new part my-part` scaffolds that layout with per-OS stubs. The [part
-tutorial](/docs/tutorial-part) walks through a complete real example (a battery part with six
-platform implementations) and is the best template for your own.
-
-### Foreign code, inline
-
-A part whose platform half is a *function* rather than a directory of shims can declare it once in
-Rust and provide platform implementations in the same file:
-
-```rust
-day_bridge::bridge! {
-    #[day_bridge::declare]
-    extern "day" {
-        fn speak_native(text: &str) -> Result<(), day_bridge::Error>;
-    }
-
-    #[day_bridge::impl(swift, platforms = [ios, macos])]
-    swift!(
-        prelude = r#"
-            import AVFoundation
-        "#,
-        body = r#"
-            func speak_native(text: String) throws { … }
-        "#,
-    );
-
-    #[day_bridge::impl(rust, platforms = [other])]
-    fn speak_native(_text: &str) -> Result<(), day_bridge::Error> {
-        Err(day_bridge::Error::Unsupported)
-    }
-}
-```
-
-The build generates the Swift adapter, the JNI binding, the ES module, or the C translation unit,
-plus the Rust that calls it. The crate still compiles with plain `cargo test` on a machine
-with none of those toolchains, because the last arm answers everywhere else.
-`day-part-speech` carries six languages in one file this way; the
-[bridge reference](/docs/internal/bridge) is the contract, and
-[day-part-speech](https://github.com/daybrite/day-part-speech) is the worked example, in its own
-repository.
-
-Parts are for *headless* capabilities only. The moment your capability needs to render
-something, it's a [piece](/docs/extending), and a different set of tools applies.
+Source review: [part crates](https://github.com/daybrite/day/tree/main/parts) and
+[facade feature gates](https://github.com/daybrite/day/blob/main/crates/day/Cargo.toml), 2026-10-22.
+The speech part is an external project; its implementation and current compatibility were not
+verified in this repository-only review.

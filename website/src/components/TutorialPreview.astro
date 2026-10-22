@@ -1,0 +1,29 @@
+---
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: CC-BY-SA-4.0
+import CodeSample from './CodeSample.astro';
+import lesson from '../content/docs/tutorial-state.md?raw';
+import { url } from '../lib/site';
+const source = lesson.match(/<!-- tutorial-file: src\/lib\.rs -->\n```rust\n([\s\S]*?)\n```/)?.[1];
+if (!source) throw new Error('The homepage needs the exact tutorial-state app source.');
+---
+<div class="tutorial-preview">
+  <figure>
+    <img src={url('images/tutorial/counter-two.png')} width="800" height="640"
+      alt="The tutorial counter running with macOS AppKit controls: Count: 2 and an Add one button." />
+    <figcaption>From the tutorial · macOS / AppKit · <a href={url('examples#tutorial-capture')}>Capture details</a></figcaption>
+  </figure>
+  <details>
+    <summary>See the Rust behind this screen</summary>
+    <CodeSample code={source} title="src/lib.rs · tutorial lesson 3" />
+    <p>The <a href={url('docs/tutorials/state')}>lesson</a> includes the Fluent catalog and project setup. Generated <code>res::str</code> messages keep text translatable; symbolic IDs let tests find the controls.</p>
+  </details>
+</div>
+<style>
+  .tutorial-preview { min-width: 0; width: 100%; }
+  figure { margin: 0; }
+  img { display: block; width: 100%; height: auto; border: 1px solid var(--border); border-radius: var(--radius); }
+  figcaption, details p { color: var(--muted); font-size: .85rem; line-height: 1.6; }
+  figcaption { margin-block: 12px; }
+  summary { cursor: pointer; font-weight: 600; padding-block: 12px; }
+</style>

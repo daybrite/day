@@ -2,7 +2,7 @@
 title: Tweaks
 description: "Configuring the native widget behind a built-in piece, per toolkit and case by case, without writing a custom piece."
 order: 26
-section: Guides
+section: How-to guides
 ---
 
 <!--
@@ -10,15 +10,15 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-A **tweak** configures the native widget behind a built-in [piece](/docs/glossary#piece).
+A **tweak** configures the native widget behind a built-in [piece](/docs/reference/glossary#piece).
 For example, you can apply AppKit’s toolbar bezel to a button or enable tick marks on a XAML
 slider. Day continues to manage the widget’s layout and lifecycle. A **Tweaked Piece** uses
 the same widget and handle with additional configuration.
 
-The showcase's Tweaks page (in the [gallery](/gallery)) demonstrates everything on this page.
+The showcase's Tweaks page (in the [gallery](/examples)) demonstrates everything on this page.
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
-[example messages](/docs/internal/snippet-catalog) and [catalog setup](/docs/localization).
+[example messages](/docs/reference/examples/catalog) and [catalog setup](/docs/how-to/localization).
 
 ## Applying a tweak
 
@@ -49,7 +49,7 @@ button(res::str::save()).appkit(|view, class, _mtm| {
 follow the same shape with each platform's types. Qt, XAML, and ArkUI sit behind C shims, so
 their accessors hand out the raw native pointer (plus the class) instead, with a short
 bring-your-own-C++ recipe (each tier is spelled out in the
-[tweaks reference](/docs/internal/tweaks)).
+[tweaks reference](/docs/reference/tweaks)).
 
 The class name keeps a tweak from breaking silently. On the typed tiers it's the *live* widget's
 runtime class, so if a piece ever has more than one native backing (a plain `label` as `UILabel`,
@@ -80,13 +80,13 @@ column((
 ```
 
 The ref clears automatically when the piece unmounts, so a late timer or async completion is a
-safe `None`, never a dangling widget. Reads are [reactive](/docs/glossary#reactive), too: a label whose closure calls
+safe `None`, never a dangling widget. Reads are [reactive](/docs/reference/glossary#reactive), too: a label whose closure calls
 `save_ref.node()` re-renders when the referenced piece mounts or disappears.
 
 ## Packaged tweaks
 
 To reuse a tweak across apps, package it: a `day-tweak-*` crate wraps the per-toolkit calls in one
-modifier and no-ops on [toolkits](/docs/glossary#toolkit) it doesn't cover, so the *app* using it
+modifier and no-ops on [toolkits](/docs/reference/glossary#toolkit) it doesn't cover, so the *app* using it
 stays free of `#[cfg]`. Three examples in the repository show different platform configurations:
 
 ```rust
@@ -105,6 +105,6 @@ WinRT C++, and ArkUI NDK code. It documents each platform's behavior (Material s
 snap when stepped; UIKit has no native tick API, so there it's a no-op). Publish the
 crate as a Cargo package. Consumers add it as a dependency, and `day build` enables the corresponding toolkit features.
 
-The [tweaks reference](/docs/internal/tweaks) has the full per-toolkit matrix, the native-code
+The [tweaks reference](/docs/reference/tweaks) has the full per-toolkit matrix, the native-code
 recipes, and the mechanics underneath. To add a new widget, write a
-[native piece](/docs/extending).
+[native piece](/contributing/extending).

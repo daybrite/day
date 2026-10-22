@@ -1,0 +1,90 @@
+{
+  "reviewed": "2026-10-22",
+  "version": "0.6.0",
+  "base_revision": "54385463f4917ffa4b01cd2ee27464849acac82f",
+  "revision_scope": "working tree including pre-existing uncommitted framework changes",
+  "tier_source": "website/src/lib/platforms.mjs",
+  "registry_source": "crates/day-cli/src/targets.rs",
+  "ci_source": ".github/workflows/ci.yml",
+  "limits": "No remote CI status, external workflow bodies, screenshot provenance, or new native platform runtime certification",
+  "targets": [
+    {
+      "id": "macos-appkit",
+      "tier": 1,
+      "verification": "source registry/tier only; local checks enumerated in phase report",
+      "limitations": "Per-feature capabilities and package prerequisites vary; no current all-platform pass established"
+    },
+    {
+      "id": "macos-gtk",
+      "tier": 4,
+      "verification": "source registry/tier only; local checks enumerated in phase report",
+      "limitations": "Development toolkit combination; packaging and native behavior require separate verification"
+    },
+    {
+      "id": "macos-qt",
+      "tier": 4,
+      "verification": "source registry/tier only; local checks enumerated in phase report",
+      "limitations": "Development toolkit combination; packaging and native behavior require separate verification"
+    },
+    {
+      "id": "ios-uikit",
+      "tier": 1,
+      "verification": "source registry/tier only; local checks enumerated in phase report",
+      "limitations": "Per-feature capabilities and package prerequisites vary; no current all-platform pass established"
+    },
+    {
+      "id": "android-mdc",
+      "tier": 1,
+      "verification": "source registry/tier only; local checks enumerated in phase report",
+      "limitations": "Per-feature capabilities and package prerequisites vary; no current all-platform pass established"
+    },
+    {
+      "id": "linux-gtk",
+      "tier": 2,
+      "verification": "source registry/tier only; local checks enumerated in phase report",
+      "limitations": "Per-feature capabilities and package prerequisites vary; no current all-platform pass established"
+    },
+    {
+      "id": "linux-qt",
+      "tier": 2,
+      "verification": "source registry/tier only; local checks enumerated in phase report",
+      "limitations": "Per-feature capabilities and package prerequisites vary; no current all-platform pass established"
+    },
+    {
+      "id": "windows-winui",
+      "tier": 2,
+      "verification": "source registry/tier only; local checks enumerated in phase report",
+      "limitations": "Per-feature capabilities and package prerequisites vary; no current all-platform pass established"
+    },
+    {
+      "id": "windows-xaml",
+      "tier": 5,
+      "verification": "source registry/tier only; local checks enumerated in phase report",
+      "limitations": "Deprecated; prefer windows-winui"
+    },
+    {
+      "id": "windows-gtk",
+      "tier": 4,
+      "verification": "source registry/tier only; local checks enumerated in phase report",
+      "limitations": "Development toolkit combination; packaging and native behavior require separate verification"
+    },
+    {
+      "id": "windows-qt",
+      "tier": 4,
+      "verification": "source registry/tier only; local checks enumerated in phase report",
+      "limitations": "Development toolkit combination; packaging and native behavior require separate verification"
+    },
+    {
+      "id": "harmony-arkui",
+      "tier": 3,
+      "verification": "source registry/tier only; local checks enumerated in phase report",
+      "limitations": "Local compile only; emulator acceptance CI-only; checked-in CI job tolerates whole-job failure"
+    },
+    {
+      "id": "web-dom",
+      "tier": 3,
+      "verification": "source registry/tier only; local checks enumerated in phase report",
+      "limitations": "Browser capability and activation constraints; emulated surfaces"
+    }
+  ]
+}

@@ -12,7 +12,7 @@
 //!
 //! The active backend registers its opener once via [`set_resource_opener`]; if none is registered
 //! (desktop dev, host tests, and the Apple backends, whose native mechanism *is* a bundle file) the
-//! [default opener](default_open) mmaps the file resolved from `DAY_ASSET_ROOT` or the app bundle.
+//! default opener mmaps the file resolved from `DAY_ASSET_ROOT` or the app bundle.
 
 use std::any::Any;
 use std::borrow::Cow;
@@ -68,7 +68,7 @@ macro_rules! resource_name {
 }
 
 resource_name!(
-    /// The bundled-image name that [`image`](crate::resource) callers resolve by (the file stem).
+    /// The bundled-image name that [`resource()`](crate::resource()) callers resolve by (the file stem).
     ImageName,
     "bundled-image name"
 );
@@ -97,7 +97,7 @@ impl AssetDir {
     }
 }
 resource_name!(
-    /// The bundled-vector name that [`vector`](crate::resource) callers resolve by (docs/vectors.md):
+    /// The bundled-vector name that [`resource()`](crate::resource()) callers resolve by (docs/vectors.md):
     /// the stem of a `resource/vectors/` SVG (or `.symbolset` bundle). Vectors and images share one
     /// per-backend resolution namespace; staging guarantees every vector name resolves as whatever
     /// form that backend loads natively (a VectorDrawable, a catalog entry, a rasterized PNG).

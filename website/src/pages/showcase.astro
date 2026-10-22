@@ -236,7 +236,7 @@ function richInstall(text: string): (string | { code: string })[] {
       </p>
 
       <div class="qs-steps">
-        <CopyCommand cmd="cargo install day-cli" />
+        <CopyCommand cmd="cargo install --git https://github.com/daybrite/day day-cli" />
         <CopyCommand cmd={`day launch --git ${site.showcaseRepo}.git`} />
       </div>
 

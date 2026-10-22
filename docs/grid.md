@@ -8,7 +8,7 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-# Grid: design & implementation
+# Grid
 
 > **Status: implemented.** `grid()`/`grid_row()` (`day_pieces`), the `.grid_span`/`.grid_align`
 > cell modifiers, and `GridLayout` (`day_core`) ship with no backend work: a grid is the same
@@ -18,7 +18,7 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 > `GridRow` analogue for Day.
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
-[example messages](snippet-catalog.md) and [catalog setup](https://daybrite.dev/docs/localization).
+[example messages](snippet-catalog.md) and [catalog setup](https://daybrite.dev/docs/how-to/localization).
 
 ## 1. Goal
 
@@ -103,84 +103,19 @@ Semantics:
 - **RTL mirrors columns** transparently: geometry is computed LTR and every placement mirrors
   around the grid's width in the engine's `place_child`, like every other layout.
 
-## 3. The facts channel
-
-Cell/row metadata rides `Flex.grid: GridFacts { is_row, row_valign, col_span, align }`
-(day-core `tree.rs`), the shipped form of §7.2's ChildRef facts surface, read via
-`LayoutOps::flex_of` and inert to every other layout. `grid_row` builds a **layout-only node**
-with `is_row` set, carrying a horizontal `StackLayout` that only runs when the row is *not*
-inside a grid; a stray `grid_row` degrades to a plain `row`. `.grid_span`/`.grid_align` build
-their piece and merge facts onto its root node (`TreeOps::set_grid_facts`): no wrapper node.
-
-**Position-free.** Grid facts are outer-layout facts ([docs/api-style.md](api-style.md)
-"Modifier classes"): they describe the piece to the grid it sits in, so they land on the
-outermost node whatever wrappers follow them. `label(res::str::sample_label()).padding(4.0).grid_span(2)` and
-`label(res::str::sample_label()).grid_span(2).padding(4.0)` are the same cell.
-
-## 4. Layout algorithm (normative)
-
-One `geometry()` function serves both `measure` and `place`:
-
-1. **Collect**: flatten group anchors; classify children into rows (`is_row`) and full-width
-   cells; assign column indices from spans.
-2. **Pass A (ideals)**: measure every span-1 cell **unconstrained**; rigid cells set their
-   column's ideal (max), `grow_w` cells flag their column flexible (their ideal is recorded only
-   when the grid itself is width-unconstrained). Spanning rigid cells then distribute any deficit
-   (once, closed-form). Full-width rigid cells record the grid-wide ideal; a full-width `grow_w`
-   cell makes the grid width-flexible.
-3. **Resolve columns**: with a width proposal and flexible columns, leftover = proposal − rigid
-   ideals − gutters, split evenly among the flexible columns; otherwise every column takes its
-   ideal. Grid width = the proposal when anything is flexible, else max(columns+gutters,
-   full-width ideal).
-4. **Pass B (heights)**: measure every cell once at its final span width (`Proposal::new(Some(w),
-   None)`); row height = max cell height; `grow_h` rows stretch additively under a height
-   proposal (stretching never re-measures).
-5. **Place**: re-run `geometry` at `Proposal::exact(bounds)`; every per-cell proposal is
-   bit-identical to the measure pass (only `p.width` affects cell proposals), so placement
-   measures purely from the engine's cache and positions each cell by the resolved alignment.
-   Row nodes are transparent carriers and are never placed.
-
-## 5. The performance contract
-
-**Exactly two measure proposals per cell per layout (unconstrained and at-final-width), zero
-measures during place, and no iterative negotiation.** Flexible widths and span deficits are
-single closed-form divisions, so there is no candidate-width probing and no quadratic
-re-measurement. Incremental updates re-enter at the boundary; clean cells answer both proposals
-from the engine's per-node cache, so a one-cell change costs ~2 real measures. Everything else is
-O(rows × columns) arithmetic per pass.
-
-This is pinned as a golden test (`day-pieces/tests/grid.rs::grid_measure_calls_bounded`, per
-§7.4's "measure-call counts are part of the golden tests"): a 600-cell boot stays ≤ 2·cells +
-slack mock measures, and a single-cell update stays ≤ 6 with exactly one native mutation op.
-
-The grid is **eager**: every cell realizes a node. The showcase stress page runs 800+ cells
-comfortably inside a `scroll`; thousands-of-rows datasets belong in `list` (recycling) or a
-future lazy grid (§7).
-
 ## 6. Restrictions
 
 - Don't decorate a `grid_row`: rows are transparent carriers with no frame; `.background` etc.
   on a row is unsupported (decorate the cells or the grid). Consequently dayscript `node_frame`
   on a row id returns nothing. (A row-band placement variant was considered and rejected for the
   hidden geometry coupling it adds; revisit if row striping becomes a real need.)
-- Grid modifiers must be outermost (§3).
+- Grid modifiers must be outermost; see the [facts channel](backend-contracts/grid.md#3-the-facts-channel).
 - Rigid content sharing a flexible column can clip when the leftover is small, the same property
   stacks have; a per-column minimum-width floor is a possible v2.
 - Cell gestures/ids work as usual (cells are ordinary pieces); rows have no identity.
 
-## 7. Deferred
 
-- **Per-column alignment via any cell** (SwiftUI `gridColumnAlignment`): one cell would change
-  the alignment of every cell in its column, an effect at a distance; per-cell `.grid_align`
-  written in the row covers real layouts.
-- **`gridCellUnsizedAxes`**: a third sizing mode whose interaction with flexible columns is
-  subtle; `grow_w`/`grow_h` + spans cover the motivating cases.
-- **`UnitPoint` cell anchors, numeric layout priority / weighted distribution, explicit column
-  templates**.
-- **Baseline alignment between cells.** Day does have a baseline concept now
-  ([docs/baseline.md](baseline.md)) and rows use it, but a grid would have to reconcile one baseline per row
-  across cells that span rows, so `grid_row(..).align(VAlign::FirstBaseline)` reads as
-  `Center` for the moment.
-- **Lazy/adaptive grid.** SwiftUI itself splits eager `Grid` from `LazyVGrid`. A future
-  `vgrid(grid_items, …)` needs viewport-driven realization (the `list` machinery), a different
-  data flow entirely; nothing in this design blocks it.
+## Related contracts
+
+See the [layout contract](backend-contracts/grid.md) for measurement and placement, and
+[deferred grid design](design/grid.md) for features outside the current API.

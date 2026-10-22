@@ -22,7 +22,7 @@ chooser when pressed. Both idioms give the app that same control and differ only
 chooser behind it.
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
-[example messages](snippet-catalog.md) and [catalog setup](https://daybrite.dev/docs/localization).
+[example messages](snippet-catalog.md) and [catalog setup](https://daybrite.dev/docs/how-to/localization).
 
 ## Authoring
 
@@ -87,7 +87,7 @@ into.
 
 ## The composed panel
 
-```
+```text
 ┌ Pick a tint ─────────────────┐
 │ ┌──────────────────────────┐ │   saturation × brightness for the current hue:
 │ │            ◯             │ │   the pure hue, washed to white across and black

@@ -480,7 +480,7 @@ impl Color {
     ///   The lossless form, for the toolkits whose picker really is float-precision (`NSColor`,
     ///   `GdkRGBA`, `QColor::getRgbF`).
     ///
-    /// `None` on anything else. See [docs/color.md](https://daybrite.dev/docs/internal/color/) for
+    /// `None` on anything else. See [docs/color.md](https://daybrite.dev/docs/reference/color) for
     /// why the currency stays sRGB for now and what a wider one would carry.
     pub fn parse(s: &str) -> Option<Color> {
         let s = s.trim();

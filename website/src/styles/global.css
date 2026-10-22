@@ -16,7 +16,7 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
   --text: #eef2ff;
   --muted: #aab3cf;
-  --faint: #737d9c;
+  --faint: #818cad;
 
   --brand: #6aa4ff;
   --brand-strong: #3b82f6;
@@ -108,11 +108,11 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
   --text: #0d1526;
   --muted: #47546d;
-  --faint: #74809b;
+  --faint: #606c85;
 
-  --brand: #2f6fde;
+  --brand: #2864cf;
   --brand-strong: #2563eb;
-  --sun: #c17512; /* deeper amber, readable on white */
+  --sun: #a55b0a; /* amber with sufficient contrast for small text on white */
   --sun-2: #ff8f5e;
 
   --hover: rgba(15, 25, 48, 0.05);

@@ -23,7 +23,7 @@ binding over a selection). Each arrow click, and each settled edit (Return, focu
 through `write_commit`, so under an undo stack every click is one undoable step.
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
-[example messages](snippet-catalog.md) and [catalog setup](https://daybrite.dev/docs/localization).
+[example messages](snippet-catalog.md) and [catalog setup](https://daybrite.dev/docs/how-to/localization).
 
 ## Authoring
 

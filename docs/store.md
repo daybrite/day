@@ -310,7 +310,7 @@ it rewrites whole; a value inline in the storefront file is reported and left to
 are a list, so there are no spaces after commas to strip. Every other code needs someone to write
 words, and reports instead.
 
-```
+```text
 $ day lint --fix
 fixed   day::lint::store-whitespace     store/metadata/en/description.txt: Trim the surrounding whitespace
 ```
@@ -321,7 +321,7 @@ fixed   day::lint::store-whitespace     store/metadata/en/description.txt: Trim 
 placeholder text unless `--allow-placeholders`), then writes a normal fastlane project per
 target:
 
-```
+```text
 build/day/store/ios-uikit/fastlane/{Appfile,Fastfile,metadata/…}
 build/day/store/android-mdc/fastlane/{Appfile,Fastfile,metadata/android/…}
 build/day/store/macos-appkit/fastlane/{Appfile,Fastfile,metadata/…}

@@ -17,7 +17,7 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 > server over URLSession and libcurl on macOS, and the showcase's Network & HTTP walkthrough
 > (`dayscript/network.yaml`) runs every client feature on macOS, iOS and Android.
 
-The OS already knows things an app cannot easily discover: system proxies and PAC scripts,
+The OS manages configuration that the platform HTTP client can use: system proxies and PAC scripts,
 per-network VPN routing, Low Data Mode, and enterprise and user-installed certificate stores.
 Requests sent through the platform stack inherit all of it, and the app ships no TLS library of
 its own.
@@ -28,7 +28,7 @@ rest of a modern HTTP API: streamed bodies, uploads, redirect and challenge call
 decisions, cookies, caching, metrics and WebSockets.
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
-[example messages](snippet-catalog.md) and [catalog setup](https://daybrite.dev/docs/localization).
+[example messages](snippet-catalog.md) and [catalog setup](https://daybrite.dev/docs/how-to/localization).
 
 ## Sending a request
 

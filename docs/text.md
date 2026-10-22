@@ -31,7 +31,7 @@ label(res::str::custom_size_sample()).font(Font::System(18.0))                //
 ```
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
-[example messages](snippet-catalog.md) and [catalog setup](https://daybrite.dev/docs/localization).
+[example messages](snippet-catalog.md) and [catalog setup](https://daybrite.dev/docs/how-to/localization).
 
 ## Semantic styles (`Font`)
 

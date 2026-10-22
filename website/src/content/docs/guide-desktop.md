@@ -2,7 +2,7 @@
 title: Menus, toolbars, and windows
 description: "Install a native menu bar with standard roles and shortcuts, put commands in the window's toolbar, and open secondary windows, including the standard Settings window, from your app."
 order: 32
-section: Guides
+section: How-to guides
 ---
 
 <!--
@@ -11,7 +11,7 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
 Menus, keyboard shortcuts, and toolbars expose an app’s commands through familiar platform
-controls. For one operation shared across these surfaces, define a [reusable command](/docs/guide-commands).
+controls. For one operation shared across these surfaces, define a [reusable command](/docs/how-to/guide-commands).
 Day uses a shared Rust API to define them, along with secondary windows and a Settings
 window. A menu item can call the same action as a button in the interface:
 
@@ -19,16 +19,20 @@ window. A menu item can call the same action as a button in the interface:
 menu_item(res::str::save()).key("s").action(save) // ⌘S on macOS, Ctrl+S everywhere else
 ```
 
-**Works on:** context menus render natively everywhere (`NSMenu`, `GtkPopoverMenu`, `QMenu`,
-`UIMenu`, Android `PopupMenu`, XAML `MenuFlyout`). The app menu is a menu bar on the four
-desktop [backends](/docs/glossary#backend) and the app-bar overflow (⋮) on Android; on iPhone it is a no-op, since
-touch platforms have no global menu bar. Toolbars exist only where the platform has them:
-`Cap::Toolbar` is `Native` on the four desktop backends and `Unsupported` everywhere else.
-Secondary windows work on every backend: native windows on the desktops, iPad, Android, and
-HarmonyOS; on iPhone and web the same call presents the content as a fullscreen cover.
+**Check the operation's capability.** Native menu bars, context menus, toolbars, and secondary
+windows have different target mappings. The DOM backend reports emulated toolbar and app-menu
+support; mobile backends can expose navigation chrome instead of desktop menus. An unsupported
+secondary native window falls back to a fullscreen cover. The
+[coverage matrix](/contributing/backend-contracts/coverage-matrix) and subsystem references
+record source behavior, not native test results.
+
+The code blocks are integration fragments. Start in a working app, import `day::prelude::*`,
+and supply app callbacks such as `save`. The [command recipe](/docs/how-to/guide-commands)
+contains a compile-designated operation that can feed these presentations. A menu shortcut is
+installed by a menu entry; a standalone command button does not register a global hotkey.
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
-[example messages](/docs/internal/snippet-catalog) and [catalog setup](/docs/localization).
+[example messages](/docs/reference/examples/catalog) and [catalog setup](/docs/how-to/localization).
 
 ## 1. Install the app menu
 
@@ -86,13 +90,13 @@ Windows, in a `QMenuBar` on Qt (the native global bar on `macos-qt`), and in the
 overflow on Android. Android allows one level of submenu; deeper ones flatten.
 
 The menu is live: every title, `enabled` and `checked` is re-read and the bar reinstalled when
-one changes, so a runtime language picker retitles it in the new [locale](/docs/glossary#locale)
+one changes, so a runtime language picker retitles it in the new [locale](/docs/reference/glossary#locale)
 with no extra code. `app_menu` also takes a closure (`app_menu(move || vec![…])`) that re-runs
 on whatever else it reads.
 
 ## 2. Attach context menus
 
-The same entries attach to any [piece](/docs/glossary#piece) with `.context_menu(…)`, shown on secondary-click on
+The same entries attach to any [piece](/docs/reference/glossary#piece) with `.context_menu(…)`, shown on secondary-click on
 desktop and long-press on touch:
 
 ```rust
@@ -114,7 +118,7 @@ behavior, and passing an empty `Vec` removes the menu.
 Attach `.toolbar(…)` to the piece whose content the commands affect. A toolbar on the window’s
 root piece stays available throughout that window. A toolbar on a page appears with that page
 and disappears when it leaves the screen. The platform decides where to place those commands;
-the [toolbar reference](/docs/internal/toolbars) describes each toolkit’s behavior.
+the [toolbar reference](/docs/reference/toolbars) describes each toolkit’s behavior.
 
 ```rust
 item_list(scene).grow().toolbar([
@@ -136,7 +140,7 @@ segmented control, `toolbar_menu(id, label, entries)` for a pull-down built from
 
 Search has no toolbar item. Declare it on the navigation surface it filters, with
 `nav(section).searchable(Search::new(query))`, and Day draws the field where the platform puts search.
-That lets it move into the navigation list on a window too narrow for a [sidebar](/docs/glossary#sidebar) without your code
+That lets it move into the navigation list on a window too narrow for a [sidebar](/docs/reference/glossary#sidebar) without your code
 changing. A sidebar supplies its own toggle button, so an app declares nothing for that either.
 
 Alignment comes from `.placement(…)`, which names the item's role rather than a position in the
@@ -154,10 +158,10 @@ is that search fields and labels always render on the leading side.
 
 `.toolbar(…)` also takes a closure, `page.toolbar(move || vec![…])`, which re-runs whenever the
 state it reads changes and replaces that piece's items. Keep the values that change often out of
-that closure: a toggle's [signal](/docs/glossary#signal), a search field's signal, and a
+that closure: a toggle's [signal](/docs/reference/glossary#signal), a search field's signal, and a
 reactive `.enabled(…)` patch the one item in place, so a command greying out never disturbs a
 search in progress. To show an item conditionally, put its piece under `when`; the item leaves with its
-subtree. The [Toolbars](/docs/internal/toolbars) reference covers placement per platform and what
+subtree. The [Toolbars](/docs/reference/toolbars) reference covers placement per platform and what
 each backend draws.
 
 ## 4. Open a secondary window
@@ -182,7 +186,7 @@ opened it. Close is asynchronous everywhere: the title-bar button, a platform ge
 `WindowHandle::close()` all wait for the platform to confirm, then the content is disposed and
 `on_close` runs. Closing the primary window quits the app.
 
-Where the [toolkit](/docs/glossary#toolkit) cannot open windows (iPhone, web, and the `Preferences`
+Where the [toolkit](/docs/reference/glossary#toolkit) cannot open windows (iPhone, web, and the `Preferences`
 kind on all mobile), the content presents as a fullscreen cover in the primary window instead, with
 the same API, keys, and close path. That tier has no native title bar or close button, so probe
 `Cap::MultiWindow` and give cover-tier content its own close affordance (the system back button
@@ -190,7 +194,7 @@ closes it on Android).
 
 ## 5. Add Settings, About and File ▸ New Window
 
-Settings and About come from `day-piece-settings` ([settings](/docs/internal/settings)): one
+Settings and About come from `day-piece-settings` ([settings](/docs/reference/settings)): one
 declaration in your root builder, before `app_menu`, registers both windows and their menu
 items on every desktop and the navigation presentation on the phones:
 
@@ -229,7 +233,7 @@ Front, plus the open-window list) unless your own menu claims `MenuRole::Minimiz
   showcase's `root()` does exactly this), so those menu items are enabled.
 - Toolbars follow their pieces into new windows. Items declared on a window’s root
   piece belong to that window. Items declared on a page appear wherever that page is shown. A builder whose pieces declare none opens a window with an empty bar.
-- Keep bound values out of a derived toolbar closure. A [reactive](/docs/glossary#reactive) rebuild replaces that
+- Keep bound values out of a derived toolbar closure. A [reactive](/docs/reference/glossary#reactive) rebuild replaces that
   piece's items and would drop the search field's focus mid-word. Structure and labels go in
   the closure; a toggle's signal, a search signal, and a reactive `.enabled` patch single items.
 - Don't put the toolkit name in your window title. Debug builds append a
@@ -238,9 +242,22 @@ Front, plus the open-window list) unless your own menu claims `MenuRole::Minimiz
 
 ## Reference
 
-- [menus](/docs/internal/menus) — the full role table per backend, how action dispatch works,
-  and driving menus from [dayscript](/docs/glossary#dayscript).
-- [toolbars](/docs/internal/toolbars) — the per-backend realization table, patch semantics,
+- [menus](/docs/reference/menus) — the full role table per backend, how action dispatch works,
+  and driving menus from [dayscript](/docs/reference/glossary#dayscript).
+- [toolbars](/docs/reference/toolbars) — the per-backend realization table, patch semantics,
   and the `toolbar:` script step.
-- [windows](/docs/internal/windows) — the backend tier table, the pending-open path, the
+- [windows](/docs/reference/windows) — the backend tier table, the pending-open path, the
   debug title tag, and per-window screenshots.
+
+## Verify scope and presentation
+
+Create a command in the scope that owns its data, then install its button/menu/toolbar adapters.
+Test invocation after disabling it, focus changes between windows, and closing the owning page.
+`Command::invoke` rechecks both availability and scope liveness; it reports that a synchronous
+handler ran, not the result of work started inside `day::task`. Window lifetimes can exceed the
+page that opened them, so captured state must live long enough.
+
+Evidence: [commands](https://github.com/daybrite/day/blob/main/crates/day-pieces/src/commands.rs),
+[menus](https://github.com/daybrite/day/blob/main/crates/day-pieces/src/menus.rs), and
+[windows](https://github.com/daybrite/day/blob/main/crates/day-core/src/windows.rs).
+Native accelerator placement and secondary-window behavior still require target runtime checks.

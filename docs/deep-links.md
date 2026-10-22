@@ -16,8 +16,8 @@ route grammar, absolute/relative addressing, query params, and how a pending lin
 with `.restore` are specified in [docs/navigation.md](navigation.md#routes-the-string-route-adapter-deep-links--dayscript)
 and are not repeated here.
 
-Each section below is marked **Shipped** or **Planned**. Planned sections describe a design
-that may change with review.
+The [historical proposals](design/deep-links.md) are separate from this API entry point.
+Platform execution claims below are retained records and were not rerun during restructuring.
 
 ## The URL model — Shipped
 
@@ -37,8 +37,7 @@ case-preserved.
 
 Short schemes collide: nothing stops another app from claiming `fieldnotes://`, and the OS
 resolves the tie (see the per-platform notes). Apps that care should set an explicit,
-longer scheme. *Planned:* a `scheme = "…"` key under `[app]` in Day.toml, conveyed to each
-host project the same way the id is; today the scheme is fixed at scaffold time.
+longer scheme.
 
 ## The delivery contract — Shipped
 
@@ -110,48 +109,6 @@ carries `want.uri` as an empty string rather than undefined, so the ability also
 emulator with `aa start -U "<scheme>://<route>"`, cold and warm. One concern is that `aa start
 -U` is also the only local delivery tool, since the emulator image has no system browser to
 exercise link-from-a-page flows.
-
-### macOS — Planned, with one structural caveat
-
-Registration already ships in the platform/macos scaffold's Info.plist. Intake does not: the
-runtime needs the Apple Event handler (`kAEGetURL`) registered at startup, emitting the same
-cold/warm paths as iOS. Two macOS-specific concerns:
-
-1. **Launch Services registers bundles, not binaries.** macos-appkit always builds as the
-   Xcode `.app` now, so every `day launch` produces a bundle a scheme can reach; the caveat
-   applies only to anyone running the raw executable out of `Contents/MacOS` by hand.
-2. **Old copies shadow each other.** Launch Services indexes every copy of the bundle it
-   has seen (a Debug build in `build/day/`, a packed copy in `/Applications`) and picks one
-   by its own rules. During development, `open <url>` may target a copy other than the one
-   just built. A `day doctor` note should cover this when the handler lands.
-
-### Windows — Planned, the most work
-
-Nothing ships yet. The pieces, in order of effort, are:
-
-1. **Packaged (MSIX):** a `uap:Protocol` extension in the generated manifest, which is small
-   and the store-grade path.
-2. **Unpackaged (dev + NSIS):** protocol registration is an `HKCU` registry ProgId written at
-   install or first run; `day launch` dev builds would self-register on start, which is a
-   machine-state write day currently never does. This deserves an explicit opt-in.
-3. **Single-instance forwarding** (below) is not optional here: without it every link spawns
-   another copy of the app. Packaged apps can use `AppInstance` redirection; unpackaged needs
-   a named mutex + pipe in the C++/WinRT shim. This is the bulk of the work.
-
-### Linux — Planned, with one limit
-
-Registration is two lines in the generated `.desktop` file (`MimeType=x-scheme-handler/<scheme>;`
-plus `DBusActivatable=true`), and both packers already generate that file. Delivery concerns:
-
-1. **AppImage integration is opt-in by the user.** An AppImage registers no `.desktop` entry
-   unless the user runs an integration tool, so scheme links reaching an AppImage build are
-   not dependable. Flatpak installs integrate normally and are the reliable path.
-2. **Dev launches cannot receive links** for the same reason as macOS's cargo path: there is
-   no installed `.desktop` pointing at the build tree. Testing needs an installed build, or
-   the dayscript tier below.
-3. Warm delivery should ride DBus activation (`org.freedesktop.Application.Open`), which both
-   desktops' launchers use when `DBusActivatable` is set; a fallback single-instance socket
-   would cover launchers that exec directly.
 
 ## Single-instance forwarding
 
@@ -241,7 +198,7 @@ are not conveyed yet (the platforms render their default glyph), and on OpenHarm
 `want.uri` arrives as an empty string on non-URI launches, which is why the ability checks
 `want.uri || parameters["day.uri"]` rather than `??`.
 
-## Testing — Shipped pieces, plus a dayscript plan
+## Testing shipped pieces
 
 What works today: the dayscript step below on every backend; `DAY_DEEPLINK=route day
 launch …` for the cold env path; `xcrun simctl openurl booted <url>`,
@@ -260,11 +217,7 @@ back-stack seeding identically on every backend including mock (cheap enough for
 app's walkthrough), and it does not prove OS registration. `day lint` validates the URL's
 route against the app's declared keys, the same check `navigate:` gets.
 
-*Planned:* the second tier, in which the launch runner delivers the URL from outside (the
-commands above) and the script asserts via `assert_route`. That proves registration and intake,
-costs a per-platform runner arm, and belongs in the per-target CI jobs rather than every
-walkthrough. The split matters because tier-1 failures are app bugs and tier-2 failures are
-packaging bugs; a single step doing both would leave every failure ambiguous.
+
 
 ## External URL handlers
 

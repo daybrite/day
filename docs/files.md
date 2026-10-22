@@ -47,7 +47,7 @@ For OS file associations, Finder/Dock drops, and cold/warm document delivery, se
 for bounded reads that do not block the native UI thread.
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
-[example messages](snippet-catalog.md) and [catalog setup](https://daybrite.dev/docs/localization).
+[example messages](snippet-catalog.md) and [catalog setup](https://daybrite.dev/docs/how-to/localization).
 
 ## The path type: `FileUrl`
 

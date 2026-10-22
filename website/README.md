@@ -13,6 +13,46 @@ The [App websites guide](src/content/docs/websites.md) covers their configuratio
 themes, custom Astro pages, built-in Actions deployment, and GitHub Pages/custom-domain setup.
 This directory maintains Day's own documentation and marketing site.
 
+## Documentation authoring
+
+Use the [style guide](../website/authoring/style-guide.md),
+[templates](../website/authoring/templates/README.md), and
+[authoring workflow](../website/authoring/authoring.md). From this directory,
+`npm run docs:check` validates the initial standards scope and glossary structure;
+`npm run docs:test` checks the editorial rules against synthetic fixtures.
+Continue to build and run `npm run linkcheck` for rendered content changes.
+The [maintenance checklist](../website/authoring/maintenance.md) covers review, evidence
+freshness, platform-claim updates, and publication checks.
+
+## Content structure and routes
+
+[`src/data/content-routes.json`](src/data/content-routes.json) assigns every content source one
+public route, primary type, and audience. Source paths are independent of public URLs:
+
+- Public pages: `/`, `/features`, `/platforms`, `/gallery`, `/showcase`, `/examples`,
+  and `/community`. The header is Gallery, Showcase, Docs, and Explore, followed by search and
+  theme controls. Contributing and GitHub are in Explore.
+- App documentation: `/docs`, with tutorials, how-to guides, reference, and explanation.
+- Contributors: `/contributing`, with setup, architecture, backend contracts, documentation
+  standards, design records, and history.
+
+The existing Markdown/MDX guides remain in `src/content/docs/`. Repository documents stay in
+`docs/` and publish through matching symlinks in `src/content/internal/`, including nested
+design and history records. Contributor standards publish through `src/content/repository/`.
+Edit the canonical source, never a copied website version. Keep titles and descriptions in
+front matter; the route catalog owns placement. The shared renderer and sidebar use this catalog.
+
+For a new repository document, add its symlink, catalog entry, and topic placement in
+[`content-routes.json`](src/data/content-routes.json). Run `npm run docs:architecture`,
+`python3 -B ../scripts/ci/doc-links.py`, and `bash ../scripts/ci/docs-symlinks.sh` from this directory.
+The checks reject missing sources, duplicate routes, unplaced pages, and wrong publishing targets.
+
+[`plugins/content-links.mjs`](plugins/content-links.mjs) resolves repository-relative links from
+their canonical source path. [`route-migrations.json`](src/data/route-migrations.json) translates
+source-era site links; it does not publish old routes or redirects. Update authored links to the
+new routes. The catalog also drives `sitemap.xml`; the normal build indexes new routes with Pagefind.
+The reference index is rendered from content metadata and no longer rewritten during builds.
+
 ## Local development
 
 From the repository root:
@@ -25,45 +65,47 @@ scripts/website.sh preview  # build, then serve the production output
 
 Or directly with npm inside `website/`: `npm install`, then `npm run dev` / `npm run build`.
 
-> The gallery's screenshots come from the apps' own websites, fetched at build time. The first
-> build needs the network; after that a cached copy of each index under `.cache/` keeps working
-> offline.
+> Builds assemble the apps’ published gallery indexes and Day Showcase release metadata. A warm
+> checkout can reuse gallery indexes and hero images offline; unavailable release metadata produces
+> download placeholders. Dependencies must already be installed for an offline build.
 
 ## Structure
 
 ```text
 website/
-├── astro.config.mjs        # site + base (/day) + the gallery integration
+├── astro.config.mjs        # daybrite.dev at the domain root + gallery integration
 ├── gallery.config.mjs      # ← the extensibility surface: which Day apps the gallery indexes
-├── integrations/gallery.mjs# runs the assembly before every dev/build
-├── scripts/assemble-gallery.mjs  # the apps' published gallery.json → src/data/gallery-manifest.json
+├── integrations/gallery.mjs# assembles galleries and the hero; verifies tutorial evidence
+├── scripts/assemble-gallery.mjs  # combines the apps’ published screenshot indexes
 ├── src/
 │   ├── components/         # Logo, Nav, Footer, CodeSample, DeviceShell, PlatformShots
-│   ├── content/docs/       # documentation (markdown content collection)
+│   ├── content/docs/       # authored guides; route catalog determines public location
+│   ├── content/internal/   # symlinks to canonical docs/, including design and history
+│   ├── content/repository/# symlinks to contributor instructions and standards
 │   ├── content.config.ts   # docs collection schema
 │   ├── layouts/            # BaseLayout, DocsLayout
-│   ├── pages/              # index (landing), gallery/ (hub + one page per app), docs/[...slug]
+│   ├── pages/              # landing, examples/, shared [...slug], API bridge, sitemap
 │   └── lib/site.ts         # site metadata + base-path URL helper
 └── public/                 # favicon and static assets
 ```
 
 ## Support-tier badges
 
-Every target's support tier (Tier 1 supported … Tier 4 development) is recorded once in
+Every target's support tier (Tier 1 supported … Tier 5 deprecated) is recorded once in
 `src/lib/platforms.mjs`, next to the rest of the platform table, and defined for readers at
-`/docs/platforms#support-tiers`. To badge a target in a docs page, write a plain markdown link to
+`/docs/reference/platforms#support-tiers`. To badge a target in a docs page, write a plain markdown link to
 that anchor whose text starts with `Tier <n>`:
 
 ```text
-[Tier 3](/docs/platforms#support-tiers)                 compact, for table cells
-[Tier 3 · Experimental](/docs/platforms#support-tiers)  full, for prose and headings
+[Tier 3](/docs/reference/platforms#support-tiers)                 compact, for table cells
+[Tier 3 · Experimental](/docs/reference/platforms#support-tiers)  full, for prose and headings
 ```
 
 `plugins/tier-badge.mjs` stamps the class, `data-tier`, and a tooltip at build time, and
 `src/styles/global.css` styles the pill in the tier tint (`--tier`, the one iOS-palette hue no
 platform accent uses). The repo's internal docs (`docs/*.md`) are read on GitHub as well, so they
-use the absolute form `https://daybrite.dev/docs/platforms#support-tiers`, which the plugin matches
-too. The eight `/docs/platforms/<target>` pages need no markup — their title row reads the tier
+use the absolute form `https://daybrite.dev/docs/reference/platforms#support-tiers`, which the plugin matches
+too. The nine `/docs/reference/platforms/<target>` pages need no markup — their title row reads the tier
 from the platform table.
 
 **Changing a target's tier** edits `src/lib/platforms.mjs`, both tables in
@@ -76,7 +118,7 @@ A call-out blockquote renders as a titled, tinted box with an icon (`plugins/adm
 Two ways to write one:
 
 ```md
-> [!WARNING] Experimental ([Tier 3](/docs/platforms#support-tiers))
+> [!WARNING] Experimental ([Tier 3](/docs/reference/platforms#support-tiers))
 > Body text. The title sits on the marker line, so it can carry links and code.
 
 > **Which XAML.** Body text — a bold lead becomes the title, which is why the ~40 reference
@@ -102,60 +144,69 @@ permalink in its header that appears on hover, and a highlight when it is the li
 not re-render pages that did not change — `npx astro build --force` (or `astro dev --force`)
 clears it. A plain `npm run build` after a plugin edit will happily serve the old HTML.
 
-## The gallery
+## Showcase downloads
 
-`/gallery/` indexes every Day sample app; `/gallery/<App>/` is one app's screenshots, every
-platform side by side. The images are **hosted by the apps themselves** — this site links them.
+`/showcase` provides the screenshot carousel, platform package cards, store links, and CLI launch
+instructions. `scripts/assemble-downloads.mjs` runs during dev/build and reads the latest release
+metadata from `daybrite/Day-Showcase` (`DAY_RELEASE_REPO` can override the repository). It writes
+`src/data/downloads.json`; package links point to GitHub release assets, rather than copying
+installers into the site. A failed metadata request produces explicit package placeholders.
 
-Each app's CI runs its dayscript walkthrough on every target it builds for, once per theme and
-language, and its website publishes both the images and `day screenshot index`'s machine-readable
-index of them — twice, one per build: the newest build of the app's default branch at
-`<host>/main/gallery/gallery.json`, and its newest release at `<host>/gallery/gallery.json` (a site
-with no release publishes its one build there). Before every build here, an Astro integration
-(`integrations/gallery.mjs`) runs `scripts/assemble-gallery.mjs`, which fetches one index per app
-and writes `src/data/gallery-manifest.json` for the pages to render.
+## Gallery and screenshot evidence
 
-It reads the branch build's index first, because every push refreshes it, and the release's when
-that one is missing. `preferReleaseScreenshots` in `gallery.config.mjs` swaps the order for the
-whole gallery, and `preferRelease` on an app swaps it for that app alone. Before using an index it
-sends one `HEAD` to its first capture, and an index whose images are not where it says is passed
-over for the other rather than rendered as a page of broken images. A page built from the branch
-build says so beside its publication date.
+`/gallery` shows the screenshot carousels for the apps in `gallery.config.mjs`.
+`/gallery/<app>` compares the same screens across captured platforms, languages, and themes.
+The landing page uses `HeroCarousel.astro` to rotate through Day Showcase captures with their
+platform shells, captions, and matching dark captures where available. Each slide links directly
+to its screenshot row in the gallery.
 
-A build that is going to be published fails when it cannot produce the Showcase's screenshots:
-Day-Showcase left out of the gallery, shown only from a cached index, or a front-page carousel with
-no verified screenshot (the carousel is built from the Showcase alone). The `website` job of
-`.github/workflows/ci.yml` sets `DAY_REQUIRE_SHOWCASE` on every run that deploys, so the last good
-deploy stays live until the Showcase's site serves its gallery again. Without it — `npm run dev`, a
-local `npm run build`, a pull request's build — the site still renders offline, and the missing app
-is a warning.
+`integrations/gallery.mjs` runs `scripts/assemble-gallery.mjs` and `scripts/hero-shots.mjs` before
+every dev/build. Gallery indexes come from the apps’ published sites, with saved indexes under
+`.cache/gallery/` available for offline builds. Cached indexes are labeled when used. Gallery
+images remain hosted by their apps; the hero downloads and caches its images under `public/hero/`.
+Run `node scripts/hero-shots.mjs --refresh` to rebuild the hero pool. A cold build needs access to
+the app sites; a warm checkout can build from its cached indexes and hero images.
 
-The index describes itself, so a row's heading, its caption, the source file it links, the columns,
-the themes and the languages all come from the app — an app that captures a new screen shows it
-here on the next build, with no change in this repository.
+`DAY_REQUIRE_SHOWCASE=1` prevents publishing a build without a current Showcase index and a
+nonempty verified hero pool. The existing deployment workflow sets it. Screenshot validation
+rejects blank images; it does not certify every target or prove source-revision equivalence.
+The gallery preserves capture labels and links to the app’s source, which may have advanced since
+capture. Restoring this existing gallery and its published screenshot inputs was explicitly
+requested after Phase 6; the earlier removal is superseded.
 
-**To add an app:** add an entry to `apps` in `gallery.config.mjs` with its label, blurb, repository
-and index URL. For published apps, set `stores.apple` and/or `stores.google` to their listing URLs
-to show daysite's store badges on the card and app page. Its hub card and page link the app's
-homepage (the index's `site`) and its live web build at `<site>/webapp/` whenever the index carries
-a web-dom column; `web` names another address
-for a build hosted elsewhere. The optional `order` / `labels` / `hide` keys are there for an app
-whose dayscript carries thin metadata; a shot with no `title:` falls back to a label derived from
-its id. (The
-better fix for a missing heading is a `title:` on that `screenshot:` step in the app's own
-dayscript, which improves the app's own gallery too.)
+`/examples` retains the tutorial code and its locally captured AppKit screenshots. Their
+`public/images/tutorial/provenance.json` records source hashes and capture conditions.
+The integration also runs `scripts/verify-marketing-evidence.mjs` for those captures.
+`node --test scripts/marketing-evidence.test.mjs` checks that changed image bytes, app behavior,
+Fluent text, or target attribution invalidate that evidence. Generate replacement tutorial
+captures with `python3 -B scripts/docs/capture-tutorial.py`, inspect them, then update the images
+and provenance together.
 
-An app whose site cannot be reached falls back to `.cache/gallery/<app>.json`, the last index that
-fetched, and its page says so. With no cache either, the app is left out and the build log names
-it. A build where nothing resolves still succeeds with an empty gallery, so a checkout with no
-network can still render the pages.
+Public website English literals are explicitly permitted for this overhaul. Day app examples
+and embedded app UI still require generated localization and resource accessors.
 
 ## Deployment
 
-`.github/workflows/website.yml` builds this site and deploys `website/dist` to GitHub Pages. It
-runs on pushes touching `website/` or `docs/`, daily on a schedule (to pick up screenshots the
-apps published since the last run), on `workflow_dispatch`, and on a `gallery-published`
-`repository_dispatch` an app's CI can send. It builds its own copy of the rustdoc bundle into
-`dist/api`, because Pages deploys one artifact and this is the workflow that deploys.
+The `website` and `website-deploy` jobs in [ci.yml](../.github/workflows/ci.yml) build and deploy
+`website/dist` to GitHub Pages. The website build runs on non-tag workflow runs; deployment is
+restricted to the canonical repository and excludes pull requests. The workflow includes push,
+pull-request, scheduled, manual, and repository-dispatch triggers. The website job builds the
+Rustdoc bundle into `dist/api` **after** the Astro build, because Astro clears `dist` and Pages
+deploys one combined artifact. `node website/scripts/check-api-bundle.mjs` (from the repository
+root) checks the site, API bridge, and all crate entry pages before upload. A separate Python check validates item-level Rustdoc links, and Rustdoc builds with warnings
+denied. A local validation build does not run these deployment jobs.
+
+To preview that combined artifact, build the site, run
+`bash scripts/build-api-docs.sh --out website/dist/api`, then run the completeness check and
+`npm --prefix website run linkcheck` from the repository root. Serve with
+`npm --prefix website run preview`; `scripts/website.sh preview` rebuilds the site and removes
+the API output. The API generator clears `target/doc` and can resolve Cargo dependencies; use
+an isolated copy for preservation-sensitive reviews. See the
+[maintenance procedure](../website/authoring/maintenance.md#assemble-and-review-a-publication-artifact)
+for the full command sequence and evidence limits.
+
+The website lane is independent of framework checks. Canonical non-PR runs, including a manual
+`website-only` dispatch, can deploy. Do not dispatch one as a preview. Commit, push, and deployment
+each need explicit authorization; this overhaul's phase approval does not provide it.
 
 Enable Pages with **Build and deployment → Source → GitHub Actions** in the repository settings.

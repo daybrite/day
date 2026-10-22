@@ -165,7 +165,7 @@ impl<T: 'static, K: 'static> Copy for ItemSlot<T, K> {}
 
 impl<T: Clone + 'static, K: Clone + 'static> ItemSlot<T, K> {
     /// Tracked whole-item read. **Read it inside a reactive closure**, e.g.
-    /// `label(move || slot.get())`, not eagerly. A recycling [`list`] rebinds one physical row to
+    /// `label(move || slot.get())`, not eagerly. A recycling [`list()`] rebinds one physical row to
     /// many items, and only bindings that read the slot reactively update on rebind; an eager
     /// `let name = slot.get()` freezes the row at its first item.
     pub fn get(self) -> T {
@@ -598,7 +598,7 @@ impl<C: PieceSeq> Piece for Adaptive<C> {
 // Row sources: where `each` and `list` get their rows (§5.4, docs/list.md)
 // ---------------------------------------------------------------------------
 
-/// Where a collection's rows come from. [`each`]`(source, row)` and [`list`]`(source, row)`
+/// Where a collection's rows come from. [`each`]`(source, row)` and [`list()`]`(source, row)`
 /// accept anything implementing this: plain data via [`items`]`(closure, key_of)`, or (with
 /// the `model` feature) a day-model store directly (collection order) or
 /// `store.rows(projection)` (a tracked display projection of key ids).
@@ -1202,7 +1202,7 @@ impl SwipeAction {
     }
 }
 
-/// Drag-to-reorder for a [`list`] (docs/list.md): the handler that applies a committed move,
+/// Drag-to-reorder for a [`list()`] (docs/list.md): the handler that applies a committed move,
 /// an optional guard consulted while the drag is live, and whether the gesture is offered
 /// right now. A list is reorderable exactly when it carries one of these
 /// (`list(..).reorderable(Reorder::new(f))`).
@@ -1247,7 +1247,7 @@ impl Reorder {
     }
 }
 
-/// Swipe-to-delete for a [`list`] (docs/list.md): the handler that applies a committed delete,
+/// Swipe-to-delete for a [`list()`] (docs/list.md): the handler that applies a committed delete,
 /// the label the platform puts on its affordance, an optional per-row guard, and whether the
 /// gesture is offered right now. A list is deletable exactly when it carries one of these
 /// (`list(..).deletable(Delete::new(f))`).
@@ -2089,7 +2089,7 @@ mod model_rows {
         }
     }
 
-    /// `store.rows(projection)`: the display-ordered row source for [`list`]/[`each`].
+    /// `store.rows(projection)`: the display-ordered row source for [`list()`]/[`each`].
     pub trait StoreRows<T: 'static> {
         fn rows(self, f: impl Fn() -> Vec<u64> + 'static) -> Rows<T>;
     }
@@ -2496,12 +2496,12 @@ impl<T: Clone + 'static, K: Clone + Hash + Eq + 'static> TreeConn for BranchesCo
 
 /// A native hierarchical tree (docs/tree.md): rows nest, disclose, and drag to a new parent.
 /// The platform widget owns scrolling, disclosure and cell reuse; Day builds each visible row
-/// once and *rebinds* it as cells recycle ([`list`]'s contract, token-addressed). Gate its UI
+/// once and *rebinds* it as cells recycle ([`list()`]'s contract, token-addressed). Gate its UI
 /// on `Cap::Tree`: a backend without tree support renders nothing.
 /// Drag-to-move for a [`tree`] (docs/tree.md): the handler that applies a committed
 /// re-parent, an optional guard consulted while the drag is live, and whether the gesture is
 /// offered right now. A tree is movable exactly when it carries one of these
-/// (`tree(..).movable(Move::new(f))`). The [`list`] counterpart is [`Reorder`].
+/// (`tree(..).movable(Move::new(f))`). The [`list()`] counterpart is [`Reorder`].
 pub struct Move<K: 'static> {
     moved: TreeMoveFn<K>,
     guard: Option<TreeGuardFn<K>>,
@@ -2717,7 +2717,7 @@ impl<S: NodeSource + 'static> TreePiece<S> {
     }
 
     /// The composed tree (docs/tree.md M2): on a backend without a native tree widget, the
-    /// same piece flattens its visible rows onto [`list`]; indentation and the disclosure
+    /// same piece flattens its visible rows onto [`list()`]; indentation and the disclosure
     /// chevron are day pieces inside each row, and selection rides the list's own machinery.
     /// The [`TreeDriver`] still installs on the returned node, so the dayscript
     /// `expand:`/`tree_move:` steps drive the composed tree exactly as they drive a native
@@ -3188,7 +3188,7 @@ impl Piece for TreeRowShell {
 impl<S: NodeSource + 'static> Piece for TreePiece<S> {
     fn build(mut self, cx: &mut BuildCx) -> RNode {
         // No native tree widget → the composed tree: the same piece contract flattened onto
-        // [`list`] (docs/tree.md M2). `Emulated` and `Unsupported` both take this path; the
+        // [`list()`] (docs/tree.md M2). `Emulated` and `Unsupported` both take this path; the
         // composition needs nothing beyond the list machinery every backend carries.
         // Two-level-only native controls (Android) provide single selection. A
         // multi-select section source uses the full-tree path, composed where necessary.

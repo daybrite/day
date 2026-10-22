@@ -14,7 +14,7 @@
 //!   between rather than a muddy detour through gray).
 //! * [`Timing`]: an [`AnimSpec`] sampled over elapsed seconds: delay, easing curve or spring,
 //!   repeats and autoreverse, and a definite end, so a driver knows when to stop asking for frames.
-//! * [`animate`]: a driver on the window's [`FrameClock`](crate::frame::FrameClock), calling a step
+//! * [`animate`]: a driver on the window's [`FrameClock`], calling a step
 //!   closure once per display frame until the timing completes, then releasing the clock.
 //! * [`Tweened`]: a reactive value that glides to each new target, starting from wherever it is when
 //!   retargeted, so an interrupted transition bends instead of jumping.

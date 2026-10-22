@@ -3260,14 +3260,14 @@ day launch -t __FIRST_TARGET__ --script dayscript/demo.yaml
 
 `Day.toml` lists the targets the piece supports; pass any of them to `-t`. The walkthrough checks
 that the page and the piece are on screen and saves a screenshot under `build/day/screenshots/`.
-Add a step for each feature you give the piece (https://daybrite.dev/docs/dayscript).
+Add a step for each feature you give the piece (https://daybrite.dev/docs/how-to/dayscript).
 "#;
 
 const DEMO_COMPOSITE_LIB: &str = r#"//! __TITLE__: one page that shows `__CRATE__`, driven by `dayscript/demo.yaml`.
 
 use day::prelude::*;
 
-// Typed constants for everything under resource/: https://daybrite.dev/docs/resources
+// Typed constants for everything under resource/: https://daybrite.dev/docs/how-to/resources
 day::resources!();
 // The mobile and web entry point; desktop enters through src/main.rs.
 day::day_start!(options: res::window_options(), root);
@@ -3290,7 +3290,7 @@ const DEMO_NATIVE_LIB: &str = r#"//! __TITLE__: one page that shows `__CRATE__`,
 
 use day::prelude::*;
 
-// Typed constants for everything under resource/: https://daybrite.dev/docs/resources
+// Typed constants for everything under resource/: https://daybrite.dev/docs/how-to/resources
 day::resources!();
 // The mobile and web entry point; desktop enters through src/main.rs.
 day::day_start!(options: res::window_options(), root);
@@ -3315,19 +3315,19 @@ pub fn root() -> impl Piece {
 }
 "#;
 
-const DEMO_COMPOSITE_STRINGS: &str = r#"# __TITLE__ UI strings (https://daybrite.dev/docs/localization).
+const DEMO_COMPOSITE_STRINGS: &str = r#"# __TITLE__ UI strings (https://daybrite.dev/docs/how-to/localization).
 
 app_title = __TITLE__
 demo_text = Hello
 "#;
 
-const DEMO_NATIVE_STRINGS: &str = r#"# __TITLE__ UI strings (https://daybrite.dev/docs/localization).
+const DEMO_NATIVE_STRINGS: &str = r#"# __TITLE__ UI strings (https://daybrite.dev/docs/how-to/localization).
 
 app_title = __TITLE__
 demo_placeholder = Type here
 "#;
 
-const DEMO_COMPOSITE_SCRIPT: &str = r#"# The demo's walkthrough (https://daybrite.dev/docs/dayscript) and the piece's on-device test:
+const DEMO_COMPOSITE_SCRIPT: &str = r#"# The demo's walkthrough (https://daybrite.dev/docs/how-to/dayscript) and the piece's on-device test:
 #
 #     day launch -t __FIRST_TARGET__ --script dayscript/demo.yaml
 flow:
@@ -3337,7 +3337,7 @@ flow:
   - screenshot: demo
 "#;
 
-const DEMO_NATIVE_SCRIPT: &str = r#"# The demo's walkthrough (https://daybrite.dev/docs/dayscript) and the piece's on-device test:
+const DEMO_NATIVE_SCRIPT: &str = r#"# The demo's walkthrough (https://daybrite.dev/docs/how-to/dayscript) and the piece's on-device test:
 #
 #     day launch -t __FIRST_TARGET__ --script dayscript/demo.yaml
 flow:

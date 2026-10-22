@@ -15,7 +15,7 @@ new backend protocol, global action registry, or toolkit dependency. Each presen
 normal native widget and dispatch registration; the command shares Rust behavior and state.
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
-[example messages](snippet-catalog.md) and [catalog setup](https://daybrite.dev/docs/localization).
+[example messages](snippet-catalog.md) and [catalog setup](https://daybrite.dev/docs/how-to/localization).
 
 ## Define once, present in several places
 

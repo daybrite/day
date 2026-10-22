@@ -8,7 +8,7 @@ mod pages;
 
 use model::{SHOW_DONE, Scene};
 
-// Typed constants for everything under resource/: https://daybrite.dev/docs/resources
+// Typed constants for everything under resource/: https://daybrite.dev/docs/how-to/resources
 day::resources!();
 // The mobile and web entry point; desktop enters through src/main.rs.
 day::day_start!(options: res::window_options(), root);
@@ -23,7 +23,7 @@ day::routes! {
 }
 
 /// The window's content: shared state, then adaptive navigation over the pages.
-/// https://daybrite.dev/docs/navigation
+/// https://daybrite.dev/docs/how-to/navigation
 pub fn root() -> impl Piece {
     // Settings and About open from the app menu on desktop and as a section on a phone. The
     // app's own settings are a group of rows over `Pref`s.
@@ -68,7 +68,7 @@ pub fn root() -> impl Piece {
 }
 
 /// The menu bar; menu roles supply the native editing commands.
-/// https://daybrite.dev/docs/guide-desktop
+/// https://daybrite.dev/docs/how-to/guide-desktop
 fn menus(scene: Scene) -> Vec<MenuEntry> {
     vec![
         sub_menu(
@@ -105,7 +105,7 @@ fn menus(scene: Scene) -> Vec<MenuEntry> {
 
 /// Undo and Redo for every change to the items, through the Edit menu and the platform's own
 /// gestures. Each change is named in the menu by its field or command.
-/// https://daybrite.dev/docs/reactivity
+/// https://daybrite.dev/docs/explanation/reactivity
 fn undo_history(scene: Scene) {
     let history = day::model::UndoStack::new(100);
     history.watch(scene.items);

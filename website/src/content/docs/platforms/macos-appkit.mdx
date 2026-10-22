@@ -1,8 +1,8 @@
 ---
 title: macOS (AppKit)
-description: Build Day apps for macOS with AppKit — prerequisites, the day build and pack pipeline, per-platform caveats, and which AppKit class every Day piece becomes.
+description: "macOS with AppKit: build requirements, native controls, packaging, and target-specific limitations."
 order: 33.1
-section: Platforms
+section: Reference
 ---
 
 {/*
@@ -10,12 +10,9 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 */}
 
-import PlatformShots from '../../../components/PlatformShots.astro';
-
-`macos-appkit` is Day's primary development target. It calls AppKit through [`objc2`](https://docs.rs/objc2); your Rust calls `NSButton` with no C or
-Objective-C shim in between.
-
-<PlatformShots platform="macos-appkit" shots={["home", "controls", "canvas", "menus"]} />
+`macos-appkit` is a Tier 1 target for desktop apps. Day creates AppKit controls from Rust
+through its AppKit backend. Use it when your app needs a Mac interface alongside the code
+you share with other targets.
 
 ## Getting started
 
@@ -24,7 +21,7 @@ format and builds through `xcodebuild`; command-line tools alone are insufficien
 
 ```sh
 sudo xcode-select -s /Applications/Xcode.app
-cargo install day-cli
+cargo install --git https://github.com/daybrite/day day-cli
 day new app my-app --toolkit macos-appkit
 cd my-app
 day launch -t macos-appkit
@@ -39,12 +36,12 @@ day pack -t macos-appkit --formats dmg
 ```
 
 Signing and notarization happen when the credentials are configured; see
-[packaging](/docs/packaging). Without them, `day pack` ad-hoc codesigns and warns that the result
+[packaging](/docs/how-to/packaging). Without them, `day pack` ad-hoc codesigns and warns that the result
 is dev-signed: installable locally, and not for distribution. `--no-sign` is the only way to get
 an artifact with no signature at all.
 
 When a dependency contributes Swift under `[package.metadata.day.macos]` (the
-[SwiftUI embedding](/docs/internal/swiftui) shim, or an app's own local SwiftPM package),
+[SwiftUI embedding](/docs/reference/swiftui) shim, or an app's own local SwiftPM package),
 `day build` generates a `DayPieces` SwiftPM package under `build/day/macos/`. An app carrying
 the generated `build/day/xcode/macos/DayApp.xcodeproj` (or a checked-in override) builds through xcodebuild, which references that
 package; on the bare-cargo path (`DAY_MACOS_XCODE=0`, or no scaffold) `day build` runs
@@ -65,7 +62,7 @@ contributions needs no Swift toolchain either way.
 
 ## What each piece becomes
 
-The generated [coverage matrix](/docs/internal/coverage-matrix), checked in CI, covers every backend;
+The generated [coverage matrix](/contributing/backend-contracts/coverage-matrix), checked in CI, covers every backend;
 this table adds links and notes.
 
 Pieces marked *external* live in separate crates and are only present when you depend on them.
@@ -107,7 +104,7 @@ Pieces marked *external* live in separate crates and are only present when you d
 | *external* `map()` | [`MKMapView`](https://developer.apple.com/documentation/mapkit/mkmapview) |
 
 `toggle` is the only boolean control, radio behavior is `picker().inline()`, and `list` is the only
-collection; there is no checkbox, stepper, or table piece. See [pieces](/docs/pieces) for the full
+collection; there is no checkbox, stepper, or table piece. See [pieces](/docs/explanation/pieces) for the full
 vocabulary.
 
 **Text measurement** goes through AppKit itself (`cellSizeForBounds:` for labels, TextKit's layout
@@ -116,5 +113,5 @@ the system's text layout.
 
 ## Reaching AppKit directly
 
-When you need something Day doesn't model, a [tweak](/docs/tweaks) hands you the realized `NSView`
+When you need something Day doesn't model, a [tweak](/docs/how-to/tweaks) hands you the realized `NSView`
 for a node, so you can set any AppKit property.

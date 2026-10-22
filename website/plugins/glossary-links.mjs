@@ -3,20 +3,20 @@
 
 // Rehype plugin — turn links into the glossary into defined terms.
 //
-// Wherever a docs page links a word to its glossary entry (`[piece](/docs/glossary#piece)`), stamp
+// Wherever a docs page links a word to its glossary entry (`[piece](/docs/reference/glossary#piece)`), stamp
 // the anchor with `class="gloss"` and the entry's definition and source page as data attributes.
 // global.css draws the light dotted underline, and DocsLayout's script opens a small popover on
 // hover or focus with the definition and a link to the page that introduces the concept. The
 // markdown stays a plain link: on GitHub, in an editor, or with scripts off, it is still a link
 // to the glossary, and a term the glossary stops carrying simply renders as an ordinary link.
 //
-// The href only has to END with `/docs/glossary#<id>`, so the internal reference docs can use the
+// The href only has to END with `/docs/reference/glossary#<id>`, so the internal reference docs can use the
 // absolute https://daybrite.dev/… form and still get the treatment on the site.
 
 import { glossary } from '../src/lib/glossary.mjs';
 
 const byId = new Map(glossary.map((t) => [t.id, t]));
-const PATTERN = /\/docs\/glossary#([a-z0-9-]+)$/;
+const PATTERN = /\/docs\/reference\/glossary#([a-z0-9-]+)$/;
 
 export default function glossaryLinks() {
   return (tree) => {

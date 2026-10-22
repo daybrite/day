@@ -1,4 +1,4 @@
-//! The items, and the state the list and the editor share: https://daybrite.dev/docs/reactivity
+//! The items, and the state the list and the editor share: https://daybrite.dev/docs/explanation/reactivity
 
 use crate::{Section, res};
 use day::prelude::*;
@@ -85,7 +85,7 @@ fn any<T: Copy, L>(options: &[(T, L)]) -> T {
     options[n as usize % options.len()].0
 }
 
-/// An app setting, shown in Settings: https://daybrite.dev/docs/guide-storage
+/// An app setting, shown in Settings: https://daybrite.dev/docs/how-to/guide-storage
 pub(crate) static SHOW_DONE: Pref<bool> = Pref::new("app.show_done", || true);
 
 /// One window's state. `Copy` copies the handles, not the items.
@@ -113,7 +113,7 @@ impl Ambient for Scene {
                 ..Default::default()
             });
         }
-        // Load the saved items and save every change: https://daybrite.dev/docs/guide-storage
+        // Load the saved items and save every change: https://daybrite.dev/docs/how-to/guide-storage
         day::prefs::bind_json(ITEMS_KEY, items);
         Self {
             items,
@@ -146,7 +146,7 @@ impl Scene {
             tint: any(&Tint::options()),
             ..Default::default()
         });
-        // Day routes logs to the platform console: https://daybrite.dev/docs/logging
+        // Day routes logs to the platform console: https://daybrite.dev/docs/how-to/logging
         info!("Created item {id}");
         self.query.set(String::new());
         self.section.set(Section::Items);

@@ -20,7 +20,7 @@ Test keyboard navigation and screen-reader behavior on the platforms you ship; a
 alone do not establish that a screen is usable.
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
-[example messages](snippet-catalog.md) and [catalog setup](https://daybrite.dev/docs/localization).
+[example messages](snippet-catalog.md) and [catalog setup](https://daybrite.dev/docs/how-to/localization).
 
 ## Authoring
 

@@ -120,3 +120,15 @@ over this store: `Pref<T>` statics, groups and rows, the Settings and About surf
 env-wins rule for `DAY_THEME`/`DAY_LOCALE`. Its default `Store` is this crate. When testing
 persistence by hand on macOS, unbundled binaries store under the process-name defaults domain
 (`defaults delete <name>` clears it; a plist delete alone won't, because cfprefsd caches).
+
+## Binding failures and verification
+
+`bind<T>` requires `FromStr + ToString + Clone + 'static`. Invalid saved text leaves the initial
+signal value unchanged. It persists later watched changes, not the initial default. Its callback
+ignores `set`'s boolean result; use explicit writes when the UI must report a failure. Keep UI
+messages in generated accessors and treat stored strings as data.
+
+The example values above are synthetic fixtures, not UI translations. Compile-designated code
+is in the [storage recipe](https://daybrite.dev/docs/how-to/guide-storage). Source evidence:
+[preferences API](../parts/day-part-prefs/src/lib.rs), including the memory feature and its
+`DAY_PREFS_DIR` test override. A successful mock round trip does not certify platform durability.

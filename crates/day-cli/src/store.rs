@@ -3294,7 +3294,7 @@ fn write_locale_tables(
 /// The opening of a fresh `store/storefront.toml`: what the file is, and the submission info to fill.
 fn storefront_header(id: &str) -> String {
     format!(
-        "# The store listing (https://daybrite.dev/docs/store): everything the App Store, Google\n\
+        "# The store listing (https://daybrite.dev/docs/how-to/store): everything the App Store, Google\n\
          # Play and the app's website show, in one file. [storefront.submission-info] is shared\n\
          # by every store; [storefront.<target>.submission-info] and\n\
          # [storefront.<target>.<store>.submission-info] override it key by key. The listing\n\

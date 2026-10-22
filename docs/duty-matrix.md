@@ -59,10 +59,10 @@ implement them, and this table proves it.
 | `decode_image` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `image_info` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `image_properties` | · | ✓ | · | · | · | · | · | · | · | · |
-| `encode_image` | · | ✓ | ✓ | ✓ | ✓ | · | ✓ | ✓ | ✓ | ✓ |
-| `encode_formats` | · | ✓ | ✓ | ✓ | ✓ | · | ✓ | ✓ | ✓ | ✓ |
+| `encode_image` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `encode_formats` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `release_image` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `render_bitmap` | · | ✓ | ✓ | ✓ | ✓ | · | ✓ | ✓ | ✓ | ✓ |
+| `render_bitmap` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `render_pdf` | · | ✓ | ✓ | ✓ | ✓ | · | ✓ | · | · | · |
 | `snapshot_window` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · | ✓ |
 | `snapshot_origin` | · | · | · | · | · | ✓ | ✓ | · | · | · |

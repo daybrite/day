@@ -31,7 +31,7 @@ For transitions between two states (a value, a rect, a color, a whole chart), `d
 supplies the interpolation, the timing and the frame-driven driver ([tween.md](tween.md)).
 
 Text samples use generated Fluent accessors; see the [example catalog](snippet-catalog.md)
-and [localization setup](https://daybrite.dev/docs/localization).
+and [localization setup](https://daybrite.dev/docs/how-to/localization).
 
 ## The vocabulary
 

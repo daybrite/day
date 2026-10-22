@@ -94,7 +94,7 @@ day drive -t macos-appkit --steps-json \
 
 Steps use the walkthrough vocabulary (single-key mapping form, or flattened `{"op": …}`);
 the step catalog lives in the dayscript reference
-([website](https://daybrite.dev/docs/dayscript); the shipped list is DESIGN.md Appendix C)
+([website](https://daybrite.dev/docs/how-to/dayscript); the shipped list is DESIGN.md Appendix C)
 rather than being copied here, where it has drifted before. The output is one JSON object
 (`{target, steps: [{op, ok, error?, screenshot?}…], failed}`) on stdout; screenshots land in
 `build/day/screenshots/_drive/` and are inlined as base64 for callers that want the pixels.
@@ -197,7 +197,7 @@ which recompiles it on the way back up.
 VS Code: the Day extension registers one server per Day project in the window, labeled
 `Day: <app title>` (`day.mcp.enabled`, default on). Agent mode then has all ten tools for each.
 Other MCP clients point at `day --project <root> mcp-server`. The
-[AI-assisted development guide](https://daybrite.dev/docs/ai#2-connect-your-coding-agent) covers
+[AI-assisted development guide](https://daybrite.dev/docs/tutorials/ai-assisted-app#2-connect-your-coding-agent) covers
 Codex project configuration, Claude Code registration, and shared project instructions.
 
 ## The loop agents should follow

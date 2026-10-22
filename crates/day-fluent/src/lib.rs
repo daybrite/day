@@ -3,7 +3,7 @@
 
 //! day-fluent: the piece-facing localization layer over the [`day_l10n`] engine (DESIGN.md §12).
 //!
-//! The engine (bundles, the current-locale [`Signal`], `format_in`, and the built-in core catalog of
+//! The engine (bundles, the current-locale signal, `format_in`, and the built-in core catalog of
 //! standard UI strings) now lives in `day-l10n`, low enough that the central crates localize their
 //! own strings. This crate re-exports that engine and adds the reactive `tr()` **text source**:
 //! `label(tr("greeting").arg("name", name))`, whose value re-reads the locale signal plus any signal

@@ -274,9 +274,9 @@ pub fn props_of<'a, T: 'static>(
 /// Backends keep auxiliary per-view state in thread-local maps keyed by the native
 /// handle's address. Historically each map needed its own line in `release()`, a
 /// checklist that drifted repeatedly (missed entries have produced both leaks and
-/// stale-pointer CI segfaults, since a freed address gets recycled). A [`SideTable`]
+/// stale-pointer CI segfaults, since a freed address gets recycled). A [`crate::sidetable::SideTable`]
 /// registers itself with a per-thread sweeper list at construction, so a backend's
-/// `release()` calls [`sweep`] once and every table, present and future, drops its
+/// `release()` calls [`crate::sidetable::sweep`] once and every table, present and future, drops its
 /// entry for that handle, running its teardown hook if one was given.
 pub mod sidetable {
     use std::cell::RefCell;
@@ -290,7 +290,7 @@ pub mod sidetable {
         static SWEEPERS: RefCell<Vec<Sweeper>> = const { RefCell::new(Vec::new()) };
     }
 
-    /// A pointer-keyed map swept automatically by [`sweep`]. Construct inside a
+    /// A pointer-keyed map swept automatically by [`crate::sidetable::sweep`]. Construct inside a
     /// `thread_local!` initializer; the optional teardown hook runs for each removed
     /// value (release a retained native object, dispose an owned child, …), both on sweep
     /// and on plain [`SideTable::remove`], so teardown cannot be bypassed by accident.
@@ -1284,7 +1284,7 @@ pub enum MenuBarRole {
     File,
     Edit,
     View,
-    /// KDE/Plasma's Settings menu (Configure <App>, Configure Shortcuts). No counterpart on
+    /// KDE/Plasma's Settings menu (`Configure <App>`, Configure Shortcuts). No counterpart on
     /// macOS, where preferences live in the app menu, or on GNOME/Windows.
     Settings,
     /// macOS's Window menu. Windows and Linux desktops do not have one.
@@ -3545,7 +3545,7 @@ impl Curve {
         }
     }
 
-    /// Eased progress for normalized `t` in `0.0..=1.0` (springs pass through; use [`fraction`]).
+    /// Eased progress for normalized `t` in `0.0..=1.0` (springs pass through; use [`Self::fraction`]).
     #[inline]
     pub fn ease(self, t: f64) -> f64 {
         match self {
@@ -4191,7 +4191,7 @@ pub enum LineJoin {
 
 /// Everything about a stroke except its paint.
 ///
-/// [`StrokeStyle::hairline`] and `From<f64>` keep the common "just a width" case a single
+/// [`StrokeStyle::width`] and `From<f64>` keep the common "just a width" case a single
 /// argument, so plain `stroke(shape, color, 2.0)` call sites read the same as they always did.
 #[derive(Clone, Debug, PartialEq)]
 pub struct StrokeStyle {
@@ -4925,7 +4925,7 @@ pub struct FontSpec {
     /// as a font feature, so Day asks for the platform's own rather than substituting a monospaced
     /// family: the text keeps the system face, and only the digits change metrics.
     ///
-    /// Reserving space ([`Decorate::reserving`]) and tabular figures solve the two halves of the
+    /// Reserving space (`Decorate::reserving`) and tabular figures solve the two halves of the
     /// same problem (reservation stops the box resizing, tabular stops the glyphs shifting inside
     /// it), and a numeric readout usually wants both.
     ///
@@ -7262,7 +7262,7 @@ pub trait Toolkit: Sized + 'static {
     fn dismiss(&mut self, _req: u64) {}
 
     /// Open `url` in the platform's default handler: the system browser for `http(s)`, the mail
-    /// client for `mailto:`, etc. Backs the [`link`](../day_pieces/fn.link.html) piece. Fire and
+    /// client for `mailto:`, etc. Backs the [`link`](/api/day_pieces/fn.link.html) piece. Fire and
     /// forget: there is no result, and an unopenable URL is ignored. The default no-ops so a
     /// backend that hasn't wired it up still compiles.
     fn open_url(&mut self, _url: &str) {}
@@ -7949,7 +7949,7 @@ pub struct WindowOptions {
     /// live window, and by the ones with no windows at all.
     pub size_to_fit: bool,
     /// The app's display name for the standard application menu / About (macOS). `None` falls back
-    /// to `title`; set it when `title` carries extra decoration you don't want in "About <name>"
+    /// to `title`; set it when `title` carries extra decoration you don't want in `About <name>`
     /// (e.g. the showcase's window title is "Day Showcase (AppKit)" but its app name is "Showcase").
     pub app_name: Option<String>,
     /// The app's locale catalog, installed by `day::launch` (docs/localization.md).
@@ -7967,7 +7967,7 @@ pub struct WindowOptions {
     /// A plain `fn` rather than a closure: this struct is `Clone`, and the callers are a
     /// non-capturing `|| res::str::app_title().format()`, which coerces.
     pub title_fn: Option<fn() -> String>,
-    /// The app's version, for Day's exit line ("Clean exit for <app> v<version> …",
+    /// The app's version, for Day's exit line (`Clean exit for <app> v<version> …`,
     /// docs/lifecycle.md): `env!("CARGO_PKG_VERSION")` in the app crate, which the scaffold's
     /// `window()` sets. `None` falls back to the `DAY_APP_VERSION` the `day` CLI sets on a launch.
     pub version: Option<String>,

@@ -2,7 +2,7 @@
 title: GitHub Actions
 description: Build and test a Day app in CI, publish release packages, and deploy its website with the shared dayapp workflow.
 order: 32.5
-section: Build & ship
+section: How-to guides
 ---
 
 <!--
@@ -91,7 +91,7 @@ Open the repository's **Actions** tab and select a run. The jobs execute in this
 
 Download `dist-<target>` for packages and `screenshots-<target>` for captures. Additional mobile
 profiles have separate screenshot artifacts. Branch and pull-request packages use development
-signing or remain unsigned; they are test artifacts. See [signing tiers](/docs/packaging#signing-tiers).
+signing or remain unsigned; they are test artifacts. See [signing tiers](/docs/how-to/packaging#signing-tiers).
 
 If a job fails, fix the reported error or use GitHub's **Re-run failed jobs** for a transient
 failure. Release and website jobs wait for the required build jobs. `tolerate-failures` is off
@@ -112,7 +112,7 @@ declared store listing lacks required captures. The default release mode publish
 Set `release-mode: pre-release` for a public preview, or `release-mode: draft` for a private draft.
 
 These modes control the GitHub release only. They do not delay configured store uploads. See
-[App Store Submissions](/docs/app-store-submissions) for credentials and upload lanes.
+[App Store Submissions](/docs/how-to/app-store-submissions) for credentials and upload lanes.
 
 For a pre-release that will later become the latest release, add this event alongside `push`:
 
@@ -149,7 +149,7 @@ Choose what to deploy in the job's `with` block:
 
 The generated site uses the [daysite template](https://github.com/daybrite/daysite), with
 optional component overrides, reusable themes, and project-owned Astro pages.
-Follow [App websites](/docs/websites) for initial setup, customization, local previews,
+Follow [App websites](/docs/how-to/websites) for initial setup, customization, local previews,
 GitHub Pages publication, and an optional custom domain. Existing default sites keep their
 appearance without configuration changes.
 
@@ -167,7 +167,7 @@ uses `website/site.toml` and the workflow's generated app data and output direct
 | `project-path` | Build a project below the repository root. |
 | `target-scripts` | Override the test scripts for particular targets. |
 | `ios-devices`, `android-devices` | Choose simulator/emulator profiles, orientations and artifact names. |
-| `flavors`, `release-flavor`, `store-flavor` | Build and distribute [app variants](/docs/flavors). |
+| `flavors`, `release-flavor`, `store-flavor` | Build and distribute [app variants](/docs/how-to/flavors). |
 | `target-packages`, `target-setup` | Install additional packages or run target-specific setup. |
 | `signing-environment` | Use a separate environment for macOS release signing and notarization. |
 | `validate-rebuild` | Rebuild packages from their recorded provenance and compare results. |

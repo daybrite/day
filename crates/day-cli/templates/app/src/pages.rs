@@ -11,7 +11,7 @@ pub(crate) fn welcome() -> impl Piece {
     scroll(
         column((
             spacer(),
-            // Decorative art stays out of the accessibility tree: https://daybrite.dev/docs/accessibility
+            // Decorative art stays out of the accessibility tree: https://daybrite.dev/docs/how-to/accessibility
             vector(res::vectors::app_mark)
                 .decorative()
                 .frame(132.0, 132.0)
@@ -119,7 +119,7 @@ pub(crate) fn item_list() -> impl Piece {
 }
 
 /// The editor: native form controls bound to the selected item's fields.
-/// https://daybrite.dev/docs/reactivity
+/// https://daybrite.dev/docs/explanation/reactivity
 pub(crate) fn editor() -> impl Piece {
     let scene = Scene::ambient();
     column((

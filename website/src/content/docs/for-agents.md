@@ -15,7 +15,7 @@ The examples are intended for direct reuse. A machine-readable site index is ava
 [`/llms.txt`](/llms.txt).
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
-[example messages](/docs/internal/snippet-catalog) and [catalog setup](/docs/localization).
+[example messages](/docs/reference/examples/catalog) and [catalog setup](/docs/how-to/localization).
 
 ## Naming (disambiguate before writing)
 
@@ -95,7 +95,7 @@ height = 640
   `android-mdc`, `harmony-arkui`, `linux-gtk`, `linux-qt`, `windows-winui`, `windows-gtk`,
   `windows-qt`, `windows-xaml` (deprecated), `web-dom` (wasm in a browser; no process
   environment, so pass runtime flags with `day launch --env K=V` and read them with `day::env("K")`, which is portable to every target).
-- Each target has a **support tier** ([definitions](/docs/platforms#support-tiers)), which tells
+- Each target has a **support tier** ([definitions](/docs/reference/platforms#support-tiers)), which tells
   you how much to trust it: `ios-uikit`, `android-mdc`, `macos-appkit` are Tier 1 (thoroughly
   tested); `linux-gtk`, `linux-qt`, `windows-winui` are Tier 2; `harmony-arkui` and `web-dom` are
   Tier 3 (experimental, with real gaps); `macos-gtk`, `macos-qt`, `windows-gtk`, `windows-qt` are
@@ -308,7 +308,7 @@ day drive -t macos-appkit --steps-json \
 ```
 
 Output is JSON (per-step `ok`/`error`, screenshot paths + base64). The step vocabulary is
-[the dayscript reference's table](/docs/dayscript#the-step-vocabulary), the same steps a
+[the dayscript reference's table](/docs/how-to/dayscript#the-step-vocabulary), the same steps a
 walkthrough file uses. `assert_no_placeholders` fails if any piece rendered the `⟨kind⟩`
 placeholder; it is the step that catches a missing renderer.
 
@@ -333,6 +333,6 @@ verify UI changes on every target you touched. The canonical loop: edit → `day
 
 ## Deeper references
 
-Human-oriented pages with the same facts in narrative form: [Overview](/docs/overview) ·
-[Why Day](/docs/benefits) · [API tour](/docs/api-tour) · [CLI & projects](/docs/cli). Machine index:
+Human-oriented pages with the same facts in narrative form: [Overview](/docs/explanation/overview) ·
+[Why Day](/features) · [API tour](/docs/reference/api-tour) · [CLI & projects](/docs/reference/cli). Machine index:
 [`/llms.txt`](/llms.txt).

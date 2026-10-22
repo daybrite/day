@@ -30,7 +30,7 @@ REL_PREFIX="../../../../docs"
 fix=false
 [ "${1:-}" = "--fix" ] && fix=true
 
-names() { find "$1" -maxdepth 1 -name '*.md' -exec basename {} \; | sort; }
+names() { find "$1" -name '*.md' | sed "s|^$1/||" | sort; }
 
 docs="$(names "$DOCS_DIR")"
 links="$(names "$LINK_DIR")"
@@ -42,7 +42,14 @@ dangling="$(comm -13 <(echo "$docs") <(echo "$links"))"
 if $fix; then
     changed=false
     for name in $missing; do
-        ln -s "$REL_PREFIX/$name" "$LINK_DIR/$name"
+        mkdir -p "$(dirname "$LINK_DIR/$name")"
+        target="$REL_PREFIX"
+        parent="$(dirname "$name")"
+        while [ "$parent" != "." ]; do
+            target="../$target"
+            parent="$(dirname "$parent")"
+        done
+        ln -s "$target/$name" "$LINK_DIR/$name"
         echo "linked   $LINK_DIR/$name -> $REL_PREFIX/$name"
         changed=true
     done
@@ -67,4 +74,10 @@ if [ -n "$dangling" ]; then
     echo "$dangling"
     status=1
 fi
+while IFS= read -r name; do
+    if [ ! -L "$LINK_DIR/$name" ] || ! cmp -s "$DOCS_DIR/$name" "$LINK_DIR/$name"; then
+        echo "::error::$LINK_DIR/$name must be a readable symlink to its canonical docs source"
+        status=1
+    fi
+done <<< "$links"
 exit $status

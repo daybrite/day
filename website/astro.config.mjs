@@ -6,7 +6,7 @@ import { defineConfig } from 'astro/config';
 import { unified } from '@astrojs/markdown-remark';
 import mdx from '@astrojs/mdx';
 import gallery from './integrations/gallery.mjs';
-import rewriteInternalLinks from './plugins/rewrite-internal-links.mjs';
+import contentLinks from './plugins/content-links.mjs';
 import accentTargetCode from './plugins/accent-target-code.mjs';
 import tierBadge from './plugins/tier-badge.mjs';
 import admonitions from './plugins/admonitions.mjs';
@@ -14,8 +14,8 @@ import glossaryLinks from './plugins/glossary-links.mjs';
 
 // Deployed to GitHub Pages on the custom domain https://daybrite.dev. A custom apex domain serves
 // the repo at the root, so there is no base path (public/CNAME pins the domain). The `gallery`
-// integration assembles the screenshots gallery from CI artifacts (or placeholders locally) before
-// every dev/build; see integrations/gallery.mjs.
+// integration assembles the published screenshot indexes and landing-page carousel, and checks
+// the tutorial captures used in /examples; see integrations/gallery.mjs.
 export default defineConfig({
   site: 'https://daybrite.dev',
   trailingSlash: 'ignore',
@@ -47,7 +47,7 @@ export default defineConfig({
     // same processing, declared through the factory that now owns the plugin lists. `shikiConfig`
     // stays at this level — it configures the highlighter, not the unified pipeline.
     processor: unified({
-      rehypePlugins: [rewriteInternalLinks, accentTargetCode, tierBadge, glossaryLinks, admonitions],
+      rehypePlugins: [contentLinks, accentTargetCode, tierBadge, glossaryLinks, admonitions],
     }),
   },
 });

@@ -10,19 +10,47 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 # Secondary windows (§8.1)
 
-> **Status: implemented** on every backend. Desktop: AppKit, GTK, Qt native (runtime-
-> verified) and XAML native (compile-verified on the windows-winui CI leg; its runtime pass
-> and per-window screenshot capture are follow-ups noted below). Mobile: `Normal` windows
-> are native where the platform has a real secondary-window surface: iPad UIScenes (the
-> uikit backend runs the scene lifecycle now), Android document-style `DayWindowActivity`
-> instances, and OHOS multiton `DayWindowAbility` instances; iPhone and the `Preferences`
-> kind on all mobile present as a fullscreen cover in the primary window (the platform
-> settings idiom): same API, ids, and close path. web answers `Unsupported` (a second
-> browser window cannot share the wasm instance) and always takes the cover. Verified by
-> mock e2e (`crates/day-pieces/tests/mock_e2e.rs`, the window suite), the showcase
-> walkthrough's preferences leg (369/369 on appkit, gtk, qt, ios-sim, android-emulator,
-> and the OHOS emulator), the desktop `dayscript/windows.yaml` / `windows-theme.yaml`
-> scripts, and second-window emulator captures on Android and OHOS.
+> **Status:** the secondary-window API is implemented. The source chooses native windows where
+> supported and a fullscreen cover otherwise.
+> iPad, Android, and OpenHarmony normal-window paths differ from preferences covers; query the
+> capability at runtime and test the target you ship.
+
+## Signature and defaults
+
+API excerpt, not a complete app:
+
+```rust
+pub fn open_window<P: Piece>(
+    options: WindowOptions,
+    build: impl FnOnce() -> P + 'static,
+) -> WindowHandle;
+```
+
+Call on the UI thread after the tree is installed. The return type is a handle, not a
+`Result`; this is not a promise that an OS surface appears synchronously. A logical key reuses
+an existing window and does not call the new builder. Without a key, the call opens new content.
+The window is app-owned, so it can outlive the page that opened it; captured page-local signal
+handles do not acquire a longer lifetime. Create shared state in a suitable parent scope.
+
+| `WindowOptions::default()` field | Default |
+| --- | --- |
+| `size` | 480 × 640 logical points |
+| `min_size`, `max_size` | `None` |
+| `key`, `remember_frame` | `None` |
+| `kind` | `WindowKind::Normal` |
+| `start_hidden`, `size_to_fit` | false |
+| `shadow`, `resizable` | true |
+| `chrome`, `background`, `placement` | Standard, Opaque, Automatic |
+| `tabbing` | Automatic |
+| `locales`, `title_fn`, `app_name`, `version` | `None` |
+
+The raw default title is `Day`; app examples must use generated `res::window_options()` so
+catalog, title, version, and manifest window dimensions are installed. `.title(value)` clears
+an earlier `title_fn`. `start_hidden` is currently AppKit-only. A raw option's presence does
+not establish native support everywhere. Detailed contracts below are integration fragments.
+
+Evidence: [window options](../crates/day-spec/src/lib.rs) and
+[window ownership and handles](../crates/day-core/src/windows.rs).
 
 One tree has many roots: a secondary window's content container is adopted as an additional
 boundary root of the same thread-local tree (the `create_cell_anchor` trick the primary root
@@ -35,7 +63,7 @@ list and tree rows follow their owning view's window. A dismissing cover no long
 precedence over the primary window. Keep ids unique within each window.
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
-[example messages](snippet-catalog.md) and [catalog setup](https://daybrite.dev/docs/localization).
+[example messages](snippet-catalog.md) and [catalog setup](https://daybrite.dev/docs/how-to/localization).
 
 ## Titles: what the platform manages windows by
 
@@ -357,7 +385,7 @@ chooses that for any app: see [docs/status-item.md](status-item.md#keeping-the-a
 A **debug** build appends `(<version>/<toolkit>[/<script>])` to every window title it sets
 (the primary window's, each secondary window's, and every `WindowHandle::set_title`):
 
-```
+```text
 Day Showcase (1.1.0/gtk/walkthrough.yaml)
 Day News (0.1.0/appkit)
 ```
@@ -477,6 +505,18 @@ the key while asking about unsaved edits; accepted removal calls `TabSet::close`
 `WindowHandle::close()` bypasses the request hook. Switching to composed presentation first moves
 content home, then closes the empty presentation windows, so closure cannot dispose the documents.
 The initial host becomes visible again when the collection is empty or composed mode is selected.
+A dedicated browser/document shell can opt into `.hide_when_empty(true)`: its host stays hidden
+with no documents in either presentation, and becomes visible again when a document opens in
+composed mode. The host scope remains alive; the app supplies New Window/New Tab commands rather
+than inserting a replacement document on close. This option currently controls OS-window-tab
+hosts (AppKit and macOS Qt); other toolkits retain their ordinary in-window behavior.
+
+Focused ambient lookup is reactive: window activation, content-scope assignment and window
+removal invalidate menu builders that read `focused_environment`/`Ambient::focused`, so enabled
+states and captured actions follow the front document even when its selected tab is unchanged.
+Explicit `WindowHandle::focus()` also updates command routing immediately: an inactive AppKit
+application may accept activation without emitting a key-window notification. Native focus
+notifications still reconcile the registry when the user changes windows.
 
 Qt's macOS bridge is in `toolkits/day-macos-tabs`. Its delegate proxy forwards toolkit-owned
 methods, retains the original delegate, and restores it at unregister. When necessary it supplies

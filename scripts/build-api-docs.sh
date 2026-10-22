@@ -6,7 +6,7 @@
 #   scripts/build-api-docs.sh                     # → target/doc
 #   scripts/build-api-docs.sh --out website/dist/api   # also copy the bundle into a site dir
 #
-# The crate list lives in website/src/data/api-crates.json (the same file the /docs/api bridge page
+# The crate list lives in website/src/data/api-crates.json (the same file the /docs/reference/api bridge page
 # reads), so the reference and the page never drift. Every crate documents portably, with no native
 # toolkit and no cross-compiler: the core crates need no features and the `day` umbrella uses its
 # headless `mock` backend, so this runs on a stock Linux CI runner. A small "back to Day docs" pill
@@ -50,13 +50,13 @@ cat > "$hdr" <<'CSS'
 CSS
 cat > "$after" <<'HTML'
 <div class="day-api-bar">
-  <a class="day-api-home" href="/docs/api">Day API ↩</a>
-  <a href="/docs/overview">Guides</a><span class="sep">·</span>
+  <a class="day-api-home" href="/docs/reference/api">Day API ↩</a>
+  <a href="/docs/explanation/overview">Guides</a><span class="sep">·</span>
   <a href="/">daybrite.dev</a>
 </div>
 HTML
 
-export RUSTDOCFLAGS="--html-in-header $hdr --html-after-content $after"
+export RUSTDOCFLAGS="--html-in-header $hdr --html-after-content $after -D warnings"
 
 cd "$here"
 rm -rf target/doc
@@ -69,12 +69,12 @@ while IFS= read -r p; do
   pflags+=(-p "$p"); n=$((n + 1))
 done < <(jq -r '.groups[].crates[] | select(.features==null) | .pkg' "$manifest")
 echo "==> cargo doc ($n portable crates)"
-cargo doc --no-deps "${pflags[@]}"
+cargo doc --locked --no-deps "${pflags[@]}"
 
 while IFS=$'\t' read -r pkg feats; do
   [ -n "$pkg" ] || continue
   echo "==> cargo doc -p $pkg --features $feats"
-  cargo doc --no-deps -p "$pkg" --features "$feats"
+  cargo doc --locked --no-deps -p "$pkg" --features "$feats"
 done < <(jq -r '.groups[].crates[] | select(.features!=null) | "\(.pkg)\t\(.features)"' "$manifest")
 
 # Repoint every "Source" link at the canonical source on GitHub (and drop the local source viewer),
@@ -87,9 +87,9 @@ python3 "$here/scripts/rustdoc-github-source.py" --doc-dir target/doc --repo "$r
 # cargo doc makes no root landing page for a multi-crate build; send /api/ to the styled bridge page.
 cat > target/doc/index.html <<'HTML'
 <!doctype html><html><head><meta charset="utf-8">
-<meta http-equiv="refresh" content="0; url=/docs/api">
-<title>Day API reference</title><link rel="canonical" href="/docs/api"></head>
-<body>Redirecting to the <a href="/docs/api">Day API reference</a>…</body></html>
+<meta http-equiv="refresh" content="0; url=/docs/reference/api">
+<title>Day API reference</title><link rel="canonical" href="/docs/reference/api"></head>
+<body>Redirecting to the <a href="/docs/reference/api">Day API reference</a>…</body></html>
 HTML
 
 count=$(find target/doc -maxdepth 1 -type d -name 'day*' | wc -l | tr -d ' ')

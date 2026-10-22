@@ -13,7 +13,7 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 HarmonyOS Next dropped the AOSP layer; its UI framework is **ArkUI**. Day targets it with a native
 backend (`day-arkui`) built on the **ArkUI Native NodeAPI**, using the same "real native widgets, Day
 owns layout" model as every other backend, adapted to HarmonyOS's ArkTS-hosted world. `harmony-arkui`
-is [Tier 3](https://daybrite.dev/docs/platforms#support-tiers): tested, but not comprehensively, and
+is [Tier 3](https://daybrite.dev/docs/reference/platforms#support-tiers): tested, but not comprehensively, and
 not yet exercised by shipping applications.
 
 ## Launch logs
@@ -34,7 +34,7 @@ use `hdc shell hilog` manually when those diagnostics are needed. See the
 It mirrors the Android backend: a managed UI runtime (ArkTS) hosts the window, native Rust builds the
 widget tree over a thin bridge, and Day owns absolute layout.
 
-```
+```text
 ArkTS host (Index.ets)           libentry.so (Rust cdylib)
   NodeContent slot  ──start()──▶  day-arkui  (Toolkit/Platform: Stack/Text/Button/…)
   ContentSlot(content)              host_api  #[napi] exports + JS callbacks   (napi-ohos)

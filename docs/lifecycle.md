@@ -12,8 +12,8 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 A Day app can hook the moments its process moves through: launching, gaining and losing focus,
 going to and from the background, running low on memory, and terminating. Each phase maps to the
-host OS's native app/activity delegate, so a handler runs at the right native moment on
-every platform.
+host OS's native app/activity delegate, when a backend receives the corresponding native callback. OS termination without a callback
+cannot deliver a handler; persist important state before termination.
 
 ```rust
 use day::prelude::*;
@@ -54,7 +54,7 @@ from each backend's native app/activity delegate.
 
 Once the `DidExit` handlers have run, Day logs one last line at `info`:
 
-```
+```text
 Clean exit for Day Rise v0.4.5 (debug) after 00:03:12. Memory usage: 48.21 MB
 ```
 
@@ -71,7 +71,7 @@ day::on_lifecycle(Lifecycle::DidExit, || log::info!("bye"));
 ```
 
 The line marks completion of Day's exit handlers: the quit command, an orderly OS shutdown,
-or the page going away. It precedes final native and thread-local destruction, so a later
+or a page-exit callback when the browser delivers one. It precedes final native and thread-local destruction, so a later
 destructor failure can still crash the process after this line. A kill or earlier crash may
 prevent the line entirely. The memory figure covers this process, not separate WebKit helpers.
 
@@ -121,7 +121,7 @@ phase to the host's callback instead of treating the return as the exit.
 Registering a handler for a phase the running backend doesn't deliver is not an error: the handler is
 never called, and Day logs a one-time warning at launch:
 
-```
+```text
 day: an `on_lifecycle(DidEnterBackground)` handler was registered, but this backend never delivers
 that phase, so it will not run. Guard it with `day::lifecycle_supported(..)` or a
 `day::require_lifecycle!(..)` compile-time check.
@@ -150,11 +150,11 @@ day::require_lifecycle!(Lifecycle::DidEnterBackground);  // compile error on a d
 
 ## Quit
 
-`WillTerminate` fires on every quit path: the `Quit` menu command (`menu_role(MenuRole::Quit)`), the
-platform quit shortcut (⌘Q on macOS, Ctrl+Q elsewhere), and the OS reclaiming the app. The `Quit`
+An orderly quit can deliver `WillTerminate`: the `Quit` menu command (`menu_role(MenuRole::Quit)`), the
+platform quit shortcut (⌘Q on macOS, Ctrl+Q elsewhere), and native shutdown callbacks. A forced kill or mobile process reclamation may deliver none. The `Quit`
 command exits the app. On GTK a standard `app.quit` action is registered so ⌘Q / Ctrl+Q and the menu
-item both work; on macOS the App-menu Quit is standard; Qt/XAML quit their event loops. Save work in a
-`WillTerminate` handler.
+item both work; on macOS the App-menu Quit is standard; Qt/XAML quit their event loops.
+Use `WillTerminate` for synchronous cleanup, not as the sole durability point for user data.
 
 Mobile note: iOS/Android apps don't have a user-facing "quit". There, `WillTerminate` means the OS is
 tearing the app down (Android `onDestroy` while finishing; iOS `applicationWillTerminate:`). Prefer
@@ -178,3 +178,11 @@ mean and the maximum is a sampled maximum. The sampler uses no UI state or TLS.
 Abrupt process termination cannot emit a lifecycle exit line. Scripted launches additionally
 checkpoint host reports and summarize the last observations when the connection is lost;
 see the DayScript contract in [DESIGN.md](../DESIGN.md#appendix-c--dayscript-reference-v1).
+
+## Verification boundary
+
+The snippets are integration fragments; the log lines are illustrative output, not measured
+results. Review [core lifecycle dispatch](../crates/day-core/src/lifecycle.rs) and
+[task shutdown](../crates/day-core/src/present.rs) for ordering. The matrix records intended
+callback mappings; an OS can kill the process without delivering a final callback. Save
+important state as it changes rather than waiting for shutdown.

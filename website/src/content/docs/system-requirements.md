@@ -2,7 +2,7 @@
 title: System requirements
 description: What to install on a macOS, Windows, or Linux development host to build Day apps — required and optional packages per target, and setting up the Android, iOS, and HarmonyOS emulators.
 order: 4
-section: Start here
+section: Reference
 ---
 
 <!--
@@ -27,16 +27,16 @@ day doctor --toolkit android     # focus one toolkit, with full setup instructio
 Bare `day doctor` treats a missing toolkit as a warning and exits 0, because you only need the
 toolkits you build for. Naming a toolkit with `--toolkit` turns its misses into errors and prints
 that toolkit's setup text. For a full check, `day doctor verify` scaffolds a throwaway app and builds
-(and packs) it for each target; see [CLI & projects](/docs/cli).
+(and packs) it for each target; see [CLI & projects](/docs/reference/cli).
 
-For build errors or device connection problems, see [Troubleshooting](/docs/troubleshooting).
+For build errors or device connection problems, see [Troubleshooting](/docs/how-to/troubleshooting).
 
 ## Every host
 
 | What | Version | Where |
 |---|---|---|
 | Rust | 1.89 or newer | [rustup.rs](https://rustup.rs) |
-| The `day` CLI | current release | [Getting started](/docs/getting-started) |
+| The `day` CLI | from the Day Git repository | [Getting started](/docs/tutorials/first-app) |
 | Git | any | [git-scm.com](https://git-scm.com/downloads) |
 
 Install Rust through **rustup**, not Homebrew or a distro package. Cross-compiled targets (iOS,
@@ -105,13 +105,13 @@ brew install openjdk@21                    # android-mdc
 brew install qemu                          # the HarmonyOS emulator
 ```
 
-Swift is needed only when a dependency embeds SwiftUI ([SwiftUI embedding](/docs/guide-swiftui));
+Swift is needed only when a dependency embeds SwiftUI ([SwiftUI embedding](/docs/how-to/guide-swiftui));
 Xcode and the command-line tools both provide it.
 
 ## Windows
 
 `windows-winui` builds on Windows 10 or 11. It renders WinUI 3 from the Windows App SDK 2.5.1;
-see the [Windows platform page](/docs/platforms/windows-winui) for the details.
+see the [Windows platform page](/docs/reference/platforms/windows-winui) for the details.
 
 For `windows-winui`, install the
 [Visual Studio 2022 C++ Build Tools](https://visualstudio.microsoft.com/downloads/) (MSVC plus the
@@ -148,7 +148,7 @@ rustup toolchain install stable-x86_64-pc-windows-gnu
 On ARM64 hosts, use the CLANGARM64 environment's `mingw-w64-clang-aarch64-` packages and the
 `stable-aarch64-pc-windows-gnullvm` toolchain. Build with MSYS2's `bin` on `PATH` and
 `RUSTUP_TOOLCHAIN` set to the GNU toolchain; the
-[Windows page](/docs/platforms/windows-winui#qt-and-gtk-on-a-windows-host) walks through it.
+[Windows page](/docs/reference/platforms/windows-winui#qt-and-gtk-on-a-windows-host) walks through it.
 
 ## Linux
 
@@ -213,7 +213,7 @@ Ubuntu's desktop install does not include it. To check a particular file or URL,
 
 ## Optional: sound effects
 
-[`day-part-sound`](/docs/internal/sound) plays through libpulse on the Linux desktop toolkits,
+[`day-part-sound`](/docs/reference/sound) plays through libpulse on the Linux desktop toolkits,
 which reaches both PulseAudio and PipeWire. The build needs nothing extra. At run time the part
 loads `libpulse-simple.so.0`, which a desktop install already has. A minimal container or CI
 image may need it installed; without it the app runs and stays silent.
@@ -226,7 +226,7 @@ sudo dnf install pulseaudio-libs    # Fedora
 ## Optional: packaging tools
 
 These are needed only to produce an installable artifact with `day pack`. [Packaging &
-distribution](/docs/packaging) covers the formats themselves.
+distribution](/docs/how-to/packaging) covers the formats themselves.
 
 | Target | Tool | Install |
 |---|---|---|
@@ -243,7 +243,7 @@ machine that already has the toolkit installed.
 Android cross-compiles the app to a JNI shared library and runs it inside a Gradle app, so it needs
 the Android SDK, an NDK, and a JDK regardless of which host you are on.
 
-1. Install the **Android SDK**, most easily through
+1. Install the **Android SDK**, using
    [Android Studio](https://developer.android.com/studio), or the standalone
    [command-line tools](https://developer.android.com/tools). Day finds it at the platform default
    (`~/Library/Android/sdk` on macOS, `%LOCALAPPDATA%\Android\Sdk` on Windows, `~/Android/Sdk` on
@@ -291,7 +291,7 @@ adb devices                 # confirm it is listed as `device`
 Day can list existing AVDs with `day devices list -t android-mdc` and start one with
 `day devices boot -t android-mdc AVD_NAME --wait`. An AVD stays listed after its system image is
 removed, so `day devices boot` checks the image first and names the package to reinstall. See
-[Android troubleshooting](/docs/troubleshooting#android-will-not-build-or-find-a-device) if it is not detected. Match the emulator's ABI to an installed Rust target; an x86_64 system image needs
+[Android troubleshooting](/docs/how-to/troubleshooting#android-will-not-build-or-find-a-device) if it is not detected. Match the emulator's ABI to an installed Rust target; an x86_64 system image needs
 `x86_64-linux-android`. Set `ANDROID_SERIAL` when more than one device or emulator is attached, so
 `day launch` and `day drive` act on the one you mean.
 
@@ -315,7 +315,7 @@ physical device through Xcode's normal signing setup.
 ## HarmonyOS
 
 HarmonyOS has two halves with different tool needs, which is why a partial install is common. The
-[HarmonyOS platform page](/docs/platforms/harmony-arkui) has the detail.
+[HarmonyOS platform page](/docs/reference/platforms/harmony-arkui) has the detail.
 
 1. **The Rust cross-compile** runs through [`cargo-ohos`](https://crates.io/crates/cargo-ohos),
    which finds the OpenHarmony SDK's `native` component (the NDK) and sets up the cross-compiler
@@ -370,13 +370,13 @@ export PATH=$OHOS_CLT/bin:$OHOS_CLT/tool/node/bin:$OHOS_CLT/sdk/default/openharm
 
 The bundle's `bin/hvigorw` and `bin/ohpm` run as-is on Linux, using the bundle's own node, and
 `tool/node/bin` puts that node on `PATH` for signing, so no separate node install is needed. The
-node wrapper scripts in the [HarmonyOS notes](/docs/internal/harmonyos) are only for macOS. `day
+node wrapper scripts in the [HarmonyOS notes](/docs/how-to/harmonyos) are only for macOS. `day
 doctor --toolkit harmonyos` should now pass every check.
 
 ### On macOS
 
 Use the same Linux command-line-tools bundle for hvigor and ohpm, which are pure JavaScript,
-through the node wrappers in the [HarmonyOS notes](/docs/internal/harmonyos). The bundle's SDK
+through the node wrappers in the [HarmonyOS notes](/docs/how-to/harmonyos). The bundle's SDK
 tools are Linux binaries, though, so hvigor fails with `spawn ENOEXEC`. Take the SDK from
 `cargo ohos init sdk --api 18` instead: it is the macOS public SDK in the layout hvigor wants, so
 `cargo ohos` finds its NDK by itself, `hdc` sits in its `toolchains/`, and `OHOS_BASE_SDK_HOME` is
@@ -472,3 +472,9 @@ development machine needs.
 | `windows-xaml` (deprecated) | Windows 10 or 11 |
 | `linux-gtk` / `linux-qt` | GTK 4.10 with libadwaita 1.5 / Qt 6 |
 | `web-dom` | a current browser, served as static files |
+
+## Check your toolchain
+
+Run `day doctor --toolkit <toolkit>` before building. It checks the SDK and tool versions for
+that backend. The [target registry](https://github.com/daybrite/day/blob/main/crates/day-cli/src/targets.rs)
+lists which hosts can build each target.

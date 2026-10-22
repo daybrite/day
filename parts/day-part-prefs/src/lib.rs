@@ -75,7 +75,7 @@ where
 }
 
 /// Install this prefs store as the app's navigation-persistence store (docs/navigation.md), so a
-/// [`selector`](day_pieces::selector) or [`stack`](day_pieces::stack) marked `.restore(key)`
+/// [`nav`](/api/day_pieces/fn.nav.html) or [`nav_stack`](/api/day_pieces/fn.nav_stack.html) marked `.restore(key)`
 /// remembers its state across launches (and across an Android process death, since the store is
 /// disk-backed). `day::launch` calls it when the app has installed no store of its own, so an
 /// app reaches for it only when it boots without the facade. Nav keys are namespaced under a

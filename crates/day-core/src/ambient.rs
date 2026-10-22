@@ -265,7 +265,7 @@ pub fn environment<T: Clone + 'static>() -> Option<T> {
 /// whole app, and its commands act on the front window. This resolves through that window's own
 /// scope instead of the calling scope, so `File ▸ New Item` adds to the list the user is
 /// looking at. A cover that provides no `T` answers with the primary window's, since the
-/// cover renders inside it ([`crate::windows::focused_scope_chain`]). `None` ⇒ no window is
+/// cover renders inside it (following the window scope chain). `None` ⇒ no window is
 /// open, or the front one provides no `T`.
 pub fn focused_environment<T: Clone + 'static>() -> Option<T> {
     crate::windows::focused_scope_chain()

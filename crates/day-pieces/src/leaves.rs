@@ -505,13 +505,13 @@ pub fn open_link(target: &str) {
 ///
 /// It renders as accent-colored [`label`] text and announces itself as actionable to assistive
 /// technology. The opening itself is delegated to the running backend
-/// ([`Toolkit::open_url`](../day_spec/trait.Toolkit.html#method.open_url)), so it works the same on
+/// ([`Toolkit::open_url`](day_spec::Toolkit::open_url)), so it works the same on
 /// every platform.
 ///
 /// ```ignore
-/// link("daybrite.dev", "https://daybrite.dev")
-/// link("Settings", "#settings")
-/// link(tr("email-us"), "mailto:hi@example.com").font(Font::Footnote)
+/// link(res::str::project_site(), "https://daybrite.dev")
+/// link(res::str::settings(), "#settings")
+/// link(res::str::email_us(), "mailto:hi@example.com").font(Font::Footnote)
 /// ```
 pub struct Link {
     label: Label,

@@ -2,7 +2,7 @@
 title: CLI & projects
 description: The Day command-line tool, the conventional project layout, Day.toml, and dayscript.
 order: 30
-section: Build & ship
+section: Reference
 ---
 
 <!--
@@ -13,6 +13,29 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 The `day` command manages a project from creation through testing and packaging. The same
 commands work in a terminal, an editor, or CI. This reference covers the commands and the
 project settings they use.
+
+## Defaults and errors
+
+Keep the CLI and app framework revision aligned. Replace angle-bracket placeholders and `…`
+with your project values before running a command.
+
+| Command or option | Default / requirement |
+| --- | --- |
+| `build -t TARGET` | Target required; repeatable; debug profile by default |
+| `launch -t TARGET` | Target optional; defaults to the host desktop toolkit; debug profile |
+| `launch --memory-profile` | true; disable with `--memory-profile=false` |
+| `launch --script PATH` | Repeatable; scripted dialogs by default when scripts run |
+| `launch --fast` / `--dialogs` | Require `--script`; dialogs accepts `scripted` or `native` |
+| `launch --dir DIR` | Requires `--git` |
+| `--format json` | NDJSON result events; inspect the current command schema before parsing it |
+| `doctor --toolkit TOOLKIT` | Toolkit selector, not necessarily a target ID (`harmonyos`, not `harmony-arkui`) |
+
+Exit codes from `ErrKind::exit_code`: 0 success; 1 general failure; 2 invocation/configuration;
+3 environment; 4 build/artifact generation; 5 script failure or generated-output drift;
+6 signing/notarization; 10 lint findings. Handle the command's result, not just stdout text.
+
+Source: [CLI parser and exit-code map](https://github.com/daybrite/day/blob/main/crates/day-cli/src/cli.rs)
+and [target resolution](https://github.com/daybrite/day/blob/main/crates/day-cli/src/targets.rs).
 
 ## The commands
 
@@ -39,7 +62,7 @@ day launch  -t macos-gtk     # build + run on a target
 day launch  --git <url>      # clone a repository and run the app in it — no checkout needed
 day launch  --day-src <path|url>  # run this app against another day, for one build
 day launch  --patch-local <checkout>  # run against a local day, piece, or part checkout, for one build (repeatable)
-day build   --flavor custom  # build the Day-custom.toml flavor of this app (/docs/flavors)
+day build   -t macos-appkit --flavor custom  # build the Day-custom.toml flavor of this app (/docs/how-to/flavors)
 day pack    -t macos-appkit  # build + sign + produce a distributable artifact (.dmg here)
 day sign check              # report release-signing readiness without printing secrets
 day rebuild <artifact>       # rebuild a shipped artifact from its provenance and compare the bytes
@@ -60,15 +83,15 @@ day version                  # print the CLI version, build profile, and git ref
 ```
 
 `--flavor <name>` applies to every command, not only `build`: it layers `Day-<name>.toml` over
-`Day.toml` so one source tree ships as several apps. [Build flavors](/docs/flavors) covers the
+`Day.toml` so one source tree ships as several apps. [Build flavors](/docs/how-to/flavors) covers the
 file and what each key changes.
 
 `day patch` switches an app from the published git dependency to a local checkout of day, or
-of an external [piece](/docs/glossary#piece) or part, or to a fork of day, and verifies the switch took; [Developing Day and an app together](/docs/local-development) covers
+of an external [piece](/docs/reference/glossary#piece) or part, or to a fork of day, and verifies the switch took; [Developing Day and an app together](/contributing/local-development) covers
 when and how to use it.
 
-`day pack` produces a standalone, installable package per [target](/docs/glossary#target). See
-[Packaging & distribution](/docs/packaging) for formats, signing, and CI:
+`day pack` produces a standalone, installable package per [target](/docs/reference/glossary#target). See
+[Packaging & distribution](/docs/how-to/packaging) for formats, signing, and CI:
 
 | target | artifact |
 |---|---|
@@ -82,7 +105,7 @@ when and how to use it.
 | `web-dom` | none — `day build` already emits a self-contained static `dist/` |
 
 Run `day new` with no arguments to be walked through choosing what to create (app / piece / part) and
-which platforms and [toolkits](/docs/glossary#toolkit) to support. Every question has an equivalent flag, so the same choices
+which platforms and [toolkits](/docs/reference/glossary#toolkit) to support. Every question has an equivalent flag, so the same choices
 can be made non-interactively, e.g. `day new app my-app --toolkit ios-uikit --toolkit macos-appkit
 --appid com.example.myapp --title "My App"`. Scaffolds currently depend on `day` from its git
 remote (the framework crates are not yet published to crates.io); once they are, `--registry`
@@ -96,11 +119,11 @@ left out.
 
 `day new app` scaffolds a small working starter: Welcome, an Items list with a name-and-done
 editor, and Settings. It uses one main window, saves items and the last navigation section,
-and includes [locales](/docs/glossary#locale) and a portable [dayscript](/docs/glossary#dayscript)
+and includes [locales](/docs/reference/glossary#locale) and a portable [dayscript](/docs/reference/glossary#dayscript)
 smoke test (`day launch -t <target> --script dayscript/demo.yaml`). Day derives native build
 projects under `build/`; app-owned host sources and configuration stay under `platform/`.
 A GitHub Actions workflow builds and tests the declared targets through the shared
-[`dayapp.yml`](/docs/github-actions) workflow
+[`dayapp.yml`](/docs/how-to/github-actions) workflow
 as soon as the repository is pushed. The interactive run asks whether to set that repository up:
 yes initializes git in the new directory and ships `.gitignore` with the workflow, no leaves all
 three out. `--github` and `--no-github` answer for it; `--no-input` takes yes. The scaffold
@@ -126,7 +149,7 @@ directory tree whose file contents *and paths* are rendered with mustache-style 
 | `{{first_target}}` | the first chosen target, for the commands a README prints |
 
 The built-in template is embedded in the
-CLI (a fresh `cargo install day-cli` scaffolds offline); bring your own with:
+CLI (a fresh `cargo install --git https://github.com/daybrite/day day-cli` scaffolds offline); bring your own with:
 
 ```bash
 day new app my-app --template ./my-template          # a local directory
@@ -178,7 +201,7 @@ project when Day's configuration cannot express the customization you need.
 Apple projects require `project.xcproj`; Day does not migrate older native project layouts.
 
 Use `day sign check` to check signing configuration, or `day sign status <id>` to query a
-notarization submission. See [signing configuration](/docs/packaging#signing-configuration).
+notarization submission. See [signing configuration](/docs/how-to/packaging#signing-configuration).
 
 CI and editor integrations check for the commands they need. If a command is unavailable,
 update the CLI from the same Day checkout or Git revision as the integration. Metadata JSON
@@ -319,17 +342,17 @@ day launch -t android-mdc --grant camera --script dayscript/capture.yaml
 install and the start: `pm grant` on Android, `simctl privacy grant` on the iOS Simulator. A
 target with no tool for it refuses the flag before building: HarmonyOS, a physical iPhone, macOS,
 the web, and the camera on the simulator, which has no camera at all. The
-[permissions guide](/docs/guide-permissions#testing-past-the-prompt) has the details.
+[permissions guide](/docs/how-to/guide-permissions#testing-past-the-prompt) has the details.
 
 CI runs each showcase walkthrough once per theme × locale (`light`/`dark` × en/fr/ar/zh-CN) with
 one command: `day launch --themes light,dark --locales en,fr,ar,zh-CN --script …` builds once and
 expands the matrix internally, naming each run's variant `<theme>` (for the default locale) or
-`<theme>-<locale>`. The [gallery](/gallery) lets you flip every screenshot between those variants.
+`<theme>-<locale>`. The [gallery](/examples) lets you flip every screenshot between those variants.
 
 A scripted run captures the desktop toolkits and the web build at 2560×1600 pixels, a
 1280×800-point window at 2×. `--capture-size 2880x1800`, the `DAY_CAPTURE_SIZE` variable, or a
 `[screenshots]` table in `Day.toml` changes it, and `window` captures at the app's own
-`[window]` size ([capture size](/docs/dayscript#capture-size)).
+`[window]` size ([capture size](/docs/how-to/dayscript#capture-size)).
 
 ### Simulators, emulators, and devices
 
@@ -463,7 +486,7 @@ Every target reports the same way. Day reports each step itself, and the tools u
 (`adb`, `devicectl`, `simctl`) stay quiet unless they fail, at which point their output is the
 diagnostic. The two-phone command above prints:
 
-```
+```text
      Signing Showcase.app (Day Showcase iOS Development)
   Installing ios-uikit on iPhone 13 mini
    Launching ios-uikit (dev.daybrite.showcase) on device iPhone 13 mini
@@ -503,7 +526,7 @@ profile covers, while the committed project stays as it is.
 
 Apple reports a locked device as `RequestDenied`; Day translates it:
 
-```
+```text
 [ios-uikit] the device is locked — unlock it and run again (iOS will not launch an app onto a locked screen)
 ```
 
@@ -660,7 +683,7 @@ carries as `storefront.json`. `day store stage` refuses a listing with any lint 
 placeholder text unless `--allow-placeholders`. Everything the CLI knows about a store is data
 (`store-rules.toml`: label, targets, layout, fields and limits, locale spellings, screenshot
 sizes), replaceable with `--rules FILE`, `DAY_STORE_RULES` or a project's `store/rules.toml`. See
-[App Store Submissions](/docs/app-store-submissions) for account setup and release uploads.
+[App Store Submissions](/docs/how-to/app-store-submissions) for account setup and release uploads.
 
 The listing's screenshots come from the walkthrough's captures, chosen in `store/storefront.toml`
 `[storefront.<target>.<store>.screenshots]`: per device kind (or `default`), the `screenshot:`
@@ -671,14 +694,14 @@ or per store. `day screenshot index` resolves that into
 `gallery.json`, `day store screenshots <gallery.json | URL>` checks each list against the
 store's sizes and coverage rules (the rules file the CLI embeds; `--rules FILE` names another),
 and `day store stage --screenshots <gallery.json | URL>` places it where fastlane uploads it. See
-[Store listings](/docs/internal/store) for the full field table and the credential variables.
+[Store listings](/docs/how-to/store) for the full field table and the credential variables.
 
 `day screenshot pack --root <tree>… --out screenshots.tar.xz` bundles capture trees as a
 plain tar.xz of uncompressed PNG files, about a ninth of the PNG files' size, opening with a
 `SHA256SUMS`; `--index` carries a merged `gallery.json` inside and `--each <dir>` also writes one
 bundle per tree. `day screenshot unpack screenshots.tar.xz --out <dir>` verifies every file and
 writes the captures back as compact PNG files; `--check` verifies only. See
-[Screenshot bundle](/docs/internal/screenshot-archive) for the format.
+[Screenshot bundle](/docs/reference/screenshot-archive) for the format.
 
 In CI, `day lint --strict` turns any finding into a failure (exit 10). A fresh scaffold trips one
 rule, because the listing text it ships is still `TODO`. Pass `--allow store-placeholder` to let
@@ -690,13 +713,13 @@ as one line carrying its count and a sample, so an `--allow` nobody has revisite
 `day lint` reads the project's sources, catalogs and manifest, and reports what it finds. Each
 finding carries a code you can `--allow`, and the file, line and column it is about:
 
-```
+```text
 error   day::lint::unknown-route     navigate: route "settings/theme" starts with "settings", which no `.item(…)` or `routes! { … }` declares (src/lib.rs:88)
 warning day::lint::unused-key        resource/locales/en: history_hint is never referenced (resource/locales/en/app.ftl:434)
 ```
 
 A finding is an **error** when it names something that does not exist, or that will misbehave once
-the app runs: a [route](/docs/glossary#route) nothing declares navigates nowhere, an undeclared permission terminates the
+the app runs: a [route](/docs/reference/glossary#route) nothing declares navigates nowhere, an undeclared permission terminates the
 app on iOS, an unknown target in `Day.toml` is not read. Coverage gaps and store copy are
 **warnings**. Both kinds fail `--strict`, so the split changes what you read rather than what CI
 does.
@@ -708,7 +731,7 @@ key.
 
 Some findings come with a repair. `day lint --fix` applies them and reports each one:
 
-```
+```text
 $ day lint --fix
 fixed   day::lint::store-whitespace     store/metadata/en/description.txt: Trim the surrounding whitespace
 ```
@@ -720,7 +743,7 @@ for you. A code you passed to `--allow` is never rewritten.
 
 `day lint --json` emits a versioned envelope instead of the report (every finding with its place,
 its severity, and its fix); the
-[VS Code extension](/docs/getting-started#2-install-the-day-extension-for-vs-code) draws its
+[VS Code extension](https://github.com/daybrite/day-vscode) draws its
 squiggles and quick fixes from it:
 
 ```json
@@ -752,17 +775,17 @@ hiding an `--allow` that has outlived its reason.
 Under GitHub Actions, findings also become annotations on the lines they name, plus a summary table
 on the run page.
 
-One [backend](/docs/glossary#backend) feature is enabled per binary; `day launch -t <target>` selects it, so the AppKit build
+One [backend](/docs/reference/glossary#backend) feature is enabled per binary; `day launch -t <target>` selects it, so the AppKit build
 contains only AppKit code and the Android build only its JNI bridge. The full directory anatomy,
-the per-target build pipelines, and how [resources](/docs/glossary#resource) are packaged are covered in
-[Project structure & builds](/docs/project-structure).
+the per-target build pipelines, and how [resources](/docs/reference/glossary#resource) are packaged are covered in
+[Project structure & builds](/docs/reference/project-structure).
 
 ## dayscript
 
 **dayscript** is a YAML language that drives and asserts a *running* app over a socket, using the
 same script on every platform. Pieces are addressed by the same stable `.id` you give them in Rust,
 and routes are the same keys your `nav`/`nav_stack` use. It has its own guide: [Testing with
-dayscript](/docs/dayscript).
+dayscript](/docs/how-to/dayscript).
 
 ## Tests in the app
 
@@ -772,13 +795,13 @@ per test, the evidence and captures beside the run's screenshots. A test is name
 function (`button_press` runs as `button-press`), a GUI case's page shows alone in the app's
 `day::test_host`, and a case that panics or passes its time limit (`--case-timeout`, 30 s by
 default) fails without stopping the run. The guide is
-[Tests in the app](/docs/internal/testing).
+[Tests in the app](/contributing/backend-contracts/testing).
 
 ## Continuous integration
 
-Use the shared [GitHub Actions workflow](/docs/github-actions) to build an app, run dayscripts,
-capture screenshots and publish packages. [App Store Submissions](/docs/app-store-submissions)
+Use the shared [GitHub Actions workflow](/docs/how-to/github-actions) to build an app, run dayscripts,
+capture screenshots and publish packages. [App Store Submissions](/docs/how-to/app-store-submissions)
 covers signing credentials and store uploads.
 
 Day's own CI tests the Showcase app across platforms. Its captures populate this site's
-[gallery](/gallery); [Platform support](/docs/platforms) describes the supported targets.
+[gallery](/examples); [Platform support](/docs/reference/platforms) describes the supported targets.

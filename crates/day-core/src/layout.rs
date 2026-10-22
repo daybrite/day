@@ -861,7 +861,7 @@ pub struct FlowLayout {
     pub run_spacing: f64,
     /// How children align within their own line (a line is as tall as its tallest child).
     pub align: CrossAlign,
-    /// Uniform columns ([`RowFit::WrapColumns`]): every cell takes the widest child's width and
+    /// Uniform columns ([`RowFit::WrapColumns`](/api/day_pieces/enum.RowFit.html#variant.WrapColumns)): every cell takes the widest child's width and
     /// each line holds as many as the available width fits, so the wrapped lines align into
     /// columns; when any child grows (`grow_w`), the columns stretch to share the whole width.
     /// `false` packs each line at natural widths, which comes out ragged.
@@ -1662,7 +1662,7 @@ impl Layout for MinWidthLayout {
 ///
 /// Reserving a sample measures a real piece in the real font at the real size, so the reservation
 /// scales with the text exactly as the content does. `children[0]` is the sample (built
-/// transparent by [`Decorate::reserving`], so it never paints and is placed at zero size);
+/// transparent by `Decorate::reserving`, so it never paints and is placed at zero size);
 /// `children[1]` is the content, which receives the full reserved bounds and aligns itself.
 pub struct ReserveLayout;
 

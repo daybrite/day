@@ -2,7 +2,7 @@
 title: AI-assisted development
 description: "Connect Codex or Claude Code to Day, verify changes in a running app, and save tests for CI."
 order: 24
-section: Guides
+section: Tutorials
 ---
 
 {/* Copyright © The Daybrite Project
@@ -18,19 +18,19 @@ installation and connection instructions.
 <AgentSwitcher />
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
-[example messages](/docs/internal/snippet-catalog) and [catalog setup](/docs/localization).
+[example messages](/docs/reference/examples/catalog) and [catalog setup](/docs/how-to/localization).
 
 ## 0. Install the two CLIs
 
 Install Day and check the toolkit you plan to use:
 
 ```bash
-cargo install day-cli
+cargo install --git https://github.com/daybrite/day day-cli
 day doctor --toolkit appkit
 ```
 
 This guide uses `macos-appkit` on macOS. For another target, follow
-[Getting started](/docs/getting-started) and substitute its target name in the commands below.
+[Getting started](/docs/tutorials/first-app) and substitute its target name in the commands below.
 
 <div data-agent="claude">
 
@@ -64,7 +64,7 @@ day launch -t macos-appkit
 
 The project includes localized strings, a sample UI, `dayscript/demo.yaml`, and an `AGENTS.md`
 with project conventions. Confirm that the app builds and launches before involving an agent;
-[troubleshooting](/docs/troubleshooting) covers SDK and device setup failures.
+[troubleshooting](/docs/how-to/troubleshooting) covers SDK and device setup failures.
 
 <span id="2-give-claude-code-the-day-tools"></span>
 
@@ -134,7 +134,7 @@ tool calls when prompted.
 ### What the tools do
 
 `day mcp-server` exposes project metadata, toolchain checks, builds, launches, test steps,
-screenshots, linting, and session controls. The [agent reference](/docs/internal/agent) lists
+screenshots, linting, and session controls. The [agent reference](/docs/reference/agent) lists
 the tools and arguments.
 
 The usual sequence is `day_metadata`, an edit, `day_relaunch`, then `day_drive` assertions and
@@ -228,7 +228,7 @@ day launch -t macos-appkit --script dayscript/weather.yaml --variant fr --locale
 
 Each run drives the real app and writes content-checked captures under
 `build/day/screenshots/<target>/<variant>/`, the same mechanism that produces the localized
-[gallery](/gallery) on this site. For strings that vary by locale, assert by Fluent key
+[gallery](/examples) on this site. For strings that vary by locale, assert by Fluent key
 (`assert_text: { id: …, key: … }`) instead of literal text and one script passes in every
 language.
 
@@ -263,7 +263,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             libgtk-4-dev libadwaita-1-dev pkg-config xvfb
-      - run: cargo install day-cli
+      - run: cargo install --git https://github.com/daybrite/day day-cli
       - name: Drive the app
         run: |
           xvfb-run -a -s "-screen 0 1000x720x24" \
@@ -334,8 +334,8 @@ or other platforms.
 
 ## Where to go next
 
-- [Testing with dayscript](/docs/dayscript) — the full step catalog and how the engine works.
-- [For AI agents](/docs/for-agents) — the terse rulebook agents should follow (link it from
+- [Testing with dayscript](/docs/how-to/dayscript) — the full step catalog and how the engine works.
+- [For AI agents](/docs/reference/for-agents) — the terse rulebook agents should follow (link it from
   your own prompts).
-- [Agent surface reference](/docs/internal/agent) — `day drive`, sessions, and the MCP tools in
+- [Agent surface reference](/docs/reference/agent) — `day drive`, sessions, and the MCP tools in
   detail.

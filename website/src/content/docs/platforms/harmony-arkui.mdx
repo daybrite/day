@@ -1,8 +1,8 @@
 ---
 title: HarmonyOS (ArkUI)
-description: Build Day apps for HarmonyOS and OpenHarmony with ArkUI — SDK setup, the hvigor and .hap pipeline, the ArkTS bridge, and which ArkUI node type every Day piece becomes.
+description: "Experimental HarmonyOS and OpenHarmony target: ArkUI integration, SDK requirements, and current limitations."
 order: 33.7
-section: Platforms
+section: Reference
 ---
 
 {/*
@@ -10,14 +10,9 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 */}
 
-import PlatformShots from '../../../components/PlatformShots.astro';
-
-`harmony-arkui` drives ArkUI through its **NDK C node API** (the `ARKUI_NODE_*` types) from a Rust
-`cdylib`, inside an ArkTS host project that hvigor packages into a `.hap`. It is Day's newest
-backend ([Tier 3 · Experimental](/docs/platforms#support-tiers)), and this page lists where that
-shows.
-
-<PlatformShots platform="harmony-arkui" shots={["home", "controls", "canvas", "list"]} />
+`harmony-arkui` is a Tier 3 experimental target. Day uses ArkUI’s native node API with an
+ArkTS host project. Evaluate the controls and services your app needs before choosing it for
+distribution; a local compile check does not establish device or store readiness.
 
 ## Getting started
 
@@ -25,10 +20,11 @@ This toolchain takes the most setup steps of any Day supports. You need
 [`cargo-ohos`](https://crates.io/crates/cargo-ohos), which downloads the OpenHarmony SDK and
 drives the cross-compile, plus the command-line tools (hvigor, `hdc`, the signing tools);
 `day doctor --toolkit harmonyos` checks each piece and prints setup help, and the
-[HarmonyOS notes](/docs/internal/harmonyos) cover the install in detail.
+[HarmonyOS notes](/docs/how-to/harmonyos) cover the install in detail.
 
 ```sh
-cargo install --locked day-cli cargo-ohos
+cargo install --git https://github.com/daybrite/day day-cli
+cargo install --locked cargo-ohos
 cargo ohos init sdk --api 18
 day new app my-app --toolkit harmony-arkui
 cd my-app
@@ -40,13 +36,13 @@ day launch -t harmony-arkui      # installs and starts on an emulator or device
 artifact without a vendor account. `day pack -t harmony-arkui` produces the release `.hap`, signed
 with your own material when configured.
 
-The [`day devices boot`](/docs/cli#simulators-emulators-and-devices) command starts the emulator: `day devices boot -t harmony-arkui` (add
+The [`day devices boot`](/docs/reference/cli#simulators-emulators-and-devices) command starts the emulator: `day devices boot -t harmony-arkui` (add
 `--headless` to run without a window) boots the emulator image under QEMU and connects `hdc`:
 Oniro's for OpenHarmony 6.x, or harmony-contrib/ohos-qemu's `x86_64_virt` for 7.0, recognized by
 its files. It does not download images: unpack the Oniro release's `oniro_emulator.zip` into
 `~/ohos/emulator`, or point `DAY_OHOS_EMULATOR` at either image's `images/` directory; otherwise
 the command errors naming what is missing.
-[System requirements](/docs/system-requirements#setting-up-the-oniro-emulator) has the download, the
+[System requirements](/docs/reference/system-requirements#setting-up-the-oniro-emulator) has the download, the
 QEMU install, and KVM setup.
 
 Day derives the hvigor project under `build/day/harmony/project/`; no checked-in build
@@ -83,7 +79,7 @@ The widget vocabulary is implemented; platform integration is partial:
 
 ## What each piece becomes
 
-The generated [coverage matrix](/docs/internal/coverage-matrix), checked in CI, covers every backend;
+The generated [coverage matrix](/contributing/backend-contracts/coverage-matrix), checked in CI, covers every backend;
 this table adds links and notes.
 
 Day calls the ArkUI native node API directly, so the mapping below is in terms of `ArkUI_NodeType`

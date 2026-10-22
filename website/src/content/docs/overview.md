@@ -2,7 +2,7 @@
 title: Overview
 description: "Meet pieces, signals, and the native controls behind a Day app."
 order: 1
-section: Start here
+section: Explanation
 ---
 
 <!--
@@ -15,11 +15,11 @@ interface and application logic in Rust; Day connects them to the UI toolkit for
 A macOS build uses AppKit, an Android build uses Android views and Material controls, and a
 web build uses HTML controls through WebAssembly.
 
-If you want to try it, [create your first app](/docs/getting-started). If you are choosing a
-framework, read [Is Day a good fit?](/docs/benefits) and check [platform support](/docs/platforms).
+If you want to try it, [create your first app](/docs/tutorials/first-app). If you are choosing a
+framework, read [Is Day a good fit?](/features) and check [platform support](/docs/reference/platforms).
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
-[example messages](/docs/internal/snippet-catalog) and [catalog setup](/docs/localization).
+[example messages](/docs/reference/examples/catalog) and [catalog setup](/docs/how-to/localization).
 
 ## What an interface looks like
 
@@ -48,8 +48,8 @@ Here, `count` holds the current value. The button increments it, and the generat
 `counter_value` message reads it. Day updates the label when the count or language changes.
 The whole `root()` function does not run again.
 
-These two ideas—[pieces](/docs/pieces) for composition and [signals](/docs/reactivity) for
-change—are enough to start building screens. [Layout](/docs/layout) explains how those
+These two ideas—[pieces](/docs/explanation/pieces) for composition and [signals](/docs/explanation/reactivity) for
+change—are enough to start building screens. [Layout](/docs/explanation/layout) explains how those
 screens are measured and arranged.
 
 ## What is shared, and what is native
@@ -59,7 +59,7 @@ Day creates native widgets, connects event handlers, and applies changes to thei
 The platform toolkit supplies text input, selection, scrolling, and the controls’ appearance.
 
 This gives you a shared interface, with visible differences between platforms. You can adjust
-fonts, colors, and layout with [styling](/docs/styling), or use [platform-specific tweaks](/docs/tweaks)
+fonts, colors, and layout with [styling](/docs/explanation/styling), or use [platform-specific tweaks](/docs/how-to/tweaks)
 when a native control needs extra configuration. Features outside Day’s common API may need
 an integration for each platform you support.
 
@@ -69,9 +69,9 @@ A project has a `Day.toml` manifest, a Cargo package, and the host files require
 platforms. The Day CLI creates that structure, checks toolchains, builds and launches the app,
 and prepares release packages. Code changes require a rebuild and relaunch.
 
-Once your first screen works, add [navigation](/docs/navigation),
-[translations](/docs/localization), and [accessibility labels](/docs/accessibility) as needed.
-Use [dayscript](/docs/dayscript) to test interactions in a running app and capture screenshots.
+Once your first screen works, add [navigation](/docs/how-to/navigation),
+[translations](/docs/how-to/localization), and [accessibility labels](/docs/how-to/accessibility) as needed.
+Use [dayscript](/docs/how-to/dayscript) to test interactions in a running app and capture screenshots.
 The [documentation index](/docs) groups the guides by task.
 
 <span id="the-targets"></span>
@@ -79,6 +79,6 @@ The [documentation index](/docs) groups the guides by task.
 ## Before you commit to a platform
 
 Day’s targets have different levels of testing and feature coverage. The
-[platform reference](/docs/platforms) is the source for support tiers, known limitations,
+[platform reference](/docs/reference/platforms) is the source for support tiers, known limitations,
 and links to setup instructions. Try the controls and integrations your app depends on,
 and test them on each platform you intend to ship.

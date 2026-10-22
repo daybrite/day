@@ -543,7 +543,7 @@ fn run_reaction(key: NodeKey) {
 /// Left pending instead, every cross-row readout (a query-fed list, a derived bound)
 /// would render one turn stale. Round two drains the deltas and re-runs the hooks, and
 /// autosave then finds nothing dirty, so a settled app exits after two rounds;
-/// [`TURN_ROUND_CAP`] stops turn-end hooks that feed each other forever.
+/// The turn-round cap stops turn-end hooks that feed each other forever.
 pub fn flush_sync() {
     let already = with_rt(|rt| {
         if rt.draining {
@@ -653,7 +653,7 @@ pub fn flush_sync() {
 }
 
 /// Reset the runtime to a clean idle state after a panic unwound through a drain or batch,
-/// e.g. a reactive-cycle assertion ([`RERUN_CAP`]) that tripped inside a native event callback
+/// e.g. a reactive-cycle assertion (the rerun cap) that tripped inside a native event callback
 /// which the backend *contained* (rather than letting it abort the process across the C ABI; a
 /// GTK/Qt signal trampoline can't unwind). The in-flight `pending` work and the observer stack
 /// are dropped (the next interaction re-derives them); persistent registrations (effects, memos,

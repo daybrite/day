@@ -1,5 +1,5 @@
 # The App Store and Google Play listing, also shown on the app's website:
-# https://daybrite.dev/docs/app-store-submissions#prepare-the-listing
+# https://daybrite.dev/docs/how-to/app-store-submissions#prepare-the-listing
 # `day store stage` writes what each store expects, and `day lint` checks the stores' limits.
 
 [storefront.submission-info]

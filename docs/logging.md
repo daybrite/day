@@ -63,7 +63,7 @@ devtools' own level filter applies to Day's output the way it does to the page's
 
 Lines are formatted `LEVEL target: message`:
 
-```
+```text
 INFO  my_app: importing 412 rows
 WARN  day_core::nav: .restore("app.section") has no NavStore installed — …
 ```
@@ -87,7 +87,7 @@ consoles show color rather than raw escapes.
 Under `day launch` the app's stderr is a pipe, so the app itself writes none. **`day-cli` colors
 the lines as it re-emits them**, tagged with the target they came from:
 
-```
+```text
 [macos-appkit] ERROR my_app: the database is unreadable
 [macos-appkit] INFO  my_app: importing 412 rows
 [macos-appkit] DEBUG day_core::nav: restoring app.section

@@ -86,13 +86,11 @@ pub struct NodeData<H> {
     pub flex: Flex,
     pub scope: Scope,
     pub id: Option<String>,
-    /// The id a recycled cell's node carried before [`clear_subtree_ids`] parked it
+    /// The id a recycled cell's node carried before subtree recycling parked it
     /// (docs/list.md). A pooled row must stop answering lookups while it is hidden, but its
     /// next bind may show the same row content again (a slot write of an unchanged value,
     /// which fires no reactive `id_of` and re-runs no static `.id()`), so the parked id is what
     /// `restore_subtree_ids` hands back on rebind.
-    ///
-    /// [`clear_subtree_ids`]: Tree::clear_subtree_ids
     pub parked_id: Option<String>,
     /// Accumulated accessibility annotations (§13): merged from the piece default, `.a11y()`,
     /// and `.id()`. Stored so each `set_a11y` re-applies the full picture and `a11y_audit`
@@ -3179,7 +3177,7 @@ pub fn capability(cap: day_spec::Cap) -> day_spec::Support {
 }
 
 /// Open `url` in the platform's default handler (system browser for `http(s)`, mail client for
-/// `mailto:`, …). The function behind the [`link`](../day_pieces/fn.link.html) piece; call it
+/// `mailto:`, …). The function behind the [`link`](/api/day_pieces/fn.link.html) piece; call it
 /// directly from a tap handler for a custom affordance. Fire and forget: no result, unopenable
 /// URLs are ignored by the backend.
 pub fn open_url(url: &str) {
@@ -3401,7 +3399,7 @@ pub fn label_of(node: NodeId) -> Option<String> {
     .flatten()
 }
 
-/// Dispatch queued native events (see [`pump_events_inner`]), containing any panic. Native event
+/// Dispatch queued native events from the backend queue, containing any panic. Native event
 /// callbacks reach Day through `extern "C"` signal trampolines (GTK's `value_changed_trampoline`,
 /// Qt's event filters, …) that abort the process on unwind (`panic_cannot_unwind`). A panic in a
 /// Day event handler or its reactive drain (e.g. the reactive-cycle assertion firing during a

@@ -42,7 +42,7 @@
  *                               shows. The other four are the same toolkits on a second OS, which
  *                               the gallery covers but the grid would only repeat.
  * @property {1|2|3|4|5} tier    The support tier, defined in `tiers` below and documented at
- *                               /docs/platforms#support-tiers.
+ *                               /docs/reference/platforms#support-tiers.
  */
 
 /** Every CI target, in display order. */
@@ -202,7 +202,7 @@ export const platformsById = /** @type {Record<string, Platform>} */ (
 );
 
 /**
- * The support tiers, defined once here and explained at /docs/platforms#support-tiers. A tier
+ * The support tiers, defined once here and explained at /docs/reference/platforms#support-tiers. A tier
  * says how much testing and maintenance a target gets, not how complete its backend is: a Tier 4
  * target can render every piece and still be a development combination nobody ships.
  *
@@ -215,7 +215,7 @@ export const tiers = /** @type {Tier[]} */ ([
   {
     n: 1,
     name: 'Supported',
-    blurb: 'Fully supported and tested; the tier that gets the most testing and maintenance.',
+    blurb: 'Supported: the project’s highest declared testing and maintenance priority; consult current target evidence.',
   },
   {
     n: 2,
@@ -225,7 +225,7 @@ export const tiers = /** @type {Tier[]} */ ([
   {
     n: 3,
     name: 'Experimental',
-    blurb: 'Tested less thoroughly, and not yet used by a shipping app.',
+    blurb: 'Experimental: evaluate and test before choosing this target for an app.',
   },
   {
     n: 4,
@@ -235,7 +235,7 @@ export const tiers = /** @type {Tier[]} */ ([
   {
     n: 5,
     name: 'Deprecated',
-    blurb: 'Superseded by another target; still builds, packs and runs for existing projects, but not for new apps, and due for removal.',
+    blurb: 'Deprecated: superseded by another target; retained for existing projects, not recommended for new apps.',
   },
 ]);
 

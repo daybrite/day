@@ -16,10 +16,10 @@ Native targets use filesystem storage; web uses the browser’s Origin Private F
 (OPFS). Files persist across launches, subject to the platform’s storage policies.
 
 This reference covers paths, errors, and backend behavior. The
-[local storage guide](https://daybrite.dev/docs/guide-storage) shows how to use files from an app.
+[local storage guide](https://daybrite.dev/docs/how-to/guide-storage) shows how to use files from an app.
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
-[example messages](snippet-catalog.md) and [catalog setup](https://daybrite.dev/docs/localization).
+[example messages](snippet-catalog.md) and [catalog setup](https://daybrite.dev/docs/how-to/localization).
 
 ## Authoring
 
@@ -30,7 +30,7 @@ let bytes = day_part_fs::read("notes/today.txt")?;
 let names = day_part_fs::list("notes")?; // ["today.txt"], dirs get a trailing '/'
 day_part_fs::remove("notes/today.txt")?;
 
-// Async — works on EVERY target, including web. Await under day::task (docs/async.md).
+// Async — uses the target's storage implementation, which may be unavailable. Await under day::task (docs/async.md).
 // `day::task` takes a `Future<Output = ()>`, so each result is handled in the block
 // instead of propagated with `?`:
 day::task(async move {
@@ -46,9 +46,10 @@ day::task(async move {
 
 The contract points:
 
-- **Paths are relative and sandboxed.** The root is private to the app; an absolute path or a
-  `.`/`..`/empty segment is `FsError::BadPath` before any backend runs. `write` creates missing
-  parent directories.
+- **Paths are checked lexically.** Absolute paths, colons, and `.`/`..`/empty segments return
+  `FsError::BadPath` before backend access. This does not reject symlinks within the root or
+  create an OS sandbox. Native fallback directories use shared `day/day-fs` naming; provide
+  an app-specific `DAY_DATA_DIR` when isolation is required. `write` creates missing parents.
 - **`list("")` is the root**, entries sorted, directories suffixed `/`. A never-written
   directory lists as empty, the ordinary first-run state, not an error.
 - **The blocking calls follow the day-part-http rule**: real on every native target, and
@@ -66,7 +67,7 @@ The contract points:
 | web-dom | the origin's OPFS via the day-dom shim (`day_dom_fs_start` + the request-id completion exports). OPFS is the only store: a context without it (a pre-OPFS browser, or a private-browsing/ephemeral session, which WebKit gives no storage backing) answers `Unsupported` (no `getDirectory` at all) or `Io` (present but broken), never a silent alternate store |
 | anything else | `FsError::Unsupported` |
 
-`DAY_DATA_DIR` wins everywhere when set; the mobile hosts export it (DayActivity in day-android,
+`DAY_DATA_DIR` wins on native targets when set; the mobile hosts export it (DayActivity in day-android,
 EntryAbility in day-arkui's staged ArkTS host), and tests set it to a scratch directory.
 
 `day_part_fs::data_dir()` returns that directory without the `day-fs/` leaf on native targets,
@@ -91,9 +92,10 @@ contributing a single `DAY_DATA_DIR` line each.
 
 ## v2 notes (out of scope)
 
-Streaming reads/writes (today a file is one buffer; see the memory-efficiency rule before
-storing anything huge), append, rename, recursive remove, file metadata (size/mtime), and
-cancellation for in-flight web operations.
+The portable buffered API has no append, rename, recursive-remove, or metadata method.
+Native-only `open_read(path)` already returns a seekable `std::fs::File`; use it off the UI
+thread for large reads. A portable streaming writer and cancellation of accepted native IO
+are not supplied by these future wrappers.
 
 For macOS container storage, file permissions, migration, and SQLite sidecar restrictions,
 see [macOS App Sandbox](sandbox.md).
@@ -103,3 +105,15 @@ implementing `Read + Seek`. It applies the same relative-path checks and `day-fs
 as `read` and `write`, avoiding whole-file buffers and application-specific path reconstruction.
 Opening and reading are blocking: perform this work off the UI thread. Web does not expose this
 native handle; use `read_future` there, which currently returns the whole file as an owned buffer.
+
+## Lifetime and evidence
+
+Code above is an integration fragment; its literal bytes are synthetic sample document data.
+Use the [compiled storage recipe](https://daybrite.dev/docs/how-to/guide-storage) for full setup.
+Native async jobs run detached on the blocking pool. Dropping `FsFuture` discards delivery but
+does not undo an accepted write. `write` creates/truncates and does not promise atomic replacement.
+`FsError` is non-exhaustive; callers must allow new variants.
+
+Source: [public contracts](../parts/day-part-fs/src/lib.rs) and
+[native implementation](../parts/day-part-fs/src/native.rs), reviewed 2026-10-22. Browser storage
+and mobile host integration were not runtime-tested by the recipe compile check.

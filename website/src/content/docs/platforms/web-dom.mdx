@@ -1,8 +1,8 @@
 ---
 title: Web (DOM)
-description: Build Day apps for the browser — the same code compiled to WebAssembly driving DOM elements. Setup, hosting, the experimental gaps, and which HTML element every Day piece becomes.
+description: "Experimental browser target: WebAssembly and DOM integration, build output, and browser-specific limitations."
 order: 33.8
-section: Platforms
+section: Reference
 ---
 
 {/*
@@ -10,17 +10,13 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 */}
 
-import PlatformShots from '../../../components/PlatformShots.astro';
+`web-dom` is an optional Tier 3 experimental target. Day compiles the Rust app to WebAssembly
+and connects controls to DOM elements. Browser permissions and capabilities differ from the
+native desktop and mobile targets; evaluate this target separately.
 
-`web-dom` compiles your app to WebAssembly and renders each piece as a DOM element (`<button>`,
-`<dialog>`, `<input type="range">`) that the browser lays out and draws. The build runs through
-cargo and the `day` CLI, and the output is a plain ES module plus a `.wasm` file.
-
-<PlatformShots platform="web-dom" shots={["home", "controls", "canvas", "text"]} />
-
-> [!WARNING] Experimental ([Tier 3](/docs/platforms#support-tiers))
-> This is the newest backend; the caveats below list its gaps. The
-> [live Showcase build](https://showcase.daybrite.dev/webapp/) runs on it.
+> [!WARNING] Experimental ([Tier 3](/docs/reference/platforms#support-tiers))
+> Review the capabilities below before relying on the browser target. A successful native
+> app build does not validate this backend.
 
 ## Getting started
 
@@ -28,7 +24,7 @@ The only prerequisite beyond the CLI is the wasm target.
 
 ```sh
 rustup target add wasm32-unknown-unknown
-cargo install day-cli
+cargo install --git https://github.com/daybrite/day day-cli
 day new app my-app --toolkit web-dom
 cd my-app
 day launch -t web-dom     # builds, serves over loopback, opens your browser
@@ -48,7 +44,7 @@ sensors require a secure context.
 
 ## Running dayscripts
 
-A [dayscript](/docs/dayscript) runs against the web build the way it does on every other target,
+A [dayscript](/docs/how-to/dayscript) runs against the web build the way it does on every other target,
 with one addition: a page cannot screenshot itself, so the runner captures through a headless
 browser that `day` drives. Day bundles the driver (`day web driver` prints its path); it needs
 [Playwright](https://playwright.dev) and a browser for it, installed once into any directory:
@@ -78,14 +74,13 @@ storage with it, lasts exactly as long as the launch.
 This backend covers a subset of what the native backends do. The following are missing or
 reduced:
 
-- Most external pieces have no web arm and render a `⟨kind⟩` placeholder: web view, map,
-  Lottie, search field, combo box, date and time pickers, activity indicator, remote image. Only
-  `media()` is implemented, as a `<video>`. Pull-to-refresh has no web arm either: its spinner
-  overlay and programmatic refresh work, but there is no pull gesture.
-- `media()` needs a URL, not a file path, and autoplay only starts when muted; both are
-  browser policy.
-- File dialogs, context menus, and the application menu bar have no web arm. `cover()`
-  presents as a fixed-position overlay (no transition, programmatic dismissal only).
+- External-piece support varies. The current coverage matrix includes DOM arms for date/time,
+  color-picker, and text-editor pieces, while several other in-tree pieces have none. Enable the
+  matching feature and check [source coverage](/contributing/backend-contracts/coverage-matrix).
+  External media/WebView/Lottie repositories were not inspected in this review.
+- The backend reports `Cap::FileDialogs` as native and `Toolbar`, `AppMenu`, and `Tree` as
+  emulated. Browser user activation and permissions can still limit an operation; a capability
+  is not a runtime acceptance result. Secondary windows use the cover path.
 - The list is emulated: one element per row, created eagerly, with no recycling, so long
   lists cost memory and time.
 - Split navigation is decided once at launch from the viewport width (≥ 700px), and does not
@@ -95,17 +90,16 @@ reduced:
   flows through from `.a11y(...)`. But where a piece realizes as a `<div>` (label, tabs, navigation,
   the nav menu, segmented and radio pickers, the spinner), there is no compensating ARIA role. If
   you are shipping to an accessibility requirement, use a native target or budget for tweaks.
-- Parts are partial. `http`, `location`, `prefs`, `sensors`, `permissions`, and `fs` (backed
-  by the browser's Origin Private File System) have browser arms; battery, clipboard, device
-  info, haptics, network, and local notifications do not. The magnetometer is never available
-  (no cross-browser API).
+- Parts have separate browser implementations and support queries. Do not infer availability
+  from the DOM backend alone; for example, clipboard has asynchronous browser operations while
+  synchronous helpers cannot wait for browser permission. Consult each part's reference.
 - Piece registration differs. `linkme`'s distributed slices don't compile for wasm, so web-dom
   keeps a runtime registry and a piece registers itself from its constructor. A piece needs an
-  explicit `dom` feature to appear at all; see [extending](/docs/extending).
+  explicit `dom` feature to appear at all; see [extending](/contributing/extending).
 
 ## What each piece becomes
 
-The generated [coverage matrix](/docs/internal/coverage-matrix), checked in CI, covers every backend;
+The generated [coverage matrix](/contributing/backend-contracts/coverage-matrix), checked in CI, covers every backend;
 this table adds links and notes.
 
 | Day piece | HTML |

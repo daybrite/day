@@ -99,10 +99,10 @@ day_reactive::tls_slots! {
     static CONTRIBUTIONS: RefCell<HashMap<u64, Contribution>> = RefCell::new(HashMap::new());
     /// Each chrome's merged model as last lowered; dayscript resolves an item's action here,
     /// and a recompose compares against it to skip an install that would change nothing. Items
-    /// carry slot ids here, never closure ids (see [`slot_model`]).
+    /// carry slot ids here, never closure ids (the toolbar slot model).
     static MODELS: RefCell<Vec<(Chrome, Vec<ToolbarItem>)>> = const { RefCell::new(Vec::new()) };
     /// Each window's dispatch slots: (window, item key) → the id the toolkit holds for that item
-    /// (see [`slot_model`]).
+    /// (the toolbar slot model).
     static SLOT_IDS: RefCell<HashMap<(RNode, String), u64>> = RefCell::new(HashMap::new());
     /// Slot id → the closure id it dispatches to right now.
     static SLOT_TARGETS: RefCell<HashMap<u64, u64>> = RefCell::new(HashMap::new());
@@ -216,7 +216,7 @@ pub fn current_page_column() -> day_spec::ToolbarColumn {
     })
 }
 
-/// The window being built, else the primary root. Shared with [`crate::ambient`], which scopes
+/// The window being built, else the primary root. Shared with the ambient environment lookup, which scopes
 /// the same way for the same reason: an app's one `size_class()` call inside a shared
 /// `build_shell` must mean "this window".
 pub fn window_being_built() -> RNode {
@@ -248,7 +248,7 @@ pub fn register_toolbar_value(f: Rc<dyn Fn(&ToolbarValue)>) -> u64 {
 
 /// Run the value callback registered for `action` (no-op if none). Called by the event pump on
 /// `Event::ToolbarChanged`, inside a reactive batch so multiple signal writes coalesce. `action`
-/// is the slot id the toolkit holds (see [`slot_model`]); a raw closure id works too.
+/// is the slot id the toolkit holds (the toolbar slot model); a raw closure id works too.
 pub fn dispatch_toolbar_value(action: u64, value: &ToolbarValue) {
     mirror_value(action, value);
     let target = resolve_slot(action);
@@ -509,7 +509,7 @@ fn schedule_recompose() {
 /// A bar is re-installed only when something the toolkit draws changed: an item added,
 /// removed or reordered, a label, an icon, a kind. What changes on every derivation, the
 /// closures, never reaches the model: each item is handed to the toolkit under a stable slot
-/// id (see [`slot_model`]), so a page re-built with the same commands composes a model equal to
+/// id (the toolbar slot model), so a page re-built with the same commands composes a model equal to
 /// the installed one. Values the user or the app change (search text, a toggle) reach the model
 /// through the same patches that update the widget, so they never differ either.
 fn recompose_windows() {

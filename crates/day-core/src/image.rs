@@ -7,7 +7,7 @@
 //! decode returns, held in the same toolkit table.
 //!
 //! The shape mirrors presentation (`present.rs`): a request id, a pending registry, and a
-//! completion that arrives as an [`Event`] the backend raises. It is request-shaped rather than
+//! completion that arrives as an [`day_spec::Event`] the backend raises. It is request-shaped rather than
 //! blocking because one backend can never answer synchronously (a browser decodes through
 //! `createImageBitmap`, which is a promise), and one async-shaped API everywhere beats a
 //! synchronous one that is a lie on the web (docs/async.md rule 3: a callback and a future,

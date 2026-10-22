@@ -40,6 +40,11 @@ DerivedData/
 # a dirty tree, which `day rebuild` then refuses.
 /showcase-src/
 
+
 # Per-machine editor settings (extensions write absolute paths here). Shared VS Code config,
 # if any, goes in launch.json or extensions.json, which stay trackable.
 /.vscode/settings.json
+
+# Python validation caches
+__pycache__/
+*.py[cod]

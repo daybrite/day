@@ -2,7 +2,7 @@
 title: Resources, images, fonts & icons
 description: "How resource/assets, images, vectors, fonts, and icons travel from your project into each platform's native resource system, and how to read them back."
 order: 24
-section: Guides
+section: How-to guides
 ---
 
 <!--
@@ -24,13 +24,13 @@ myapp/
     icons/     # one app-icon master; day icon build generates the renditions
 ```
 
-All five subdirectories **use each platform's native resource system**. On Android your images
-become `res/drawable-*` entries crunched by aapt2; on iOS they join an asset catalog; on GTK they
-compile into a GResource bundle; on Qt, a Qt resource file. `day build` does the staging
-automatically, per [target](/docs/glossary#target), before the platform build runs.
+Staging depends on both the resource type and the target. Android images become
+`res/drawable-*` entries; iOS images join an asset catalog; GTK and Qt can bundle data and
+images in their resource systems. Desktop fonts can remain loose files registered at startup.
+`day build` runs the target's staging path before its platform build.
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
-[example messages](/docs/internal/snippet-catalog) and [catalog setup](/docs/localization).
+[example messages](/docs/reference/examples/catalog) and [catalog setup](/docs/how-to/localization).
 
 ## Typed names, generated at build
 
@@ -39,15 +39,15 @@ The UI snippets use generated `res::str` accessors from an app's Fluent catalog;
 > `res::assets::stations_json` let the compiler catch missing files and misspellings.
 > Reserve dynamic names for assets selected at runtime. The same rule applies to
 > human-readable text: use generated `res::str` accessors from the
-> [Fluent catalog](/docs/localization).
+> [Fluent catalog](/docs/how-to/localization).
 
 You reference bundled resources through generated constants, not bare strings. The scaffold's
 `build.rs` calls `day_build::prebuild_project()`, which writes a typed constant per file:
 
 ```rust
-image(res::images::wave)                  // ← resource/images/wave.png
-day::resource(res::assets::stations_json) // ← resource/assets/stations.json
-vector(res::vectors::home)                // ← resource/vectors/home.svg
+image(res::images::wave);                 // ← resource/images/wave.png
+day::resource(res::assets::stations_json); // ← resource/assets/stations.json
+vector(res::vectors::home);               // ← resource/vectors/home.svg
 ```
 
 A typo, or a file that was renamed or deleted, is a compile error, and the names autocomplete.
@@ -60,12 +60,17 @@ guarantee explicitly.
 Anything in `resource/assets/` is packaged and readable at runtime through one call:
 
 ```rust
-let bytes: day::Resource = day::resource(res::assets::stations_json).expect("packaged asset");
+let bytes: day::Resource = day::resource(res::assets::stations_json)
+    .ok_or_else(|| res::str::resource_missing().format())?;
 let parsed: Stations = serde_json::from_slice(bytes.as_slice())?;
 ```
 
-`Resource` is a zero-copy view: on Android it borrows straight from the `AAssetManager` buffer,
-on GTK from the GResource, on desktop from an mmap (no copy into a Vec unless you make one).
+This integration fragment requires an app-defined `Stations` type and `serde_json`. The
+`resource_missing` message is defined in the [complete resource example](#handle-a-missing-bundled-file).
+Handle parsing errors at the caller and map them to localized UI messages too.
+
+`Resource::as_slice()` borrows the opened bytes without another copy. The opener may use native
+storage, a memory map, or owned bytes; zero-copy opening is not guaranteed on every backend.
 `read_at(offset, buf)` gives random access for large files. During development the same call
 resolves against your project directory, so editing an asset and relaunching picks it up without
 a packaging step.
@@ -80,15 +85,15 @@ image(res::images::wave)   // finds wave.png / wave@2x.png / wave@3x.png
     .frame(240.0, 120.0)
 ```
 
-At build time each [toolkit](/docs/glossary#toolkit) gets the format it expects: density buckets on Android
+At build time each [toolkit](/docs/reference/glossary#toolkit) gets the format it expects: density buckets on Android
 (`drawable-xhdpi/…`), an asset catalog imageset on iOS, resource bundles on GTK/Qt. The
 platform picks the right density at runtime the same way it does for any native app. The
-[resources reference](/docs/internal/resources) documents the exact per-platform staging.
+[resources reference](/docs/reference/resources) documents the exact per-platform staging.
 
 - **`resource/images/` is raster.** Photos and artwork belong here, with `@2x`/`@3x` density
   variants; SVG glyphs belong in `resource/vectors/` (next section), which ships them as
   vectors.
-- **Remote images** (URL-loaded, cached) are a separate [piece](/docs/glossary#piece), `day-piece-remote-image`,
+- **Remote images** (URL-loaded, cached) are a separate [piece](/docs/reference/glossary#piece), `day-piece-remote-image`,
   because they involve networking and cache policy that the core leaves to the piece.
 
 ## Vector glyphs: `resource/vectors/`
@@ -111,27 +116,27 @@ it goes; `Vectors xaml: 81/81 glyph(s) vector` means every glyph converted and n
 
 | Target | Ships as | Tint |
 |---|---|---|
-| [ios-uikit](/docs/platforms/ios-uikit) | the SVG in an asset catalog with `preserves-vector-representation`, so `UIImage` renders at display size | `tintColor` on a template image |
-| [macos-appkit](/docs/platforms/macos-appkit) | the SVG itself — `NSImage` renders SVG files at display size (macOS 11+) | `contentTintColor` on a template image |
-| [android-mdc](/docs/platforms/android-mdc) | a **VectorDrawable** in `res/drawable/` | `setImageTintList` |
-| [windows-winui](/docs/platforms/windows-winui) | **XAML geometry** — a `Path` in a scaling `Viewbox`, a `PathIcon` in the nav pane, redrawn at every size | a brush on the shapes |
-| [web-dom](/docs/platforms/web-dom) | the SVG, rendered by the browser | a CSS mask painted with the tint |
-| [harmony-arkui](/docs/platforms/harmony-arkui) | the SVG in `rawfile`, rendered by ArkUI's `Image` | SVG fill color |
-| [linux-gtk](/docs/platforms/linux-gtk), macos-gtk, windows-gtk | retained SVG rendered by librsvg 2.52+ and Cairo at the requested size, including the `vector` piece | an alpha-preserving render-node color matrix |
-| [linux-qt](/docs/platforms/linux-qt), macos-qt, windows-qt | retained SVG rendered by `QSvgRenderer` at the requested size, including the `vector` piece | alpha compositing at the current paint resolution |
+| [ios-uikit](/docs/reference/platforms/ios-uikit) | the SVG in an asset catalog with `preserves-vector-representation`, so `UIImage` renders at display size | `tintColor` on a template image |
+| [macos-appkit](/docs/reference/platforms/macos-appkit) | the SVG itself — `NSImage` renders SVG files at display size (macOS 11+) | `contentTintColor` on a template image |
+| [android-mdc](/docs/reference/platforms/android-mdc) | a **VectorDrawable** in `res/drawable/` | `setImageTintList` |
+| [windows-winui](/docs/reference/platforms/windows-winui) | **XAML geometry** — a `Path` in a scaling `Viewbox`, a `PathIcon` in the nav pane, redrawn at every size | a brush on the shapes |
+| [web-dom](/docs/reference/platforms/web-dom) | the SVG, rendered by the browser | a CSS mask painted with the tint |
+| [harmony-arkui](/docs/reference/platforms/harmony-arkui) | the SVG in `rawfile`, rendered by ArkUI's `Image` | SVG fill color |
+| [linux-gtk](/docs/reference/platforms/linux-gtk), macos-gtk, windows-gtk | retained SVG rendered by librsvg 2.52+ and Cairo at the requested size, including the `vector` piece | an alpha-preserving render-node color matrix |
+| [linux-qt](/docs/reference/platforms/linux-qt), macos-qt, windows-qt | retained SVG rendered by `QSvgRenderer` at the requested size, including the `vector` piece | alpha compositing at the current paint resolution |
 
 Qt SVG and librsvg development libraries are required at build time. On Debian/Ubuntu,
 install `qt6-svg-dev` for Qt or `librsvg2-dev` (2.52+) for GTK. Homebrew supplies them through
 `qt` and `librsvg`; MSYS2 supplies `qt6-svg` and `librsvg` with the matching environment prefix.
-See [system requirements](/docs/system-requirements) for complete commands. `day doctor`
+See [system requirements](/docs/reference/system-requirements) for complete commands. `day doctor`
 checks both dependencies and enforces librsvg's minimum version. GTK controls that accept
 only icon-theme names, including settings group icons and `AdwViewSwitcher`, still use the
 symbolic PNG cache; ordinary vector pieces and image widgets retain their SVG geometry.
 
 > [!NOTE]
-> Every [backend](/docs/glossary#backend) recolors a template glyph, and on six of them (AppKit, UIKit, Android, GTK, Qt,
-> and web) a tint bound to a [signal](/docs/glossary#signal) repaints the realized view instead of rebuilding it. XAML and
-> ArkUI take the tint when the glyph is realized, so a [reactive](/docs/glossary#reactive) tint there lands on the next
+> Every [backend](/docs/reference/glossary#backend) recolors a template glyph, and on six of them (AppKit, UIKit, Android, GTK, Qt,
+> and web) a tint bound to a [signal](/docs/reference/glossary#signal) repaints the realized view instead of rebuilding it. XAML and
+> ArkUI take the tint when the glyph is realized, so a [reactive](/docs/reference/glossary#reactive) tint there lands on the next
 > rebuild.
 
 ### Where a vector degrades to a raster
@@ -162,7 +167,7 @@ behind a raster that still looks right.
 (SF Symbols exports, `.symbolset` bundles) carry real Light and Bold variants; a plain SVG aliases
 all three to the same glyph, so the call degrades to Regular rather than to a missing asset.
 
-The [vectors reference](/docs/internal/vectors) covers the staging in full, including how packed
+The [vectors reference](/docs/reference/vectors) covers the staging in full, including how packed
 apps carry these forms without the launch environment.
 
 ## Custom fonts: `resource/fonts/`
@@ -185,9 +190,10 @@ like `Font::System(pt)`.
 The following restrictions are enforced as **hard errors at build time**, because each would
 otherwise surface as a confusing runtime-only failure on one platform:
 
-- **`.ttf` and `.otf` only:** Android's `res/font/` accepts nothing else, so Day holds every
-  platform to the same rule. Convert collections (`.ttc`) and variable fonts to single static
-  faces before bundling.
+- **`.ttf` and `.otf` only:** the staging scanner rejects other extensions, including font
+  collections (`.ttc`), and requires a readable family name. It does not reject a font merely
+  for having variation tables. The portable font API does not expose arbitrary variation axes;
+  check the resulting face and synthesized styles on your targets.
 - **One face per family:** Staged file names are derived from the family name (lowercased,
   `[a-z0-9_]`), so a second face of the same family would collide. Ship the regular face; bold
   and italic are synthesized where the platform can.
@@ -209,12 +215,12 @@ the only icon file in the repository. `day prepare` renders every platform's set
 asset catalogs, an Icon Composer package) under `build/day/host/`, which the host projects
 reference by path and every build refreshes when the master changes. A per-platform override
 beside the master (`macos.svg`, `android.svg`, …) replaces it for that platform alone. The
-[icons guide](/docs/guide-icons) covers the layered master and the outputs.
+[icons guide](/docs/how-to/guide-icons) covers the layered master and the outputs.
 
 ## Localized strings are resources too
 
 `resource/locales/<lang>/app.ftl` files are compiled in via `include_str!` at the moment
-([localization guide](/docs/localization)), and OS-facing strings (the app's display name) are
+([localization guide](/docs/how-to/localization)), and OS-facing strings (the app's display name) are
 conveyed into platform manifests at build time. Piece packages can carry their own `locales/` and
 resources, which aggregate into your app without name collisions.
 
@@ -232,6 +238,67 @@ resource/images/wave@2x.png ─┐  resource/fonts/Pacifico-Regular.ttf ─┐  
    └───────────────────────────────────────────────────────────────────────┘
 ```
 
-Staging is best-effort in development: if a resource compiler is missing (say `rcc` on an
-unusual Qt install), the build warns and the app falls back to loading loose files from the
-project directory instead of failing. Packaged builds via `day pack` bundle every resource.
+Development launch can use loose resource files, so a successful development run does not
+prove that a package contains them. Check staging diagnostics and test the packaged app without
+access to the source directory. Missing-tool behavior depends on the target's staging path;
+do not rely on a development fallback for distribution.
+
+## Validate generated access and runtime loading
+
+Start with the scaffold's `day_build::prebuild_project()` in `build.rs` and `day::resources!()`
+in the app crate. Add the resource, rebuild, then use its generated `res::assets`, `res::images`,
+`res::vectors`, or `res::fonts` constant. A generated identifier proves the name was discovered
+at build time; it does not prove runtime packaging, decoding, or backend support. Handle the
+resource API's missing/error result where applicable.
+
+The snippets are integration fragments requiring the files named in their comments. Do not use
+`include_bytes!`, `include_str!`, or dynamic-name constructors for known app bundles. The generator
+may use inclusion internally; that is not an app-level bypass. Open a bundled web document through
+its generated AssetDir constant and leave its internal links document-relative. Supply embedded
+web text from generated localized accessors with no English fallback.
+
+Source: [resource generation](https://github.com/daybrite/day/blob/main/crates/day-build/src/lib.rs)
+and [platform staging](https://github.com/daybrite/day/tree/main/crates/day-cli/src/resources).
+Check that bundled images and fonts load in each packaged target, including paths used only
+by a secondary screen.
+
+## Handle a missing bundled file
+
+Create `resource/assets/recipe_data.json` with the JSON below. Rebuild to generate its
+`res::assets` constant. This module reads the byte length and gives a localized error when the
+runtime resource cannot be opened. A generated name checks discovery, not packaging success.
+
+Complete module for `src/resource_recipe.rs` in the
+[technical recipe harness](/docs/reference/examples/catalog#technical-recipes).
+Add the matching Fluent messages below. This module is compiled as part of the harness;
+it is not a standalone app.
+
+<!-- technical-example: resource_recipe -->
+```rust
+use crate::res;
+use day::prelude::*;
+
+pub fn bundled_data() -> impl Piece {
+    match day::resource(res::assets::recipe_data_json) {
+        Some(data) => label(res::str::resource_bytes(data.len() as i64)).id(id!(resource_status)),
+        None => label(res::str::resource_missing()).id(id!(resource_status)),
+    }
+}
+```
+
+<!-- technical-catalog: resource_recipe -->
+```ftl
+resource_bytes = Bundled data: { $bytes } bytes
+resource_missing = The bundled data could not be opened.
+```
+
+Synthetic data for the example, not a published data set:
+
+<!-- technical-resource: resource/assets/recipe_data.json -->
+```json
+{"stations": []}
+```
+
+The harness checks the generated accessor and exercises both successful loading and a missing
+file. It does not establish image decoding, font rendering, or packaged resource staging on
+other platforms.

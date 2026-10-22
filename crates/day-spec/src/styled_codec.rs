@@ -25,7 +25,7 @@ use crate::{
 pub struct DocStyle {
     pub base: Font,
     /// The point size `base` resolves to, for formats that speak in absolute sizes (RTF's
-    /// half-points, HTML's `px`). Only used to convert their sizes to a [`FontSpec::scale`] and
+    /// half-points, HTML's `px`). Only used to convert their sizes to a [`FontSpec::scale`](crate::FontSpec::scale) and
     /// back, so an imprecise value costs relative accuracy, not correctness.
     pub base_points: f64,
 }
@@ -79,10 +79,10 @@ fn heading_level_for(scale: f64) -> Option<u8> {
 // ===========================================================================
 
 /// Parse markdown into a styled document: the inline grammar
-/// ([`crate::markdown`](crate::markdown)) plus the block constructs a document editor needs:
+/// ([`crate::markdown`]) plus the block constructs a document editor needs:
 /// ATX headings, `>` quotes, and `-`/`1.` lists.
 ///
-/// Headings become a **run** (bold at [`heading_scale`]) rather than a paragraph attribute,
+/// Headings become a **run** (bold at the level-dependent heading scale) rather than a paragraph attribute,
 /// because a heading is a size and a weight, and Day's paragraph attributes are alignment,
 /// indent and list decoration. Quotes and list items become paragraph runs, which is what they
 /// are.

@@ -565,7 +565,7 @@ pub fn standard_menu_bar_for(
 /// backend passes its platform's bar (macOS trails Window and Help; KDE trails Settings and
 /// Help; GNOME and Windows trail Help alone). `stock` returns the backend's house version of a
 /// slot, or `None` where that platform has no such menu. Menus the app tagged with
-/// [`MenuBarRole`] replace the stock one in place, so an app customizes a standard menu by
+/// [`day_spec::MenuBarRole`] replace the stock one in place, so an app customizes a standard menu by
 /// claiming it rather than by rebuilding the whole bar.
 pub fn standard_menu_bar(
     app_menus: Vec<day_spec::MenuItem>,

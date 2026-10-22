@@ -1,8 +1,8 @@
 ---
 title: Packaging & distribution
-description: day pack — building signed, standalone, installable packages for every platform, and the signing configuration in Day.toml.
+description: "Build desktop installers and mobile app packages, configure signing, and inspect distribution status."
 order: 32
-section: Build & ship
+section: How-to guides
 ---
 
 <!--
@@ -10,12 +10,12 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-`day pack` turns a Day project into an installable package. It builds in release mode, invokes
+`day pack` turns a Day project into an installable package. It defaults to a release build, invokes
 the platform’s signing and packaging tools, and writes the output, checksum, and signing status
 to `build/day/dist/`.
 
 The command runs from the project directory and requires the target’s
-[packaging tools](/docs/system-requirements#optional-packaging-tools). For an Android APK:
+[packaging tools](/docs/reference/system-requirements#optional-packaging-tools). For an Android APK:
 
 ```bash
 day pack -t android-mdc --formats apk
@@ -23,7 +23,10 @@ day pack -t android-mdc --formats apk
 
 Configure release credentials before distributing the result. Without them, Day can produce a
 development-signed or unsigned artifact; check the reported [signing tier](#signing-tiers).
-If signing fails, start with the [signing checks](/docs/troubleshooting#signing-or-provisioning-fails).
+If signing fails, start with the [signing checks](/docs/how-to/troubleshooting#signing-or-provisioning-fails).
+
+Build and install a release package on each target before distributing it. Configure signing
+credentials and check the destination store’s submission requirements.
 
 ## Artifacts per target
 
@@ -39,7 +42,7 @@ If signing fails, start with the [signing checks](/docs/troubleshooting#signing-
 | `web-dom` | Static `dist/` directory | Static hosting; use `day build` |
 
 The development combinations `macos-gtk`, `macos-qt`, `windows-gtk`, and `windows-qt` do not have a
-`day pack` step. See [platform support](/docs/platforms) for their limitations.
+`day pack` step. See [platform support](/docs/reference/platforms) for their limitations.
 
 ### macOS and iOS
 
@@ -76,7 +79,7 @@ flatpak install ./my-app-1.0-linux-gtk-x86_64.flatpak
 
 The filename includes the toolkit so GTK and Qt bundles can coexist. The webview crate declares a Qt WebEngine BaseApp requirement, which Day includes when the
 binary links that engine. Other dependencies can declare their own
-[Flatpak base requirements](/docs/internal/extending#flatpak-dependencies).
+[Flatpak base requirements](/contributing/backend-contracts/extending#flatpak-dependencies).
 
 An AppImage bundles the toolkit libraries with the executable. Mark it executable before running it:
 
@@ -111,6 +114,8 @@ WebAssembly module, images, and fonts.
 ## Packaging options
 
 Use `--formats` to select a subset of output formats, as in the Android example above.
+`--profile` defaults to `release`; another supported profile changes the build configuration,
+not whether the resulting signing tier is suitable for distribution.
 `--no-sign` skips signing and names the store package for a signer that runs later
 (`<stem>-<target>-unsigned.ipa`, `.aab`, `.apk` or `.hap`, which `day sign apply` takes as it
 is), and `--no-notarize` skips macOS notarization. To submit notarization
@@ -204,7 +209,9 @@ runner that holds the key. A `.hap` takes the same shape with its three files:
 DAY_SIGN_STORE_PASS=… DAY_SIGN_KEY_PASS=… \
   day sign apply app-unsigned.hap --keystore release.p12 --cert app.cer \
     --profile app.p7b --key-alias release
-``` The passwords stay in the environment, out of the argument list. `.aab` goes through `jarsigner`, `.apk` through `zipalign`
+```
+
+The passwords stay in the environment, out of the argument list. `.aab` goes through `jarsigner`, `.apk` through `zipalign`
 then `apksigner` (v4 off, so no `.idsig` litter), and passwords reach both through the
 environment rather than the argument list, which every other process on the machine can read.
 
@@ -232,7 +239,7 @@ repack with `ditto`.
 ```sh
 day sign apply app.ipa \
   --profile "AppStore.mobileprovision" \
-  --identity "iPhone Distribution: The App Fair Project Inc (25KG25YA3R)"
+  --identity "Apple Distribution: Example Inc (ABCDE12345)"
 ```
 
 `--profile` and `--identity` default to `signing.ios.profile` and `signing.ios.identity`. The
@@ -291,7 +298,7 @@ the hardened runtime and the app's entitlements, verifies the result with
 `codesign --verify --deep --strict`, wraps it with `productbuild`, and checks the package with
 `pkgutil --check-signature`.
 
-**Entitlements come from the app.** A Day build signs its [sandbox](/docs/internal/sandbox)
+**Entitlements come from the app.** A Day build signs its [sandbox](/docs/how-to/sandbox)
 policy into the bundle, even ad hoc, and that policy is what the store build keeps. Day adds the
 two identifiers the profile ties the signature to (`com.apple.application-identifier` and
 `com.apple.developer.team-identifier`) and drops the debugger grant. `--entitlements <file>`
@@ -308,7 +315,7 @@ Before signing, Day checks what App Store Connect would otherwise reject after t
 - Every `com.apple.developer.*` capability the app asks for is granted by the profile.
 
 Declare permissions in `Day.toml` `[permissions]` and Day writes their usage descriptions into
-`platform/macos/Runner/Info.plist` ([permissions](/docs/internal/permissions)). Add the category to
+`platform/macos/Runner/Info.plist` ([permissions](/docs/reference/permissions)). Add the category to
 the same file:
 
 ```xml
@@ -317,7 +324,7 @@ the same file:
 ```
 
 The store listing and the upload lanes come from `store/storefront.toml`; see
-[App Store Submissions](/docs/app-store-submissions#the-mac-app-store).
+[App Store Submissions](/docs/how-to/app-store-submissions#the-mac-app-store).
 
 ## Signing tiers
 
@@ -340,17 +347,27 @@ notarization) is a hard failure with exit code 6.
 
 ## Continuous integration
 
-The shared [GitHub Actions workflow](/docs/github-actions) packages an app's supported targets
-and uploads `dist-<target>` artifacts. Version tags create GitHub releases with packages,
-checksums and provenance. Branch builds use development signing; release signing requires the
-corresponding credentials and workflow configuration.
+The [GitHub Actions guide](/docs/how-to/github-actions) describes the intended app packaging and
+release workflow. Its reusable implementation lives outside this checkout and was not inspected
+in this repository-only review. Verify the workflow revision, artifact names, signing setup,
+and upload behavior before relying on it for distribution.
 
-See [App Store Submissions](/docs/app-store-submissions) for iOS, Mac App Store and Android
+See [App Store Submissions](/docs/how-to/app-store-submissions) for iOS, Mac App Store and Android
 signing secrets, store records and upload lanes. macOS download signing and notarization use the
 shared workflow's [`signing-environment` input](https://github.com/daybrite/actions#signing).
 
 ## macOS App Sandbox
 
 Enable `[sandbox.macos-appkit] enabled = true` in Day.toml to sandbox AppKit builds and
-packaged apps. See [macOS sandboxing](/docs/internal/sandbox) for configuration, native file
+packaged apps. See [macOS sandboxing](/docs/how-to/sandbox) for configuration, native file
 access, persistent bookmarks, and App Store distribution limitations.
+
+## Separate configuration checks from distribution evidence
+
+Use `day pack --help` to verify the installed version's options and `day doctor --toolkit <name>`
+to diagnose its SDKs. Signing and store acceptance are separate from building the package.
+
+Source: [pack dispatch](https://github.com/daybrite/day/blob/main/crates/day-cli/src/pack/mod.rs)
+and [packaging implementations](https://github.com/daybrite/day/tree/main/crates/day-cli/src/pack).
+Keep credentials out of examples and logs. No signing, publishing, or store submission command
+was executed during this documentation work.

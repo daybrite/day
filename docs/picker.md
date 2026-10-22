@@ -16,7 +16,7 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 > `day::prelude::*`, with no dependency to add.
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
-[example messages](snippet-catalog.md) and [catalog setup](https://daybrite.dev/docs/localization).
+[example messages](snippet-catalog.md) and [catalog setup](https://daybrite.dev/docs/how-to/localization).
 
 ## Authoring
 

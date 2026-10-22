@@ -38,7 +38,7 @@ pub struct ListDriver {
 }
 
 /// The reorder closures the `list()` piece supplies (docs/list.md). Exposed to the backend as
-/// [`day_spec::ListReorder`] by [`make_source`]; also driven directly by
+/// [`day_spec::ListReorder`] by the list source adapter; also driven directly by
 /// [`list_try_reorder`] (the dayscript `reorder` step and the mock probe).
 pub struct ListReorderDriver {
     /// Consult the app's guard: returns the accepted target index, or -1 to deny.
@@ -49,7 +49,7 @@ pub struct ListReorderDriver {
 }
 
 /// The delete closures the `list()` piece supplies (docs/list.md). Exposed to the backend as
-/// [`day_spec::ListDelete`] by [`make_source`]; also driven directly by [`list_try_delete`]
+/// [`day_spec::ListDelete`] by the list source adapter; also driven directly by [`list_try_delete`]
 /// (the dayscript `delete_row` step and the mock probe).
 pub struct ListDeleteDriver {
     /// Consult the app's guard: may this row be deleted?
@@ -60,7 +60,7 @@ pub struct ListDeleteDriver {
 }
 
 /// The swipe-action closures the `list()` piece supplies (docs/list.md). Exposed to the
-/// backend as [`day_spec::ListSwipe`] by [`make_source`]; also driven directly by
+/// backend as [`day_spec::ListSwipe`] by the list source adapter; also driven directly by
 /// [`list_try_swipe`] (the dayscript `swipe_row` step and the mock probe).
 pub struct ListSwipeDriver {
     /// The offer: the actions for row `index` on `edge`. Pure; runs inside native swipe

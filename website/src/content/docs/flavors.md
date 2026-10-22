@@ -2,7 +2,7 @@
 title: Build flavors
 description: Ship one source tree as several apps — a paid build, a white-label build, a demo — with Day-<name>.toml and day build --flavor.
 order: 32
-section: Build & ship
+section: How-to guides
 ---
 
 <!--
@@ -49,19 +49,19 @@ day pack   --flavor custom -t android-mdc
 is what a CI job sets for a matrix leg.
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
-[example messages](/docs/internal/snippet-catalog) and [catalog setup](/docs/localization).
+[example messages](/docs/reference/examples/catalog) and [catalog setup](/docs/how-to/localization).
 
 ## What a flavor can change
 
 - **Identity.** `id`, `title`, `artifact`, `scheme` and `build`, including the
-  `[app.<platform>]` override tables [Day.toml](/docs/project-structure) already takes. A
+  `[app.<platform>]` override tables [Day.toml](/docs/reference/project-structure) already takes. A
   different `id` installs beside the base app rather than replacing it.
 - **The version.** `version` replaces the one Cargo.toml carries, which `Day.toml` itself cannot
   do. A flavor that ships under an app id with a release history behind it needs a version above
   what that record already published, and the crate has no way to know that number.
 - **Targets.** `targets` replaces the base list, so a flavor can ship on fewer platforms or more.
 - **Code.** `[cargo] features` adds cargo features, on top of the backend feature and the ones
-  the app's [pieces](/docs/glossary#piece) need.
+  the app's [pieces](/docs/reference/glossary#piece) need.
 - **Values.** `[env]` reaches every build tool the run spawns, so `build.rs` and
   `option_env!("NOTES_EDITION")` see it.
 - **Resources.** `resources` names a `resource/`-shaped directory that is merged over the app's
@@ -92,7 +92,7 @@ pub fn edition_badge() -> String {
 ```
 
 Text that differs per flavor is better placed in the resource overlay, where it stays
-[translatable](/docs/localization).
+[translatable](/docs/how-to/localization).
 
 ## Where the output goes
 
@@ -103,7 +103,7 @@ hold them all.
 
 ## One dayscript, both apps
 
-A flavor changes what the app says, so the [dayscript](/docs/dayscript) gates match it too:
+A flavor changes what the app says, so the [dayscript](/docs/how-to/dayscript) gates match it too:
 `skip_on: [flavor:custom]` and `only_on: [flavor:custom]`, with `flavor:none` for the base app.
 
 ```yaml
@@ -123,7 +123,7 @@ discovers what a project can build.
 
 ## In CI
 
-The [Day app workflow](/docs/github-actions) takes a `flavors:` input. Each name becomes a matrix leg
+The [Day app workflow](/docs/how-to/github-actions) takes a `flavors:` input. Each name becomes a matrix leg
 per target, alongside the base app:
 
 ```yaml

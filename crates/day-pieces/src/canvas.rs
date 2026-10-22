@@ -226,7 +226,7 @@ impl Default for TextStyle {
 }
 
 impl Draw {
-    /// Fill a shape with a solid color or a [`LinearGradient`] (both convert to [`Paint`];
+    /// Fill a shape with a solid color or a [`day_spec::LinearGradient`] (both convert to [`Paint`];
     /// gradient unit points resolve against the shape's bounding box, docs/shapes.md §3.2).
     pub fn fill(&mut self, shape: Shape, paint: impl Into<Paint>) {
         self.ops.push(DrawOp::Fill(shape, paint.into()));

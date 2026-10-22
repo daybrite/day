@@ -1,12 +1,10 @@
 # Day
 
-> Day is a Rust framework for building cross-platform desktop and mobile apps that are genuinely
-> native — you write one declarative UI as a tree of Pieces, and each Piece is realized by a real
-> native widget (AppKit, UIKit, GTK, Qt, XAML, Android) through a per-platform toolkit backend. There
-> is no virtual DOM and no diffing: the native tree is built once and Signals bind straight to native
-> attributes ("build once, bind forever").
+> Day builds native desktop and mobile apps from shared Rust code. Pieces describe the interface;
+> each backend creates controls through its platform’s UI toolkit. Signals update the controls
+> that depend on them. Structural changes can create or remove subtrees.
 
-This file follows the llmstxt.org convention. The page at /docs/for-agents is written specifically for
+This file follows the llmstxt.org convention. The page at /docs/reference/for-agents is written specifically for
 AI agents (dense, rule-based, canonical); start there if you are generating Day code.
 
 ## Quick facts
@@ -21,21 +19,30 @@ AI agents (dense, rule-based, canonical); start there if you are generating Day 
 - CLI: `day new` (interactive scaffold; `day new app|piece|part <name> …` non-interactive) · `day build
   -t <target>` · `day launch -t <target>` · `day launch -t <target> --script <s.yaml>` (drive/assert a
   running app) · `day pack` · `day lint` · `day doctor`.
-- Give any Piece a stable `.id("…")` so dayscript, tests, and deep links can address it.
+- Give any Piece a stable `.id(id!(control_name))` so dayscript, tests, and deep links can address it.
 
 ## Docs
 
-- [For AI Agents](https://daybrite.dev/docs/for-agents): dense, canonical, rule-based reference for LLMs — invariants, canonical patterns, API cheat-sheet, failure modes.
-- [Overview](https://daybrite.dev/docs/overview): what Day is, how it works, the targets it ships.
-- [Why Day](https://daybrite.dev/docs/benefits): the case for native widgets + build-once/bind-forever.
-- [API tour](https://daybrite.dev/docs/api-tour): Pieces, Signals, layout, inputs, navigation, localization, accessibility, extensibility — with runnable snippets.
-- [CLI & projects](https://daybrite.dev/docs/cli): the `day` CLI, the conventional project layout, `Day.toml`, and dayscript automation.
+- [For AI Agents](https://daybrite.dev/docs/reference/for-agents): dense, canonical, rule-based reference for LLMs — invariants, canonical patterns, API cheat-sheet, failure modes.
+- [Overview](https://daybrite.dev/docs/explanation/overview): what Day is, how it works, the targets it ships.
+- [Why Day](https://daybrite.dev/features): the case for native widgets + build-once/bind-forever.
+- [API tour](https://daybrite.dev/docs/reference/api-tour): Pieces, Signals, layout, inputs, navigation, localization, accessibility, extensibility — with runnable snippets.
+- [CLI & projects](https://daybrite.dev/docs/reference/cli): the `day` CLI, the conventional project layout, `Day.toml`, and dayscript automation.
 
-## Internal reference
+## Documentation by task
 
-The framework's internal design and reference docs (the repo's `docs/` folder) are published verbatim on the web for contributors and framework authors.
+Canonical app documentation is grouped by purpose:
 
-- [Internal docs index](https://daybrite.dev/docs/internal): every internal doc, grouped into Core & UI, Pieces, Parts, and Platform & tooling. Individual docs live at `https://daybrite.dev/docs/internal/<name>` (e.g. `/docs/internal/navigation`, `/docs/internal/shapes`, `/docs/internal/extending`).
+- [Tutorials](https://daybrite.dev/docs/tutorials): guided learning.
+- [How-to guides](https://daybrite.dev/docs/how-to): specific tasks.
+- [Reference](https://daybrite.dev/docs/reference): app contracts, commands, configuration, and compatibility.
+- [Explanation](https://daybrite.dev/docs/explanation): framework concepts for app developers.
+- [Contributing](https://daybrite.dev/contributing): framework setup, architecture, backend contracts, documentation standards, design records, and history.
+- [Design records](https://daybrite.dev/contributing/design): proposals and historical plans, not stable API reference.
+
+Repository documents remain canonical in `docs/`; public routes are recorded in
+`website/src/data/content-routes.json`. Source paths do not determine the public route.
+
 
 ## Invariants (for code generation)
 

@@ -1,6 +1,6 @@
 # {{title}}'s CI: every target the app declares, its walkthrough in every language it ships, and
 # on a version tag the packages for a GitHub release, through the workflow every Day app uses
-# (https://daybrite.dev/docs/github-actions). Nothing here builds the app itself; the shared
+# (https://daybrite.dev/docs/how-to/github-actions). Nothing here builds the app itself; the shared
 # workflow installs the toolchains, builds, runs the dayscripts and packages each target.
 name: "{{repo}}"
 
@@ -26,7 +26,7 @@ jobs:
       pages: write    # web-dom → GitHub Pages (deploy-web)
       id-token: write # deploy-pages OIDC token (deploy-web)
     # Repository secrets reach the workflow's signing and store-upload jobs, and only those, once
-    # they exist (https://daybrite.dev/docs/app-store-submissions). None are needed to build.
+    # they exist (https://daybrite.dev/docs/how-to/app-store-submissions). None are needed to build.
     secrets: inherit
     with:
       # Every target Day.toml declares (`[app] targets`), so `day project add-target` reaches CI

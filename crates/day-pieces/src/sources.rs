@@ -86,7 +86,7 @@ impl IntoText<SourceMark> for TextSource {
     }
 }
 
-/// A focus-binding target for [`Decorate::focused`] (docs/focus.md): either a `Signal<bool>`
+/// A focus-binding target for [`Decorate::focused`](crate::decorators::Decorate::focused) (docs/focus.md): either a `Signal<bool>`
 /// (one control) or a `(Signal<Option<K>>, K)` pair (one control of a group sharing a signal).
 /// The two-marker split is the same E0119 dodge as [`IntoText`].
 pub trait IntoFocusBinding<M> {

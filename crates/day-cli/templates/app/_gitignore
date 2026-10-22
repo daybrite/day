@@ -19,7 +19,7 @@
 Thumbs.db
 
 # Signing material and store credentials never belong in the repository. CI reads them from
-# repository secrets (https://daybrite.dev/docs/app-store-submissions), and a local release
+# repository secrets (https://daybrite.dev/docs/how-to/app-store-submissions), and a local release
 # pack reads them from the environment through `Day.toml`'s `[signing]` tables: an Apple
 # certificate, an App Store Connect or notary key, an Android or HarmonyOS keystore, a
 # provisioning profile, and a `.env` holding the variables those tables and the store lanes

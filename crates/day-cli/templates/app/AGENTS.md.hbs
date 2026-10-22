@@ -5,14 +5,14 @@ sections, and Settings in the desktop app menu or mobile navigation.
 
 ## Day documentation
 
-Start with [For AI Agents](https://daybrite.dev/docs/for-agents), the concise reference for
+Start with [For AI Agents](https://daybrite.dev/docs/reference/for-agents), the concise reference for
 Day's conventions, reactive patterns, APIs, and development workflow.
 
 - [Machine-readable documentation index](https://daybrite.dev/llms.txt): discover the relevant
   guides and detailed references before implementing a feature.
-- [API tour](https://daybrite.dev/docs/api-tour): examples of pieces, state, layout, navigation,
+- [API tour](https://daybrite.dev/docs/reference/api-tour): examples of pieces, state, layout, navigation,
   localization, and accessibility.
-- [Testing with dayscript](https://daybrite.dev/docs/dayscript): drive the app, assert behavior,
+- [Testing with dayscript](https://daybrite.dev/docs/how-to/dayscript): drive the app, assert behavior,
   and capture screenshots.
 
 Use examples with the API supported by this project's Day dependency version. Check
@@ -29,7 +29,7 @@ Use examples with the API supported by this project's Day dependency version. Ch
 - `dayscript/demo.yaml`: the portable walkthrough and its screenshots.
 - `Day.toml`: app identity, targets, window options, and permissions.
 - `platform/android/AndroidManifest.xml`: optional Android manifest overlay; keep only app-specific
-  declarations, following https://daybrite.dev/docs/platforms/android-mdc#manifest-customization.
+  declarations, following https://daybrite.dev/docs/reference/platforms/android-mdc#manifest-customization.
 - `platform/`: app-owned native sources and configuration; build projects are generated under `build/`.
 
 ## Conventions

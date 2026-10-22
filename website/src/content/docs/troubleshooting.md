@@ -2,7 +2,7 @@
 title: Troubleshooting
 description: Diagnose setup, build, device, signing, and launch problems in a Day project.
 order: 5
-section: Start here
+section: How-to guides
 ---
 
 <!--
@@ -62,23 +62,56 @@ Doctor uses toolkit names, while build and launch commands use target names:
 | `harmony-arkui` | `harmonyos` |
 | `web-dom` | `dom` |
 
-Install the missing tools using [system requirements](/docs/system-requirements), then repeat the
+Install the missing tools using [system requirements](/docs/reference/system-requirements), then repeat the
 focused check. A successful check means those tools were found; it does not validate your app’s
 code, signing credentials, or device connection.
 
 ## `day` is not found
 
 If `cargo` is also missing, install [Rust through rustup](https://rustup.rs), then open a new
-terminal. Otherwise, install the CLI:
+terminal. Install the Day CLI:
 
-```bash
-cargo install day-cli
+```sh
+cargo install --git https://github.com/daybrite/day day-cli
 ```
 
-If installation succeeds but `day --version` still fails, check that Cargo’s executable directory
-is on `PATH`. With the default Cargo location, that is `~/.cargo/bin` on macOS and Linux, or
-`%USERPROFILE%\.cargo\bin` on Windows. A custom `CARGO_HOME` changes that location.
-Restart your editor if its integrated terminal still has the old environment.
+If installation succeeds but the shell cannot find `day`, open a new terminal. Rustup normally
+adds Cargo's executable directory to PATH, but existing terminals and editors can retain the
+old environment. Restart your editor if its integrated terminal still cannot find the command.
+
+On macOS or Linux, with a default Rust installation, enable it in the current Bash or Zsh session:
+
+```sh
+export PATH="$HOME/.cargo/bin:$PATH"
+day --version
+```
+
+If new terminals still need this fix, add the `export` line once to `~/.zshrc` for Zsh or
+`~/.bashrc` for interactive Bash. Bash login shells use a login profile such as `~/.bash_profile`;
+it can source `~/.bashrc` to share the setting.
+
+To run the installed command without changing PATH:
+
+```sh
+"$HOME/.cargo/bin/day" --version
+```
+
+On Windows PowerShell, the equivalent direct invocation is:
+
+```powershell
+& "$env:USERPROFILE\.cargo\bin\day.exe" --version
+```
+
+For a persistent Windows fix, add `%USERPROFILE%\.cargo\bin` to your user `Path` in the Windows
+environment-variable settings, then reopen the terminal.
+
+These paths assume Cargo's default installation directory. If you set `CARGO_HOME`,
+`CARGO_INSTALL_ROOT`, Cargo's `install.root`, or `cargo install --root`, use the actual installation
+directory's `bin` folder instead. See [Cargo's installation-root rules](https://doc.rust-lang.org/cargo/commands/cargo-install.html).
+
+`cargo run` builds and runs a local project's executable; it does not launch a package installed
+by `cargo install`. `cargo run day-cli` is therefore not a replacement for `day`.
+See the [Cargo run reference](https://doc.rust-lang.org/cargo/commands/cargo-run.html).
 
 ## The first build is slow or fails
 
@@ -123,7 +156,7 @@ rustup target add wasm32-unknown-unknown
 ```
 
 For mobile builds, choose the target that matches the device or simulator architecture; the
-[requirements guide](/docs/system-requirements) lists the choices. Install it for the Rust
+[requirements guide](/docs/reference/system-requirements) lists the choices. Install it for the Rust
 toolchain your project uses, as shown by `rustup show active-toolchain` inside the
 project directory. Rustup’s [cross-compilation guide](https://rust-lang.github.io/rustup/cross-compilation.html)
 explains target installation; platform SDKs and linkers are separate requirements.
@@ -146,7 +179,7 @@ sudo xcode-select -s /Applications/Xcode.app
 ```
 
 Open Xcode and complete any first-launch component installation or license prompts. If you keep
-Xcode elsewhere, use that installation’s path. See [macOS requirements](/docs/system-requirements#macos).
+Xcode elsewhere, use that installation’s path. See [macOS requirements](/docs/reference/system-requirements#macos).
 
 For an iOS launch, check the available simulators:
 
@@ -174,7 +207,7 @@ component in Android Studio’s SDK Manager. If your SDK is outside its usual lo
 
 For Java or Gradle compatibility errors, check the JDK selected by `JAVA_HOME`. Day’s Gradle
 builds use that setting, so a newer `java` on `PATH` does not fix a `JAVA_HOME` pointing at an older
-JDK. Follow the [Android setup instructions](/docs/system-requirements#android), then repeat doctor.
+JDK. Follow the [Android setup instructions](/docs/reference/system-requirements#android), then repeat doctor.
 
 Installing Android Studio gives you the SDK and a JDK, but not everything the build needs. These are
 the errors a fresh Studio install typically produces, in the order a first build meets them:
@@ -230,7 +263,7 @@ day doctor --toolkit qt
 ```
 
 Run the check for the toolkit you use. Day’s GTK backend requires GTK 4.10 and libadwaita 1.5 or
-newer; the Qt backend requires Qt 6. [Linux requirements](/docs/system-requirements#linux) lists the
+newer; the Qt backend requires Qt 6. [Linux requirements](/docs/reference/system-requirements#linux) lists the
 packages. If your distribution supplies older libraries, use a newer development environment
 or choose a backend whose requirements it meets.
 
@@ -249,7 +282,7 @@ rustup show active-toolchain
 `windows-winui` needs the MSVC toolchain, Visual Studio C++ Build Tools, and the Windows SDK.
 A missing `link.exe` points to that setup. Windows GTK and Qt builds use MSYS2 packages and a
 GNU-compatible Rust toolchain; mixing their import libraries with MSVC causes linking failures.
-Follow the [Windows setup instructions](/docs/system-requirements#windows) for your backend and
+Follow the [Windows setup instructions](/docs/reference/system-requirements#windows) for your backend and
 host architecture, then run its focused doctor check in the same terminal.
 
 A `windows-winui` development build that links but offers a download page at start-up is missing
@@ -268,7 +301,7 @@ day devices list -t harmony-arkui
 
 Check which SDK `cargo ohos env` resolves (`error: no such command: ohos` means `cargo-ohos` is
 not installed: `cargo install --locked cargo-ohos`) and the command-line tools installation
-against the [HarmonyOS requirements](/docs/system-requirements#harmonyos). If doctor passes but the device list
+against the [HarmonyOS requirements](/docs/reference/system-requirements#harmonyos). If doctor passes but the device list
 is empty, finish the emulator or device setup before retrying the launch.
 
 These emulator failures have specific causes:
@@ -349,7 +382,7 @@ day sign check
 This checks whether configured environment variables and files can be resolved. It does not
 prove that a certificate or provisioning profile is valid for the app, device, and distribution
 method. Read the signing tool’s error, then check the app identifier, team, certificate, and
-profile it names. [Packaging and distribution](/docs/packaging) documents Day’s signing settings.
+profile it names. [Packaging and distribution](/docs/how-to/packaging) documents Day’s signing settings.
 Do not post private keys, passwords, or signing credentials when asking for help.
 
 ## The web build does not open correctly
@@ -363,13 +396,13 @@ day launch -t web-dom
 If compilation fails, run `day doctor --toolkit dom` and check that the wasm Rust target is
 installed. If the page loads but the app does not start, inspect the browser’s console and network
 panel for failed JavaScript or WebAssembly requests. See the
-[web platform guide](/docs/platforms/web-dom) for build and hosting details.
+[web platform guide](/docs/reference/platforms/web-dom) for build and hosting details.
 
 These are the errors you may meet running the web build's tests and checks:
 
 | Error | Cause and fix |
 |---|---|
-| A scripted run (`day launch -t web-dom --script …`) fails at its first `screenshot` step | A page cannot screenshot itself; the runner needs the headless browser driver. Install Playwright and set `DAY_WEB_DRIVER`, `DAY_WEB_DRIVER_PLAYWRIGHT` and `DAY_WEB_DRIVER_BROWSER` as the [web platform guide](/docs/platforms/web-dom#running-dayscripts) shows. Interactive `day launch` never needs it. |
+| A scripted run (`day launch -t web-dom --script …`) fails at its first `screenshot` step | A page cannot screenshot itself; the runner needs the headless browser driver. Install Playwright and set `DAY_WEB_DRIVER`, `DAY_WEB_DRIVER_PLAYWRIGHT` and `DAY_WEB_DRIVER_BROWSER` as the [web platform guide](/docs/reference/platforms/web-dom#running-dayscripts) shows. Interactive `day launch` never needs it. |
 | A scripted web run stops with `engine connection lost` after the driver prints `Playwright requires Node.js 20 or higher` | An older `node` is first on `PATH`. The OpenHarmony command-line tools bundle Node 18, so sourcing their environment (for `harmony-arkui`) shadows a newer system Node. Run the web script from a shell without it, or name the Node to use in the driver command: `DAY_WEB_DRIVER="/path/to/node $(day web driver)"`. |
 | File-storage steps fail under WebKit on Linux | Playwright's Linux WebKit has no Origin Private File System, which `day-part-fs` needs. Set `DAY_WEB_DRIVER_BROWSER=chromium`. |
 | `cargo check --target wasm32-unknown-unknown` on a Day crate fails in `getrandom` with "The wasm32/64-unknown-unknown are not supported by default" | `day build` routes getrandom to day-dom's entropy bridge with a cfg flag that plain `cargo` does not pass. Pass it yourself: `RUSTFLAGS='--cfg getrandom_backend="custom"' cargo check --target wasm32-unknown-unknown -p <crate>`. The `wasm_js` backend that getrandom's error message suggests needs the wasm-bindgen runtime, which Day's web build does not use. |
@@ -378,13 +411,13 @@ These are the errors you may meet running the web build's tests and checks:
 ## The app starts but does not work as expected
 
 Keep the launch terminal open and look for a panic or platform error when the problem happens.
-[Logging](/docs/logging) explains where Day sends app logs; [crash reporting](/docs/guide-crash-reporting)
+[Logging](/docs/how-to/logging) explains where Day sends app logs; [crash reporting](/docs/how-to/guide-crash-reporting)
 covers collecting failures from deployed apps.
 
 If only one feature fails, check its platform support and permissions. For example, a web view
 placeholder on a desktop target may mean its optional engine was not included; see
-[web view requirements](/docs/system-requirements#optional-web-views). Camera and other protected
-features may also need [permission configuration](/docs/guide-permissions).
+[web view requirements](/docs/reference/system-requirements#optional-web-views). Camera and other protected
+features may also need [permission configuration](/docs/how-to/guide-permissions).
 
 Two `.searchable()` symptoms come from older Day releases and are fixed by updating `day` and the
 app's Day dependency:
@@ -392,7 +425,7 @@ app's Day dependency:
 - **The toolbar search field loses focus after one letter, or clearing it leaves the list
   filtered** (GTK, AppKit, Qt). A letter that changed the selected page used to rebuild the whole
   toolbar, and the search field with it. The toolbar is now updated in place, and the field keeps
-  its focus and text ([commands and toolbars](/docs/guide-commands)).
+  its focus and text ([commands and toolbars](/docs/how-to/guide-commands)).
 - **An Android app shows no search field.** The field goes above the navigation list on Android.
   An intermediate release stopped installing it there.
 
@@ -415,7 +448,7 @@ Debian or Ubuntu, install the decoders, then restart the app:
 sudo apt install gstreamer1.0-libav
 ```
 
-[Optional: media playback](/docs/system-requirements#optional-media-playback) lists the full
+[Optional: media playback](/docs/reference/system-requirements#optional-media-playback) lists the full
 set. `libEGL warning: failed to get driver name for fd -1` and `MESA: error: ZINK: failed to
 choose pdev` in the same console are a separate, harmless matter: the app can't open the GPU
 (`/dev/dri/renderD128`), so GTK renders in software; everything else still draws. It happens
@@ -450,7 +483,7 @@ the script:
 | `engine connection lost (could not connect to the dayscript engine …)` right after `lifecycle: WillLaunch` (linux-gtk) | Another copy of the app is already running. A GTK app is single-instance, so the new launch hands itself to the running copy and exits. Quit the other copy first. |
 | Every `screenshot` step fails with `ui transitions still settling` (linux-gtk) | The app's window never draws a new frame, which GNOME does for a window that is covered or offscreen on Wayland. Keep the window visible, or run it as an X11 window with `GDK_BACKEND=x11` in the environment of `day launch`. |
 | The app crashes on a web view page; its output shows `bwrap: setting up uid map: Permission denied` and `Failed to fully launch dbus-proxy` (linux-gtk) | WebKitGTK runs web content in a bubblewrap sandbox, which needs unprivileged user namespaces, and Ubuntu 24.04's AppArmor restricts them (`sysctl kernel.apparmor_restrict_unprivileged_userns` reads `1`). For a local test run only, pass `--env WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS=1` to `day launch`. |
-| Web view steps fail with `QtWebEngine: no Qt6 WebEngine in this build` (linux-qt) | Qt WebEngine is optional and not installed. Install `qt6-webengine-dev` ([optional web views](/docs/system-requirements#optional-web-views)) and rebuild. |
+| Web view steps fail with `QtWebEngine: no Qt6 WebEngine in this build` (linux-qt) | Qt WebEngine is optional and not installed. Install `qt6-webengine-dev` ([optional web views](/docs/reference/system-requirements#optional-web-views)) and rebuild. |
 
 ## Still stuck?
 
@@ -464,3 +497,20 @@ Try the smallest app that reproduces the problem on one target. When you
 
 Remove credentials and personal information from logs before sharing them. Mention whether a
 newly created app fails too; that helps distinguish machine setup from a project-specific problem.
+
+## Diagnose contract mismatches
+
+| Symptom | Check |
+| --- | --- |
+| A label stays at its initial value | Pass a signal or tracked closure instead of a value read during construction |
+| Read of disposed signal | Move shared state above the page/window scope or cancel the callback that outlives it |
+| `Signal` fails a `Send` bound | Use `Setter` for worker delivery; `on_main` also requires a `Send` closure |
+| A request succeeds but returns an error page | Check `Response::status`; HTTP 4xx/5xx are responses, not transport failures |
+| Leaving a page does not stop work | `day::task` is not scope-owned; abort its handle or use a `Resource` |
+| Permission status is `Unknown` | Await `status_future` instead of relying on the first synchronous cache read |
+| A generated resource name exists but loading fails | Check staging and runtime resource availability separately from code generation |
+
+See [reactivity](/docs/explanation/reactivity), [HTTP](/docs/how-to/guide-http),
+[permissions](/docs/how-to/guide-permissions), and [resources](/docs/how-to/resources).
+These checks are based on the current source contracts. SDK-specific remediation and external
+media-extension behavior above remain unverified on targets not exercised in the phase report.

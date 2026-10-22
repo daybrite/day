@@ -14,7 +14,7 @@ Day's ninth backend renders in a browser. The DOM is the toolkit: a Day `button`
 `<button>`, a slider is `<input type="range">`, and a dialog is `<dialog>`, all semantic HTML
 plus ARIA. The backend is `toolkits/day-dom`, the target name is
 `web-dom`, and the feature is `dom`. Status: **experimental**
-([Tier 3](https://daybrite.dev/docs/platforms#support-tiers)); the capability subset below is
+([Tier 3](https://daybrite.dev/docs/reference/platforms#support-tiers)); the capability subset below is
 implemented, and the known gaps are listed at the end.
 
 ```bash
@@ -41,7 +41,7 @@ of Java/C. A plain ES-module shim owns every real DOM call; Rust holds numeric e
 crosses the boundary with `extern "C"` imports. The shim is plain JavaScript that the page loads
 directly, so the toolchain is rustc alone.
 
-```
+```text
 index.html                        app.wasm (Rust cdylib)
   #day-root                        day-dom   (Toolkit/Platform over the shim imports)
   shim.js  ──instantiate──▶        day-core / day-pieces / day-fluent

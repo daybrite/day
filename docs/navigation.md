@@ -22,7 +22,7 @@ you want the compiler to check destinations and their associated data. The strin
 (`navigate`, `nav_back`, `current_route`) lets deep links and dayscript address either form.
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
-[example messages](snippet-catalog.md) and [catalog setup](https://daybrite.dev/docs/localization).
+[example messages](snippet-catalog.md) and [catalog setup](https://daybrite.dev/docs/how-to/localization).
 
 ## Sidebar pull-to-refresh
 
@@ -275,7 +275,7 @@ would answer one arrow and then go quiet.
 backends with an immersive nav mode (day-android's edge-to-edge opt-in today) its pushed page
 keeps the floating transparent bar over full-bleed content, while unmarked pages and the root
 get the standard opaque bar. Every other backend ignores the flag. Pair it with
-`day::safe_area()` ([docs/layout](https://daybrite.dev/docs/layout)): the immersive page paints its background unpadded and pads
+`day::safe_area()` ([docs/layout](https://daybrite.dev/docs/explanation/layout)): the immersive page paints its background unpadded and pads
 its content by the reported insets.
 
 ## `nav_stack`: push/pop with a value path

@@ -21,7 +21,7 @@ The `scroll` piece stays gesture-first: the native widget owns the viewport, phy
 indicators (DESIGN §7.6). This document covers driving it from code and from dayscript.
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
-[example messages](snippet-catalog.md) and [catalog setup](https://daybrite.dev/docs/localization).
+[example messages](snippet-catalog.md) and [catalog setup](https://daybrite.dev/docs/how-to/localization).
 
 ## Authoring
 

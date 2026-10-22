@@ -31,7 +31,7 @@ import { dirname, join, resolve } from 'node:path';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const WEBSITE_ROOT = resolve(HERE, '..');
-const REPO = process.env.DAY_RELEASE_REPO || 'daybrite/day';
+const REPO = process.env.DAY_RELEASE_REPO || 'daybrite/Day-Showcase';
 
 // Which release asset belongs to which platform card. `day pack` names every artifact
 // `<stem>-<platform>-<toolkit>[-extra].<ext>` and the release lane flattens every combo's dist

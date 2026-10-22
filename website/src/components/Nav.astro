@@ -8,10 +8,12 @@ import { url, site } from '../lib/site';
 interface Props { active?: string }
 const { active } = Astro.props;
 const links = [
-  { href: url('docs'), label: 'Docs', key: 'docs' },
   { href: url('gallery'), label: 'Gallery', key: 'gallery' },
   { href: url('showcase'), label: 'Showcase', key: 'showcase' },
+  { href: url('docs'), label: 'Docs', key: 'docs' },
 ];
+const product = [['', 'Home'], ['features', 'Features'], ['platforms', 'Platforms'],
+  ['examples', 'Examples'], ['community', 'Community'], ['contributing', 'Contributing']];
 ---
 <header class="nav" data-pagefind-ignore>
   <div class="container nav-inner">
@@ -20,13 +22,21 @@ const links = [
       <span class="brand-name">Day</span>
     </a>
     <nav class="nav-links" aria-label="Primary">
-      <Search />
       {links.map((l) => (
         <a href={l.href} class:list={['nav-link', { on: active === l.key }]}>{l.label}</a>
       ))}
-      <a class="nav-link nav-repo" href={site.repo} rel="noopener">GitHub</a>
-      <ThemeToggle compact />
+      <details class="product-menu">
+        <summary class:list={['nav-link', { on: ['product', 'contributing'].includes(active ?? '') }]}>Explore</summary>
+        <div class="product-links">
+          {product.map(([path, label]) => <a class="nav-link" href={url(path)}>{label}</a>)}
+          <a class="nav-link" href={site.repo} rel="noopener">GitHub</a>
+        </div>
+      </details>
     </nav>
+    <div class="nav-tools">
+      <Search />
+      <ThemeToggle compact />
+    </div>
   </div>
 </header>
 
@@ -44,18 +54,30 @@ const links = [
     align-items: center;
     justify-content: space-between;
     height: 62px;
+    gap: 24px;
   }
   .brand { display: inline-flex; align-items: center; gap: 10px; color: var(--text); }
   .brand:hover { color: var(--text); }
   .brand-name { font-weight: 750; font-size: 1.12rem; letter-spacing: -0.02em; }
-  .nav-links { display: flex; align-items: center; gap: 24px; }
-  .nav-link { color: var(--muted); font-weight: 600; font-size: 0.95rem; }
+  .nav-links { display: flex; align-items: center; gap: 24px; margin-left: auto; }
+  .nav-tools { display: flex; align-items: center; gap: 24px; }
+  .nav-link { color: var(--muted); font-weight: 600; font-size: 0.95rem; white-space: nowrap; }
   .nav-link:hover { color: var(--text); }
   .nav-link.on { color: var(--text); }
+  .product-menu { position: relative; }
+  .product-menu summary { cursor: pointer; }
+  .product-links { position: absolute; top: 32px; right: 0; min-width: 160px; padding: 12px; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius); }
+  .product-links a { display: block; padding: 8px; }
+  @media (max-width: 760px) {
+    .nav-inner { flex-wrap: wrap; height: auto; padding-block: 10px; gap: 12px; }
+    .nav-links { order: 3; width: 100%; justify-content: space-between; gap: 12px; }
+  }
   @media (max-width: 560px) {
-    .nav-links { gap: 12px; }
-    .brand-name { display: none; }
-    /* Room for the theme toggle; the footer keeps a link to the source. */
-    .nav-repo { display: none; }
+    .nav-links { gap: 10px; }
+    .nav-link { font-size: 0.82rem; }
+  }
+  @media (max-width: 360px) {
+    .nav-inner { padding-inline: 12px; }
+    .nav-links { gap: 6px; }
   }
 </style>

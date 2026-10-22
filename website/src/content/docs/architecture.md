@@ -2,7 +2,7 @@
 title: Architecture
 description: "The crate graph, one-binary-per-target compilation, and how the CLI and platform build systems cooperate."
 order: 50
-section: Under the hood
+section: Contributing
 ---
 
 <!--
@@ -11,7 +11,7 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
 Day separates the shared UI model from platform-specific widget implementations. This page
-explains the crate boundaries and build process. [Rendering](/docs/rendering) follows the
+explains the crate boundaries and build process. [Rendering](/contributing/rendering) follows the
 corresponding runtime path, from creating a widget to handling its events.
 
 ## The crate graph
@@ -50,14 +50,13 @@ JS/TS miniapps run on [`day-lite`](https://github.com/daybrite/day-lite), which 
 repository.
 
 `day-spec` is the boundary between portable and platform code: it defines the `Toolkit` trait and
-the descriptor types (`LabelProps`, `ButtonPatch`, events, …) that flow across it. `day-core` is
-written against that trait and monomorphized over the concrete backend, so core code calls native
-operations directly. Everything above `day-spec` is portable; everything below it is one platform's
-business.
+the descriptor types (`LabelProps`, `ButtonPatch`, events, …) that flow across it. `day-core` uses the toolkit contract to manage trees and delegate widget operations. Public
+portable APIs can still have unsupported target operations; a dependency boundary alone does
+not establish complete runtime support.
 
 Around the core sit the extension surfaces: [`pieces/day-piece-*`](https://github.com/daybrite/day/tree/main/pieces) crates add widgets
-([extension model](/docs/extending)), [`parts/day-part-*`](https://github.com/daybrite/day/tree/main/parts) add headless capabilities
-([parts](/docs/parts)), and `day-mock` is a full Toolkit implementation with no display, used by
+([extension model](/contributing/extending)), [`parts/day-part-*`](https://github.com/daybrite/day/tree/main/parts) add headless capabilities
+([parts](/docs/reference/parts)), and `day-mock` is a full Toolkit implementation with no display, used by
 tests.
 
 ## One binary per target
@@ -66,15 +65,15 @@ A Day binary contains exactly one backend, selected by a Cargo feature at compil
 backend is chosen when the binary is built, so the AppKit build contains only AppKit code, and
 a call like "set this label's text" compiles down to the backend's concrete function.
 
-The cost is that n [targets](/docs/glossary#target) mean n compilations (CI budgets around it; your laptop builds one at
+The cost is that n [targets](/docs/reference/glossary#target) mean n compilations (CI budgets around it; your laptop builds one at
 a time), and a Linux app ships as a GTK build or a Qt build rather than one binary that picks at
 runtime. The benefit is that a widget update compiles to a direct call into the one linked
-backend, and dead-code elimination works on whole [toolkits](/docs/glossary#toolkit).
+backend, and dead-code elimination works on whole [toolkits](/docs/reference/glossary#toolkit).
 
-The same idea extends to [piece](/docs/glossary#piece) renderers: backends expose a link-time registry (a `linkme`
+The same idea extends to [piece](/docs/reference/glossary#piece) renderers: backends expose a link-time registry (a `linkme`
 distributed slice), and each piece crate's renderer registers into it during linking. Startup
-iterates the slice once to build the [kind](/docs/glossary#kind) → renderer table. Registration failures are link
-errors, not runtime surprises. The one exception is `day-dom`: `linkme` has no wasm32
+iterates the slice once to build the [kind](/docs/reference/glossary#kind) → renderer table. A missing or discarded registration can instead produce a runtime placeholder. Link success
+alone does not prove that every renderer was retained; exercise the extension on the target. The one exception is `day-dom`: `linkme` has no wasm32
 implementation, so the web backend keeps a runtime registry that pieces register into from
 their constructors.
 
@@ -84,7 +83,7 @@ their constructors.
 are plain cargo builds (each target gets its own `CARGO_TARGET_DIR`, so parallel target builds
 never contend); the exception is `macos-appkit`, which builds through its `platform/macos/`
 Xcode host project like a mobile target — including any macOS Swift a dependency contributes,
-the [SwiftUI embedding](/docs/internal/swiftui) path. Mobile targets invert control with the **callback pattern**, borrowed
+the [SwiftUI embedding](/docs/reference/swiftui) path. Mobile targets invert control with the **callback pattern**, borrowed
 from Flutter: the checked-in platform project drives, and calls back into `day` for the Rust
 part, so building from Xcode/Android Studio and building from the CLI produce identical results
 and neither goes stale.
@@ -106,10 +105,12 @@ and neither goes stale.
 The same shape covers OpenHarmony (hvigor builds the ArkTS host around a cross-compiled
 `libentry.so`), and `macos-appkit` generates its own `DayPieces` SwiftPM package (at
 `build/day/macos/DayPieces`), referenced by the `platform/macos/`
-Xcode host project. Metadata flows one way: [`Day.toml`](/docs/glossary#day-toml) (identity) and the Cargo
+Xcode host project. Metadata flows one way: [`Day.toml`](/docs/reference/glossary#day-toml) (identity) and the Cargo
 `version` are conveyed into generated, gitignored files that the checked-in projects read; the
-scaffolds themselves are never edited by tooling. [Project structure](/docs/project-structure) documents every directory;
-[Packaging](/docs/packaging) covers the signed-artifact pipeline built on top.
+generated projects are derived under `build/`, while explicitly materialized native projects
+are app-owned customization overrides. `day project add-target` can create host sources.
+Inspect the selected host mode before editing a generated file. [Project structure](/docs/reference/project-structure) documents every directory;
+[Packaging](/docs/how-to/packaging) covers the signed-artifact pipeline built on top.
 
 ## How each backend reaches its toolkit
 
@@ -125,8 +126,9 @@ Each backend crosses into its toolkit using the narrowest viable mechanism:
 | ArkUI | the ArkUI NDK C API through openharmony-rs's `ohos-sys` bindings; the ArkTS-facing module through ohos-rs's `napi-ohos` (no C++) |
 | DOM | a wasm32 `extern "C"` boundary implemented by a small JS shim the CLI embeds in the page |
 
-Each shim creates widgets, sets properties, and forwards events. Layout, reactivity, and update
-policy live on the shared Rust side, so a new backend is a small amount of code.
+Each shim creates widgets, sets properties, and forwards events. Layout policy and reactivity have shared Rust implementations. A backend must still implement
+widget semantics, native measurement, callbacks, lifetime, resources, and platform integration;
+code size and effort are not established by this boundary.
 
 ## Where the CLI fits
 
@@ -135,5 +137,20 @@ policy live on the shared Rust side, so a new backend is a small amount of code.
 logs), diagnosis (`doctor`, with per-toolkit probes and fix-it text), validation (`lint`),
 distribution (`pack`, `sign`), and the plumbing subcommands the platform builds call back into.
 It's built in the flutter_tools mold: services behind injectable traits for testability, a
-stable JSON event stream (`--format json`), and documented exit codes, so scripts and CI
+JSON event stream (`--format json`) whose current schema must be checked against the CLI version, and documented exit codes, so scripts and CI
 consume the same interface people do.
+
+## Source and lifecycle contracts
+
+The [facade manifest](https://github.com/daybrite/day/blob/main/crates/day/Cargo.toml) selects
+backend features; `winui` includes `xaml` because they share one implementation.
+The [core launch path](https://github.com/daybrite/day/blob/main/crates/day-core/src/lib.rs)
+installs the toolkit, scheduler, and executor hooks before building the app tree.
+`Platform::RUN_ENDS_APP` distinguishes an owned loop from a host-owned loop; a return from a
+mobile/web host setup is not necessarily app exit. [Lifecycle](/docs/explanation/lifecycle)
+and [async shutdown](/docs/explanation/async) document cleanup and the limits of OS callbacks.
+
+Use [backend contracts](/contributing/backend-contracts) for implementation obligations and
+[design records](/contributing/design) for proposals. The [extension model](/contributing/extending)
+covers optional native contributions. See the
+[platform reference](/docs/reference/platforms) for target requirements and limitations.

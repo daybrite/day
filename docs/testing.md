@@ -28,7 +28,7 @@ A test is named after its function, with hyphens for underscores: `button_press`
 reading the source all agree on it.
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
-[example messages](snippet-catalog.md) and [catalog setup](https://daybrite.dev/docs/localization).
+[example messages](snippet-catalog.md) and [catalog setup](https://daybrite.dev/docs/how-to/localization).
 
 ## Declaring a test
 
@@ -264,7 +264,7 @@ its retry.
 
 ### `day test`, on a toolkit
 
-```
+```sh
 day test -t macos-appkit                         # every test in the project
 day test -t macos-gtk 'text-field-*'             # a glob over test names
 day test -t ios-uikit --ios-simulator <udid>     # the device flags day launch takes
@@ -277,7 +277,7 @@ day test -t web-dom --list                       # the registry, without running
 (`--skip-build` reuses the last build), launches it, sends the engine a `run_tests` step and
 prints one line per test:
 
-```
+```text
       button-press ............................ ok        (95 ms)
       slider-range ............................ skipped   Cap::Animation is Unsupported on this toolkit
       text-field-secure ....................... FAILED    assert_text tfs-len: "13" ≠ "12"
@@ -317,7 +317,7 @@ tests inside it: a breakpoint in the app holds the run. The extension's own
 
 Beside the run's screenshots, the same place a dayscript run writes:
 
-```
+```text
 build/day/screenshots/<target>/<variant>/conformance.json
 build/day/screenshots/<target>/<variant>/tests/<test>/<shot>.png
 build/day/screenshots/<target>/<variant>/tests/<test>/failed.png    # on a failure

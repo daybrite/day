@@ -2,7 +2,7 @@
 title: App icons and interface icons
 description: "App-icon generation, interface SVGs, and platform rendering limits."
 order: 33
-section: Guides
+section: How-to guides
 ---
 
 <!--
@@ -85,7 +85,7 @@ A version mismatch requests regeneration rather than comparing outputs from diff
 
 Keep master artwork under `resource/icons/` and remove obsolete generated copies and their
 references from customized native projects before running `day prepare`. Generated native
-projects use the current paths automatically. See [native project migration](/docs/internal/native-project-migration).
+projects use the current paths automatically. See [native project migration](/contributing/backend-contracts/native-project-migration).
 
 <span id="4-draw-in-app-glyphs-from-resourcevectors"></span>
 
@@ -129,6 +129,6 @@ at build time.
 
 ## Reference
 
-[icons](/docs/internal/icons) — master layering, the generator, the full output table, and the
-lock file. [vectors](/docs/internal/vectors) — source forms, the per-backend staging table,
+[icons](/docs/how-to/icons) — master layering, the generator, the full output table, and the
+lock file. [vectors](/docs/reference/vectors) — source forms, the per-backend staging table,
 weights, and tint coverage.

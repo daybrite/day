@@ -2820,6 +2820,42 @@ fn absolute_route_descends_into_lazily_mounted_stack() {
 }
 
 #[test]
+fn absolute_route_replaces_remembered_path_in_newly_mounted_stack() {
+    let section = Signal::new(String::new());
+    let path = Signal::new(vec!["remembered".to_string()]);
+    let probe = boot(move || {
+        nav(section)
+            .style(NavStyle::Sidebar)
+            .item("plain", "Plain", || label("plain-content"))
+            .item("drill", "Drill", move || {
+                nav_stack(path, label("drill-root")).destination(|k| label(format!("drill:{k}")))
+            })
+            .any()
+    });
+
+    // A bare reopen preserves the path; an explicit destination replaces it, even
+    // when the stack is rebuilt with the previous visit's signal.
+    assert!(navigate("drill"));
+    flush_sync();
+    assert_eq!(path.get(), vec!["remembered"]);
+    assert!(navigate("plain"));
+    flush_sync();
+    assert!(navigate("drill/other"));
+    flush_sync();
+    assert_eq!(path.get(), vec!["other"]);
+    assert_eq!(day_core::current_route().as_deref(), Some("drill/other"));
+    assert!(
+        probe
+            .find_by_kind("day.label")
+            .iter()
+            .all(|(_, w)| w.text != "drill:remembered")
+    );
+    assert!(day_core::nav_back());
+    flush_sync();
+    assert!(path.get().is_empty());
+}
+
+#[test]
 fn absolute_route_resets_inner_surfaces_of_the_anchor() {
     // With "drill/deep" active, navigate("drill/other") must yield exactly drill/other: the
     // previously pushed "deep" page pops (absolute path = the whole state, set-semantics).
@@ -11225,4 +11261,77 @@ fn scripted_tap_by_id_reaches_only_that_elements_handler() {
     tap("card");
     assert_eq!((button_taps.get(), card_taps.get()), (1, 1));
     drop(probe);
+}
+
+#[test]
+fn focused_ambient_reacts_when_switching_between_unchanged_windows() {
+    let probe = boot(scene_shell);
+    let primary = Scene::focused().unwrap();
+    primary.label.set("fixture primary".into());
+    let observed = Signal::new(String::new());
+    day_reactive::bind(
+        || {
+            Scene::focused()
+                .map(|scene| scene.label.get())
+                .unwrap_or_default()
+        },
+        move |text| observed.set(text.clone()),
+    );
+    let second = day_core::open_window(win_options("fixture second", 300.0, 200.0), scene_shell);
+    flush_sync();
+    assert_eq!(observed.get(), "fresh");
+    let node = probe.windows()[0].node;
+    probe.emit(node, Event::WindowFocused(false));
+    flush_sync();
+    assert_eq!(observed.get(), "fixture primary");
+    // Explicit activation must update commands even when the OS sends no focus event.
+    second.focus();
+    flush_sync();
+    assert_eq!(observed.get(), "fresh");
+}
+
+#[test]
+fn dedicated_document_host_stays_hidden_after_last_close_and_reopens() {
+    let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    day_core::uninstall_tree();
+    let (mock, probe) = MockToolkit::new();
+    probe.state.borrow_mut().native_window_tabs = true;
+    let tabs = TabSet::<String>::new();
+    let native = Signal::new(false);
+    day_core::launch_with(mock, WindowOptions::default(), move || {
+        document_tabs(tabs, "Fixture new", "Fixture close", Clone::clone, |key| {
+            label(key.clone())
+        })
+        .native(move || native.get())
+        .hide_when_empty(true)
+        .any()
+    });
+    let last_visibility = || {
+        probe
+            .window_changes()
+            .into_iter()
+            .rev()
+            .find_map(|(_, change)| {
+                if let day_spec::WindowChange::Visible(value) = change {
+                    Some(value)
+                } else {
+                    None
+                }
+            })
+    };
+    for mode in [false, true, false] {
+        native.set(mode);
+        flush_sync();
+        assert_eq!(last_visibility(), Some(false));
+        tabs.open("fixture document".into(), true);
+        flush_sync();
+        assert_eq!(last_visibility(), Some(!mode));
+        tabs.close(&"fixture document".into());
+        flush_sync();
+        assert_eq!(last_visibility(), Some(false));
+        assert_eq!(
+            probe.windows().iter().filter(|window| window.open).count(),
+            0
+        );
+    }
 }

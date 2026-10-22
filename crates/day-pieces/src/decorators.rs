@@ -1800,7 +1800,7 @@ pub trait Decorate: Piece + Sized {
     }
 
     /// Override this cell's alignment within its cell rect of the enclosing [`grid`]
-    /// (docs/grid.md). Apply last (outermost), like [`Self::grid_span`].
+    /// (docs/grid.md). Apply last (outermost), like [`Decorated::grid_span`].
     fn grid_align(self, a: Alignment) -> Decorated<Self> {
         Decorated::new(self).grid_align(a)
     }

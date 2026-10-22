@@ -84,6 +84,9 @@ day_reactive::tls_slots! {
     windows;
     static WINDOWS: RefCell<Vec<WindowRecord>> = const { RefCell::new(Vec::new()) };
 
+    /// Invalidate reactive focused ambient lookups after command routing changes.
+    static FOCUS_REVISION: Signal<u64> = Signal::global(0);
+
     /// The app's first window, so [`initial_window`] can name it. Nothing about the close
     /// policy consults this: that window is an ordinary registry record and counts exactly
     /// like the ones opened after it.
@@ -142,6 +145,7 @@ impl WindowHandle {
                 r.content_scope = Some(scope);
             }
         });
+        FOCUS_REVISION.with(|revision| revision.update(|n| *n += 1));
     }
 
     /// Route native user close requests to the document owner. `close()` still closes
@@ -199,6 +203,7 @@ impl WindowHandle {
                     }
                 })
         });
+        FOCUS_REVISION.with(|revision| revision.update(|n| *n += 1));
         match action {
             Some(CloseAction::Native) => with_tree(|t| t.close_native_window(root)),
             // Parked pending: nothing native to wait for, so tear down now; the backend's
@@ -218,8 +223,17 @@ impl WindowHandle {
         if WINDOWS.with(|w| {
             w.borrow()
                 .iter()
-                .any(|r| r.root == root && matches!(r.tier, Tier::Native { .. }))
+                .any(|r| r.root == root && !r.closing() && matches!(r.tier, Tier::Native { .. }))
         }) {
+            // Record explicit activation as well as native notifications. An inactive
+            // AppKit application can accept makeKeyAndOrderFront without sending a key
+            // notification; commands must still follow the window we just selected.
+            WINDOWS.with(|windows| {
+                for window in windows.borrow_mut().iter_mut() {
+                    window.focused = window.root == root;
+                }
+            });
+            FOCUS_REVISION.with(|revision| revision.update(|n| *n += 1));
             with_tree(|t| t.focus_native_window(root));
         }
     }
@@ -493,6 +507,7 @@ pub fn open_window<P: Piece>(
                     });
                 }
             }
+            FOCUS_REVISION.with(|revision| revision.update(|n| *n += 1));
             WindowHandle { root }
         }
         WindowRootReply::Pending(root) => {
@@ -553,6 +568,7 @@ pub(crate) fn focused_root() -> RNode {
 /// `WindowFocused` at all, so that IS the primary's steady state). `None` only before boot
 /// and after the last window is gone.
 pub fn focused_scope() -> Option<Scope> {
+    FOCUS_REVISION.with(|revision| revision.get());
     WINDOWS.with(|w| {
         let windows = w.borrow();
         // A dismissing window is no longer the command target, even while its content stays
@@ -573,6 +589,7 @@ pub fn focused_scope() -> Option<Scope> {
 /// fires during the presentation (a focus change, a redraw) resolves to the window it belongs
 /// to rather than to a sheet that never had one (docs/state.md).
 pub(crate) fn focused_scope_chain() -> Vec<Scope> {
+    FOCUS_REVISION.with(|revision| revision.get());
     WINDOWS.with(|w| {
         let windows = w.borrow();
         let initial = INITIAL_WINDOW.with(|c| c.get());
@@ -661,6 +678,7 @@ pub fn finish_window_open(id: NodeId, raw: day_spec::RawHandle, size: Size) -> b
     // The window has a native root only now, so a toolbar edit composed before this could not
     // reach it (docs/toolbars.md). Owe the windows a recompose: the bar goes out whole.
     crate::toolbar::chrome_changed();
+    FOCUS_REVISION.with(|revision| revision.update(|n| *n += 1));
     true
 }
 
@@ -694,6 +712,7 @@ fn register(root: RNode, key: Option<&str>, kind: WindowKind, scope: Scope, tier
             remember: None,
         })
     });
+    FOCUS_REVISION.with(|revision| revision.update(|n| *n += 1));
 }
 
 /// Start remembering `root`'s frame under `key`, and put the window where it was last time
@@ -839,6 +858,7 @@ fn wire_window_events(root: RNode) {
                             }
                         }
                     });
+                    FOCUS_REVISION.with(|revision| revision.update(|n| *n += 1));
                 }
                 Event::WindowClosed => {
                     day_reactive::on_main(move || teardown(root));
@@ -861,8 +881,8 @@ fn wire_window_events(root: RNode) {
     });
 }
 
-/// How many registered windows keep the app alive (docs/windows.md close policy). The initial
-/// window is not among them; see [`initial_primary_open`].
+/// How many non-closing primary windows keep the app alive (docs/windows.md close policy).
+/// This includes the initial window while it remains registered and open.
 pub fn primary_window_count() -> usize {
     WINDOWS.with(|w| {
         w.borrow()
@@ -943,6 +963,7 @@ fn teardown(root: RNode) {
     }) else {
         return;
     };
+    FOCUS_REVISION.with(|revision| revision.update(|n| *n += 1));
     // The toolbar forgets the window FIRST: its contributions' cleanups run inside the
     // dispose below and would otherwise re-compose a bar through gates whose signals the same
     // dispose has already dropped (a contained panic that left the next New Window blank).
@@ -1119,6 +1140,7 @@ fn open_as_cover(
         t.mark_layout_dirty();
         t.layout_if_needed();
     });
+    FOCUS_REVISION.with(|revision| revision.update(|n| *n += 1));
     WindowHandle { root: cover }
 }
 

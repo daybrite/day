@@ -1,8 +1,8 @@
 ---
 title: Linux (GTK 4)
-description: Build Day apps for Linux with GTK 4 and libadwaita — dependencies, flatpak packaging, per-platform caveats, and which GTK widget every Day piece becomes.
+description: "Linux with GTK 4 and libadwaita: dependencies, packaging, native controls, and target-specific limitations."
 order: 33.4
-section: Platforms
+section: Reference
 ---
 
 {/*
@@ -10,13 +10,9 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 */}
 
-import PlatformShots from '../../../components/PlatformShots.astro';
-
-`linux-gtk` renders GTK 4 widgets styled by [libadwaita](https://gnome.pages.gitlab.gnome.org/libadwaita/),
-through [`gtk4-rs`](https://gtk-rs.org). It is the default recommendation on Linux: it's the
-toolkit Ubuntu, Fedora and Debian install by default.
-
-<PlatformShots platform="linux-gtk" shots={["home", "controls", "canvas", "list"]} />
+`linux-gtk` is a Tier 2 desktop target using GTK 4 and libadwaita. It provides a GTK interface
+for the app code you share with other systems. Install the development libraries required by
+your distribution and check the backend’s accessibility limitations before choosing it.
 
 ## Getting started
 
@@ -27,14 +23,14 @@ GTK 4.10+, libadwaita 1.5+, and librsvg 2.52+ development files are required
 sudo apt install libgtk-4-dev libadwaita-1-dev librsvg2-dev pkg-config   # Debian/Ubuntu
 sudo dnf install gtk4-devel libadwaita-devel librsvg2-devel pkgconf     # Fedora
 
-cargo install day-cli
+cargo install --git https://github.com/daybrite/day day-cli
 day new app my-app --toolkit linux-gtk
 cd my-app
 day launch -t linux-gtk
 ```
 
 Add `libwebkitgtk-6.0-dev` if you use the web view piece. Sound effects play through libpulse,
-which a desktop already has ([system requirements](/docs/system-requirements#optional-sound-effects)). `day doctor --toolkit gtk` probes
+which a desktop already has ([system requirements](/docs/reference/system-requirements#optional-sound-effects)). `day doctor --toolkit gtk` probes
 GTK 4, libadwaita, librsvg, `glib-compile-resources`, and the packaging tools (`flatpak-builder`,
 `linuxdeploy`, `linuxdeploy-plugin-gtk`); it does not check WebKitGTK.
 
@@ -64,16 +60,16 @@ marks it executable and runs it.
 - Canvas text uses cairo's toy text API, not Pango, so complex-script shaping inside a
   `canvas` is weaker than in a `label`.
 - GTK on macOS and Windows (`macos-gtk`, `windows-gtk`) exists for development convenience only
-  ([Tier 4](/docs/platforms#support-tiers)); `day pack` skips them, and the accessibility tree is
+  ([Tier 4](/docs/reference/platforms#support-tiers)); `day pack` skips them, and the accessibility tree is
   absent (GTK's a11y bridge is Linux-only). `windows-gtk` builds
   against MSYS2's GTK 4 with a GNU Rust toolchain
-  ([setup](/docs/platforms/windows-winui#qt-and-gtk-on-a-windows-host)); there is no WebKitGTK 6 for
+  ([setup](/docs/reference/platforms/windows-winui#qt-and-gtk-on-a-windows-host)); there is no WebKitGTK 6 for
   Windows, so the web view is a placeholder there, and bundled custom fonts don't register with
   Pango.
 
 ## What each piece becomes
 
-The generated [coverage matrix](/docs/internal/coverage-matrix), checked in CI, covers every backend;
+The generated [coverage matrix](/contributing/backend-contracts/coverage-matrix), checked in CI, covers every backend;
 this table adds links and notes.
 
 | Day piece | GTK widget |

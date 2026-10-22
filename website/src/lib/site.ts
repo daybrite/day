@@ -4,14 +4,16 @@
 // Small helpers for base-path-aware URLs. Astro sets `import.meta.env.BASE_URL` to the configured
 // `base` (with a trailing slash), so every internal link / static asset must be built through here.
 
+import { canonicalPath } from './content-routes.mjs';
+
 export const BASE: string = import.meta.env.BASE_URL;
 
-/** Join a path onto the site base, e.g. url('docs/overview') -> '/day/docs/overview'.
+/** Join a path onto the site base, e.g. url('docs/explanation/overview') -> '/day/docs/explanation/overview'.
  *  Absolute URLs pass through untouched — gallery tiles referencing another site's published
  *  screenshots (a suite with a `metadata` index) carry them in the same `src` slot. */
 export function url(path = ''): string {
   if (/^https?:\/\//.test(path)) return path;
-  return BASE.replace(/\/$/, '') + '/' + path.replace(/^\//, '');
+  return BASE.replace(/\/$/, '') + canonicalPath('/' + path.replace(/^\//, ''));
 }
 
 // The internal reference docs (repo `docs/*.md`, symlinked into src/content/internal) carry no
@@ -49,7 +51,7 @@ export function internalExcerpt(body: string, max = 155): string {
   };
   // These docs carry HTML comments — the CC-BY-SA-4.0 header, and a "generated, do not edit" line
   // on the matrices. Without skipping them the "first prose paragraph" below is the license, which
-  // is what every card on /docs/internal used to show. Three shapes appear in the tree: `<!--`
+  // is what every card on /contributing/backend-contracts used to show. Three shapes appear in the tree: `<!--`
   // alone on its line, an opener with text after it, and a whole comment on one line — so skip to
   // whichever line closes it, and loop for a doc that leads with two.
   const skipComments = () => {
@@ -90,7 +92,7 @@ export const site = {
   name: 'Day',
   tagline: 'One app. Every platform. All Day.',
   description:
-    'Build native desktop and mobile apps from one Rust codebase. Day combines shared app code with platform-native controls, localization, testing, and packaging tools.',
+    'Build native desktop and mobile apps in Rust. Share UI and logic, use platform controls, and keep translations, UI tests, and packaging in one project.',
   repo: 'https://github.com/daybrite/day',
   /** The showcase app's repository — it is its own project, released and deployed from there. */
   showcaseRepo: 'https://github.com/daybrite/Day-Showcase',

@@ -1,0 +1,36 @@
+{
+  "captured_at": "2026-10-22T11:35:06-0400",
+  "framework_head": "0c1493a53486bcca22f7d47dc6d24f016c0cabc8",
+  "framework_state": "working tree; see framework_hashes, not HEAD alone",
+  "tutorial_sources": {
+    "website/src/content/docs/getting-started.md": "ca6eff6e526a2ebb7b7c422c37d8d2cf691413ebabb7f7b79005c54dcc6f1797",
+    "website/src/content/docs/tutorial-events.md": "af6d0ca336edaea9593f2ffcdc856d319fdfd723fb2ef1a6c9e6eae566e31acc",
+    "website/src/content/docs/tutorial-state.md": "f2d611709603ed70cced06500a2644055f65872b2eeedbd7cc9a35ad55ff3662"
+  },
+  "app_files": {
+    "src/lib.rs": "07a0bff34b94b7f4c68db4a4ac353348977b4646e208f58fbeb30be2b54d77ca",
+    "src/main.rs": "c6f5c305d61de613214bf5a1233778dca8f728b653248c90178798c7469dc029",
+    "resource/locales/en/app.ftl": "dba3d56097b6511c4616f251a74b7c042078ef68da73831e6f6fadf350382f01",
+    "dayscript/website.yaml": "642335c1dd20f8293ec16ca19083ae5aa0854ec1d5f0402cefe0dcac9277e79d",
+    "Cargo.toml": "20e6c03098b73a442b08ebcf4211e4c8e5338af552692fa8adb364065fdb2648",
+    "Cargo.lock": "f00259b638aa836a3e9d9c3f7e4218cfc88bab60df3dfe6649a9ea3d8dc8d2e2",
+    "Day.toml": "e95e79e12bf7024b6d20cdc61724dbfdc004a274db39f03f20cb9a773804c25f",
+    "build.rs": "c972d95ce630d4961c072d9bfa9b6b2f15a046af620f01ddf724182f50da30b4"
+  },
+  "target": "macos-appkit",
+  "locale": "en",
+  "theme": "light",
+  "capture_size": "800x640@2",
+  "captures": {
+    "counter-start.png": "8dbd5150baa53db583e30a8e83286b45c9a01e5474e0d8049d4a828601af0909",
+    "counter-two.png": "69d96e30839599e92ddde111a55064c952df54d472d586f15916fc7e3dd52ab2"
+  },
+  "framework_manifest": "https://github.com/daybrite/day/blob/main/docs-overhaul/audit/phase-5-capture-evidence.json",
+  "app_source_sha256": "07a0bff34b94b7f4c68db4a4ac353348977b4646e208f58fbeb30be2b54d77ca",
+  "capture_method": "DayScript screenshots from the running AppKit tutorial; no image editing or synthetic controls",
+  "validation_tools": {
+    "os": "ProductName:\t\tmacOS\nProductVersion:\t\t27.0.1\nBuildVersion:\t\t26A434",
+    "rust": "rustc 1.99.0 (b940084d7 2026-09-28)",
+    "xcode": "Xcode 27.1\nBuild version 27A9275"
+  }
+}

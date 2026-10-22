@@ -55,7 +55,7 @@ pub type RowResolver = Box<dyn Fn(&str) -> Option<u64>>;
 pub type RowMenuFn = Box<dyn Fn(u64) -> Vec<day_spec::MenuItem>>;
 
 /// The move closures the `tree()` piece supplies (docs/tree.md). Exposed to the backend as
-/// [`day_spec::TreeMoves`] by [`make_tree_source`]; also driven directly by [`tree_try_move`]
+/// [`day_spec::TreeMoves`] by the tree source adapter; also driven directly by [`tree_try_move`]
 /// (the dayscript `tree_move:` step and the mock probe).
 pub struct TreeMovesDriver {
     /// Consult the guards (structural + the app's): may `token` land under `parent` at
