@@ -7881,6 +7881,9 @@ canvas's `can_paste` flag, so binary content can enable Paste. It no longer read
 Apple platforms use native binary pasteboard values, Android uses a contributed read-only
 URI provider backed by private cache files, Windows uses registered formats and an exact
 length companion, Linux uses session clipboard tools, and HarmonyOS uses UDMF byte records.
+Linux text and binary writes select the session's tool before executing: `wl-copy` first when
+`WAYLAND_DISPLAY` is present, otherwise `xclip` first. The other tool runs only if the first
+write fails; a successful write does not also publish through the fallback.
 The web adapter owns asynchronous request state and late completion buffers. Resource,
 format, permission, and native conversion limitations are explicit in
 [docs/clipboard.md](docs/clipboard.md#typed-binary-content), along with regression entry

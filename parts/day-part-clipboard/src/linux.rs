@@ -117,12 +117,13 @@ pub fn write_content(content: &Content) -> Result<Vec<String>, Error> {
             &["-selection", "clipboard", "-in", "-target", &r.mime],
         )
     };
-    let ok = if wayland_session() {
-        wl() || x()
+    // Select the session's tool first; only run the fallback when that write fails.
+    let (first, second): (&dyn Fn() -> bool, &dyn Fn() -> bool) = if wayland_session() {
+        (&wl, &x)
     } else {
-        x() || wl()
+        (&x, &wl)
     };
-    if ok {
+    if first() || second() {
         Ok(vec![r.mime.clone()])
     } else {
         Err(Error::Unavailable)
