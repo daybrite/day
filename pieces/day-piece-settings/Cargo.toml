@@ -26,7 +26,7 @@ appkit = ["dep:day-appkit", "dep:objc2", "dep:objc2-app-kit", "dep:objc2-foundat
 gtk = ["dep:day-gtk", "dep:gtk4", "dep:libadwaita"]
 qt = ["dep:day-qt"]                  # + build.rs compiles src/lib-qt-shim.cpp (the KDE-style preferences dialog), Qt libs linked by day-qt-sys
 uikit = ["dep:day-uikit", "dep:objc2", "dep:objc2-ui-kit", "dep:objc2-foundation", "dep:objc2-core-foundation"]
-mdc = ["dep:day-android"]        # + [package.metadata.day.android] stages src/DaySettingsRow.java
+mdc = ["dep:day-mdc", "dep:day-android-runtime"]        # + [package.metadata.day.android] stages src/DaySettingsRow.java
 # XAML: build.rs compiles src/lib-xaml-shim.cpp (the settings-card row, boxed via day-xaml-sys's
 # day_xaml_box functions like the searchfield piece). Windows-only, built in CI, not verified locally.
 xaml = ["dep:day-xaml", "dep:day-xaml-sys"]
@@ -54,7 +54,8 @@ day-appkit = { workspace = true, optional = true }
 day-gtk = { workspace = true, optional = true }
 day-qt = { workspace = true, optional = true }
 day-uikit = { workspace = true, optional = true }
-day-android = { workspace = true, optional = true }
+day-mdc = { workspace = true, optional = true }
+day-android-runtime = { workspace = true, optional = true }
 day-xaml = { workspace = true, optional = true }
 day-xaml-sys = { workspace = true, optional = true }
 day-arkui = { workspace = true, optional = true }
@@ -82,7 +83,7 @@ cc = { workspace = true }
 
 [package.metadata.day.android]
 # The Material preference row (src/DaySettingsRow.java, class name = file name), a DayFixed
-# hosting the Day control as its child; no library beyond the ones day-android already carries.
+# hosting the Day control as its child; no library beyond the ones day-mdc already carries.
 java = ["src/DaySettingsRow.java"]
 gradle-dependencies = []
 gradle-repositories = []

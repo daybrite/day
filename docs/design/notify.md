@@ -488,7 +488,7 @@ objc2-foundation = { version = "0.3", features = ["NSObject", "NSDictionary", "N
 objc2-user-notifications = "0.3"
 
 [target.'cfg(target_os = "android")'.dependencies]
-day-android = { workspace = true }
+day-mdc = { workspace = true }
 
 # --- Android backend contribution (docs/extending.md) ---
 [package.metadata.day.android]
@@ -633,7 +633,7 @@ Scheduling is the hard half, because **Android has no notification scheduler**. 
 5. `DayNotifyBootReceiver` re-arms every persisted record on `BOOT_COMPLETED` and
    `MY_PACKAGE_REPLACED`, because a reboot clears all alarms.
 
-Taps use a `PendingIntent` into `DayActivity` carrying a `day.route` extra; day-android reads it in
+Taps use a `PendingIntent` into `DayActivity` carrying a `day.route` extra; day-mdc reads it in
 `onCreate`/`onNewIntent` and feeds the buffered launch-route slot. Actions go to
 `DayNotifyActionReceiver`, which emits `Event::Custom { tag: "notify:action", … }` through the
 JNI bridge when the process is alive, and when it is not, performs the record's declared side

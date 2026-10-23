@@ -17,15 +17,15 @@
 use std::collections::HashMap;
 use std::sync::Mutex;
 
-use day_android::java;
-use day_android::jni::Env;
-use day_android::jni::objects::{JClass, JString};
-use day_android::jni::sys::jlong;
+use day_android_runtime::java;
+use day_android_runtime::jni::Env;
+use day_android_runtime::jni::objects::{JClass, JString};
+use day_android_runtime::jni::sys::jlong;
 
 use crate::{Gate, Permission, Status, classify_android, merge};
 
 // The shim (DayPermissions.java, staged into the app's Gradle build by `day build`).
-day_android::java_class! {
+day_android_runtime::java_class! {
     DayPermissions => dev.daybrite.day.permissions.DayPermissions,
     methods {
         static fn sdkInt() -> jint,
@@ -261,7 +261,7 @@ pub fn open_settings(_perm: Permission) -> bool {
 }
 
 impl DayPermissionsNativeInterface for DayPermissionsAPI {
-    type Error = day_android::jni::errors::Error;
+    type Error = day_android_runtime::jni::errors::Error;
 
     /// The Java shim's result callback: bit `i` of `granted_mask` is set when the `i`th requested
     /// id was granted.

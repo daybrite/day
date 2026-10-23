@@ -108,7 +108,7 @@ See [audit logic](https://github.com/daybrite/day/blob/main/crates/day-script/sr
   are invisible to screen readers. Ship the platform-native [target](/docs/reference/glossary#target) for real users.
 - **Android annotations:** the delegate carries hints, explicit role/class hints, heading state,
   and identifiers as well as labels and values. Identifier exposure differs below API 33.
-  [DayBridge](https://github.com/daybrite/day/blob/main/toolkits/day-android/java/dev/daybrite/day/bridge/DayBridge.java)
+  [DayBridge](https://github.com/daybrite/day/blob/main/toolkits/day-mdc/java/dev/daybrite/day/bridge/DayBridge.java)
   defines the mapping; TalkBack behavior still needs runtime review.
 - **Qt uses `QAccessible` to expose native accessibility information.** Validate the OS bridge
   and the controls your app uses; an implementation hook is not proof of assistive-technology

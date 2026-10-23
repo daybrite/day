@@ -7,5 +7,7 @@ set -euo pipefail
 cd "$(dirname "$0")/../.."
 
 bash scripts/ci/check-matrices.sh
+python3 -B scripts/ci/check-android-runtime.py
+python3 -B scripts/ci/test-readiness.py
 cargo fmt --all -- --check
 bash scripts/ci/host-clippy.sh

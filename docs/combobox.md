@@ -93,8 +93,8 @@ the items, and reports typing and picks alike as `Event::TextChanged`, as the na
   [`ComboBox`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.xaml.controls.combobox) has no per-keystroke text event, so free-form text commits on Enter or focus loss
   (`TextSubmitted` / `LostFocus`) while picks report immediately (`SelectionChanged`).
 - **Android**: carries its own Java factory
-  (`controls/combobox/src/DayCombo.java` in `day-android`), folded into the app's Gradle
-  build via `[package.metadata.day.android]` with no edits to day-android. Android's combo box
+  (`controls/combobox/src/DayCombo.java` in `day-mdc`), folded into the app's Gradle
+  build via `[package.metadata.day.android]` with no edits to day-mdc. Android's combo box
   is [`AutoCompleteTextView`](https://developer.android.com/reference/android/widget/AutoCompleteTextView): suggestions prefix-filter while typing, and a tap or focus pops the
   dropdown open so the list is reachable without typing. One [`TextWatcher`](https://developer.android.com/reference/android/text/TextWatcher) reports both paths as
   `DayBridge.K_TEXT_CHANGED`; the programmatic setters guard on equality.

@@ -199,10 +199,10 @@ core-foundation-sys = "0.8"
 objc2 = "0.6"
 objc2-ui-kit = { version = "0.3", features = ["UIDevice"] }
 
-# Android reads BatteryManager through a Java shim + day-android's cached JVM/Context. This is the one
+# Android reads BatteryManager through a Java shim + day-android-runtime's cached JVM/Context. This is the one
 # platform where the headless crate runs on the Day runtime (like the pieces' Android backends).
 [target.'cfg(target_os = "android")'.dependencies]
-day-android = { workspace = true }
+day-android-runtime = { workspace = true }
 ```
 
 There is no `[features]` table, because the target selects the implementation and a part has no
@@ -291,7 +291,7 @@ pub fn status() -> Option<BatteryStatus> {
 On Android, reading `BatteryManager` requires a `Context` and a sticky broadcast, which is
 far easier in Java than through raw JNI. So the part carries its own small Java class and calls it
 over the bridge. This is the one platform where a part runs on the Day runtime; it borrows the JVM
-and `Context` that `day-android` already caches.
+and `Context` that `day-android-runtime` already caches.
 
 > [!NOTE] The shipped crate does this with a bridge now
 > Everything in this section is the mechanism underneath, and it still works as described, but
@@ -313,14 +313,14 @@ import android.content.Intent;
 import android.content.IntentFilter;
 import android.os.BatteryManager;
 
-import dev.daybrite.day.bridge.DayBridge;   // day-android's public surface
+import dev.daybrite.day.bridge.DayRuntime;   // day-android-runtime's public surface
 
 public final class DayBattery {
     private DayBattery() {}
 
     /** Packs (state << 8) | levelByte; levelByte 0..100 or 255 = unknown. */
     public static long read() {
-        Context ctx = DayBridge.ctx;                 // the cached app Context
+        Context ctx = DayRuntime.ctx;                 // the cached app Context
         int level = -1, state = 0;
         if (ctx != null) {
             IntentFilter filter = new IntentFilter(Intent.ACTION_BATTERY_CHANGED);
@@ -345,15 +345,15 @@ public final class DayBattery {
 }
 ```
 
-The Java uses only `day-android`'s public surface (`DayBridge.ctx`). The Rust side declares the
-class once with `day_android::java_class!`, keeping Java's method names, and calls it inside
-`day_android::java`, which returns `None` if the Java throws. Then it unpacks the `long`:
+The Java uses only `day-android-runtime`'s public surface (`DayRuntime.ctx`). The Rust side declares the
+class once with `day_android_runtime::java_class!`, keeping Java's method names, and calls it inside
+`day_android_runtime::java`, which returns `None` if the Java throws. Then it unpacks the `long`:
 
 ```rust
 use super::{BatteryState, BatteryStatus};
-use day_android::java;
+use day_android_runtime::java;
 
-day_android::java_class! {
+day_android_runtime::java_class! {
     DayBattery => dev.daybrite.day.battery.DayBattery,
     methods {
         static fn read() -> jlong,

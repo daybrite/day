@@ -73,17 +73,17 @@ day_bridge::bridge! {
             import android.content.ClipDescription;
             import android.content.ClipboardManager;
             import android.content.Context;
-            import dev.daybrite.day.bridge.DayBridge;
+            import dev.daybrite.day.bridge.DayRuntime;
         "#,
         body = r#"
             public static boolean write_content_native(String data) {
-                return dev.daybrite.clipboard.BinaryClipboardProvider.write(DayBridge.ctx, android.util.Base64.decode(data, android.util.Base64.NO_WRAP));
+                return dev.daybrite.clipboard.BinaryClipboardProvider.write(DayRuntime.ctx, android.util.Base64.decode(data, android.util.Base64.NO_WRAP));
             }
             public static String read_content_native(String preferred) {
-                return android.util.Base64.encodeToString(dev.daybrite.clipboard.BinaryClipboardProvider.read(DayBridge.ctx, preferred), android.util.Base64.NO_WRAP);
+                return android.util.Base64.encodeToString(dev.daybrite.clipboard.BinaryClipboardProvider.read(DayRuntime.ctx, preferred), android.util.Base64.NO_WRAP);
             }
             private static ClipboardManager manager() {
-                Context ctx = DayBridge.ctx;
+                Context ctx = DayRuntime.ctx;
                 if (ctx == null) return null;
                 return (ClipboardManager) ctx.getSystemService(Context.CLIPBOARD_SERVICE);
             }
@@ -104,7 +104,7 @@ day_bridge::bridge! {
                 if (cm == null || !cm.hasPrimaryClip()) return "";
                 ClipData clip = cm.getPrimaryClip();
                 if (clip == null || clip.getItemCount() == 0) return "";
-                CharSequence text = clip.getItemAt(0).coerceToText(DayBridge.ctx);
+                CharSequence text = clip.getItemAt(0).coerceToText(DayRuntime.ctx);
                 return text != null ? text.toString() : "";
             }
 

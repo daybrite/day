@@ -40,6 +40,15 @@ class ReadinessTests(unittest.TestCase):
             if key.startswith("GIT_"):
                 del self.env[key]
         self.env["PYTHONDONTWRITEBYTECODE"] = "1"
+        # The real suite runs outside the fixture. Record its nested invocation instead of
+        # recursively running another suite; production has no self-test bypass switch.
+        (self.root / "scripts/ci/test-readiness.py").write_text(
+            'import os, sys\n'
+            'from pathlib import Path\n'
+            'Path("readiness-tests-called").touch()\n'
+            'sys.exit(int(os.environ.get("DAY_TEST_SUITE_EXIT", "0")))\n'
+        )
+        self.env.pop("DAY_BIN", None)
         self.run_cmd("git", "init", "-q")
         self.run_cmd("git", "add", "--force", ".")
 
@@ -106,6 +115,19 @@ class ReadinessTests(unittest.TestCase):
         result = self.run_cmd("bash", "scripts/ci/check-matrices.sh", "--staged", ok=False)
         self.assertIn("synthetic_fixture_duty", result.stderr)
 
+    def test_android_runtime_rejects_backend_dependencies_and_java_references(self):
+        self.run_cmd("python3", "scripts/ci/check-android-runtime.py")
+        manifest = self.root / "crates/day-android-runtime/Cargo.toml"
+        original = manifest.read_text()
+        manifest.write_text(original.replace("[dependencies]", "[dependencies]\nday-mdc.workspace = true"))
+        result = self.run_cmd("python3", "scripts/ci/check-android-runtime.py", ok=False)
+        self.assertIn("day-android-runtime -> day-mdc", result.stderr)
+        manifest.write_text(original)
+        java = self.root / "parts/day-part-sensors/src/DaySensors.java"
+        java.write_text(java.read_text() + "\nimport dev.daybrite.day.bridge.DayBridge;\n")
+        result = self.run_cmd("python3", "scripts/ci/check-android-runtime.py", ok=False)
+        self.assertIn("DaySensors.java", result.stderr)
+
     def test_readiness_requires_fmt_and_every_host_clippy_command(self):
         # Synthetic cargo fixture: verify failures propagate without building copied crates.
         bindir = self.root / "test-bin"
@@ -115,6 +137,16 @@ class ReadinessTests(unittest.TestCase):
             '#!/bin/sh\nprintf "%s\\n" "$*" >> "$DAY_TEST_CARGO_LOG"\n'
             'if [ "$1" = "$DAY_TEST_FAIL" ]; then exit 1; fi\n'
             'if [ "$(wc -l < "$DAY_TEST_CARGO_LOG")" -eq "$DAY_TEST_FAIL_AT" ]; then exit 1; fi\n'
+            # Synthetic `day new app` output needed by the real scaffold overlay.
+            'if [ "$1" = run ]; then\n'
+            '  mkdir -p conformance/platform conformance/resource/vectors\n'
+            '  touch conformance/Day.toml conformance/build.rs\n'
+            'fi\n'
+            'case "$*" in\n'
+            '  *"--manifest-path apps/conformance/Cargo.toml"*)\n'
+            '    test -f apps/conformance/Cargo.lock && test -f apps/conformance/build.rs && '
+            'test -d apps/conformance/resource/fonts || exit 1;;\n'
+            'esac\n'
         )
         cargo.chmod(0o755)
         log = self.root / "cargo.log"
@@ -129,7 +161,17 @@ class ReadinessTests(unittest.TestCase):
         self.run_cmd("bash", "scripts/ci/host-clippy.sh")
         host_calls = log.read_text().splitlines()
         self.assertTrue(host_calls, "host-clippy.sh must run Clippy")
-        self.assertTrue(all(call.startswith("clippy ") for call in host_calls), host_calls)
+        self.assertTrue(any(call.startswith("clippy ") for call in host_calls), host_calls)
+        self.assertTrue(all(call.startswith(("clippy ", "run --locked ")) for call in host_calls), host_calls)
+        self.assertEqual(sum(call.startswith("run ") for call in host_calls), 1)
+        self.assertIn("--manifest-path apps/conformance/Cargo.toml", host_calls[-1])
+        # A failing regression suite must stop the local gate before invoking Cargo.
+        self.env["DAY_TEST_SUITE_EXIT"] = "1"
+        log.write_text("")
+        self.run_cmd("bash", "scripts/ci/check-ready.sh", ok=False)
+        self.assertTrue((self.root / "readiness-tests-called").exists())
+        self.assertEqual(log.read_text(), "")
+        self.env["DAY_TEST_SUITE_EXIT"] = "0"
         expected = ["fmt --all -- --check", *host_calls]
         # Fail each individual invocation, including later Clippy combinations, and require the
         # gate to stop there. A command-name failure only tested the first Clippy invocation.

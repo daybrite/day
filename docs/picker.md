@@ -118,7 +118,7 @@ the ArkTS picker, use the native [`ARKUI_NODE_TEXT_PICKER`](https://github.com/o
 matching `-sys` crate (`toolkits/day-qt-sys/src/shim-picker.cpp`,
 `toolkits/day-xaml-sys/src/shim-picker.cpp`); the XAML shim boxes its XAML element into a Day handle
 through the `day_xaml_box`/`day_xaml_unbox` functions. Android's Java factory
-(`toolkits/day-android/java/dev/daybrite/day/piece/picker/DayPicker.java`) rides the framework shim.
+(`toolkits/day-mdc/java/dev/daybrite/day/piece/picker/DayPicker.java`) rides the framework shim.
 All toolkits report selection through `Event::SelectionChanged(i64)`; programmatic selection is
 echo-guarded per toolkit so it never loops.
 

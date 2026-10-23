@@ -46,11 +46,11 @@ fallbacks are reported separately by the capability table below.
 | control | kind(s) | appkit | uikit | gtk | qt | xaml | android | arkui | dom |
 |---|---|---|---|---|---|---|---|---|---|
 | colorpicker | `day.piece.colorpicker` | ✓ | ✓ | ✓ | ✓ | ✓ | · | · | ✓ |
-| combobox | `day.piece.combobox` | ✓ | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| datetime | `day.piece.datepicker`, `day.piece.timepicker` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| pager | `day.piece.pager` | · | ✓ | · | · | · | ✓ | ✓ | · |
-| pullrefresh | `day.piece.pullrefresh` | · | ✓ | · | · | · | ✓ | ✓ | · |
-| searchfield | `day.piece.searchfield` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| combobox | `day.piece.combobox` | ✓ | · | ✓ | ✓ | ✓ | · | ✓ | ✓ |
+| datetime | `day.piece.datepicker`, `day.piece.timepicker` | ✓ | ✓ | ✓ | ✓ | ✓ | · | ✓ | ✓ |
+| pager | `day.piece.pager` | · | ✓ | · | · | · | · | ✓ | · |
+| pullrefresh | `day.piece.pullrefresh` | · | ✓ | · | · | · | · | ✓ | · |
+| searchfield | `day.piece.searchfield` | ✓ | ✓ | ✓ | ✓ | ✓ | · | ✓ | ✓ |
 | stepper | `day.piece.stepper` | ✓ | · | ✓ | ✓ | · | · | · | · |
 
 ## External pieces

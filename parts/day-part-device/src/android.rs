@@ -51,13 +51,13 @@ day_bridge::bridge! {
             import android.content.Intent;
             import android.content.IntentFilter;
             import android.os.BatteryManager;
-            import dev.daybrite.day.bridge.DayBridge;
+            import dev.daybrite.day.bridge.DayRuntime;
         
             import android.os.Build;
         "#,
         body = r#"
             private static Intent batteryIntent() {
-                Context ctx = DayBridge.ctx;
+                Context ctx = DayRuntime.ctx;
                 if (ctx == null) {
                     return null;
                 }

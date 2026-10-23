@@ -14,6 +14,7 @@ members = [
     "crates/day-spec",
     "crates/day-async",
     "crates/day-bridge",
+    "crates/day-android-runtime",
     "crates/day-dbus",
     "crates/day-mock",
     "crates/day-core",
@@ -32,7 +33,7 @@ members = [
     "toolkits/day-macos-tabs",
     "toolkits/day-qt-sys",
     "toolkits/day-uikit",
-    "toolkits/day-android",
+    "toolkits/day-mdc",
     "toolkits/day-xaml",
     "toolkits/day-xaml-sys",
     "toolkits/day-arkui",
@@ -155,7 +156,8 @@ day-gtk = { path = "toolkits/day-gtk" }
 day-qt = { path = "toolkits/day-qt" }
 day-qt-sys = { path = "toolkits/day-qt-sys" }
 day-uikit = { path = "toolkits/day-uikit" }
-day-android = { path = "toolkits/day-android" }
+day-android-runtime = { path = "crates/day-android-runtime" }
+day-mdc = { path = "toolkits/day-mdc" }
 day-xaml = { path = "toolkits/day-xaml" }
 day-xaml-sys = { path = "toolkits/day-xaml-sys" }
 day-arkui = { path = "toolkits/day-arkui" }

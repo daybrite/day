@@ -8,7 +8,7 @@
 //! real `ArkUI_NodeHandle` (Text / Button / TextInput / Toggle / Slider / Stack), built natively
 //! and mounted into an ArkTS `NodeContent` slot. The ArkTS host reaches the native side through
 //! the NAPI module ohos-rs's `napi-ohos` registers (src/host_api.rs). Architecturally it mirrors
-//! `day-android`: a managed UI runtime (ArkTS) hosts the window, native code (Rust) builds the
+//! `day-mdc`: a managed UI runtime (ArkTS) hosts the window, native code (Rust) builds the
 //! tree, and **day owns absolute layout**: containers are `ARKUI_NODE_STACK` and each child gets
 //! an explicit position + size (in vp = day points).
 //!
@@ -157,7 +157,7 @@ mod imp {
         static TEXTAREA_LINES: RefCell<HashMap<usize, (u32, u32)>> = RefCell::new(HashMap::new());
         /// A NAV_MENU row's synthetic click id → (menu node, row index). A tap on a menu row is a
         /// plain NODE_ON_CLICK, so we register it against a fresh synthetic id and translate the
-        /// click back into `SelectionChanged(index)` against the menu host (day-android does the
+        /// click back into `SelectionChanged(index)` against the menu host (day-mdc does the
         /// same with a per-row listener). See [`on_event`].
         static MENU_ROWS: RefCell<HashMap<u64, (NodeId, i64)>> = RefCell::new(HashMap::new());
         /// NAV_MENU scroll node ptr → its day NodeId, so `NavMenuPatch::Items` (which only gets
@@ -2275,7 +2275,7 @@ mod imp {
                         add(item.icon.as_ref(), &item.label, item.action, item.enabled)
                     }
                     // The choice in force names the control and lends it its glyph, the way a
-                    // Material bar folds one (day-android).
+                    // Material bar folds one (day-mdc).
                     K::Segmented { segments, selected } => {
                         let seg = segments.get(*selected);
                         add(
@@ -4091,7 +4091,7 @@ mod imp {
 
         fn replay(&mut self, h: &AHandle, ops: &[DrawOp], _size: Size) {
             ensure_canvas_fonts();
-            // Encode the display list the shared way (day-android uses the same encoder) and hand
+            // Encode the display list the shared way (day-mdc uses the same encoder) and hand
             // it to the custom node; its on-draw callback replays it with OH_Drawing (§11).
             let (nums, texts) = day_spec::encode_ops(ops);
             crate::canvas::set_ops(h.0, &nums, &texts);

@@ -55,7 +55,7 @@ pub(crate) const DAY_GIT: &str = "https://github.com/daybrite/day.git";
 /// One triple per platform Day targets. A day crate reaches an app through the umbrella and the
 /// parts, under `[target.'cfg(…)'.dependencies]` tables the app never names itself, so the set to
 /// patch is the resolved graph of every platform, not the app's manifest. Resolving for the
-/// host alone is what let `day-android` build from the git cache while a local checkout sat
+/// host alone is what let `day-mdc` build from the git cache while a local checkout sat
 /// patched in beside it, silently, on every Android build.
 const PATCH_TRIPLES: &[&str] = &[
     "aarch64-apple-darwin",
@@ -1928,7 +1928,7 @@ day-part-device = { git = "https://github.com/daybrite/day.git" }
 
     /// The manifest floor is a floor, not the answer: a toolkit crate reaches an app only
     /// through the umbrella, under a `cfg(target_os)` table nobody writes by hand, and patching
-    /// just what the manifest names is what let a stale `day-android` build for months.
+    /// just what the manifest names is what let a stale `day-mdc` build for months.
     #[test]
     fn the_manifest_floor_does_not_see_transitive_toolkits() {
         let tmp = std::env::temp_dir().join(format!("day-patch-transitive-{}", std::process::id()));
@@ -1946,7 +1946,7 @@ day = { git = "https://github.com/daybrite/day.git" }
         let deps = manifest_git_deps(&project.root).expect("deps");
         assert_eq!(deps.len(), 1, "the manifest names one crate");
         assert!(
-            !deps.iter().any(|(d, _)| d == "day-android"),
+            !deps.iter().any(|(d, _)| d == "day-mdc"),
             "and the toolkit it pulls in per platform is invisible here — which is why \
              `wanted_by_source` also resolves each platform's graph"
         );

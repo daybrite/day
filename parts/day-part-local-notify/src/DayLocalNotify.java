@@ -3,7 +3,7 @@
 
 // day-part-local-notify's Android backend: a headless capability shim (no UI). Bundled with the
 // crate and folded into the app's Gradle build via [package.metadata.day.android], with no edits
-// to day-android. The Android twin of parts/day-part-local-notify/src/apple.rs.
+// to day-android-runtime. The Android twin of parts/day-part-local-notify/src/apple.rs.
 //
 // No Google dependency. This is the platform NotificationManager and AlarmManager only, with no
 // Play services or Firebase, so it runs unchanged on AOSP, GrapheneOS, or a Kindle. That is a
@@ -30,7 +30,7 @@ import android.content.SharedPreferences;
 import android.net.Uri;
 import android.os.Build;
 
-import dev.daybrite.day.bridge.DayBridge;
+import dev.daybrite.day.bridge.DayRuntime;
 
 public final class DayLocalNotify {
     private DayLocalNotify() {}
@@ -53,7 +53,7 @@ public final class DayLocalNotify {
     static final String EX_AT = "day.notify.at";
 
     private static NotificationManager manager() {
-        Context ctx = DayBridge.ctx;
+        Context ctx = DayRuntime.ctx;
         return ctx == null ? null : (NotificationManager) ctx.getSystemService(Context.NOTIFICATION_SERVICE);
     }
 
@@ -83,7 +83,7 @@ public final class DayLocalNotify {
     /** Post immediately. Returns one of the OK/ERR_* codes above. */
     public static int notifyNow(int id, String channelId, String title, String body,
                                 String route, String icon, int badge) {
-        Context ctx = DayBridge.ctx;
+        Context ctx = DayRuntime.ctx;
         NotificationManager nm = manager();
         if (ctx == null || nm == null) return ERR_FAILED;
         if (!nm.areNotificationsEnabled()) return ERR_DENIED;
@@ -129,9 +129,9 @@ public final class DayLocalNotify {
 
     /**
      * Tapping opens the app at {@code route}. The intent carries the route as its data URI rather
-     * than an extra, because that is the rail day-android already reads on both paths: a cold start
+     * than an extra, because that is the rail day-android-runtime already reads on both paths: a cold start
      * reads getIntent().getData() into DAY_DEEPLINK, and a warm tap arrives at onNewIntent, which
-     * turns the same URI into a deep-link event. No day-android change is needed.
+     * turns the same URI into a deep-link event. No day-android-runtime change is needed.
      */
     private static PendingIntent tapIntent(Context ctx, String route) {
         Intent open = ctx.getPackageManager().getLaunchIntentForPackage(ctx.getPackageName());
@@ -154,7 +154,7 @@ public final class DayLocalNotify {
      */
     public static int schedule(int id, long atMillis, String channelId, String title, String body,
                                String route, String icon, int badge, boolean alarmClock) {
-        Context ctx = DayBridge.ctx;
+        Context ctx = DayRuntime.ctx;
         if (ctx == null) return ERR_FAILED;
         AlarmManager am = (AlarmManager) ctx.getSystemService(Context.ALARM_SERVICE);
         if (am == null) return ERR_FAILED;
@@ -218,7 +218,7 @@ public final class DayLocalNotify {
     }
 
     public static void cancel(int id) {
-        Context ctx = DayBridge.ctx;
+        Context ctx = DayRuntime.ctx;
         NotificationManager nm = manager();
         if (nm != null) nm.cancel(id);
         if (ctx == null) return;
@@ -230,7 +230,7 @@ public final class DayLocalNotify {
     }
 
     public static void cancelAll() {
-        Context ctx = DayBridge.ctx;
+        Context ctx = DayRuntime.ctx;
         NotificationManager nm = manager();
         if (nm != null) nm.cancelAll();
         if (ctx == null) return;
@@ -250,7 +250,7 @@ public final class DayLocalNotify {
 
     /** Whether an exact alarm would fire exactly; the input to the capability flag. */
     public static boolean canScheduleExact() {
-        Context ctx = DayBridge.ctx;
+        Context ctx = DayRuntime.ctx;
         if (ctx == null) return false;
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return true;
         AlarmManager am = (AlarmManager) ctx.getSystemService(Context.ALARM_SERVICE);

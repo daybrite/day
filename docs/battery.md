@@ -56,7 +56,7 @@ an OS concern rather than a toolkit one. `parts/day-part-device/examples/battery
 | Windows | [`GetSystemPowerStatus`](https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-getsystempowerstatus) | raw FFI (kernel32) |
 | Linux | [`/sys/class/power_supply`](https://docs.kernel.org/power/power_supply_class.html) | std only |
 | HarmonyOS | native [`OH_BatteryInfo_GetCapacity`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-basic-services-kit/capi-oh-batteryinfo.md) / [`GetPluggedType`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-basic-services-kit/capi-oh-batteryinfo.md) (`libohbattery_info.so`) | raw FFI (BasicServicesKit) |
-| Android | [`BatteryManager`](https://developer.android.com/reference/android/os/BatteryManager) via the inline Java arm in `src/android.rs` | `day-android` + [`day-bridge`](/contributing/backend-contracts/bridge) ([bridge](bridge.md)) |
+| Android | [`BatteryManager`](https://developer.android.com/reference/android/os/BatteryManager) via the inline Java arm in `src/android.rs` | `day-mdc` + [`day-bridge`](/contributing/backend-contracts/bridge) ([bridge](bridge.md)) |
 
 iOS reads on the main thread ([`UIDevice`](https://developer.apple.com/documentation/uikit/uidevice) is `MainThreadOnly`); off it, [`status()`](https://daybrite.dev/api/day_part_device/battery/fn.status.html) returns `None`. The
 simulator has no battery, so you get `level: None, state: Unknown` (the API path still runs).
@@ -74,7 +74,7 @@ toolkit's `RENDERERS` slice. It demonstrates that the standalone-piece toolkit-c
 mechanism (see [extending](extending.md)) already accommodates headless capability crates:
 [`day-part-device`](https://daybrite.dev/api/day_part_device/battery/index.html) contributes an Android implementation exactly like the UI pieces, but registers
 no renderer; the staging is independent of rendering. On Android the crate rides on the Day runtime
-(it uses day-android's cached JVM + `DayBridge.ctx`); on every other platform it is fully
+(it uses day-mdc's cached JVM + `DayBridge.ctx`); on every other platform it is fully
 day-independent.
 
 The Android half is a **daybridge** arm ([bridge](bridge.md)): the Java that reads

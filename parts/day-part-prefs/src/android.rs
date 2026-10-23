@@ -49,14 +49,14 @@ day_bridge::bridge! {
         prelude = r#"
             import android.content.Context;
             import android.content.SharedPreferences;
-            import dev.daybrite.day.bridge.DayBridge;
+            import dev.daybrite.day.bridge.DayRuntime;
         "#,
         body = r#"
             /** App-private store name, separate from the app's own preferences. */
             private static final String STORE = "day_part_prefs";
 
             private static SharedPreferences prefs() {
-                Context ctx = DayBridge.ctx;
+                Context ctx = DayRuntime.ctx;
                 if (ctx == null) return null;
                 return ctx.getSharedPreferences(STORE, Context.MODE_PRIVATE);
             }

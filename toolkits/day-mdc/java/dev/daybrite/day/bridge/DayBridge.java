@@ -1,0 +1,4449 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
+package dev.daybrite.day.bridge;
+
+import android.content.Context;
+import android.graphics.Typeface;
+import android.graphics.drawable.GradientDrawable;
+import android.os.Handler;
+import android.os.Looper;
+import android.text.Editable;
+import android.text.TextWatcher;
+import android.util.TypedValue;
+import android.view.Choreographer;
+import android.view.KeyEvent;
+import android.view.Menu;
+import android.view.MenuItem;
+import android.view.MotionEvent;
+import android.view.SubMenu;
+import android.view.View;
+import android.view.ViewGroup;
+import android.view.inputmethod.EditorInfo;
+import android.view.inputmethod.InputMethodManager;
+import android.widget.AdapterView;
+import androidx.recyclerview.widget.ItemTouchHelper;
+import androidx.recyclerview.widget.LinearLayoutManager;
+import androidx.recyclerview.widget.RecyclerView;
+import android.widget.CompoundButton;
+import android.widget.EditText;
+import android.widget.ProgressBar;
+import android.widget.HorizontalScrollView;
+import android.widget.ScrollView;
+import android.widget.TextView;
+
+import com.google.android.material.button.MaterialButton;
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
+import com.google.android.material.color.MaterialColors;
+import com.google.android.material.divider.MaterialDivider;
+import com.google.android.material.loadingindicator.LoadingIndicator;
+import com.google.android.material.materialswitch.MaterialSwitch;
+import com.google.android.material.navigation.NavigationView;
+import com.google.android.material.progressindicator.LinearProgressIndicator;
+import com.google.android.material.slider.Slider;
+import com.google.android.material.textfield.MaterialAutoCompleteTextView;
+import com.google.android.material.textfield.TextInputEditText;
+import com.google.android.material.textfield.TextInputLayout;
+
+/** The Java shim (the Kotlin/C++-shim analogue for android.widget): creates native views,
+ *  wires their listeners to the single native trampoline nativeOnEvent(id, kind, num, str)
+ *  (kinds: 0=press 1=text 2=toggle 3=value 4=select), and exposes setters + measurement +
+ *  absolute layout to Rust. Controls are Material 3 components (com.google.android.material,
+ *  Theme.Material3Expressive; the app theme supplies color/shape/motion); containers/labels
+ *  stay framework views. */
+public final class DayBridge extends DayRuntime {
+    /** App context + main-thread handler, set by DayActivity before nativeStart. */
+
+    // --- natives (exported by the app's cdylib) ---
+    public static native void nativeStart(View root, float density, int w, int h,
+                                          String autodrive, String locale, String envBlob);
+    public static native void nativeOnEvent(long id, int kind, double num, String str);
+    /** A secondary DayWindowActivity's first laid-out root (docs/windows.md): completes the
+     *  pending day::open_window. Returns false when the window was closed before connecting. */
+    public static native boolean nativeStartWindow(View root, long node, float density,
+            int w, int h);
+
+    /** Launch a secondary day window (docs/windows.md): a document-style DayWindowActivity
+     *  carrying the day node id + title. Rust calls this from the open_window duty. */
+    public static void openWindow(long node, String title) {
+        android.content.Context c = ctx;
+        if (c == null) return;
+        android.content.Intent i = new android.content.Intent(c, DayWindowActivity.class);
+        i.putExtra("day.node", node);
+        i.putExtra("day.title", title);
+        i.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK
+                | android.content.Intent.FLAG_ACTIVITY_NEW_DOCUMENT
+                | android.content.Intent.FLAG_ACTIVITY_MULTIPLE_TASK);
+        c.startActivity(i);
+    }
+
+    /** Close a secondary window (docs/windows.md): finish its activity and confirm the close
+     *  to day right away. finish() tears the activity down asynchronously, and while its
+     *  onDestroy was still pending day kept the window in its registry; a re-open in that gap (a
+     *  walkthrough's second Preferences, a second later) focused the dying activity and showed
+     *  nothing. */
+    public static void closeWindow(long node) {
+        DayWindowActivity a = DayWindowActivity.ACTIVE.get(node);
+        if (a == null) return;
+        a.closeReported = true;
+        a.finish();
+        if (started) nativeOnEvent(node, K_WINDOW_CLOSED, 0, null);
+    }
+
+    /** Bring a secondary window's task to the front. */
+    public static void focusWindow(long node) {
+        DayWindowActivity a = DayWindowActivity.ACTIVE.get(node);
+        if (a == null) return;
+        android.app.ActivityManager am = (android.app.ActivityManager)
+                a.getSystemService(android.content.Context.ACTIVITY_SERVICE);
+        if (am != null) am.moveTaskToFront(a.getTaskId(), 0);
+    }
+
+    /** Retitle a secondary window (label + recents card). */
+    public static void setWindowTitle(long node, String title) {
+        DayWindowActivity a = DayWindowActivity.ACTIVE.get(node);
+        if (a != null) {
+            a.setTitle(title);
+            a.setTaskDescription(new android.app.ActivityManager.TaskDescription(title));
+        }
+    }
+
+    /** The primary window's label in the recents switcher (docs/windows.md).
+     *
+     *  Android's answer to "list the app's windows" is one recents card per task, labeled by
+     *  its task description, so the main activity needs this for the same reason a secondary
+     *  one does. It has no `day.node` to be addressed by, hence its own entry point. */
+    public static void setPrimaryWindowTitle(String title) {
+        if (ctx instanceof android.app.Activity) {
+            android.app.Activity a = (android.app.Activity) ctx;
+            a.setTitle(title);
+            a.setTaskDescription(new android.app.ActivityManager.TaskDescription(title));
+        }
+    }
+
+    // --- event kinds -----------------------------------------------------------
+    // Mirror of day_spec::bridge::BridgeKind (the shared wire table). day-mdc's
+    // bridge_kinds_parity test reads this block and asserts each value against the Rust enum, so
+    // edit both together. Public so piece-owned Java (the K_CUSTOM channel) can use them.
+    public static final int K_REFRESH_REQUESTED = 35;
+    public static final int K_PRESSED = 0;
+    public static final int K_TEXT_CHANGED = 1;
+    public static final int K_TOGGLE_CHANGED = 2;
+    public static final int K_VALUE_CHANGED = 3;
+    public static final int K_SELECTION_CHANGED = 4;
+    public static final int K_LIST_ACTIVATED = 31;
+    public static final int K_NAV_BACK = 5;
+    public static final int K_FRAME_CHANGED = 6;
+    public static final int K_DEEPLINK = 7;
+    public static final int K_DOCUMENT_OPENED = 32;
+    public static final int K_PRESENT_BUTTON = 8;
+    public static final int K_PRESENT_TEXT = 9;
+    public static final int K_PRESENT_DISMISSED = 10;
+    public static final int K_GESTURE = 11;
+    public static final int K_CUSTOM = 12;
+    public static final int K_MENU_ACTION = 13;
+    public static final int K_LIFECYCLE = 14;
+    public static final int K_PRESENT_FILE = 15;
+    public static final int K_FOCUS_CHANGED = 16;
+    public static final int K_SUBMITTED = 17;
+    public static final int K_WINDOW_RESIZED = 18;
+    public static final int K_WINDOW_CLOSED = 20;
+    public static final int K_WINDOW_FOCUSED = 21;
+    public static final int K_VALUE_COMMITTED = 22;
+    /** Inline search on a `.searchable()` nav surface (docs/search.md): the field's new text. */
+    public static final int K_SEARCH_CHANGED = 23;
+    /** A nav host's SlidingPaneLayout settled on a presentation (docs/size-classes.md). */
+    public static final int K_NAV_PRESENTATION = 24;
+    public static final int K_APPEARANCE_CHANGED = 25;
+    /** The user's "Remove animations" setting flipped (docs/accessibility.md); no payload. */
+    public static final int K_REDUCE_MOTION_CHANGED = 33;
+    public static final int K_COVER_HIDDEN = 26;
+    /** A styled run's link was tapped (docs/text-runs.md); the string is the target. */
+    public static final int K_LINK_ACTIVATED = 27;
+    /** A toolbar item produced a value (docs/toolbars.md): "on" + num, or "sel" + index. */
+    public static final int K_TOOLBAR_CHANGED = 30;
+    /** A key reached a focused canvas (docs/menus.md): the day key name, with the modifier mask. */
+    public static final int K_KEY = 29;
+    public static final int K_SAFE_AREA = 19;
+    /** A window's display state changed (docs/windows.md): num = the day WindowState code
+     *  (0 normal, 3 fullscreen here), against the window's day node or 0 for the primary. */
+    public static final int K_WINDOW_STATE_CHANGED = 34;
+    /** Whether node `id` has an `.on_key` handler (docs/menus.md): a canvas asks before it
+     *  claims a key or takes focus on a press. */
+    public static native boolean nativeHandlesKeys(long id);
+    public static native void nativeRunPosted(long token);
+    /** Frame clock (§8.4): Choreographer's per-vsync callback forwards here with the frame time. */
+    public static native void nativeDoFrame(long token, long frameTimeNanos);
+    /** Native two-level disclosure. The general n-level tree remains the composed piece. */
+    private static final class DaySectionTree extends android.widget.ExpandableListView {
+        final long host;
+        final int rowHeight;
+        final boolean selectable;
+        boolean restoring;
+        final java.util.ArrayList<Long> tokens = new java.util.ArrayList<>();
+        final java.util.ArrayList<Integer> roots = new java.util.ArrayList<>();
+        final java.util.HashMap<Integer, java.util.ArrayList<Integer>> children = new java.util.HashMap<>();
+        final java.util.HashSet<Integer> headers = new java.util.HashSet<>();
+        final java.util.HashMap<Integer, View> bound = new java.util.HashMap<>();
+        final android.widget.BaseExpandableListAdapter adapter;
+        DaySectionTree(long id, int height, boolean choose) {
+            super(ctx); host=id; rowHeight=height; selectable=choose;
+            // AbsListView defaults to non-nested scrolling. Sectioned navigation must
+            // forward scroll deltas to the host's Material AppBarLayout, like RecyclerView.
+            setNestedScrollingEnabled(true);
+            setDividerHeight(0);
+            setOnGroupClickListener((parent, view, group, ignored) -> {
+                int row=roots.get(group);
+                if(headers.contains(row)) return false;
+                select(row); return true;
+            });
+            setOnChildClickListener((parent, view, group, child, ignored) -> { select(children.get(roots.get(group)).get(child)); return true; });
+            setOnGroupExpandListener(group -> disclosure(group,true));
+            setOnGroupCollapseListener(group -> {
+                for(int row: children.get(roots.get(group))) {
+                    View cell=bound.get(row); if(cell!=null) nativeListRecycle(host,cell);
+                }
+                disclosure(group,false);
+            });
+            adapter = new android.widget.BaseExpandableListAdapter() {
+                public int getGroupCount() { return roots.size(); }
+                public int getChildrenCount(int group) { return children.get(roots.get(group)).size(); }
+                public Object getGroup(int group) { return roots.get(group); }
+                public Object getChild(int group,int child) { return children.get(roots.get(group)).get(child); }
+                public long getGroupId(int group) { return tokens.get(roots.get(group)); }
+                public long getChildId(int group,int child) { return tokens.get((Integer)getChild(group,child)); }
+                public boolean hasStableIds() { return true; }
+                public boolean isChildSelectable(int group,int child) { return selectable; }
+                public View getGroupView(int group,boolean expanded,View reused,ViewGroup parent) { return bind(roots.get(group),reused); }
+                public View getChildView(int group,int child,boolean last,View reused,ViewGroup parent) { return bind((Integer)getChild(group,child),reused); }
+            };
+            setAdapter(adapter);
+        }
+        void select(int row) {
+            if(selectable) nativeOnEvent(host,K_CUSTOM,0,"day-tree-select:"+Long.toUnsignedString(tokens.get(row)));
+        }
+        void disclosure(int group,boolean open) {
+            if(!restoring) nativeOnEvent(host,K_CUSTOM,open?1:0,"day-tree-expand:"+Long.toUnsignedString(tokens.get(roots.get(group))));
+        }
+        View bind(int row, View reused) {
+            android.widget.FrameLayout wrap;
+            DayFixed cell;
+            if(reused instanceof android.widget.FrameLayout) {
+                wrap=(android.widget.FrameLayout)reused; cell=(DayFixed)wrap.getChildAt(0);
+                nativeListRecycle(host,cell);
+                bound.values().remove(cell);
+            } else {
+                wrap=new android.widget.FrameLayout(ctx);
+                cell=new DayFixed(ctx) {
+                    @Override protected void onDetachedFromWindow() { nativeListRecycle(host,this); super.onDetachedFromWindow(); }
+                };
+                android.widget.FrameLayout.LayoutParams lp=new android.widget.FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,rowHeight);
+                lp.leftMargin=Math.round(32*ctx.getResources().getDisplayMetrics().density);
+                wrap.addView(cell,lp);
+                wrap.setLayoutParams(new android.widget.AbsListView.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,rowHeight));
+            }
+            bound.put(row,cell);
+            nativeListBind(host,row,cell);
+            paintSelected(wrap,!headers.contains(row) && nativeListIsSelected(host,row));
+            return wrap;
+        }
+        void reload(String data) {
+            restoring=true;
+            for(View cell:bound.values()) nativeListRecycle(host,cell);
+            bound.clear(); tokens.clear(); roots.clear(); children.clear(); headers.clear();
+            java.util.ArrayList<Boolean> open=new java.util.ArrayList<>();
+            if(!data.isEmpty()) for(String line:data.split("\n")) {
+                String[] fields=line.split(":"); int row=tokens.size();
+                tokens.add(Long.parseUnsignedLong(fields[0]));
+                int parent=Integer.parseInt(fields[1]);
+                children.put(row,new java.util.ArrayList<>());
+                if(parent<0) roots.add(row); else children.get(parent).add(row);
+                if(fields[2].equals("1")) headers.add(row);
+                open.add(fields[3].equals("1"));
+            }
+            adapter.notifyDataSetChanged();
+            for(int group=0;group<roots.size();++group) {
+                if(open.get(roots.get(group))) expandGroup(group); else collapseGroup(group);
+            }
+            restoring=false;
+        }
+        void expand(long token,boolean open) {
+            restoring=true;
+            for(int g=0;g<roots.size();++g) if(tokens.get(roots.get(g))==token) {
+                if(open) expandGroup(g); else collapseGroup(g);
+            }
+            restoring=false;
+        }
+    }
+    public static View makeTree(long id,int height,boolean selectable) { return new DaySectionTree(id,height,selectable); }
+    public static void treeReload(View view,String data) { if(view instanceof DaySectionTree) ((DaySectionTree)view).reload(data); }
+    public static void treeExpand(View view,long token,boolean open) { if(view instanceof DaySectionTree) ((DaySectionTree)view).expand(token,open); }
+    public static void treeSelection(View view) { if(view instanceof DaySectionTree) ((DaySectionTree)view).adapter.notifyDataSetChanged(); }
+    public static void treeReveal(View view,long token) {
+        if(!(view instanceof DaySectionTree)) return;
+        DaySectionTree t=(DaySectionTree)view;
+        for(int g=0;g<t.roots.size();++g) {
+            int root=t.roots.get(g);
+            if(t.tokens.get(root)==token) { t.setSelectedGroup(g); return; }
+            java.util.ArrayList<Integer> children=t.children.get(root);
+            for(int c=0;c<children.size();++c) if(t.tokens.get(children.get(c))==token) { t.setSelectedChild(g,c,true); return; }
+        }
+    }
+
+    /** Recycling list (docs/list.md): the adapter pulls row count + fills recycled cells. */
+    public static native int nativeListLen(long hostId);
+    public static native void nativeListBind(long hostId, int position, View cell);
+    /** A holder left the visible set: day clears its dayscript ids (docs/list.md). */
+    public static native void nativeListRecycle(long hostId, View cell);
+    /** Whether row `position` is in the list's programmatic selection (ListPatch::Selected). */
+    public static native boolean nativeListIsSelected(long hostId, int position);
+    /** Drag-to-reorder (docs/list.md): may `from` drop over `to`? (The app guard's live veto;
+     *  a Retarget verdict reads as deny here, since ItemTouchHelper can't relocate the gap.) */
+    public static native boolean nativeListCanDrop(long hostId, int from, int to);
+    /** Commit one incremental drag swap to day; false = refused, don't move. */
+    public static native boolean nativeListMove(long hostId, int from, int to);
+    /** May row `index` be swiped away? (docs/list.md, the delete guard.) */
+    public static native boolean nativeListCanDelete(long hostId, int index);
+    /** Commit a swipe-to-delete to day; false if the guard refused. */
+    public static native boolean nativeListDelete(long hostId, int index);
+
+    /** Cross-thread → main-thread door for day's scheduler/Setter (§3.3). */
+    public static void postMain(final long token) {
+        main.post(new Runnable() {
+            public void run() { nativeRunPosted(token); }
+        });
+    }
+
+    /** The timer door behind day::sleep (docs/async.md): postMain after `ms` on the main Handler. */
+    public static void postMainDelayed(final long token, final long ms) {
+        main.postDelayed(new Runnable() {
+            public void run() { nativeRunPosted(token); }
+        }, ms);
+    }
+
+    /**
+     * Frame clock (§8.4): schedule one Choreographer frame callback (called on the UI thread, so
+     * getInstance() yields the UI thread's Choreographer). One-shot; day-core re-arms while a
+     * frame consumer is live.
+     */
+    private static final java.util.Map<Long, Choreographer.FrameCallback> frames = new java.util.HashMap<>();
+    public static void requestFrame(final long token) {
+        Choreographer.FrameCallback callback = new Choreographer.FrameCallback() {
+            public void doFrame(long frameTimeNanos) {
+                if (frames.remove(token) != null) nativeDoFrame(token, frameTimeNanos);
+            }
+        };
+        frames.put(token, callback);
+        Choreographer.getInstance().postFrameCallback(callback);
+    }
+    public static void cancelFrame(long token) {
+        Choreographer.FrameCallback callback = frames.remove(token);
+        if (callback != null) Choreographer.getInstance().removeFrameCallback(callback);
+    }
+
+    // --- factories + setters (called from Rust over JNI) ---
+    // ---- canvas fonts (docs/fonts.md) -----------------------------------------------------
+
+    private static final java.util.Map<String, Typeface> CANVAS_FONT_CACHE = new java.util.HashMap<>();
+
+    /**
+     * The typeface canvas text draws and measures with: a bundled `res/font/` family, else a
+     * system family or alias by name (`sans-serif-condensed`, `serif`, …, which `Typeface.create`
+     * resolves from `fonts.xml`; an unknown name gives the default face), at a CSS weight (0 =
+     * default) and slant. API 28+ picks the exact weight; older releases take the bold flag.
+     */
+    public static Typeface canvasTypeface(String family, int weight, boolean italic) {
+        String key = family + "|" + weight + "|" + italic;
+        Typeface cached = CANVAS_FONT_CACHE.get(key);
+        if (cached != null) return cached;
+        Typeface base = Typeface.DEFAULT;
+        if (family != null && !family.isEmpty()) {
+            base = bundledFontOrNull(family);
+            if (base == null) base = Typeface.create(family, Typeface.NORMAL);
+        }
+        Typeface tf;
+        if (android.os.Build.VERSION.SDK_INT >= 28) {
+            tf = Typeface.create(base, weight > 0 ? weight : 400, italic);
+        } else {
+            int style = (weight >= 600 ? Typeface.BOLD : Typeface.NORMAL) | (italic ? Typeface.ITALIC : 0);
+            tf = Typeface.create(base, style);
+        }
+        CANVAS_FONT_CACHE.put(key, tf);
+        return tf;
+    }
+
+    /**
+     * Every family Android's font configuration names, with one face per `<font>` entry, in
+     * Day's list format (U+001E between families; U+001F-separated fields: family, then
+     * (face, CSS weight, italic) per face). There is no public API for family names, only the
+     * `SystemFonts` API (29+) that lists files, so this reads `/system/etc/fonts.xml`, the
+     * configuration `Typeface.create(name, …)` resolves from, so every listed name draws.
+     * An `<alias>` with a weight is a one-face family at that weight; one without takes its
+     * target's faces. Unnamed (fallback-only) families are skipped.
+     */
+    public static String fontFamilies() {
+        java.util.LinkedHashMap<String, java.util.List<String>> families = new java.util.LinkedHashMap<>();
+        java.util.List<String[]> aliases = new java.util.ArrayList<>();
+        try (java.io.FileInputStream in = new java.io.FileInputStream("/system/etc/fonts.xml")) {
+            org.xmlpull.v1.XmlPullParser p = android.util.Xml.newPullParser();
+            p.setInput(in, null);
+            String current = null;
+            for (int ev = p.getEventType(); ev != org.xmlpull.v1.XmlPullParser.END_DOCUMENT; ev = p.next()) {
+                if (ev == org.xmlpull.v1.XmlPullParser.START_TAG) {
+                    String tag = p.getName();
+                    if ("family".equals(tag)) {
+                        current = p.getAttributeValue(null, "name");
+                        if (current != null && !families.containsKey(current)) {
+                            families.put(current, new java.util.ArrayList<String>());
+                        }
+                    } else if ("font".equals(tag) && current != null) {
+                        String w = p.getAttributeValue(null, "weight");
+                        String st = p.getAttributeValue(null, "style");
+                        int weight = 400;
+                        try { if (w != null) weight = Integer.parseInt(w.trim()); } catch (NumberFormatException ignored) {}
+                        boolean italic = "italic".equals(st);
+                        families.get(current).add("\u001F" + weight + "\u001F" + (italic ? "1" : "0"));
+                    } else if ("alias".equals(tag)) {
+                        String name = p.getAttributeValue(null, "name");
+                        String to = p.getAttributeValue(null, "to");
+                        String w = p.getAttributeValue(null, "weight");
+                        if (name != null && to != null) aliases.add(new String[] { name, to, w });
+                    }
+                } else if (ev == org.xmlpull.v1.XmlPullParser.END_TAG && "family".equals(p.getName())) {
+                    current = null;
+                }
+            }
+        } catch (Exception e) {
+            android.util.Log.w("DayBridge", "fonts.xml unreadable — the font list is empty: " + e);
+        }
+        for (String[] alias : aliases) {
+            java.util.List<String> target = families.get(alias[1]);
+            if (target == null || families.containsKey(alias[0])) continue;
+            java.util.List<String> faces = new java.util.ArrayList<>();
+            if (alias[2] != null) {
+                int weight = 400;
+                try { weight = Integer.parseInt(alias[2].trim()); } catch (NumberFormatException ignored) {}
+                faces.add("\u001F" + weight + "\u001F0");
+                for (String face : target) {
+                    if (face.endsWith("\u001F1") && face.startsWith("\u001F" + weight + "\u001F")) {
+                        faces.add("\u001F" + weight + "\u001F1");
+                        break;
+                    }
+                }
+            } else {
+                faces.addAll(target);
+            }
+            families.put(alias[0], faces);
+        }
+        // The bundled families (`day build` writes their names to res/values/day_fonts.xml):
+        // one Regular face each (the file is the face), drawable by name through
+        // bundledFontOrNull.
+        if (ctx != null) {
+            int id = ctx.getResources().getIdentifier("day_fonts", "array", ctx.getPackageName());
+            if (id != 0) {
+                try {
+                    for (String family : ctx.getResources().getStringArray(id)) {
+                        if (family != null && !family.isEmpty() && !families.containsKey(family)) {
+                            java.util.List<String> faces = new java.util.ArrayList<>();
+                            faces.add("\u001F400\u001F0");
+                            families.put(family, faces);
+                        }
+                    }
+                } catch (Exception ignored) {
+                    // A missing or malformed array: the system list stands.
+                }
+            }
+        }
+        StringBuilder sb = new StringBuilder();
+        boolean first = true;
+        for (java.util.Map.Entry<String, java.util.List<String>> fam : families.entrySet()) {
+            if (!first) sb.append('\u001E');
+            first = false;
+            sb.append(fam.getKey().replace('\u001F', ' ').replace('\u001E', ' '));
+            for (String face : fam.getValue()) {
+                sb.append('\u001F'); // an empty face name: Day synthesizes it from weight + slant
+                sb.append(face);
+            }
+        }
+        return sb.toString();
+    }
+
+    /**
+     * Measure one line of canvas text with the typeface `canvasTypeface` resolves, at an
+     * unscaled size (the canvas replay scales by density, so the answer is in dp): the advance
+     * width, the line height and the ascent, comma-joined.
+     */
+    /**
+     * Comma-joined: advance, line height, ascent, cap height, then the ink box relative to the
+     * line box's top-leading corner (x, y, w, h): the eight numbers day-spec's TextMetrics reads.
+     *
+     * Paint has no cap-height metric, but getTextBounds gives ink bounds, and the ink ascent of a
+     * capital is the cap height. That is one extra measurement of a one-character string,
+     * memoized per (size, font) on day's side, so a process pays for it once (docs/fonts.md).
+     */
+    public static String measureText(String text, double size, int weight, boolean italic, String family) {
+        android.graphics.Paint paint = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
+        paint.setTextSize((float) size);
+        paint.setTypeface(canvasTypeface(family, weight, italic));
+        android.graphics.Paint.FontMetrics fm = paint.getFontMetrics();
+        float ascent = -fm.ascent;
+        android.graphics.Rect ink = new android.graphics.Rect();
+        paint.getTextBounds(text, 0, text.length(), ink);
+        android.graphics.Rect cap = new android.graphics.Rect();
+        paint.getTextBounds("H", 0, 1, cap);
+        return paint.measureText(text)
+                + "," + (fm.descent - fm.ascent)
+                + "," + ascent
+                + "," + (-cap.top)
+                // getTextBounds is baseline-relative with y down (top negative): shift by the
+                // ascent to make it relative to the line box's top.
+                + "," + ink.left
+                + "," + (ink.top + ascent)
+                + "," + ink.width()
+                + "," + ink.height();
+    }
+
+    /**
+     * The device's ordered language preference as BCP-47 tags, comma-joined ("fr-FR,en-US").
+     *
+     * The configuration's list, not `Locale.getDefault()`: it carries every language the user
+     * ranked in Settings, and it honors a per-app language override (Android 13+). Day negotiates
+     * its catalogs against the whole list (docs/localization.md).
+     */
+    public static String localeTags() {
+        android.os.LocaleList list = ctx != null
+                ? ctx.getResources().getConfiguration().getLocales()
+                : android.os.LocaleList.getDefault();
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < list.size(); i++) {
+            if (i > 0) {
+                sb.append(',');
+            }
+            sb.append(list.get(i).toLanguageTag());
+        }
+        return sb.toString();
+    }
+
+    public static View makeContainer() { return new DayFixed(ctx); }
+
+    /** A `background`/`corner_radius` surface: a GradientDrawable (rounded rect) as the view's
+     *  background, plus clipToOutline so a corner radius also clips child views. `argb` is packed
+     *  0xAARRGGBB (used only when `hasBg`); `radiusPx` is already density-scaled. */
+    /** SurfaceRole::SectionCard: the M3 grouped-card fill, resolved from the active theme
+     *  (colorSurfaceContainer, falling back to colorSurfaceVariant), so it adapts to the app's
+     *  light/dark configuration. */
+    public static void setSectionCard(View v, float radiusPx) {
+        android.util.TypedValue tv = new android.util.TypedValue();
+        boolean ok = ctx.getTheme().resolveAttribute(
+                com.google.android.material.R.attr.colorSurfaceContainer, tv, true);
+        if (!ok) {
+            ok = ctx.getTheme().resolveAttribute(
+                    com.google.android.material.R.attr.colorSurfaceVariant, tv, true);
+        }
+        GradientDrawable d = new GradientDrawable();
+        if (ok) d.setColor(tv.data);
+        d.setCornerRadius(radiusPx);
+        v.setBackground(d);
+        v.setClipToOutline(true);
+    }
+
+    /** SurfaceRole::Window: the theme's window background, the color an opaque DayCover
+     *  paints (a composed sheet's card, docs/cover.md "Modal sheet"). */
+    public static void setWindowSurface(View v, float radiusPx, boolean clips) {
+        android.util.TypedValue tv = new android.util.TypedValue();
+        int bg = ctx.getTheme().resolveAttribute(android.R.attr.colorBackground, tv, true)
+                ? tv.data : 0xFFFFFFFF;
+        setSurface(v, bg, true, radiusPx, clips);
+    }
+
+    public static void setSurface(View v, int argb, boolean hasBg, float radiusPx, boolean clips) {
+        GradientDrawable d = new GradientDrawable();
+        if (hasBg) d.setColor(argb);
+        if (radiusPx > 0f) d.setCornerRadius(radiusPx);
+        v.setBackground(d);
+        if (clips || radiusPx > 0f) v.setClipToOutline(true);
+    }
+
+    /** Animatable opacity (§8.4). durMs&lt;=0 sets instantly; otherwise ViewPropertyAnimator
+     *  runs it on the render thread with a curve-matched interpolator. */
+    public static void setOpacity(View v, float alpha, int durMs, int curve) {
+        if (durMs <= 0) { v.animate().cancel(); v.setAlpha(alpha); return; }
+        v.animate().alpha(alpha).setDuration(durMs).setInterpolator(interp(curve)).start();
+    }
+
+    /** Animatable transform (§8.4): translation (px, additive over the laid-out position),
+     *  scale, and rotation (degrees) about the view's center pivot, with no relayout. A repeated
+     *  animate() call retargets the running animator. */
+    public static void setTransform(View v, float tx, float ty, float sx, float sy, float rot,
+                                    int durMs, int curve) {
+        // See addChild: a presented cover shell is positioned/animated natively.
+        if (v instanceof DayCover && ((DayCover) v).presented) return;
+        if (durMs <= 0) {
+            v.animate().cancel();
+            v.setTranslationX(tx); v.setTranslationY(ty);
+            v.setScaleX(sx); v.setScaleY(sy);
+            v.setRotation(rot);
+            return;
+        }
+        v.animate().translationX(tx).translationY(ty).scaleX(sx).scaleY(sy).rotation(rot)
+            .setDuration(durMs).setInterpolator(interp(curve)).start();
+    }
+
+    /** Day curve code (§8.4) → Android interpolator. Spring approximates as fast-out/slow-in
+     *  (a true spring would pull in androidx.dynamicanimation). */
+    private static android.view.animation.Interpolator interp(int curve) {
+        switch (curve) {
+            case 0: return new android.view.animation.LinearInterpolator();
+            case 1: return new android.view.animation.AccelerateInterpolator();
+            case 2: return new android.view.animation.DecelerateInterpolator();
+            case 4: return new android.view.animation.OvershootInterpolator(); // spring
+            default: return new android.view.animation.AccelerateDecelerateInterpolator();
+        }
+    }
+
+    /** A ViewHolder wrapping one DayFixed cell (docs/list.md). */
+    static final class DayCellHolder extends RecyclerView.ViewHolder {
+        DayCellHolder(DayFixed cell) { super(cell); }
+    }
+
+    /** A native recycling list (docs/list.md): a RecyclerView (the platform's recycling
+     *  widget) whose adapter reuses DayFixed cells, day filling each via nativeListBind.
+     *  With `reorderable`, an ItemTouchHelper drives the native drag-to-reorder (long-press
+     *  lift, elevation, incremental row swaps): every hover is vetted synchronously through
+     *  nativeListCanDrop (the app's guard) and each swap commits through nativeListMove. */
+    public static View makeList(final long hostId, final int rowHeightPx, final boolean selectable,
+                                final boolean reorderable, final boolean deletable,
+                                final String deleteLabel) {
+        final RecyclerView rv = new RecyclerView(ctx);
+        if (skipTransitions()) rv.setItemAnimator(null);
+        rv.setLayoutManager(new LinearLayoutManager(ctx));
+        rv.addOnScrollListener(new RecyclerView.OnScrollListener() {
+            int previous = -1;
+            @Override public void onScrolled(RecyclerView view, int dx, int dy) {
+                int first = ((LinearLayoutManager) view.getLayoutManager()).findFirstVisibleItemPosition();
+                if (first >= 0 && first != previous) {
+                    previous = first;
+                    nativeOnEvent(hostId, K_CUSTOM, first, "day-list-first-visible");
+                }
+            }
+        });
+        rv.setAdapter(new RecyclerView.Adapter<DayCellHolder>() {
+            public int getItemCount() { return nativeListLen(hostId); }
+            public DayCellHolder onCreateViewHolder(ViewGroup parent, int viewType) {
+                DayFixed cell = new DayFixed(ctx);
+                cell.setLayoutParams(new RecyclerView.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, rowHeightPx));
+                if (selectable) {
+                    // Touch feedback, which a bare ViewGroup with a click listener does not have:
+                    // a row that responds to a tap has to say so under the finger, and on Android
+                    // that is the bounded ripple every Material list item draws.
+                    //
+                    // As the foreground, not the background: day fills this cell with its own
+                    // views, and a background ripple would be painted underneath them and never
+                    // seen. `android:foreground="?attr/selectableItemBackground"` is what a
+                    // Material list item uses, for the same reason. The View pipes hotspot
+                    // changes to the foreground too, so the ripple still starts at the finger.
+                    setTouchFeedback(cell, true);
+                }
+                return new DayCellHolder(cell);
+            }
+            public void onBindViewHolder(DayCellHolder h, int position) {
+                nativeListBind(hostId, position, h.itemView);
+                if (selectable) {
+                    // A rebound holder inherits the row's selection state; the sync patch
+                    // (listPaintSelection) covers the holders already on screen.
+                    paintSelected(h.itemView, nativeListIsSelected(hostId, position));
+                    h.itemView.setOnClickListener(new View.OnClickListener() {
+                        public void onClick(View v) {
+                            int pos = h.getBindingAdapterPosition();
+                            if (pos != RecyclerView.NO_POSITION) {
+                                nativeOnEvent(hostId, K_SELECTION_CHANGED, pos, "");
+                                nativeOnEvent(hostId, K_LIST_ACTIVATED, pos, "");
+                            }
+                        }
+                    });
+                }
+            }
+            public void onViewRecycled(DayCellHolder h) {
+                // The pooled cell keeps its day content for the next bind, but its dayscript
+                // ids must stop answering lookups (docs/list.md).
+                nativeListRecycle(hostId, h.itemView);
+            }
+        });
+        if (reorderable || deletable) {
+            // One ItemTouchHelper drives both gestures: the platform arbitrates between a
+            // long-press drag and a swipe itself, which is why they share a callback rather
+            // than fighting over the same touch stream (docs/list.md).
+            final android.graphics.Paint swipePaint = new android.graphics.Paint();
+            swipePaint.setColor(0xFFB3261E); // M3 error container
+            final android.graphics.Paint swipeText = new android.graphics.Paint();
+            swipeText.setColor(0xFFFFFFFF);
+            swipeText.setAntiAlias(true);
+            swipeText.setTextSize(14f * ctx.getResources().getDisplayMetrics().scaledDensity);
+            new ItemTouchHelper(new ItemTouchHelper.Callback() {
+                public int getMovementFlags(RecyclerView r, RecyclerView.ViewHolder vh) {
+                    int drag = reorderable ? (ItemTouchHelper.UP | ItemTouchHelper.DOWN) : 0;
+                    // `START`, not `LEFT`: it resolves against the layout direction, so the gesture
+                    // is a trailing-edge swipe in both LTR and RTL, the same edge iOS uses.
+                    int swipe = 0;
+                    if (deletable) {
+                        int pos = vh.getBindingAdapterPosition();
+                        // A guarded row reports NO swipe direction, so it never moves under the
+                        // finger rather than sliding back after a refusal.
+                        if (pos != RecyclerView.NO_POSITION && nativeListCanDelete(hostId, pos)) {
+                            swipe = ItemTouchHelper.START;
+                        }
+                    }
+                    return makeMovementFlags(drag, swipe);
+                }
+
+                /** The Material affordance: the row slides to reveal a red field carrying the
+                 *  app's own delete word (or nothing, when it supplied none). */
+                @Override public void onChildDraw(android.graphics.Canvas c, RecyclerView r,
+                        RecyclerView.ViewHolder vh, float dX, float dY, int state,
+                        boolean isActive) {
+                    if (state == ItemTouchHelper.ACTION_STATE_SWIPE && dX != 0f) {
+                        View row = vh.itemView;
+                        float left = dX < 0 ? row.getRight() + dX : row.getLeft();
+                        float right = dX < 0 ? row.getRight() : row.getLeft() + dX;
+                        c.drawRect(left, row.getTop(), right, row.getBottom(), swipePaint);
+                        if (deleteLabel != null && !deleteLabel.isEmpty()) {
+                            float pad = 16f * ctx.getResources().getDisplayMetrics().density;
+                            float ty = row.getTop() + (row.getHeight()
+                                    - (swipeText.descent() + swipeText.ascent())) / 2f;
+                            float tw = swipeText.measureText(deleteLabel);
+                            // Keep the word inside the revealed field as it grows.
+                            float tx = dX < 0 ? row.getRight() - pad - tw : row.getLeft() + pad;
+                            if (Math.abs(dX) > tw + pad * 2f) c.drawText(deleteLabel, tx, ty, swipeText);
+                        }
+                    }
+                    super.onChildDraw(c, r, vh, dX, dY, state, isActive);
+                }
+                @Override public boolean isLongPressDragEnabled() { return true; }
+                @Override public boolean canDropOver(RecyclerView r, RecyclerView.ViewHolder cur,
+                                                     RecyclerView.ViewHolder target) {
+                    int from = cur.getBindingAdapterPosition();
+                    int to = target.getBindingAdapterPosition();
+                    return from != RecyclerView.NO_POSITION && to != RecyclerView.NO_POSITION
+                        && nativeListCanDrop(hostId, from, to);
+                }
+                public boolean onMove(RecyclerView r, RecyclerView.ViewHolder vh,
+                                      RecyclerView.ViewHolder target) {
+                    // ItemTouchHelper commits incrementally (one adjacent swap per callback
+                    // while the row is dragged), so each step goes through day.
+                    int from = vh.getBindingAdapterPosition();
+                    int to = target.getBindingAdapterPosition();
+                    if (from == RecyclerView.NO_POSITION || to == RecyclerView.NO_POSITION) return false;
+                    if (!nativeListMove(hostId, from, to)) return false;
+                    RecyclerView.Adapter<?> a = r.getAdapter();
+                    if (a != null) a.notifyItemMoved(from, to);
+                    return true;
+                }
+                public void onSwiped(RecyclerView.ViewHolder vh, int direction) {
+                    int pos = vh.getBindingAdapterPosition();
+                    if (pos == RecyclerView.NO_POSITION) return;
+                    RecyclerView.Adapter<?> a = rv.getAdapter();
+                    if (nativeListDelete(hostId, pos)) {
+                        // nativeListDelete already shortened day's snapshot; tell the adapter
+                        // so the removal animates out of the swipe instead of snapping via a
+                        // reload.
+                        if (a != null) a.notifyItemRemoved(pos);
+                    } else if (a != null) {
+                        // Refused after the fact: put the row back where it was.
+                        a.notifyItemChanged(pos);
+                    }
+                }
+            }).attachToRecyclerView(rv);
+        }
+        return rv;
+    }
+    /** Give one row of a self-sizing list (RowHeight::Automatic) the height day laid it at, in
+     *  px (docs/list.md "Row heights"). Called from the bind, before the layout manager measures
+     *  the holder, and posted after a row was re-laid at a new height. The holder was made at
+     *  an estimate; a row whose height already matches is left alone, so a rebind of an
+     *  unchanged row costs no layout pass. */
+    public static void setListCellHeight(View cell, int px) {
+        if (cell == null || px <= 0) return;
+        ViewGroup.LayoutParams lp = cell.getLayoutParams();
+        if (lp == null || lp.height == px) return;
+        lp.height = px;
+        cell.setLayoutParams(lp);
+    }
+    /** Repaint the visible holders' selection state from day's record (ListPatch::Selected):
+     *  newly bound holders take theirs in onBindViewHolder. Paint only; no events. */
+    public static void listPaintSelection(View v, long hostId) {
+        if (!(v instanceof RecyclerView)) return;
+        RecyclerView rv = (RecyclerView) v;
+        for (int i = 0; i < rv.getChildCount(); i++) {
+            View child = rv.getChildAt(i);
+            int pos = rv.getChildAdapterPosition(child);
+            if (pos != RecyclerView.NO_POSITION) {
+                paintSelected(child, nativeListIsSelected(hostId, pos));
+            }
+        }
+    }
+    /** A selected row's fill: Material's secondary container, the color the navigation rail and
+     *  drawer give their selected item. Resolved from the cell's own themed context on every
+     *  paint, so it follows a light/dark change. As the background: day's row content paints
+     *  above it, and the ripple foreground stays free for touch feedback. */
+    static void paintSelected(View cell, boolean on) {
+        cell.setActivated(on);
+        cell.setBackgroundColor(on
+                ? MaterialColors.getColor(cell,
+                        com.google.android.material.R.attr.colorSecondaryContainer, 0x33888888)
+                : 0x00000000);
+    }
+
+    public static void listReload(View v) {
+        if (v instanceof RecyclerView && ((RecyclerView) v).getAdapter() != null) {
+            ((RecyclerView) v).getAdapter().notifyDataSetChanged();
+        }
+    }
+    /** Scroll the list so row `row` is visible (docs/list.md), realizing it if needed. Posted
+     *  like listScrollToEnd; clamped to the count; no-op when empty. */
+    public static void listScrollToRow(View v, final int row) {
+        if (!(v instanceof RecyclerView)) return;
+        final RecyclerView rv = (RecyclerView) v;
+        rv.post(new Runnable() {
+            public void run() {
+                RecyclerView.Adapter<?> a = rv.getAdapter();
+                int n = (a == null) ? 0 : a.getItemCount();
+                if (n > 0) rv.scrollToPosition(Math.min(row, n - 1));
+            }
+        });
+    }
+    /** Scroll the list so its last row is fully visible (a chat sticking to the newest message).
+     *  Posted so it runs after any pending notifyDataSetChanged relayout; no-op when empty. */
+    public static void listScrollToEnd(View v) {
+        if (!(v instanceof RecyclerView)) return;
+        final RecyclerView rv = (RecyclerView) v;
+        rv.post(new Runnable() {
+            public void run() {
+                RecyclerView.Adapter<?> a = rv.getAdapter();
+                int n = (a == null) ? 0 : a.getItemCount();
+                if (n > 0) {
+                    if (skipTransitions()) rv.scrollToPosition(n - 1);
+                    else rv.smoothScrollToPosition(n - 1);
+                }
+            }
+        });
+    }
+
+    public static View makeScroll(boolean horizontal) {
+        // The onSizeChanged overrides are the keyboard-avoidance reveal (docs/focus.md): when
+        // this viewport SHRINKS while a descendant holds focus (the IME just rose and Day
+        // relaid out), scroll the focused view back in. Posted so it runs after the layout
+        // pass that delivered the new size; requestRectangleOnScreen is a minimal scroll.
+        ViewGroup sv;
+        if (horizontal) {
+            sv = new HorizontalScrollView(ctx) {
+                @Override protected void onSizeChanged(int w, int h, int oldW, int oldH) {
+                    super.onSizeChanged(w, h, oldW, oldH);
+                    if (w < oldW) post(new Runnable() { public void run() { revealFocus(); } });
+                }
+                private void revealFocus() {
+                    View f = findFocus();
+                    if (f != null && f != this) {
+                        f.requestRectangleOnScreen(new android.graphics.Rect(
+                                0, 0, f.getWidth(), f.getHeight()), false);
+                    }
+                }
+            };
+        } else {
+            sv = new ScrollView(ctx) {
+                @Override protected void onSizeChanged(int w, int h, int oldW, int oldH) {
+                    super.onSizeChanged(w, h, oldW, oldH);
+                    if (h < oldH) post(new Runnable() { public void run() { revealFocus(); } });
+                }
+                private void revealFocus() {
+                    View f = findFocus();
+                    if (f != null && f != this) {
+                        f.requestRectangleOnScreen(new android.graphics.Rect(
+                                0, 0, f.getWidth(), f.getHeight()), false);
+                    }
+                }
+            };
+        }
+        if (sv instanceof ScrollView) ((ScrollView) sv).setFillViewport(false);
+        else ((HorizontalScrollView) sv).setFillViewport(false);
+        sv.addView(new DayFixed(ctx));
+        return sv;
+    }
+    public static View contentOf(View v) {
+        if ((v instanceof ScrollView || v instanceof HorizontalScrollView)
+                && ((ViewGroup) v).getChildCount() > 0) {
+            return ((ViewGroup) v).getChildAt(0);
+        }
+        if (v instanceof DayCover) return ((DayCover) v).content;
+        return v;
+    }
+    /** Minimal scroll so `[x,y,w,h]` (content px) is visible (scrollRectToVisible semantics).
+     *  Serves both scroll axes; the widget clamps to its own scroll range. */
+    public static void scrollToRect(final View v, final int x, final int y,
+                                    final int w, final int h, final boolean animated) {
+        main.post(new Runnable() {
+            private int tries = 0;
+            public void run() {
+                // A freshly built page's widgets have no size until the next layout pass, so
+                // defer until the scroll axis has a real viewport (bounded, in case the node
+                // never lays out).
+                boolean vertical = v instanceof android.widget.ScrollView;
+                int viewport = vertical ? v.getHeight() : v.getWidth();
+                if (viewport == 0 && tries++ < 10) {
+                    main.post(this);
+                    return;
+                }
+                if (v instanceof android.widget.ScrollView) {
+                    android.widget.ScrollView sv = (android.widget.ScrollView) v;
+                    int cur = sv.getScrollY();
+                    int view = sv.getHeight();
+                    int target = cur;
+                    if (y + h > cur + view) target = y + h - view;
+                    if (y < target) target = y;
+                    if (animated) sv.smoothScrollTo(0, target);
+                    else sv.scrollTo(0, target);
+                } else if (v instanceof android.widget.HorizontalScrollView) {
+                    android.widget.HorizontalScrollView sv = (android.widget.HorizontalScrollView) v;
+                    int cur = sv.getScrollX();
+                    int view = sv.getWidth();
+                    int target = cur;
+                    if (x + w > cur + view) target = x + w - view;
+                    if (x < target) target = x;
+                    if (animated) sv.smoothScrollTo(target, 0);
+                    else sv.scrollTo(target, 0);
+                }
+            }
+        });
+    }
+
+    public static void setScrollContent(View v, int w, int h) {
+        View content = contentOf(v);
+        if (content instanceof DayFixed) ((DayFixed) content).setContentSize(w, h);
+    }
+
+    /** A label's `TextAlign`: 1 = center, 2 = trailing. Leading keeps the default, which follows the layout direction. */
+    public static void setLabelAlignment(View view, int align) {
+        ((TextView) view).setTextAlignment(align == 1 ? View.TEXT_ALIGNMENT_CENTER : View.TEXT_ALIGNMENT_VIEW_END);
+    }
+
+    public static void setLabelSingleLine(View view) {
+        TextView label = (TextView) view;
+        label.setSingleLine(true);
+        label.setEllipsize(android.text.TextUtils.TruncateAt.END);
+    }
+
+    public static View makeLabel(String text) {
+        TextView t = new TextView(ctx);
+        t.setText(text);
+        return t;
+    }
+    public static void setLabel(View v, String text) { ((TextView) v).setText(text); }
+
+    /**
+     * Set a label's text with styled RUNS (docs/text-runs.md).
+     *
+     * The runs arrive as flat parallel arrays rather than objects: one JNI call with three
+     * primitive arrays beats N calls building a Java object per run, and this runs on every
+     * label patch. Layout: starts[i], ends[i] are UTF-16 offsets (Java string indices; Rust
+     * converts from its byte offsets), and flags[i] packs bold/italic/mono/strike/hasColor with
+     * colors[i] holding the ARGB when the flag says so. `links[i]` is null for a plain run.
+     *
+     * The spans are Android's own, so the text stays one TextView: it wraps, selects and is read
+     * by TalkBack as a single paragraph, which is the entire point of runs.
+     */
+    public static void setLabelRuns(
+            View v, final long node, String text, int[] starts, int[] ends, int[] flags, int[] colors,
+            int[] backgrounds, int[] scales, String linksJoined) {
+        TextView tv = (TextView) v;
+        boolean anyLink = false;
+        android.text.SpannableString s = new android.text.SpannableString(text);
+        String[] links = linksJoined.isEmpty() ? new String[0] : linksJoined.split("\u001f", -1);
+        final int EXCL = android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE;
+        for (int i = 0; i < starts.length; i++) {
+            int a = Math.max(0, Math.min(starts[i], text.length()));
+            int b = Math.max(a, Math.min(ends[i], text.length()));
+            if (a == b) continue;
+            int f = flags[i];
+            boolean bold = (f & 1) != 0, italic = (f & 2) != 0;
+            if (bold && italic) {
+                s.setSpan(new android.text.style.StyleSpan(android.graphics.Typeface.BOLD_ITALIC), a, b, EXCL);
+            } else if (bold) {
+                s.setSpan(new android.text.style.StyleSpan(android.graphics.Typeface.BOLD), a, b, EXCL);
+            } else if (italic) {
+                s.setSpan(new android.text.style.StyleSpan(android.graphics.Typeface.ITALIC), a, b, EXCL);
+            }
+            if ((f & 4) != 0) s.setSpan(new android.text.style.TypefaceSpan("monospace"), a, b, EXCL);
+            if ((f & 8) != 0) s.setSpan(new android.text.style.StrikethroughSpan(), a, b, EXCL);
+            if ((f & 16) != 0) s.setSpan(new android.text.style.ForegroundColorSpan(colors[i]), a, b, EXCL);
+            if ((f & 32) != 0) s.setSpan(new android.text.style.BackgroundColorSpan(backgrounds[i]), a, b, EXCL);
+            // Android has one underline span: a dotted or wavy request draws a plain line
+            // (docs/text-runs.md records which toolkits distinguish them).
+            if ((f & 64) != 0) s.setSpan(new android.text.style.UnderlineSpan(), a, b, EXCL);
+            // Relative size (FontSpec::scale) as a RelativeSizeSpan, which is exactly its shape:
+            // a multiplier over the inherited size, so the run still tracks the user's Font Size
+            // setting rather than freezing at a pixel value.
+            if (i < scales.length && scales[i] != 1000 && scales[i] > 0) {
+                s.setSpan(new android.text.style.RelativeSizeSpan(scales[i] / 1000f), a, b, EXCL);
+            }
+            if (i < links.length && !links[i].isEmpty()) {
+                // A ClickableSpan rather than a URLSpan: the target goes back to Rust, so the
+                // app's `.on_link()` decides (route in-app, confirm, open) instead of Android
+                // firing an implicit `VIEW` intent behind Day's back. It keeps URLSpan's
+                // rendering (accent color and underline) from updateDrawState.
+                final String target = links[i];
+                s.setSpan(new android.text.style.ClickableSpan() {
+                    @Override public void onClick(View widget) {
+                        nativeOnEvent(node, K_LINK_ACTIVATED, 0.0, target);
+                    }
+                }, a, b, EXCL);
+                anyLink = true;
+            }
+        }
+        tv.setText(s);
+        // Clicks on spans need a movement method. It is set only when a link is present: it
+        // replaces the selection movement method, so a selectable label without links keeps
+        // its selection behavior intact (docs/text-runs.md).
+        if (anyLink) {
+            tv.setMovementMethod(android.text.method.LinkMovementMethod.getInstance());
+        }
+    }
+    /**
+     * `sp` size (scales with the accessibility Font Size setting), font weight (100–900), italic,
+     * and an optional bundled font family (null for the system font; §18.4).
+     */
+    public static void setLabelFont(
+            View v, float sp, int weight, boolean italic, String family, boolean tabular) {
+        TextView t = (TextView) v;
+        // Tabular figures via the OpenType feature, so the typeface is untouched and only the
+        // digits change metrics. A font without `tnum` ignores the request.
+        t.setFontFeatureSettings(tabular ? "tnum" : null);
+        // COMPLEX_UNIT_SP applies the user's font scale (Settings ▸ Display ▸ Font size), the
+        // Android accessibility text scale; COMPLEX_UNIT_DIP does not.
+        t.setTextSize(TypedValue.COMPLEX_UNIT_SP, sp);
+        // The Rust whole-label monospace flag uses Android's system family alias.
+        // It is not an app font resource and must never enter the bundled-font cache.
+        Typeface base = "monospace".equals(family) ? Typeface.MONOSPACE
+                : (family != null && !family.isEmpty()) ? bundledFont(family) : Typeface.DEFAULT;
+        if (android.os.Build.VERSION.SDK_INT >= 28) {
+            // Exact numeric weight + italic (API 28+); a custom base picks (or synthesizes) the
+            // nearest face the family provides.
+            t.setTypeface(Typeface.create(base, weight, italic));
+        } else {
+            int style = (weight >= 600 ? Typeface.BOLD : Typeface.NORMAL) | (italic ? Typeface.ITALIC : 0);
+            t.setTypeface(Typeface.create(base, style));
+        }
+    }
+
+    private static final java.util.Map<String, Typeface> FONT_CACHE = new java.util.HashMap<>();
+    /**
+     * Resolve a bundled font family (§18.4). `day build` stages each `fonts/` file as
+     * `res/font/<ident>.ttf`, where `<ident>` is the font's family name sanitized to Android
+     * resource rules (lowercase `[a-z0-9_]`, leading letter; the same derivation as day-spec's
+     * `font_ident`). Re-derive the ident here and look up `R.font.<ident>`, so no side table is
+     * needed. Unknown families (or API < 26, which predates font resources) log and fall back to
+     * the system typeface.
+     */
+    private static Typeface bundledFont(String family) {
+        Typeface tf = bundledFontOrNull(family);
+        if (tf == null) {
+            android.util.Log.w("DayBridge", "unknown font family \"" + family
+                    + "\" — falling back to the system font (is the file in the project's fonts/ directory?)");
+            tf = Typeface.DEFAULT;
+            FONT_CACHE.put(family, tf);
+        }
+        return tf;
+    }
+
+    /** The bundled-font lookup of `bundledFont`, answering null (quietly) for an unknown family. */
+    private static Typeface bundledFontOrNull(String family) {
+        Typeface cached = FONT_CACHE.get(family);
+        if (cached != null) return cached;
+        StringBuilder sb = new StringBuilder();
+        for (char c : family.toCharArray()) {
+            char lc = (c >= 'A' && c <= 'Z') ? (char) (c - 'A' + 'a') : c;
+            boolean ok = (lc >= 'a' && lc <= 'z') || (lc >= '0' && lc <= '9') || lc == '_';
+            sb.append(ok ? lc : '_');
+        }
+        if (sb.length() == 0 || sb.charAt(0) < 'a' || sb.charAt(0) > 'z') sb.insert(0, 'r');
+        Typeface tf = null;
+        if (android.os.Build.VERSION.SDK_INT >= 26) {
+            int id = ctx.getResources().getIdentifier(sb.toString(), "font", ctx.getPackageName());
+            if (id != 0) {
+                try {
+                    tf = ctx.getResources().getFont(id);
+                } catch (Exception e) {
+                    // Broken resource: fall through to the loud default below.
+                }
+            }
+        }
+        if (tf != null) FONT_CACHE.put(family, tf);
+        return tf;
+    }
+    /**
+     * The theme's secondary text color: what a hint, a caption, or an empty state's "nothing
+     * selected" wears (`Label::secondary`).
+     *
+     * Resolved from `?android:attr/textColorSecondary` rather than written as a constant, so it
+     * follows the app's theme and the system's light/dark setting. A literal grey cannot: one
+     * chosen against a light background is close to invisible on a dark one.
+     */
+    public static void setLabelSecondary(View v, boolean on) {
+        TextView t = (TextView) v;
+        if (!on) {
+            t.setTextColor(new TextView(ctx).getTextColors());
+            return;
+        }
+        android.content.res.TypedArray a =
+                v.getContext().obtainStyledAttributes(new int[] {android.R.attr.textColorSecondary});
+        android.content.res.ColorStateList csl = a.getColorStateList(0);
+        a.recycle();
+        if (csl != null) {
+            t.setTextColor(csl);
+        }
+    }
+
+    /** Text color as a packed 0xAARRGGBB int; `on=false` restores the theme default. */
+    public static void setLabelColor(View v, int argb, boolean on) {
+        TextView t = (TextView) v;
+        if (on) {
+            t.setTextColor(argb);
+        } else {
+            t.setTextColor(new TextView(ctx).getTextColors());
+        }
+    }
+
+    /**
+     * Each button's tint as Material styled it, so clearing an app tint can put the theme's
+     * container color back.
+     *
+     * `setBackgroundTintList(null)` does not restore a default; it removes the tint outright, and
+     * a MaterialButton's background is a shape drawable that the tint is what colors. Left null
+     * it draws raw black, which is how every untinted button on this backend came out.
+     */
+    private static final java.util.Map<View, android.content.res.ColorStateList> buttonTints =
+            new java.util.WeakHashMap<>();
+
+    /** Each button's stock metrics {minWidth, minimumWidth, paddingStart, paddingEnd}, so a
+     *  later style patch away from Compact can put them back. */
+    private static final java.util.WeakHashMap<View, android.content.res.ColorStateList> buttonTextColors = new java.util.WeakHashMap<>();
+    private static final java.util.WeakHashMap<View, android.content.res.ColorStateList> buttonIconColors = new java.util.WeakHashMap<>();
+    static final java.util.WeakHashMap<View, int[]> buttonMetrics = new java.util.WeakHashMap<>();
+
+    public static void setButtonContent(View view, String title, String iconName, boolean iconOnly) {
+        if (!(view instanceof com.google.android.material.button.MaterialButton)) return;
+        com.google.android.material.button.MaterialButton button = (com.google.android.material.button.MaterialButton) view;
+        android.graphics.drawable.Drawable icon = drawableByName(view.getContext(), iconName);
+        button.setIcon(icon);
+        button.setIconSize((int) (20 * view.getResources().getDisplayMetrics().density));
+        button.setIconGravity(com.google.android.material.button.MaterialButton.ICON_GRAVITY_TEXT_START);
+        button.setIconPadding(iconOnly ? 0 : (int) (6 * view.getResources().getDisplayMetrics().density));
+        button.setText(iconOnly && icon != null ? "" : title);
+        // The title is the spoken name, unless the app named the button itself (setA11y); writing
+        // it here then replaced the app's label on every title or icon change.
+        if (!appLabeled.containsKey(button)) button.setContentDescription(title);
+        // `View.setTooltipText` is API 26; the compat call reaches the scaffold's minSdk of 24 (docs/size-classes.md).
+        androidx.appcompat.widget.TooltipCompat.setTooltipText(button, iconOnly && icon != null ? title : null);
+    }
+
+    public static View makeButton(final long id, String title) {
+        final MaterialButton b = new MaterialButton(ctx); // M3 filled button (Expressive shape/motion)
+        buttonTints.put(b, b.getBackgroundTintList());
+        buttonTextColors.put(b, b.getTextColors());
+        buttonIconColors.put(b, b.getIconTint());
+        buttonMetrics.put(b, new int[] {
+                b.getMinWidth(), b.getMinimumWidth(), b.getPaddingStart(), b.getPaddingEnd() });
+        b.setText(title);
+        b.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View x) {
+                nativeOnEvent(id, K_PRESSED, 0, null);
+                // A checkable button toggled itself on the click; Day owns the selected state
+                // (setButtonSelected), so put back what it last asked for.
+                Boolean want = buttonSelected.get(b);
+                if (want != null && b.isCheckable()) b.setChecked(want);
+            }
+        });
+        return b;
+    }
+
+    /** Each button's selected state (`ButtonProps::selected`): what the click listener restores
+     *  and `readNative` reports as checked. */
+    static final java.util.WeakHashMap<View, Boolean> buttonSelected = new java.util.WeakHashMap<>();
+
+    /**
+     * `ButtonProps::selected`: a checked MaterialButton, Material's own selected look, plus the
+     * view's selected state, which TalkBack reads as "selected". The button turns checkable only
+     * once it is first selected, so an ordinary button keeps its momentary behavior.
+     */
+    public static void setButtonSelected(View v, boolean on) {
+        buttonSelected.put(v, on);
+        v.setSelected(on);
+        if (!(v instanceof MaterialButton)) return;
+        MaterialButton b = (MaterialButton) v;
+        if (on || b.isCheckable()) {
+            b.setCheckable(true);
+            b.setChecked(on);
+        }
+    }
+
+    /**
+     * Style a button in place: kind 0 automatic, 1 bordered, 2 prominent, 3 tinted (argb/fg),
+     * 4 compact: no minimum width and glyph-sized insets, for a stepper's "−"/"+" (the M3
+     * button's 88 dp minimum made two of them wider than an inspector pane).
+     *
+     * A tint is `backgroundTint` on the MaterialButton, so Material keeps drawing the ripple, the
+     * state overlays and the disabled alpha itself; the view stays a MaterialButton, with its
+     * role, focus and keyboard activation intact. Anything but a tint leaves the stock M3 look,
+     * which is already the filled button day's `prominent` asks for.
+     */
+    public static void setButtonStyle(View v, int kind, int argb, int fgArgb) {
+        if (!(v instanceof MaterialButton)) return;
+        MaterialButton b = (MaterialButton) v;
+        int[] stock = buttonMetrics.get(b);
+        if (kind == 4 || kind == 5) {
+            float d = ctx.getResources().getDisplayMetrics().density;
+            b.setMinWidth(0);
+            b.setMinimumWidth(0);
+            b.setPadding((int) (12 * d), b.getPaddingTop(), (int) (12 * d), b.getPaddingBottom());
+        } else if (stock != null) {
+            b.setMinWidth(stock[0]);
+            b.setMinimumWidth(stock[1]);
+            b.setPadding(stock[2], b.getPaddingTop(), stock[3], b.getPaddingBottom());
+        }
+        if (kind == 5) {
+            // Use the theme's text-button state colors, including disabled and pressed states.
+            MaterialButton text = new MaterialButton(ctx, null,
+                androidx.appcompat.R.attr.borderlessButtonStyle);
+            b.setBackgroundTintList(android.content.res.ColorStateList.valueOf(android.graphics.Color.TRANSPARENT));
+            b.setTextColor(text.getTextColors());
+            b.setIconTint(text.getIconTint());
+            return;
+        }
+        if (kind != 3) {
+            b.setTextColor(buttonTextColors.get(b));
+            b.setIconTint(buttonIconColors.get(b));
+            // Back to what the theme dressed it in (see buttonTints), not to no tint at all.
+            b.setBackgroundTintList(buttonTints.get(b));
+            return;
+        }
+        b.setBackgroundTintList(android.content.res.ColorStateList.valueOf(argb));
+        b.setTextColor(fgArgb);
+        b.setIconTint(android.content.res.ColorStateList.valueOf(fgArgb));
+    }
+
+    /** Attach a tap or drag recognizer to a view (docs/shapes.md). Coordinates are px; Rust
+     *  converts to dp. Event kind 11; num = phase (0=tap 1=began 2=changed 3=ended). */
+    /** Per-view enabled gestures `{wantsTap, wantsDrag}`: a view can carry both (tap + drag), so
+     *  the single OnTouchListener must emit whichever the node asked for. UIKit's recognizers
+     *  coexist; a bare setOnTouchListener does not, so we accumulate here rather than overwrite. */
+    static final java.util.WeakHashMap<View, boolean[]> gestureFlags = new java.util.WeakHashMap<>();
+
+    /**
+     * Hover: a mouse or a stylus moving over the view (docs/canvas.md "Interaction"). Phases
+     * 10/11/12 match day_spec::Event::Hover's Began/Changed/Ended. A finger generates no HOVER_*
+     * actions at all, so a touch-only device wires this and never reports; that is the contract.
+     */
+    public static void enableKeys(View v, final long id) {
+        v.setFocusable(true); v.setFocusableInTouchMode(true);
+        v.setOnFocusChangeListener((view, hasFocus) -> nativeOnEvent(id, K_FOCUS_CHANGED, hasFocus ? 1 : 0, null));
+        v.setOnKeyListener((view, code, e) -> {
+            if (!view.isFocused() || e.getAction() != KeyEvent.ACTION_DOWN || !nativeHandlesKeys(id)) return false;
+            String name = DayCanvasView.keyName(code, e); if (name == null) return false;
+            int mods = (e.isShiftPressed()?1:0) | (e.isCtrlPressed()?2:0) | (e.isAltPressed()?4:0);
+            nativeOnEvent(id, K_KEY, mods, name); return true;
+        });
+    }
+
+    static boolean horizontalPan(View v, long id, MotionEvent e) {
+        if (e.getActionMasked() != MotionEvent.ACTION_SCROLL) return false;
+        float x = e.getAxisValue(MotionEvent.AXIS_HSCROLL);
+        float y = e.getAxisValue(MotionEvent.AXIS_VSCROLL);
+        if (Math.abs(x) <= Math.abs(y)) return false;
+        float step = 40 * v.getResources().getDisplayMetrics().density;
+        nativeOnEvent(id, K_GESTURE, 8, e.getX() + "," + e.getY() + "," + (x * step) + "," + (y * step));
+        return true;
+    }
+    public static void enablePan(View v, final long id) {
+        if (v instanceof DayFixed) ((DayFixed)v).panNode = id;
+        else v.setOnGenericMotionListener((view, event) -> horizontalPan(view, id, event));
+    }
+
+    public static void enableHover(View v, final long id) {
+        v.setOnHoverListener(new View.OnHoverListener() {
+            float lx, ly;
+            public boolean onHover(View view, MotionEvent ev) {
+                float x = ev.getX(), y = ev.getY();
+                switch (ev.getActionMasked()) {
+                    case MotionEvent.ACTION_HOVER_ENTER:
+                        lx = x; ly = y;
+                        nativeOnEvent(id, K_GESTURE, 10, x + "," + y + ",0,0");
+                        return true;
+                    case MotionEvent.ACTION_HOVER_MOVE:
+                        lx = x; ly = y;
+                        nativeOnEvent(id, K_GESTURE, 11, x + "," + y + ",0,0");
+                        return true;
+                    case MotionEvent.ACTION_HOVER_EXIT:
+                        // The exit's own coordinates can already be outside; the contract is the
+                        // last point seen inside.
+                        nativeOnEvent(id, K_GESTURE, 12, lx + "," + ly + ",0,0");
+                        return true;
+                }
+                return false;
+            }
+        });
+    }
+
+    public static void enableGesture(View v, final long id, final boolean isDrag) {
+        boolean[] flags = gestureFlags.get(v);
+        if (flags == null) { flags = new boolean[2]; gestureFlags.put(v, flags); }
+        if (isDrag) flags[1] = true; else flags[0] = true;
+        final boolean[] f = flags; // {wantsTap, wantsDrag}
+        if (!f[1]) {
+            // Let View arbitrate taps, long presses and RecyclerView scroll interception.
+            // Consuming ACTION_DOWN ourselves prevents native long-press menus and an
+            // empty context-menu update can otherwise leave this target non-clickable.
+            final float[] point = new float[2];
+            v.setOnTouchListener((view, event) -> {
+                point[0] = event.getX();
+                point[1] = event.getY();
+                return false;
+            });
+            contextMenuForwardedClicks.remove(v);
+            gestureTapClicks.add(v);
+            v.setOnClickListener(view -> nativeOnEvent(id, K_GESTURE, 0,
+                    point[0] + "," + point[1] + ",0,0"));
+            return;
+        }
+        if (gestureTapClicks.remove(v)) v.setOnClickListener(null);
+        v.setClickable(true);
+        v.setOnTouchListener(new View.OnTouchListener() {
+            float sx, sy;
+            public boolean onTouch(View view, MotionEvent ev) {
+                float x = ev.getX(), y = ev.getY();
+                switch (ev.getActionMasked()) {
+                    case MotionEvent.ACTION_DOWN:
+                        sx = x; sy = y;
+                        if (f[1]) nativeOnEvent(id, K_GESTURE, 1, x + "," + y + ",0,0");
+                        return true;
+                    case MotionEvent.ACTION_MOVE:
+                        if (f[1]) nativeOnEvent(id, K_GESTURE, 2, x + "," + y + "," + (x - sx) + "," + (y - sy));
+                        return true;
+                    case MotionEvent.ACTION_UP:
+                        if (f[1]) nativeOnEvent(id, K_GESTURE, 3, x + "," + y + "," + (x - sx) + "," + (y - sy));
+                        if (f[0] && Math.abs(x - sx) < 40 && Math.abs(y - sy) < 40) {
+                            nativeOnEvent(id, K_GESTURE, 0, x + "," + y + ",0,0");
+                            view.performClick();
+                        }
+                        return true;
+                    case MotionEvent.ACTION_CANCEL:
+                        if (f[1]) nativeOnEvent(id, K_GESTURE, 3, x + "," + y + "," + (x - sx) + "," + (y - sy));
+                        return true;
+                }
+                return false;
+            }
+        });
+    }
+
+    /** The editable inside a Material text box (TextInputLayout), or the view itself. */
+    private static EditText editTextOf(View v) {
+        if (v instanceof TextInputLayout) return ((TextInputLayout) v).getEditText();
+        return (EditText) v;
+    }
+
+    /** What `setInputTraits` last applied to one text field, plus the input type the field
+     *  was born with, which the plain-text purpose restores. `quiet` holds the field's
+     *  listeners while the traits are applied: swapping the transformation method re-sets the
+     *  text and toggling selectability drops focus, and neither is a change the user made.
+     *  Keyed by the outer TextInputLayout, so a view `makeTextField` did not build has no
+     *  entry and takes no traits. */
+    private static final class InputState {
+        int baseType;
+        boolean applied, secure, readOnly, quiet;
+        int purpose, submitLabel;
+    }
+    static final java.util.WeakHashMap<View, InputState> inputStates = new java.util.WeakHashMap<>();
+
+    public static View makeTextField(final long id, String value, String placeholder) {
+        // M3 text box: TextInputLayout (theme's default box style; placeholder = floating label)
+        // wrapping a TextInputEditText. Rust talks to the outer view; setters reach the editable.
+        TextInputLayout box = new TextInputLayout(ctx);
+        box.setHint(placeholder);
+        TextInputEditText e = new TextInputEditText(box.getContext());
+        e.setText(value);
+        e.setSingleLine(true);
+        final InputState st = new InputState();
+        st.baseType = e.getInputType();
+        inputStates.put(box, st);
+        e.addTextChangedListener(new TextWatcher() {
+            public void afterTextChanged(Editable s) {
+                if (!st.quiet) nativeOnEvent(id, K_TEXT_CHANGED, 0, s.toString());
+            }
+            public void beforeTextChanged(CharSequence s, int a, int b, int c) {}
+            public void onTextChanged(CharSequence s, int a, int b, int c) {}
+        });
+        // Focus + submit (docs/focus.md): kind 16 reports the gain/loss pair; kind 17 is the
+        // IME action ("done"/enter). Returning false keeps the platform default (dismiss).
+        e.setOnFocusChangeListener(new View.OnFocusChangeListener() {
+            public void onFocusChange(View x, boolean hasFocus) {
+                if (!st.quiet) nativeOnEvent(id, K_FOCUS_CHANGED, hasFocus ? 1 : 0, null);
+            }
+        });
+        e.setOnEditorActionListener(new TextView.OnEditorActionListener() {
+            public boolean onEditorAction(TextView x, int actionId, KeyEvent ev) {
+                // A real IME action (done/next/go/search/send, whatever `setInputTraits`
+                // labeled the key), or a hardware-enter key-down: the unspecified-action
+                // key-up call must not fire a second submit.
+                boolean action = actionId != EditorInfo.IME_ACTION_NONE
+                        && actionId != EditorInfo.IME_ACTION_UNSPECIFIED;
+                boolean enter = ev != null && ev.getKeyCode() == KeyEvent.KEYCODE_ENTER
+                        && ev.getAction() == KeyEvent.ACTION_DOWN;
+                if (action || enter) nativeOnEvent(id, K_SUBMITTED, 0, null);
+                return false;
+            }
+        });
+        box.addView(e, new TextInputLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        return box;
+    }
+    public static void setTextField(View v, String value) {
+        EditText e = editTextOf(v);
+        if (!e.getText().toString().equals(value)) { // controlled input (§4.4)
+            e.setText(value);
+            e.setSelection(value.length());
+        }
+    }
+    public static void setPlaceholder(View v, String value) {
+        if (v instanceof TextInputLayout) ((TextInputLayout) v).setHint(value);
+        else ((EditText) v).setHint(value);
+    }
+
+    /** How a text field takes its text (docs/textfield.md), the whole set on every call.
+     *  `purpose` is day-spec's `InputPurpose` in declaration order: 0 text, 1 name, 2 email,
+     *  3 url, 4 phone, 5 number, 6 decimal, 7 username, 8 password, 9 new password, 10 one-time
+     *  code. `submitLabel` is `SubmitLabel`: 0 return, 1 done, 2 go, 3 next, 4 search, 5 send.
+     *  The length bound stays with day-pieces, which counts characters; a `LengthFilter`
+     *  counts UTF-16 units and would refuse text the bound allows. A view `makeTextField` did
+     *  not build is left alone. */
+    public static void setInputTraits(View v, boolean secure, boolean readOnly, int purpose,
+            int submitLabel) {
+        final InputState st = inputStates.get(v);
+        if (st == null) return;
+        if (st.applied && st.secure == secure && st.readOnly == readOnly
+                && st.purpose == purpose && st.submitLabel == submitLabel) return;
+        final EditText e = editTextOf(v);
+        st.quiet = true;
+        try {
+            // The calls below disturb three things that are not theirs: `setInputType` swaps
+            // the typeface (monospace for a password variation, the default one on the way
+            // out), a transformation swap re-sets the text and parks the caret at 0, and a
+            // selectability flip drops focus. Each is put back at the end.
+            Typeface face = e.getTypeface();
+            int selStart = e.getSelectionStart(), selEnd = e.getSelectionEnd();
+            boolean focused = e.hasFocus();
+            InputMethodManager imm =
+                    (InputMethodManager) ctx.getSystemService(Context.INPUT_METHOD_SERVICE);
+
+            // Mask first, so nothing below can leave a secure field readable if it throws.
+            if (secure) {
+                e.setTransformationMethod(
+                        android.text.method.PasswordTransformationMethod.getInstance());
+            }
+
+            // Purpose and secure merge into the one input type. No type here carries the
+            // multi-line flag, so the field stays single-line through every change.
+            final int T = android.text.InputType.TYPE_CLASS_TEXT;
+            final int N = android.text.InputType.TYPE_CLASS_NUMBER;
+            final int quietText = T | android.text.InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS;
+            int type;
+            switch (purpose) {
+                case 1: type = quietText | android.text.InputType.TYPE_TEXT_VARIATION_PERSON_NAME
+                        | android.text.InputType.TYPE_TEXT_FLAG_CAP_WORDS; break;
+                case 2: type = T | android.text.InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS; break;
+                case 3: type = T | android.text.InputType.TYPE_TEXT_VARIATION_URI; break;
+                case 4: type = android.text.InputType.TYPE_CLASS_PHONE; break;
+                case 5: type = N; break;
+                case 6: type = N | android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL; break;
+                case 7: case 10: type = quietText; break;
+                // A password shown in the clear still wants the password keyboard: no
+                // suggestions, nothing learned.
+                case 8: case 9:
+                    type = T | android.text.InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD; break;
+                default: type = st.baseType; break;
+            }
+            if (secure) {
+                int cls = type & android.text.InputType.TYPE_MASK_CLASS;
+                if (cls == T) type = T | android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD;
+                else if (cls == N) type |= android.text.InputType.TYPE_NUMBER_VARIATION_PASSWORD;
+                // The phone class has no password variation; the transformation below masks it.
+            }
+            boolean restart = false;
+            if (readOnly) {
+                // No key listener means no edits and (its input type being TYPE_NULL) no IME.
+                // The input type waits until the field takes edits again: `setInputType`
+                // would put a key listener straight back.
+                if (e.getKeyListener() != null) e.setKeyListener(null);
+            } else if (e.getInputType() != type || e.getKeyListener() == null) {
+                e.setInputType(type); // also re-installs the key listener read-only removed
+            }
+            // The input type only manages the transformation for its own password variations,
+            // and un-masks on its way out of one even when the next type (phone) is still
+            // secure. Naming it outright covers every pairing, both directions.
+            e.setTransformationMethod(secure
+                    ? android.text.method.PasswordTransformationMethod.getInstance()
+                    : android.text.method.SingleLineTransformationMethod.getInstance());
+
+            // Read-only: selectable and copyable, focusable, no edits, no keyboard.
+            // `setTextIsSelectable` is what keeps the selection handles alive without a key
+            // listener; switching it off again strips the movement method and the focusable
+            // and clickable flags an EditText needs, so those go back by hand.
+            if (e.isTextSelectable() != readOnly) {
+                e.setTextIsSelectable(readOnly);
+                if (!readOnly) {
+                    e.setMovementMethod(android.text.method.ArrowKeyMovementMethod.getInstance());
+                    e.setClickable(true);
+                    e.setLongClickable(true);
+                }
+                e.setFocusable(true);
+                e.setFocusableInTouchMode(true);
+                if (readOnly && focused && imm != null) {
+                    imm.hideSoftInputFromWindow(e.getWindowToken(), 0);
+                }
+                restart = true;
+            }
+            e.setShowSoftInputOnFocus(!readOnly);
+
+            // The action key: only the action bits change, any flags stay.
+            int action;
+            switch (submitLabel) {
+                case 1: action = EditorInfo.IME_ACTION_DONE; break;
+                case 2: action = EditorInfo.IME_ACTION_GO; break;
+                case 3: action = EditorInfo.IME_ACTION_NEXT; break;
+                case 4: action = EditorInfo.IME_ACTION_SEARCH; break;
+                case 5: action = EditorInfo.IME_ACTION_SEND; break;
+                default: action = EditorInfo.IME_ACTION_UNSPECIFIED; break; // the IME's own key
+            }
+            int ime = (e.getImeOptions() & ~EditorInfo.IME_MASK_ACTION) | action;
+            if (ime != e.getImeOptions()) {
+                e.setImeOptions(ime);
+                restart = true;
+            }
+
+            // Autofill (API 26): the hint names are the framework's and androidx.autofill's.
+            if (android.os.Build.VERSION.SDK_INT >= 26) {
+                String hint;
+                switch (purpose) {
+                    case 1: hint = "name"; break;
+                    case 2: hint = "emailAddress"; break;
+                    case 4: hint = "phone"; break;
+                    case 7: hint = "username"; break;
+                    case 8: hint = "password"; break;
+                    case 9: hint = "newPassword"; break;
+                    case 10: hint = "smsOTPCode"; break;
+                    default: hint = null; break;
+                }
+                if (hint != null) e.setAutofillHints(hint);
+                else e.setAutofillHints((String[]) null);
+                e.setImportantForAutofill(hint != null
+                        ? View.IMPORTANT_FOR_AUTOFILL_YES : View.IMPORTANT_FOR_AUTOFILL_AUTO);
+            }
+
+            if (e.getTypeface() != face) e.setTypeface(face);
+            if (focused && !e.hasFocus()) e.requestFocus();
+            int len = e.length();
+            if (selStart >= 0 && selEnd >= 0) {
+                e.setSelection(Math.min(selStart, len), Math.min(selEnd, len));
+            }
+            // The IME caches the editor's type and action key; tell it they moved.
+            if (restart && imm != null) imm.restartInput(e);
+
+            st.applied = true;
+            st.secure = secure;
+            st.readOnly = readOnly;
+            st.purpose = purpose;
+            st.submitLabel = submitLabel;
+        } catch (Throwable t) {
+            android.util.Log.w("Day", "setInputTraits: " + t);
+        } finally {
+            st.quiet = false;
+        }
+    }
+
+    /** Drive focus (docs/focus.md): request it (raising the IME for editables), or resign it
+     *  to the focusable content root, dismissing the IME. Resign only acts while this view (or
+     *  its inner editable) still owns focus, so a stale release can't blur a sibling. */
+    public static void focusView(View v, boolean focused) {
+        final View target = (v instanceof TextInputLayout) ? editTextOf(v) : v;
+        InputMethodManager imm =
+                (InputMethodManager) ctx.getSystemService(Context.INPUT_METHOD_SERVICE);
+        if (focused) {
+            if (target.requestFocus() && target instanceof EditText && imm != null) {
+                imm.showSoftInput(target, 0);
+            }
+        } else if (target.hasFocus()) {
+            if (target.onCheckIsTextEditor() || target instanceof android.webkit.WebView) {
+                DayKeyboard.endEditing(target);
+            } else {
+                target.clearFocus();
+            }
+        }
+    }
+
+    public static View makeToggle(final long id, boolean value, boolean enabled) {
+        MaterialSwitch s = new MaterialSwitch(ctx); // M3 switch
+        s.setChecked(value);
+        s.setEnabled(enabled);
+        s.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
+            public void onCheckedChanged(CompoundButton b, boolean on) {
+                nativeOnEvent(id, K_TOGGLE_CHANGED, on ? 1 : 0, null);
+            }
+        });
+        return s;
+    }
+    public static void setToggle(View v, boolean value) {
+        CompoundButton s = (CompoundButton) v;
+        if (s.isChecked() != value) s.setChecked(value);
+    }
+
+    public static View makeSlider(final long id, double value, final double min, final double max) {
+        Slider s = new Slider(ctx); // M3 slider; real value range, no step quantization
+        s.setValueFrom((float) min);
+        s.setValueTo((float) max);
+        s.setValue((float) Math.max(min, Math.min(max, value)));
+        // Two facts per interaction: the live value, and the one the user settled on. A drag
+        // streams the first and ends with the second; a keyboard or a11y change never starts a
+        // touch, so it is settled the moment it lands. The flag is a one-element array because a
+        // Java anonymous class can only capture effectively-final locals.
+        final boolean[] dragging = { false };
+        s.addOnChangeListener(new Slider.OnChangeListener() {
+            @Override public void onValueChange(Slider slider, float v, boolean fromUser) {
+                if (!fromUser) return;
+                nativeOnEvent(id, K_VALUE_CHANGED, v, null);
+                if (!dragging[0]) nativeOnEvent(id, K_VALUE_COMMITTED, v, null);
+            }
+        });
+        s.addOnSliderTouchListener(new Slider.OnSliderTouchListener() {
+            @Override public void onStartTrackingTouch(Slider slider) {
+                dragging[0] = true;
+            }
+            @Override public void onStopTrackingTouch(Slider slider) {
+                dragging[0] = false;
+                nativeOnEvent(id, K_VALUE_COMMITTED, slider.getValue(), null);
+            }
+        });
+        return s;
+    }
+    public static void setSlider(View v, double value, double ignoredMin) {
+        Slider s = (Slider) v;
+        float f = (float) Math.max(s.getValueFrom(), Math.min(s.getValueTo(), value));
+        // A stepped slider (e.g. day-tweak-slider-tickmarks) hard-crashes at the next layout pass
+        // unless every value is valueFrom + n*stepSize (BaseSlider.validateValues throws), so
+        // snap programmatic writes onto the step grid defensively.
+        float step = s.getStepSize();
+        if (step > 0f) {
+            f = s.getValueFrom() + Math.round((f - s.getValueFrom()) / step) * step;
+            f = Math.max(s.getValueFrom(), Math.min(s.getValueTo(), f));
+        }
+        if (s.getValue() != f) s.setValue(f); // programmatic: listener sees fromUser=false, no echo
+    }
+
+    public static View makeDivider(boolean vertical) {
+        if (!vertical) return new MaterialDivider(ctx); // themed hairline (colorOutlineVariant)
+        // MaterialDivider draws a horizontal line at the top of its bounds whatever its shape,
+        // so a vertical rule is a plain view filled with the same theme color; layout gives it
+        // its 1dp-wide frame.
+        View v = new View(ctx);
+        v.setBackgroundColor(MaterialColors.getColor(
+                ctx, com.google.android.material.R.attr.colorOutlineVariant, 0x33808080));
+        return v;
+    }
+
+    // Progress: an M3 linear determinate indicator (0..1000), or the M3 Expressive
+    // LoadingIndicator (morphing-shape spinner) when indeterminate.
+    public static View makeProgress(boolean determinate, double fraction) {
+        if (determinate) {
+            LinearProgressIndicator pb = new LinearProgressIndicator(ctx);
+            pb.setMax(1000);
+            pb.setIndeterminate(false);
+            pb.setProgress(progressTicks(fraction));
+            return pb;
+        }
+        return new LoadingIndicator(ctx);
+    }
+    public static void setProgress(View v, double fraction) {
+        if (!(v instanceof ProgressBar)) return; // LoadingIndicator has no progress to sync
+        ProgressBar pb = (ProgressBar) v;
+        int p = progressTicks(fraction);
+        if (pb.getProgress() != p) pb.setProgress(p);
+    }
+    private static int progressTicks(double fraction) {
+        return (int) Math.round(Math.max(0.0, Math.min(1.0, fraction)) * 1000);
+    }
+
+    /** Combobox (day-piece-combobox): the M3 exposed dropdown menu: a TextInputLayout in the
+     *  theme's filled-dropdown style hosting a non-editable MaterialAutoCompleteTextView. */
+    public static View makeSpinner(final long id, String joinedItems, int selected) {
+        final String[] items = joinedItems.split("\n");
+        TextInputLayout box = new TextInputLayout(ctx, null,
+                com.google.android.material.R.attr.textInputFilledExposedDropdownMenuStyle);
+        MaterialAutoCompleteTextView tv = new MaterialAutoCompleteTextView(box.getContext());
+        tv.setInputType(android.text.InputType.TYPE_NULL); // select-only, no free text
+        tv.setSimpleItems(items);
+        // Size to the widest item (an `UNSPECIFIED` probe of the box ignores prospective values):
+        // text width + the box's start padding and end (dropdown-icon) inset. The minimum goes on
+        // the TextInputLayout itself: LinearLayout honors its own suggested minimum during an
+        // `UNSPECIFIED` measure, but nothing propagates a child EditText minimum up through the
+        // box.
+        float widest = 0f;
+        for (String it : items) widest = Math.max(widest, tv.getPaint().measureText(it));
+        float d = ctx.getResources().getDisplayMetrics().density;
+        box.setMinimumWidth((int) (widest + 76 * d));
+        if (selected >= 0 && selected < items.length) tv.setText(items[selected], false);
+        tv.setOnItemClickListener(new AdapterView.OnItemClickListener() {
+            public void onItemClick(AdapterView<?> p, View v, int pos, long rowId) {
+                nativeOnEvent(id, K_SELECTION_CHANGED, pos, null);
+            }
+        });
+        box.setTag(items);
+        box.addView(tv, new TextInputLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        return box;
+    }
+    public static void setSpinnerSelected(View v, int idx) {
+        String[] items = (String[]) v.getTag();
+        EditText e = editTextOf(v);
+        if (idx >= 0 && idx < items.length && e instanceof MaterialAutoCompleteTextView
+                && !e.getText().toString().equals(items[idx])) {
+            ((MaterialAutoCompleteTextView) e).setText(items[idx], false); // false: no filter/echo
+        }
+    }
+
+    public static void addChild(View parent, View child) {
+        // A presented cover shell lives under the activity content root; a day-tree
+        // re-insert (z-order re-sync among its siblings) must not re-parent it; doing so
+        // froze its slide mid-flight and stranded its posted callbacks (docs/cover.md).
+        if (child instanceof DayCover && ((DayCover) child).presented) return;
+        if (parent instanceof DayNavHost) { ((DayNavHost) parent).add(child); return; }
+        if (parent instanceof DayTabs) {
+            // The suite's own pages. The chrome-source page is marked before insertion and shown
+            // as no tab; every other page is a destination, in row order.
+            if (navChromePages.remove(child)) {
+                ((DayTabs) parent).addChromePage(child);
+            } else {
+                ((DayTabs) parent).addPage(child);
+            }
+            return;
+        }
+        View target = contentOf(parent);
+        if (target instanceof ViewGroup) ((ViewGroup) target).addView(child);
+    }
+
+    /**
+     * Put an existing child at `index` among its siblings: Day's z-order resync
+     * (Toolkit::move_child), which walks the whole sibling row and asks for each position in
+     * turn.
+     *
+     * A ViewGroup has no move primitive, so the fallback is remove-then-add, and that detaches:
+     * {@link ViewGroup#removeView} unfocuses the view and everything under it, so a moved subtree
+     * containing the field the user is typing into loses its focus and the soft keyboard
+     * (docs/focus.md). Hence the two rules here: a child already at `index` is left alone, and one
+     * that has to move is re-added at that index rather than appended; appending would make the
+     * caller's next position wrong and drag every later sibling through a detach as well.
+     */
+    public static void moveChild(View parent, View child, int index) {
+        // See addChild: a presented cover shell is native-owned and keeps its own z-order.
+        if (child instanceof DayCover && ((DayCover) child).presented) return;
+        View target = contentOf(parent);
+        if (target instanceof ViewGroup && child.getParent() == target) {
+            ViewGroup g = (ViewGroup) target;
+            if (g.indexOfChild(child) == index) return;
+            g.removeView(child);
+            g.addView(child, Math.max(0, Math.min(index, g.getChildCount())));
+            return;
+        }
+        // Not a plain child of this group: a nav page, a tab page, a presented cover. Those route
+        // through their host, which owns their order itself.
+        removeChild(child);
+        addChild(parent, child);
+    }
+
+    public static void removeChild(View child) {
+        // See addChild: a presented cover shell is native-owned.
+        if (child instanceof DayCover && ((DayCover) child).presented) return;
+        DayKeyboard.endEditing(child);
+        // Nav pages route through their host (looked up by view, since the FragmentManager may
+        // have the page detached mid-transition, so the parent chain can't be relied on).
+        DayNavHost navHost = DayNavHost.pageHosts.get(child);
+        if (navHost != null) {
+            navHost.removePage(child);
+            return;
+        }
+        ViewGroup p = (ViewGroup) child.getParent();
+        if (p != null && p.getParent() instanceof DayTabs) {
+            ((DayTabs) p.getParent()).removePage(child);
+            return;
+        }
+        if (p != null) p.removeView(child);
+    }
+    public static void setFrame(View v, int x, int y, int w, int h) {
+        // See addChild: a presented cover shell is positioned natively (fullscreen).
+        if (v instanceof DayCover && ((DayCover) v).presented) return;
+        ViewGroup p = (ViewGroup) v.getParent();
+        // Nav / tab pages fill the host's page frame; their frames are native-owned.
+        if (p != null && p.getParent() instanceof DayNavHost) return;
+        if (p != null && p.getParent() instanceof DayTabs) return;
+        if (p instanceof DayFixed) ((DayFixed) p).setChildFrame(v, x, y, w, h);
+    }
+
+    // --- navigation (docs/navigation.md) ---
+    public static View makeNavHost(long id, String title, boolean adaptive, float tileMinDp) {
+        // The window's toolbar reaches the host once the host is in a window and its window is
+        // known (navHostAttached): a host built for a cover must never carry the items of the
+        // window underneath.
+        return new DayNavHost(ctx, id, title, adaptive, tileMinDp);
+    }
+
+    /** The window toolbar spec as the app last set it (docs/toolbars.md), per WINDOW ROOT: the
+     *  view the Rust side hands setWindowToolbar, which is the day root for the primary window
+     *  and the DayCover shell for a window presented as a cover (docs/cover.md). Weak, so a
+     *  closed cover's record goes with its view. */
+    static final java.util.WeakHashMap<View, String> windowToolbarSpecs =
+            new java.util.WeakHashMap<>();
+
+    /** The window root a view belongs to: the DayCover shell when it sits inside a cover, else
+     *  the nearest ancestor a toolbar call has named (the primary window's day root). Null when
+     *  no toolbar call has reached this window yet; setWindowToolbar then finds the host under
+     *  the root itself. */
+    static View windowRootOf(View v) {
+        for (View p = v; p != null; p = p.getParent() instanceof View ? (View) p.getParent() : null) {
+            if (p instanceof DayCover) return p;
+            if (windowToolbarSpecs.containsKey(p) || toolbarHosts.containsKey(p)) return p;
+        }
+        return null;
+    }
+
+    /** The host carrying `root`'s bar, when one has claimed it and is still alive. */
+    static DayNavHost toolbarHostOf(View root) {
+        java.lang.ref.WeakReference<DayNavHost> ref = toolbarHosts.get(root);
+        DayNavHost h = ref == null ? null : ref.get();
+        if (h == null && ref != null) toolbarHosts.remove(root);
+        return h;
+    }
+
+    /** A nav host has joined a window (DayNavHost.onAttachedToWindow): the outermost host of
+     *  that window carries the window's toolbar from here on. The toolbar is usually set before
+     *  the host exists (an app installs its bar as the first thing the window body does), so a
+     *  host born after the spec arrived takes it now, and the bar the window carried itself
+     *  comes down (docs/toolbars.md).
+     *
+     *  The outermost host only. A window can hold more than one (a list-backed destination
+     *  composes a nested host for its two layers), and giving each of them the window's items
+     *  painted a second app bar directly under the first, which is what a tablet showed as the
+     *  toolbar drawn twice. A parent attaches before its children, so the first claim is the
+     *  outer host's. Best-effort, like the bar actions: a throw never reaches the tree. */
+    static void navHostAttached(DayNavHost host) {
+        try {
+            View root = windowRootOf(host);
+            if (root == null) return;
+            DayNavHost owner = toolbarHostOf(root);
+            // A host on a hidden tab page never takes the bar from the window's own docked bar:
+            // the page showing has no host of its own, and its commands ride that bar.
+            if (owner == null && !host.isShown() && DayNavHost.WindowBar.DOCKED.containsKey(root)) {
+                return;
+            }
+            if (owner != null && owner != host) {
+                // A tab page the window opens on can attach after the first tab's host, which
+                // claimed the bar from inside a hidden page: the shown host takes it over.
+                if (owner.isShown() || !host.isShown() || isInside(host, owner)) return;
+                owner.setWindowToolbar("");
+                owner.toolbarRoot = null;
+            }
+            toolbarHosts.put(root, new java.lang.ref.WeakReference<DayNavHost>(host));
+            host.toolbarRoot = new java.lang.ref.WeakReference<View>(root);
+            String spec = windowToolbarSpecs.get(root);
+            if (spec != null && !spec.isEmpty()) {
+                host.setWindowToolbar(spec);
+                DayNavHost.WindowBar.undock(root);
+            }
+        } catch (Throwable t) {
+            android.util.Log.e("Day", "window toolbar setup failed; continuing without it", t);
+        }
+    }
+
+    /** A tab page has come to the front (DayTabs): the window's bar moves to the outermost
+     *  navigation host on that page. Every tab's page stays attached, hidden while another tab
+     *  shows, so the host that claimed the bar first is usually on a page nobody can see: a
+     *  second tab showed no commands at all, on its root or on any page pushed over it, while
+     *  its items sat on the first tab's hidden app bar. A page with no navigation host (a
+     *  section a wide window composes into panes beside the sidebar) carries the window's bar
+     *  itself, docked across the top, for the same reason. */
+    static void windowToolbarFollow(View page) {
+        try {
+            // Only the window's own navigation suite moves the bar. A tab set inside a page of a
+            // navigation host (a section's Basics / Sizing tabs) leaves it on that host's app
+            // bar: docking a bar for its host-less tab page stacked a second bar above the page.
+            for (android.view.ViewParent p = page.getParent(); p != null; p = p.getParent()) {
+                if (p instanceof DayNavHost) return;
+            }
+            View root = windowRootOf(page);
+            if (root == null) return;
+            DayNavHost next = findNavHost(page);
+            DayNavHost owner = toolbarHostOf(root);
+            if (next != null && next == owner) return;
+            if (owner != null) {
+                owner.setWindowToolbar("");
+                owner.toolbarRoot = null;
+                toolbarHosts.remove(root);
+            }
+            String docked = windowToolbarSpecs.get(root);
+            if (next == null) {
+                if (docked != null && !docked.isEmpty() && !(root instanceof DayCover)) {
+                    DayNavHost.WindowBar.dock(root, docked);
+                }
+                return;
+            }
+            toolbarHosts.put(root, new java.lang.ref.WeakReference<DayNavHost>(next));
+            next.toolbarRoot = new java.lang.ref.WeakReference<View>(root);
+            String spec = windowToolbarSpecs.get(root);
+            next.setWindowToolbar(spec == null ? "" : spec);
+            DayNavHost.WindowBar.undock(root);
+        } catch (Throwable t) {
+            android.util.Log.e("Day", "window toolbar move failed; continuing", t);
+        }
+    }
+
+    /** Whether `v` sits somewhere under `ancestor`. */
+    private static boolean isInside(View v, View ancestor) {
+        for (android.view.ViewParent p = v.getParent(); p instanceof View; p = p.getParent()) {
+            if (p == ancestor) return true;
+        }
+        return false;
+    }
+
+    /** The host carrying a window's bar has left its window (a dismissed cover, a re-parented
+     *  host): the slot opens for the next host, and a window still on screen gets its own bar
+     *  back so its commands never vanish with the host. A cover's bar goes with its host: the
+     *  cover is leaving too (its content is disposed once it has slid away), and a docked bar
+     *  for it would land on the activity content, over the window underneath. */
+    static void navHostDetached(DayNavHost host) {
+        try {
+            View root = host.toolbarRoot == null ? null : host.toolbarRoot.get();
+            host.toolbarRoot = null;
+            if (root == null || toolbarHostOf(root) != host) return;
+            toolbarHosts.remove(root);
+            if (root instanceof DayCover) return;
+            String spec = windowToolbarSpecs.get(root);
+            if (spec != null && !spec.isEmpty() && root.isAttachedToWindow()) {
+                DayNavHost.WindowBar.dock(root, spec);
+            }
+        } catch (Throwable t) {
+            android.util.Log.e("Day", "window toolbar restore failed; continuing without it", t);
+        }
+    }
+
+    /** A tree is about to be mounted on a new activity (DayActivity, before nativeStart): drop
+     *  every process-wide reference to the hosts of the one that went away. day-mdc clears
+     *  its own per-mount tables in `init` for the same reason; these are their Java twins.
+     *
+     *  Without this a recreation (the theme switch, docs/settings.md "Appearance on Android")
+     *  left the toolbar slot and `DayNavHost.active` on the destroyed activity's host. The weak
+     *  reference stays live until a collection happens to run, so the new tree's first host
+     *  never claimed the bar (the slot looked taken), and every setWindowToolbar after it painted
+     *  onto a view no window showed: the app bar came up with no items and none ever returned. */
+    static void beginMount() {
+        toolbarHosts.clear();
+        windowToolbarSpecs.clear();
+        DayNavHost.active = null;
+        // The FragmentManager also restored the previous activity's PageFragments and their
+        // back-stack entries from the saved instance state: content-less zombies, since a
+        // page's view is Rust-owned and never saved. Left in place, a zombie entry carries the
+        // same `day-nav-<node>-<depth>` name the new host gives its own push, so the first pop
+        // (inclusive, by name) took both entries at once, and the root came back laid out in
+        // full, every row with its frame, yet drawing nothing: a blank navigation list after
+        // a theme switch on a pushed page. Clear them before the new tree's hosts register
+        // their own; at this point nothing of the new tree has been added yet.
+        if (!(ctx instanceof androidx.fragment.app.FragmentActivity)) return;
+        androidx.fragment.app.FragmentManager fm =
+                ((androidx.fragment.app.FragmentActivity) ctx).getSupportFragmentManager();
+        try {
+            if (fm.getBackStackEntryCount() > 0) {
+                fm.popBackStackImmediate(null,
+                        androidx.fragment.app.FragmentManager.POP_BACK_STACK_INCLUSIVE);
+            }
+            androidx.fragment.app.FragmentTransaction tx = null;
+            for (androidx.fragment.app.Fragment f : fm.getFragments()) {
+                if (f instanceof DayNavHost.PageFragment
+                        && ((DayNavHost.PageFragment) f).content == null) {
+                    if (tx == null) tx = fm.beginTransaction().setReorderingAllowed(true);
+                    tx.remove(f);
+                }
+            }
+            if (tx != null) tx.commitNowAllowingStateLoss();
+        } catch (Throwable t) {
+            android.util.Log.e("Day", "restored fragment state not cleared; continuing", t);
+        }
+    }
+    /** The host drawing each window's bar, by window root (see `windowToolbarSpecs`). A window
+     *  can hold several hosts (a list-backed destination composes a nested one for its layers),
+     *  and only the first to appear carries the window's items; the rest would stack a second
+     *  app bar under the first (docs/toolbars.md). Weak both ways, so a closed window's root and
+     *  host are collectable. */
+    static final java.util.WeakHashMap<View, java.lang.ref.WeakReference<DayNavHost>> toolbarHosts =
+            new java.util.WeakHashMap<>();
+
+    /** The host that carries `root`'s bar: the one that claimed it, else a shown host under
+     *  `root`. Null while the window docks a bar of its own (the page showing has no host), and
+     *  while the only hosts sit on hidden tab pages. */
+    static DayNavHost barHostOf(View root) {
+        DayNavHost h = toolbarHostOf(root);
+        if (h != null) return h;
+        if (DayNavHost.WindowBar.DOCKED.containsKey(root)) return null;
+        h = findNavHost(root);
+        return h != null && h.isShown() ? h : null;
+    }
+
+    /** The nav host under `root`, if one has been built. */
+    static DayNavHost findNavHost(View root) {
+        if (root instanceof DayNavHost) return (DayNavHost) root;
+        if (root instanceof ViewGroup) {
+            ViewGroup g = (ViewGroup) root;
+            for (int i = 0; i < g.getChildCount(); i++) {
+                DayNavHost h = findNavHost(g.getChildAt(i));
+                if (h != null) return h;
+            }
+        }
+        return null;
+    }
+
+    // The window toolbar (docs/toolbars.md): one record per item (day-mdc
+    // `serialize_toolbar`), painted onto the app bar of the nav host under `root`, and
+    // remembered for the host that comes later (makeNavHost). A window with no nav host gets a
+    // bar of its own instead: `Cap::Toolbar` answered Native before the app built the window,
+    // so an app that skipped its in-content strip on that answer would otherwise show no
+    // commands at all. Wrapped like setNavMenu: a throw here can never reach the tree build.
+    public static void setWindowToolbar(View root, String spec) {
+        windowToolbarSpecs.put(root, spec == null ? "" : spec);
+        try {
+            // The host that owns THIS window's bar, once one has claimed it, never a nested one
+            // built later for a destination's own layers, and never another window's: the
+            // settings cover's stack must not carry the editor's items (and the editor's bar
+            // must not come down for it), so the lookup never leaves `root`'s subtree.
+            DayNavHost h = barHostOf(root);
+            if (h != null && toolbarHostOf(root) == null) {
+                toolbarHosts.put(root, new java.lang.ref.WeakReference<DayNavHost>(h));
+                h.toolbarRoot = new java.lang.ref.WeakReference<View>(root);
+            }
+            if (h != null) {
+                DayNavHost.WindowBar.undock(root);
+                h.setWindowToolbar(spec);
+            } else if (spec == null || spec.isEmpty()) {
+                DayNavHost.WindowBar.undock(root);
+            } else if (!(root instanceof DayCover)) {
+                // A cover's items ride the navigation host inside it, which takes them the
+                // moment it attaches (navHostAttached); a docked bar would sit on the activity
+                // content, over the window the cover is presented on.
+                DayNavHost.WindowBar.dock(root, spec);
+            }
+        } catch (Throwable t) {
+            android.util.Log.e("Day", "window toolbar setup failed; continuing without it", t);
+        }
+    }
+
+    /** A page search field's text, written by the app (docs/search.md): into the live field,
+     *  without it reporting the text back. */
+    public static void updateWindowToolbarText(View root, String id, String text) {
+        try {
+            DayNavHost h = barHostOf(root);
+            if (h != null) {
+                h.updateWindowToolbarText(id, text);
+            } else {
+                DayNavHost.WindowBar.updateDockedText(root, id, text);
+            }
+        } catch (Throwable t) {
+            android.util.Log.e("Day", "window toolbar text update failed; continuing", t);
+        }
+    }
+
+    /** A targeted change to one live toolbar item: op 0 = enabled, 1 = toggle on, 2 = segment,
+     *  3 = focus the search field. */
+    public static void updateWindowToolbar(View root, String id, int op, double num) {
+        try {
+            DayNavHost h = barHostOf(root);
+            if (h != null) {
+                h.updateWindowToolbar(id, op, num);
+            } else {
+                DayNavHost.WindowBar.updateDocked(root, id, op, num);
+            }
+        } catch (Throwable t) {
+            android.util.Log.e("Day", "window toolbar update failed; continuing", t);
+        }
+    }
+
+    /**
+     * Inline search on the navigation list (docs/search.md). Applied after the host is built and
+     * wrapped, for the same reason `setNavMenu` above is: a throw on `makeNavHost`'s own path
+     * aborts the native tree build and leaves the app blank, so decoration never rides it.
+     *
+     * Scrolling chrome is opt-in: Material's scroll/enter-always app bar returns on a
+     * downward scroll; pinned search remains the default (docs/search.md).
+     */
+    public static void setNavSearch(View navHost, long id, String prompt, String text, boolean hidesOnScroll) {
+        if (!(navHost instanceof DayNavHost)) {
+            return;
+        }
+        try {
+            ((DayNavHost) navHost).setSearch(id, prompt, text, hidesOnScroll);
+        } catch (Throwable t) {
+            android.util.Log.e("Day", "nav search setup failed; continuing without it", t);
+        }
+    }
+
+    /** Write the app's own query back into the field, without echoing it back as a change. */
+    public static void focusNavSearch(View navHost) {
+        if (navHost instanceof DayNavHost) ((DayNavHost) navHost).focusSearch();
+    }
+
+    public static void setNavSearchText(View navHost, String text) {
+        if (!(navHost instanceof DayNavHost)) {
+            return;
+        }
+        try {
+            ((DayNavHost) navHost).setSearchText(text);
+        } catch (Throwable t) {
+            android.util.Log.e("Day", "nav search text sync failed", t);
+        }
+    }
+
+    public static View makeNavPage(final long id) {
+        DayFixed page = new DayFixed(ctx);
+        page.addOnLayoutChangeListener(new View.OnLayoutChangeListener() {
+            @Override public void onLayoutChange(View v, int l, int t, int r, int b,
+                    int ol, int ot, int or2, int ob) {
+                int w = r - l, h = b - t;
+                if (w != or2 - ol || h != ob - ot) {
+                    // kind 6 = FrameChanged, "w,h" in px (Rust divides by density).
+                    nativeOnEvent(id, K_FRAME_CHANGED, 0.0, w + "," + h);
+                }
+            }
+        });
+        return page;
+    }
+    public static void navPush(View host, String title, boolean immersive) { ((DayNavHost) host).push(title, immersive); }
+    public static void navPop(View host) { ((DayNavHost) host).pop(); }
+    public static void navSetTitle(View host, String title) {
+        // Tab/rail suites have no title bar; their selected destination owns its own host.
+        if (host instanceof DayNavHost) ((DayNavHost) host).retitle(title);
+    }
+    public static void navSetGuard(View host, boolean on) { ((DayNavHost) host).setGuard(on); }
+
+    // --- fullscreen cover (docs/cover.md) ---
+    public static View makeCover(long node, boolean half) { return new DayCover(ctx, node, half); }
+    public static void coverPresent(View cover, int bg, boolean hasBg, boolean dismissDisabled) {
+        DayCover c = (DayCover) cover;
+        if (hasBg) {
+            c.setBackgroundColor(bg);
+        } else if (!c.half) {
+            // Back to the theme's window background: the shell outlives one presentation, and
+            // a composed sheet's presentation left it clear (docs/cover.md "Modal sheet").
+            android.util.TypedValue tv = new android.util.TypedValue();
+            c.setBackgroundColor(ctx.getTheme().resolveAttribute(android.R.attr.colorBackground, tv, true)
+                    ? tv.data : 0xFFFFFFFF);
+        }
+        c.present(dismissDisabled);
+    }
+    public static void coverSetDismissDisabled(View cover, boolean d) {
+        ((DayCover) cover).setDismissDisabled(d);
+    }
+    public static void coverDismiss(View cover) { ((DayCover) cover).dismissCover(); }
+
+    /** Whether native transitions have settled (Toolkit::ui_idle): dayscript screenshots
+     *  wait on this so captures never show a cover mid-slide, and a scripted theme switch
+     *  waits through the whole recreation it causes (DayActivity.recreating). */
+    public static boolean uiIdle() {
+        return DayCover.slidesInFlight == 0 && !DayActivity.recreating();
+    }
+
+    static boolean fastAnimations;
+
+    /** Whether the shim's own native transitions (page push, cover slide, list item moves)
+     *  jump to their end state: a scripted run (`fastAnimations`) or a user who removed
+     *  animations (docs/accessibility.md). The platform already drives its animators at zero
+     *  duration for the latter; skipping them outright lands the same frame synchronously, so
+     *  a completion callback runs in the same pass instead of one frame later. */
+    static boolean skipTransitions() { return fastAnimations || reduceMotion(); }
+
+    private static final class CaptureFence {
+        long revision;
+        volatile boolean ready;
+    }
+    private static final java.util.WeakHashMap<View, CaptureFence> captureFences =
+        new java.util.WeakHashMap<>();
+
+    /** Return after a fresh frame is submitted, without blocking the UI thread. The
+     * external screencap still synchronizes with SurfaceFlinger. An OnDraw fallback
+     * covers software rendering and API levels before frame-commit callbacks. */
+    public static int prepareSnapshot(View host, long revision) {
+        View root = host == null ? ((android.app.Activity) ctx).getWindow().getDecorView()
+                                 : host.getRootView();
+        if (!root.isAttachedToWindow()) return 0;
+        CaptureFence fence = captureFences.get(root);
+        if (fence == null || fence.revision != revision) {
+            fence = new CaptureFence();
+            fence.revision = revision;
+            captureFences.put(root, fence);
+            final CaptureFence pending = fence;
+            if (android.os.Build.VERSION.SDK_INT >= 29 && root.isHardwareAccelerated()) {
+                root.getViewTreeObserver().registerFrameCommitCallback(() -> pending.ready = true);
+            } else {
+                android.view.ViewTreeObserver.OnDrawListener listener =
+                    new android.view.ViewTreeObserver.OnDrawListener() {
+                        boolean posted;
+                        @Override public void onDraw() {
+                            if (posted) return;
+                            posted = true;
+                            root.post(() -> {
+                                if (root.getViewTreeObserver().isAlive())
+                                    root.getViewTreeObserver().removeOnDrawListener(this);
+                                pending.ready = true;
+                            });
+                        }
+                    };
+                root.getViewTreeObserver().addOnDrawListener(listener);
+            }
+            root.invalidate();
+        }
+        return fence.ready ? 1 : 0;
+    }
+
+    /** Press the system back (Toolkit::native_back): the dispatcher runs the nav host's guard
+     *  callback or the fragment manager's pop, the same path a back gesture takes. Only when
+     *  a nav host has something to pop or a guard armed; with neither, the dispatcher would
+     *  finish the activity, which no walkthrough means. */
+    public static boolean nativeBack() {
+        // All tabs may be built eagerly. The last constructed host need not be visible.
+        View root = ((android.app.Activity) ctx).getWindow().getDecorView();
+        if (!hasVisibleBackHost(root)) return false;
+        ((androidx.fragment.app.FragmentActivity) ctx).getOnBackPressedDispatcher().onBackPressed();
+        return true;
+    }
+
+    private static boolean hasVisibleBackHost(View view) {
+        if (!view.isShown()) return false;
+        if (view instanceof DayNavHost && ((DayNavHost) view).canBack()) return true;
+        if (view instanceof ViewGroup) {
+            ViewGroup group = (ViewGroup) view;
+            for (int i = 0; i < group.getChildCount(); i++) {
+                if (hasVisibleBackHost(group.getChildAt(i))) return true;
+            }
+        }
+        return false;
+    }
+
+    /** Whether the system renders in dark appearance (Toolkit::dark_mode). */
+    public static boolean isDarkMode() {
+        int night = ((android.content.Context) ctx).getResources().getConfiguration().uiMode
+                & android.content.res.Configuration.UI_MODE_NIGHT_MASK;
+        return night == android.content.res.Configuration.UI_MODE_NIGHT_YES;
+    }
+
+    /** Whether this device can be told to use a light or dark appearance for this app alone.
+     *
+     *  `UiModeManager.setApplicationNightMode` arrived in API 31. The older route,
+     *  `AppCompatDelegate.setDefaultNightMode`, only restyles an activity that runs through
+     *  AppCompat's delegate, and `DayActivity` is a plain `FragmentActivity`, so below 31 there
+     *  is nothing to offer, and `Cap::Appearance` says so rather than showing a control that
+     *  would do nothing. */
+    public static boolean canSetAppearance() {
+        return android.os.Build.VERSION.SDK_INT >= 31;
+    }
+
+    /** Apply an app-level appearance (Toolkit::set_appearance): 0 light, 1 dark, 2 follow system.
+     *
+     *  Applying it changes the app's uiMode, which the OS delivers to `DayActivity` as a
+     *  configuration change (the manifest lists `uiMode`, so the activity is not recreated), and
+     *  that path already calls `appearanceChanged()`. So this only has to ask; the report back to
+     *  day-core is the same one a user flipping the system theme produces. */
+    public static void setAppearance(int mode) {
+        if (!canSetAppearance() || ctx == null) return;
+        // Idempotent, and it has to be. The settings row re-applies its stored value every time
+        // the tree is built, and applying one recreates the activity, which builds the tree
+        // again. Without this the app recreates itself forever.
+        //
+        // For an explicit light or dark the current uiMode answers exactly, which also means a
+        // cold start whose stored choice already matches the system costs no recreation at all.
+        // "Follow the system" cannot be read back, so it leans on the remembered value; a static
+        // is enough because recreation keeps the process.
+        if (mode == appliedNightMode) return;
+        if (mode != 2 && (mode == 1) == isDarkMode()) {
+            appliedNightMode = mode;
+            return;
+        }
+        appliedNightMode = mode;
+        android.app.UiModeManager um = (android.app.UiModeManager)
+                ((android.content.Context) ctx).getSystemService(android.content.Context.UI_MODE_SERVICE);
+        if (um == null) return;
+        int night;
+        switch (mode) {
+            case 0: night = android.app.UiModeManager.MODE_NIGHT_NO; break;
+            case 1: night = android.app.UiModeManager.MODE_NIGHT_YES; break;
+            default: night = android.app.UiModeManager.MODE_NIGHT_AUTO; break;
+        }
+        // Ask the platform for the mode, and stop there. Nothing here recreates the activity:
+        // this call is a binder round trip, so a `recreate()` issued beside it re-resolves the
+        // theme against whichever configuration has landed by then, which is how a Dark-to-Light
+        // pick came back with a light app bar over a dark sidebar. The platform answers with a
+        // uiMode configuration change once the override is in force, and `DayActivity` recreates
+        // from there (docs/settings.md "Appearance on Android"), so the new activity always
+        // resolves against the appearance that was asked for. A pick the platform has nothing
+        // to do (the mode already in force) produces no configuration change and no
+        // recreation, which is why the guards above can afford to be exact.
+        DayActivity.armRecreate();
+        um.setApplicationNightMode(night);
+    }
+
+    /** The appearance last applied, so re-applying the stored choice does not recreate again. */
+    private static int appliedNightMode = Integer.MIN_VALUE;
+
+    /** Report a light/dark switch to native (event kind 25), once the app has started.
+     *  DayActivity calls this from onConfigurationChanged; day-core restyles what it owns and
+     *  rebuilds app-painted surfaces. */
+    public static void appearanceChanged() {
+        if (started) nativeOnEvent(0L, K_APPEARANCE_CHANGED, 0, "");
+    }
+
+    /** The activity is about to recreate itself (DayActivity.onConfigurationChanged: a theme or
+     *  language switch): day-mdc saves the full current route into `navState` under its
+     *  reserved `day.route` key, so the re-mounted tree comes back to the same section and
+     *  pushed page (docs/settings.md "Appearance on Android"). Routed through the custom-event
+     *  trampoline rather than a bridge kind of its own: the kind table is shared wire format,
+     *  and this never leaves the Android shim. */
+    public static void willRecreate() {
+        if (started) nativeOnEvent(0L, K_CUSTOM, 0, "day:will-recreate");
+    }
+
+    /** The mounted tree's first build has settled, and on a re-mount its route is restored
+     *  (day-mdc `mount_settled`, one turn after `nativeStart`): the activity may now fade
+     *  the previous window's capture away. Called from Rust on the main thread. */
+    public static void mountSettled() {
+        if (ctx instanceof DayActivity) ((DayActivity) ctx).mountSettled();
+    }
+
+    /** Whether the user asked the system for less motion (Toolkit::reduce_motion,
+     *  docs/accessibility.md): Accessibility's "Remove animations", which writes the global
+     *  animator duration scale to zero (Developer options' "Animator duration scale: off" is
+     *  the same write).
+     *
+     *  Read from the settings provider every time rather than from
+     *  `ValueAnimator.areAnimatorsEnabled()`: that answer is the scale the window manager last
+     *  pushed into this process, on a binder path of its own, so at the moment the observer
+     *  below fires it can still hold the old value. The provider is current by definition, and
+     *  its in-process cache makes a repeat read cheap. */
+    public static boolean reduceMotion() {
+        if (ctx == null) return false;
+        try {
+            return android.provider.Settings.Global.getFloat(ctx.getContentResolver(),
+                    android.provider.Settings.Global.ANIMATOR_DURATION_SCALE, 1f) == 0f;
+        } catch (RuntimeException e) {
+            return false;
+        }
+    }
+
+    /** Watch the animator duration scale (docs/accessibility.md) and report each flip to native
+     *  as event kind 33, the way a light/dark switch is reported as 25. The caller keeps the
+     *  returned observer and hands it back to `unwatchReduceMotion`: DayActivity registers from
+     *  onCreate and unregisters from onDestroy, and holding it per activity keeps a recreation
+     *  honest whichever of the two runs first. The observer's handler is the main looper, so
+     *  `onChange` arrives on Day's UI thread and the report crosses straight into Rust, where
+     *  day-core re-reads `reduceMotion()`. `null` when the registration failed. */
+    public static android.database.ContentObserver watchReduceMotion(Context host) {
+        android.database.ContentObserver observer = new android.database.ContentObserver(main) {
+            @Override public void onChange(boolean selfChange) {
+                if (started) nativeOnEvent(0L, K_REDUCE_MOTION_CHANGED, 0, "");
+            }
+        };
+        try {
+            host.getContentResolver().registerContentObserver(
+                    android.provider.Settings.Global.getUriFor(
+                            android.provider.Settings.Global.ANIMATOR_DURATION_SCALE),
+                    false, observer);
+        } catch (RuntimeException e) {
+            android.util.Log.w("Day", "animator duration scale observer not registered", e);
+            return null;
+        }
+        return observer;
+    }
+
+    /** Take down an observer `watchReduceMotion` returned. */
+    public static void unwatchReduceMotion(Context host, android.database.ContentObserver observer) {
+        if (observer == null) return;
+        try {
+            host.getContentResolver().unregisterContentObserver(observer);
+        } catch (RuntimeException e) {
+            android.util.Log.w("Day", "animator duration scale observer not unregistered", e);
+        }
+    }
+
+    /** A PNG of this app's own window (docs/window-image.md), or `null` when there is nothing
+     *  to draw.
+     *
+     *  `View.draw(Canvas)` rather than `PixelCopy`: it is synchronous, which is what lets
+     *  `day::window_image()` stay a plain call on every backend. The cost is that
+     *  surface-backed content (a `VideoView`, and any future GL or camera view) draws empty:
+     *  those pixels live on a surface the view tree never touches, and only the async PixelCopy
+     *  can read them back.
+     *
+     *  `chrome` picks the decor view (the whole window, action bar and system-bar backgrounds)
+     *  over the app's content view. */
+    /** Where `root` sits in {@link #windowImage}'s content capture, as "x,y" in dp, or null
+     *  when there is no window. The content view runs edge-to-edge, under the status bar above
+     *  and the navigation bar below, while Day's root is inset from both. */
+    public static String snapshotOrigin(View root) {
+        try {
+            if (!(ctx instanceof android.app.Activity)) return null;
+            View content = ((android.app.Activity) ctx).getWindow()
+                    .findViewById(android.R.id.content);
+            if (content == null || root == null) return null;
+            int[] at = new int[2];
+            int[] origin = new int[2];
+            root.getLocationInWindow(at);
+            content.getLocationInWindow(origin);
+            float d = root.getResources().getDisplayMetrics().density;
+            if (d <= 0f) return null;
+            return ((at[0] - origin[0]) / (double) d) + "," + ((at[1] - origin[1]) / (double) d);
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
+    public static byte[] windowImage(boolean chrome) {
+        try {
+            if (!(ctx instanceof android.app.Activity)) return null;
+            android.app.Activity act = (android.app.Activity) ctx;
+            View view = chrome
+                    ? act.getWindow().getDecorView()
+                    : act.getWindow().findViewById(android.R.id.content);
+            if (view == null || view.getWidth() <= 0 || view.getHeight() <= 0) return null;
+            android.graphics.Bitmap bmp = android.graphics.Bitmap.createBitmap(
+                    view.getWidth(), view.getHeight(), android.graphics.Bitmap.Config.ARGB_8888);
+            view.draw(new android.graphics.Canvas(bmp));
+            java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+            bmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, out);
+            bmp.recycle();
+            return out.toByteArray();
+        } catch (Throwable t) {
+            android.util.Log.e("Day", "window image failed", t);
+            return null;
+        }
+    }
+
+    // --- launcher shortcuts and the display (docs/deep-links.md, docs/windows.md) ----------
+
+    /** Whether this device keeps shortcuts the app sets while it runs: ShortcutManager is
+     *  API 25, one above the minimum. */
+    public static boolean canSetLauncherShortcuts() {
+        return android.os.Build.VERSION.SDK_INT >= 25;
+    }
+
+    /** Rust's `set_launcher_shortcuts`: the app's dynamic shortcuts, replaced as a whole.
+     *  `packed` holds one record per shortcut, separated by U+001E, each a route and a label
+     *  separated by U+001F (control characters neither can contain). Each carries the same intent the
+     *  Day.toml [[shortcuts]] declare (`day build` writes those): VIEW of `<scheme>://<route>`
+     *  at the launcher activity, so a press reaches the deep-link intake (`DAY_OPEN_URL` on a
+     *  cold start, `onNewIntent` on a warm one) exactly as theirs does. The launcher shows the
+     *  static ones too, and the platform caps the two together per activity, so what does not
+     *  fit is left out rather than failing the whole call. */
+    public static void setLauncherShortcuts(String packed) {
+        if (!canSetLauncherShortcuts() || ctx == null) return;
+        try {
+            String[] records = packed.isEmpty() ? new String[0] : packed.split("\u001e", -1);
+            Context app = ctx.getApplicationContext();
+            android.content.pm.ShortcutManager sm =
+                    app.getSystemService(android.content.pm.ShortcutManager.class);
+            if (sm == null) return;
+            android.content.Intent launch =
+                    app.getPackageManager().getLaunchIntentForPackage(app.getPackageName());
+            android.content.ComponentName target = launch == null ? null : launch.getComponent();
+            if (target == null) return;
+            String scheme = deepLinkScheme(app);
+            int room = Math.max(0,
+                    sm.getMaxShortcutCountPerActivity() - sm.getManifestShortcuts().size());
+            int icon = app.getApplicationInfo().icon;
+            java.util.List<android.content.pm.ShortcutInfo> list =
+                    new java.util.ArrayList<android.content.pm.ShortcutInfo>();
+            for (int i = 0; i < records.length && list.size() < room; i++) {
+                String[] fields = records[i].split("\u001f", -1);
+                String route = fields[0];
+                String text = fields.length > 1 ? fields[1] : "";
+                String link = scheme == null ? route : scheme + "://" + route;
+                android.content.Intent intent = new android.content.Intent(
+                        android.content.Intent.ACTION_VIEW, android.net.Uri.parse(link))
+                        .setComponent(target);
+                String label = text.isEmpty() ? route : text;
+                if (label.isEmpty()) continue;
+                android.content.pm.ShortcutInfo.Builder b =
+                        new android.content.pm.ShortcutInfo.Builder(app, "day_dynamic_" + i)
+                                .setShortLabel(label)
+                                .setLongLabel(label)
+                                .setIntent(intent)
+                                .setRank(i);
+                if (icon != 0) b.setIcon(android.graphics.drawable.Icon.createWithResource(app, icon));
+                list.add(b.build());
+            }
+            // False when the platform rate-limits a background app; the app is in front
+            // whenever its own code asks, so this is not expected to bite.
+            if (!sm.setDynamicShortcuts(list)) {
+                android.util.Log.w("Day", "setDynamicShortcuts was rate-limited");
+            }
+        } catch (Throwable t) {
+            android.util.Log.e("Day", "setLauncherShortcuts failed", t);
+        }
+    }
+
+    private static boolean schemeRead;
+    private static String scheme;
+
+    /** The app's deep-link scheme, as `day build` picks it for the static shortcuts: the first
+     *  `<data android:scheme>` in the manifest. The scaffold fills it in from Day.toml at build
+     *  time, so the compiled manifest in the APK is where it can be read back. `null` when there
+     *  is none: the shortcut then carries the bare route, which the intake passes through. */
+    static String deepLinkScheme(Context app) {
+        if (schemeRead) return scheme;
+        schemeRead = true;
+        try (android.content.res.XmlResourceParser p =
+                     app.getAssets().openXmlResourceParser("AndroidManifest.xml")) {
+            for (int ev = p.next(); ev != org.xmlpull.v1.XmlPullParser.END_DOCUMENT; ev = p.next()) {
+                if (ev != org.xmlpull.v1.XmlPullParser.START_TAG || !"data".equals(p.getName())) {
+                    continue;
+                }
+                String s = p.getAttributeValue("http://schemas.android.com/apk/res/android", "scheme");
+                if (s != null && !s.isEmpty()) {
+                    scheme = s;
+                    break;
+                }
+            }
+        } catch (Throwable t) {
+            android.util.Log.w("Day", "could not read the deep-link scheme", t);
+        }
+        return scheme;
+    }
+
+    /** The display the primary window is on, for Rust's `monitors()`, as one line of
+     *  tab-separated fields: id, name, scale, then the frame's width and height and the work
+     *  area's left, top, width and height, all in dp. The work area leaves out the system
+     *  bars and any display cutout. `null` before an activity exists. */
+    public static String displayInfo() {
+        try {
+            android.app.Activity a = primaryActivity.get();
+            Context c = a != null ? a : ctx;
+            if (c == null) return null;
+            android.view.WindowManager wm = (android.view.WindowManager)
+                    c.getSystemService(Context.WINDOW_SERVICE);
+            if (wm == null) return null;
+            @SuppressWarnings("deprecation")
+            android.view.Display display = wm.getDefaultDisplay();
+            float density = c.getResources().getDisplayMetrics().density;
+            int w, h, left, top, right, bottom;
+            if (android.os.Build.VERSION.SDK_INT >= 30) {
+                android.view.WindowMetrics m = wm.getMaximumWindowMetrics();
+                android.graphics.Rect b = m.getBounds();
+                android.graphics.Insets in = m.getWindowInsets().getInsetsIgnoringVisibility(
+                        android.view.WindowInsets.Type.systemBars()
+                                | android.view.WindowInsets.Type.displayCutout());
+                w = b.width(); h = b.height();
+                left = in.left; top = in.top; right = in.right; bottom = in.bottom;
+            } else {
+                // Before WindowMetrics: the real size is the display's, and the application
+                // size leaves out the navigation bar; the status bar comes off the top.
+                android.util.DisplayMetrics real = new android.util.DisplayMetrics();
+                android.util.DisplayMetrics usable = new android.util.DisplayMetrics();
+                display.getRealMetrics(real);
+                display.getMetrics(usable);
+                w = real.widthPixels; h = real.heightPixels;
+                int sb = c.getResources().getIdentifier("status_bar_height", "dimen", "android");
+                left = 0;
+                top = sb > 0 ? c.getResources().getDimensionPixelSize(sb) : 0;
+                right = w - usable.widthPixels;
+                bottom = h - usable.heightPixels;
+            }
+            String name = display.getName();
+            return display.getDisplayId() + "\t" + (name == null ? "" : name.replace('\t', ' '))
+                    + "\t" + density
+                    + "\t" + (w / density) + "\t" + (h / density)
+                    + "\t" + (left / density) + "\t" + (top / density)
+                    + "\t" + (Math.max(0, w - left - right) / density)
+                    + "\t" + (Math.max(0, h - top - bottom) / density);
+        } catch (Throwable t) {
+            android.util.Log.e("Day", "displayInfo failed", t);
+            return null;
+        }
+    }
+
+    // --- window properties (docs/windows.md) ----------------------------------------------
+    // Fullscreen hides the system bars through the window's insets controller; content
+    // protection is FLAG_SECURE. Both are per window: the primary activity (node 0) or a
+    // secondary DayWindowActivity (its day node).
+
+    /** The primary activity. `ctx` follows whichever activity was resumed last, so a request
+     *  addressed to the primary window needs its own reference. */
+    static java.lang.ref.WeakReference<android.app.Activity> primaryActivity =
+            new java.lang.ref.WeakReference<android.app.Activity>(null);
+    /** Windows the app asked fullscreen, by day node (0 = the primary). */
+    private static final java.util.Set<Long> fullscreenWindows = new java.util.HashSet<Long>();
+    /** Windows the app asked to keep out of captures, by day node (0 = the primary). */
+    private static final java.util.Set<Long> secureWindows = new java.util.HashSet<Long>();
+    /** The last state code reported per window, so an inset pass reports only a real change. */
+    private static final java.util.Map<Long, Integer> reportedWindowState =
+            new java.util.HashMap<Long, Integer>();
+
+    /** The activity showing day window `node`, or null once it is gone. */
+    static android.app.Activity windowActivity(long node) {
+        if (node == 0) return primaryActivity.get();
+        return DayWindowActivity.ACTIVE.get(node);
+    }
+
+    /** The day node an activity shows: its own for a secondary window, 0 for the primary. */
+    static long windowNodeOf(android.app.Activity a) {
+        return a instanceof DayWindowActivity ? ((DayWindowActivity) a).node : 0L;
+    }
+
+    /** A new primary activity: a fresh tree mounts in it, whose window starts normal and
+     *  unprotected, so the previous activity's requests are forgotten rather than reapplied. */
+    static void primaryCreated(android.app.Activity a) {
+        primaryActivity = new java.lang.ref.WeakReference<android.app.Activity>(a);
+        fullscreenWindows.remove(0L);
+        secureWindows.remove(0L);
+        reportedWindowState.remove(0L);
+    }
+
+    /** A secondary window's activity was (re)created: its day window carries on, so the
+     *  properties it was given come back with it. */
+    static void secondaryCreated(DayWindowActivity a) {
+        if (secureWindows.contains(a.node)) applySecure(a, true);
+        if (fullscreenWindows.contains(a.node)) applyBars(a);
+    }
+
+    /** A secondary window closed for good: drop what was recorded for it. */
+    static void secondaryClosed(long node) {
+        fullscreenWindows.remove(node);
+        secureWindows.remove(node);
+        reportedWindowState.remove(node);
+    }
+
+    /** Rust's `apply_window` for `WindowChange::State`: `code` is the day WindowState code.
+     *  Fullscreen hides the system bars, transiently revealed by a swipe from the edge, the
+     *  platform's immersive mode; normal shows them. Minimized and maximized are not states a
+     *  phone or tablet app can put itself in, so those report the state the window kept. */
+    public static void setWindowState(final long node, int code) {
+        try {
+            android.app.Activity a = windowActivity(node);
+            if (a == null) return;
+            if (code != 0 && code != 3) {
+                // Posted, like every report: this runs inside a call from Rust.
+                main.post(new Runnable() {
+                    public void run() { reportWindowState(node, true); }
+                });
+                return;
+            }
+            if (code == 3) fullscreenWindows.add(node); else fullscreenWindows.remove(node);
+            applyBars(a);
+            // The inset pass that follows the bars moving reports the outcome. This settles the
+            // request when they never move (already hidden, or a windowing mode that keeps
+            // them): a window that did not become what was asked reports even unchanged.
+            final int wanted = code;
+            main.postDelayed(new Runnable() {
+                public void run() {
+                    android.app.Activity w = windowActivity(node);
+                    if (w != null) reportWindowState(node, windowStateOf(w, node) != wanted);
+                }
+            }, 600);
+        } catch (Throwable t) {
+            android.util.Log.e("Day", "setWindowState failed", t);
+        }
+    }
+
+    /** Rust's `apply_window` for `WindowChange::ContentProtected`: FLAG_SECURE keeps the window
+     *  out of screenshots, screen recordings, casting and the recents thumbnail. */
+    public static void setWindowSecure(long node, boolean on) {
+        try {
+            if (on) secureWindows.add(node); else secureWindows.remove(node);
+            android.app.Activity a = windowActivity(node);
+            if (a != null) applySecure(a, on);
+        } catch (Throwable t) {
+            android.util.Log.e("Day", "setWindowSecure failed", t);
+        }
+    }
+
+    private static void applySecure(android.app.Activity a, boolean on) {
+        if (on) {
+            a.getWindow().addFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE);
+        } else {
+            a.getWindow().clearFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE);
+        }
+    }
+
+    /** An activity's root saw new window insets (its insets listener): report its window's
+     *  state if the bars moved. Posted, since the listener runs inside a layout pass. */
+    static void windowInsetsChanged(android.app.Activity a) {
+        if (!started) return;
+        final long node = windowNodeOf(a);
+        main.post(new Runnable() {
+            public void run() { reportWindowState(node, false); }
+        });
+    }
+
+    /** What window `node` shows as: fullscreen while the app asked for it AND the status bar is
+     *  actually hidden (a mode that keeps the bars leaves the window normal). */
+    private static int windowStateOf(android.app.Activity a, long node) {
+        if (!fullscreenWindows.contains(node)) return 0;
+        androidx.core.view.WindowInsetsCompat in =
+                androidx.core.view.ViewCompat.getRootWindowInsets(a.getWindow().getDecorView());
+        if (in == null) return 0;
+        return in.isVisible(androidx.core.view.WindowInsetsCompat.Type.statusBars()) ? 0 : 3;
+    }
+
+    /** Report window `node`'s state to day: on a change, or every time with `always` (a request
+     *  the platform declined still reports, so the app's state signal settles on the truth). */
+    static void reportWindowState(long node, boolean always) {
+        if (!started) return;
+        android.app.Activity a = windowActivity(node);
+        if (a == null) return;
+        int code = windowStateOf(a, node);
+        Integer last = reportedWindowState.put(node, code);
+        int previous = last == null ? 0 : last;
+        if (always || previous != code) {
+            nativeOnEvent(node, K_WINDOW_STATE_CHANGED, code, null);
+        }
+    }
+
+    /** Deferred system gestures (docs/cover.md): while any `defers_system_gestures` subtree
+     *  is mounted, enter swipe-to-reveal immersive mode, the platform's "first swipe shows
+     *  the bars, second swipe acts" behavior, the closest analogue of iOS's screen-edge
+     *  deferral. Restores normal bars when the last request unmounts. */
+    public static void setDeferSystemGestures(boolean on) {
+        deferSystemGestures = on;
+        applySystemBars();
+    }
+
+    /** The status bar (docs/cover.md): hidden while any mounted `status_bar_hidden` subtree
+     *  asks for it. A swipe from the top edge shows it transiently, as everywhere else on the
+     *  platform; the navigation bar stays. */
+    public static void setStatusBarHidden(boolean hidden) {
+        statusBarHidden = hidden;
+        applySystemBars();
+    }
+
+    private static boolean deferSystemGestures;
+    private static boolean statusBarHidden;
+
+    private static void applySystemBars() {
+        applyBars((android.app.Activity) ctx);
+    }
+
+    /** One insets-controller state for every request, so none undoes another: deferral and a
+     *  fullscreen window (docs/windows.md) hide every system bar, the status-bar request only
+     *  the status bar. */
+    private static void applyBars(android.app.Activity act) {
+        boolean fullscreen = fullscreenWindows.contains(windowNodeOf(act));
+        androidx.core.view.WindowInsetsControllerCompat c =
+                androidx.core.view.WindowCompat.getInsetsController(
+                        act.getWindow(), act.getWindow().getDecorView());
+        int bars = androidx.core.view.WindowInsetsCompat.Type.systemBars();
+        int status = androidx.core.view.WindowInsetsCompat.Type.statusBars();
+        if (deferSystemGestures || statusBarHidden || fullscreen) {
+            c.setSystemBarsBehavior(androidx.core.view.WindowInsetsControllerCompat
+                    .BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
+        } else {
+            c.setSystemBarsBehavior(androidx.core.view.WindowInsetsControllerCompat
+                    .BEHAVIOR_DEFAULT);
+        }
+        if (deferSystemGestures || fullscreen) {
+            c.hide(bars);
+        } else if (statusBarHidden) {
+            c.show(androidx.core.view.WindowInsetsCompat.Type.navigationBars());
+            c.hide(status);
+        } else {
+            c.show(bars);
+        }
+    }
+
+    // --- navigation suite (docs/navigation.md) ---
+    // The nav host in its `Tabs` presentation: the same container, reached from the nav path.
+
+    /** Pages whose rows are the chrome: marked before insertion, consumed by `addChild`. */
+    private static final java.util.Set<View> navChromePages =
+            java.util.Collections.newSetFromMap(new java.util.WeakHashMap<View, Boolean>());
+
+    public static View makeNavSuite(long id, int initial) { return new DayTabs(ctx, id, initial); }
+
+    /** Mark `page` as the suite's chrome source before it is inserted (see `addChild`). */
+    public static void markNavChromePage(View page) { navChromePages.add(page); }
+
+    /**
+     * Hand a nav menu's rows to the suite that will draw them as chrome.
+     *
+     * Called with the menu, not the suite: the menu knows its rows, and by the time it is inserted
+     * its ancestors reach the suite, so the walk up is what connects the two. A menu outside a
+     * suite (every non-tabs presentation) finds nothing and this is a no-op.
+     */
+    public static void setNavSuiteRows(View menu, String titles, String icons, String badges,
+            long menuNode) {
+        DayTabs suite = suiteOf(menu);
+        if (suite != null) suite.setRows(titles, icons, badges, menuNode);
+    }
+
+    /** The navigation suite a nav menu's rows are drawn by, when it sits in one. */
+    private static DayTabs suiteOf(View menu) {
+        for (android.view.ViewParent p = menu.getParent(); p != null; p = p.getParent()) {
+            if (p instanceof DayTabs) return (DayTabs) p;
+        }
+        return null;
+    }
+
+    /**
+     * New titles and icons for the listed rows of the same row set (NavMenuPatch::Items
+     * `rows_changed`), on the menu items already shown and on the suite drawing them: a count or
+     * a language change updates rows in place, the way every Material component expects to be
+     * told, instead of clearing and refilling the menu. Tints and badges follow through their
+     * own calls, which already work in place.
+     */
+    public static void updateNavMenuRows(View v, String joinedRows, String joinedItems,
+            String joinedIcons) {
+        try {
+            if (!(v instanceof NavigationView)) return;
+            String[] rowStrs = joinedRows.isEmpty() ? new String[0] : joinedRows.split(",");
+            int[] rows = new int[rowStrs.length];
+            for (int i = 0; i < rows.length; i++) rows[i] = Integer.parseInt(rowStrs[i]);
+            String[] items = joinedItems.isEmpty() ? new String[0] : joinedItems.split("\u001f", -1);
+            String[] icons = joinedIcons.isEmpty() ? new String[0] : joinedIcons.split("\u001f", -1);
+            java.util.List<MenuItem> menu = navItems((NavigationView) v);
+            for (int i : rows) {
+                if (i < 0 || i >= menu.size()) continue;
+                MenuItem row = menu.get(i);
+                if (i < items.length) row.setTitle(items[i]);
+                if (i < icons.length) {
+                    android.graphics.drawable.Drawable icon = icons[i].isEmpty() ? null
+                            : drawableByName(ctx, icons[i]);
+                    row.setIcon(icon);
+                }
+            }
+            DayTabs suite = suiteOf(v);
+            if (suite != null) suite.updateRows(rows, joinedItems);
+        } catch (Throwable t) {
+            android.util.Log.e("Day", "nav menu row update skipped", t);
+        }
+    }
+
+    public static void reorderNavSuite(View suite, String order) {
+        if (suite instanceof DayTabs)
+            ((DayTabs) suite).reorder(order);
+    }
+    public static void documentNavChrome(View suite, boolean visible) {
+        if (suite instanceof DayTabs)
+            ((DayTabs) suite).documentChrome(visible);
+    }
+    public static void documentNavSuite(
+            View suite, String newLabel, String closeLabel, boolean canAdd) {
+        if (suite instanceof DayTabs)
+            ((DayTabs) suite).documents(newLabel, closeLabel, canAdd);
+    }
+    public static void setDocumentTabKeys(View menu, String keys) {
+        for (android.view.ViewParent p = menu.getParent(); p != null; p = p.getParent()) {
+            if (p instanceof DayTabs) {
+                ((DayTabs) p).documentKeys(keys);
+                return;
+            }
+        }
+    }
+    public static void setNavSuiteSelected(View suite, int index) {
+        if (suite instanceof DayTabs) ((DayTabs) suite).select(index);
+    }
+    /** The navigation surface for `nav(NavStyle::Sidebar)` (docs/navigation.md): a
+     *  Material {@link NavigationView}, the class Android means for exactly this.
+     *
+     *  It used to be a hand-built `LinearLayout` of `TextView` rows in a `ScrollView`, with the
+     *  48dp height, the padding, the ripple and the 24dp leading glyph all measured out here; a
+     *  comment in it called that "the Material nav-drawer idiom", which it was imitating rather
+     *  than using. NavigationView is that idiom: M3 row metrics, the ripple, the icon slot, the
+     *  subheaders between groups, a RecyclerView underneath so a long sidebar recycles, and the
+     *  fully-rounded active indicator behind the checked row, the thing the hand-built list had
+     *  no way to draw, which is why the showcase's sidebar marked nothing at all.
+     *
+     *  Rows are index-aligned with day's model throughout: a menu item's id is its index, which
+     *  is what `setNavMenuSelected` and the tint/badge follow-ups address them by. `sections`
+     *  opens a new group before the row at the same index ("" continues the current one), so the
+     *  indices never shift when a heading is added.
+     */
+    private static final class DayRefreshNavigationView extends NavigationView {
+        androidx.swiperefreshlayout.widget.SwipeRefreshLayout refresh;
+        ViewGroup menuList;
+        DayRefreshNavigationView(android.content.Context context) { super(context); }
+    }
+
+    /** Floating group headings over Material's recycled navigation rows. Use the native
+     *  subheader layout and public menu IDs, never Material's private adapter positions or
+     *  view-type numbers: filtering, starred rows and empty groups can all change those. */
+    private static final class NavSectionHeaders extends RecyclerView.ItemDecoration {
+        final NavigationView nav;
+        final TextView heading;
+        int floatingBottom;
+        NavSectionHeaders(NavigationView nav, RecyclerView rows) {
+            this.nav = nav;
+            heading = (TextView) android.view.LayoutInflater.from(nav.getContext()).inflate(
+                    com.google.android.material.R.layout.design_navigation_item_subheader,
+                    rows, false);
+            // The painted heading is not a destination. Suppress taps through it,
+            // while leaving drag gestures with RecyclerView's normal scroll handling.
+            rows.addOnItemTouchListener(new RecyclerView.SimpleOnItemTouchListener() {
+                float downX, downY;
+                boolean onHeading;
+                final int slop = android.view.ViewConfiguration.get(nav.getContext()).getScaledTouchSlop();
+                @Override public boolean onInterceptTouchEvent(RecyclerView view, MotionEvent event) {
+                    if (event.getActionMasked() == MotionEvent.ACTION_DOWN) {
+                        downX = event.getX(); downY = event.getY();
+                        onHeading = downY >= view.getPaddingTop() && downY < floatingBottom;
+                    } else if (event.getActionMasked() == MotionEvent.ACTION_MOVE) {
+                        if (Math.abs(event.getX() - downX) > slop || Math.abs(event.getY() - downY) > slop)
+                            onHeading = false;
+                    } else if (event.getActionMasked() == MotionEvent.ACTION_UP) {
+                        boolean consume = onHeading;
+                        onHeading = false;
+                        return consume;
+                    } else if (event.getActionMasked() == MotionEvent.ACTION_CANCEL) {
+                        onHeading = false;
+                    }
+                    return false;
+                }
+            });
+        }
+        @Override public void onDrawOver(android.graphics.Canvas canvas, RecyclerView rows,
+                RecyclerView.State state) {
+            // NavigationView applies its configured subheader insets after inflation.
+            // Copy those native metrics so the floating and in-list headings align.
+            for (int i = 0; i < rows.getChildCount(); i++) {
+                View child = rows.getChildAt(i);
+                if (child instanceof TextView) {
+                    heading.setPaddingRelative(child.getPaddingStart(), child.getPaddingTop(),
+                            child.getPaddingEnd(), child.getPaddingBottom());
+                    heading.setLayoutDirection(child.getLayoutDirection());
+                    break;
+                }
+            }
+            final int top = rows.getPaddingTop();
+            floatingBottom = top;
+            CharSequence title = null;
+            int nextTop = Integer.MAX_VALUE;
+            for (int i = 0; i < rows.getChildCount(); i++) {
+                View child = rows.getChildAt(i);
+                if (child.getBottom() <= top) continue;
+                if (child instanceof com.google.android.material.internal.NavigationMenuItemView) {
+                    if (title == null) {
+                        MenuItem item = ((com.google.android.material.internal.NavigationMenuItemView) child).getItemData();
+                        MenuItem group = item == null ? null
+                                : nav.getMenu().findItem(SECTION_ID_BASE + item.getGroupId());
+                        if (group == null) return; // Ungrouped rows have no floating title.
+                        title = group.getTitle();
+                    }
+                } else if (child instanceof TextView) {
+                    // This is Material's real subheader. Before it reaches the top it
+                    // needs no overlay; after that it supplies the current group title.
+                    if (title == null) {
+                        if (child.getTop() > top) return;
+                        title = ((TextView) child).getText();
+                    } else {
+                        nextTop = child.getTop();
+                        break;
+                    }
+                }
+            }
+            if (title == null) return;
+            heading.setText(title);
+            heading.setTextColor(MaterialColors.getColor(nav,
+                    com.google.android.material.R.attr.colorOnSurfaceVariant));
+            heading.setBackgroundColor(MaterialColors.getColor(nav,
+                    com.google.android.material.R.attr.colorSurface));
+            int width = rows.getWidth() - rows.getPaddingLeft() - rows.getPaddingRight();
+            heading.measure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
+                    View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
+            int height = heading.getMeasuredHeight();
+            heading.layout(0, 0, width, height);
+            int y = Math.min(top, nextTop - height);
+            floatingBottom = y + height;
+            canvas.save();
+            canvas.clipRect(rows.getPaddingLeft(), top, rows.getWidth() - rows.getPaddingRight(), rows.getHeight());
+            canvas.translate(rows.getPaddingLeft(), y);
+            heading.draw(canvas);
+            canvas.restore();
+        }
+    }
+
+    /** Lazily add the native Android pull affordance; selection and long-press still go to
+     *  Material's original RecyclerView. The widget and listener die with the navigation view. */
+    public static void setNavRefreshing(View view, boolean busy) {
+        if (!(view instanceof DayRefreshNavigationView)) return;
+        DayRefreshNavigationView nav = (DayRefreshNavigationView) view;
+        if (nav.refresh == null) {
+            ViewGroup rows = navRecycler(nav);
+            if (rows == null) return;
+            nav.menuList = rows;
+            ViewGroup.LayoutParams layout = rows.getLayoutParams();
+            int index = nav.indexOfChild(rows);
+            nav.removeView(rows);
+            nav.refresh = new androidx.swiperefreshlayout.widget.SwipeRefreshLayout(nav.getContext());
+            nav.refresh.addView(rows, new ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+            nav.refresh.setOnChildScrollUpCallback((parent, child) -> rows.canScrollVertically(-1));
+            nav.refresh.setOnRefreshListener(() -> nativeOnEvent(((Number) nav.getTag()).longValue(), K_REFRESH_REQUESTED, 0, null));
+            nav.addView(nav.refresh, index, layout);
+        }
+        nav.refresh.setRefreshing(busy);
+    }
+
+    public static View makeNavMenu(final long id, String joinedItems, String joinedIcons,
+            String joinedSections) {
+        NavigationView nav = new DayRefreshNavigationView(ctx);
+        // The pane's own background is the window's; the drawer's elevated surface would read as
+        // a second card floating inside the split (docs/navigation.md).
+        nav.setBackgroundColor(android.graphics.Color.TRANSPARENT);
+        // Day tints each glyph itself (setNavMenuTints), so the view must not re-tint them all to
+        // one color afterwards.
+        nav.setItemIconTintList(null);
+        nav.setTag(id);
+        // Immersive mode (docs/layout.md): the page runs under the transparent status bar and the
+        // floating app bar, so start the rows below them. `clipToPadding=false` keeps the padding
+        // scrollable rather than fixed.
+        if (DayActivity.edgeToEdge) {
+            android.util.TypedValue abs = new android.util.TypedValue();
+            int bar = 0;
+            if (ctx.getTheme().resolveAttribute(android.R.attr.actionBarSize, abs, true)) {
+                bar = android.util.TypedValue.complexToDimensionPixelSize(
+                        abs.data, ctx.getResources().getDisplayMetrics());
+            }
+            nav.setPadding(0, DayActivity.statusInsetPx + bar, 0, 0);
+            nav.setClipToPadding(false);
+        }
+        nav.setNavigationItemSelectedListener(new NavigationView.OnNavigationItemSelectedListener() {
+            @Override public boolean onNavigationItemSelected(MenuItem item) {
+                // The index is the id. Report and let day answer with NavMenuPatch::Selected,
+                // which is what moves the indicator, the same rule the other backends follow, so
+                // a route the app declines leaves the sidebar showing where it actually is.
+                nativeOnEvent(id, K_SELECTION_CHANGED, item.getItemId() - ROW_ID_BASE, null);
+                return true;
+            }
+        });
+        fillNavMenu(nav, joinedItems, joinedIcons, joinedSections);
+        ViewGroup rows = navRecycler(nav);
+        if (rows instanceof RecyclerView) {
+            ((RecyclerView) rows).addItemDecoration(new NavSectionHeaders(nav, (RecyclerView) rows));
+        }
+        return nav;
+    }
+
+    /** The item set changed (day's NavMenuPatch::Items, a data-driven `nav().items(…)`
+     *  block re-derived): rebuild the menu so every item's id carries its current index.
+     *  Reusing stale rows after a removal shifts every later selection by one. */
+    public static void updateNavMenu(View v, String joinedItems, String joinedIcons,
+            String joinedSections) {
+        if (!(v instanceof NavigationView)) return;
+        fillNavMenu((NavigationView) v, joinedItems, joinedIcons, joinedSections);
+        setNavSuiteRows(v, joinedItems, joinedIcons, null, 0);
+    }
+
+    /** Where a sidebar row's menu-item id starts.
+     *
+     *  A menu id is not a view id, except that `NavigationMenuItemView` copies its item's id onto
+     *  Itself, which drops both into the one namespace `findViewById` searches. Day's own
+     *  containers take `View.generateViewId()`, which counts up from 1, so a row keyed by its bare
+     *  index collided with them immediately: `containerId` was 1, the Controls row (index 1) became
+     *  a view with id 1, it sits earlier in the traversal than the detail container, and
+     *  `FragmentTransaction.replace(containerId, …)` therefore built every detail page inside that
+     *  sidebar row: the detail pane stayed empty and the page's first line drew inside the
+     *  selected row's indicator.
+     *
+     *  `generateViewId` never returns above 0x00FFFFFF and aapt's ids start at 0x7F000000, so this
+     *  range belongs to nobody. Section headings get their own so they cannot answer `findItem` for
+     *  a row (`Menu.NONE` is 0, which shadowed row 0). */
+    private static final int ROW_ID_BASE = 0x0100_0000;
+    private static final int SECTION_ID_BASE = 0x0200_0000;
+
+    /** Build one checkable menu item per row, grouped by `sections`. */
+    private static void fillNavMenu(NavigationView nav, String joinedItems, String joinedIcons,
+            String joinedSections) {
+        Menu menu = nav.getMenu();
+        // What is checked now, so a rebuild comes back marking the same row. A data-driven
+        // `.items(…)` block re-derives on its own schedule (the showcase's does it once as the
+        // sidebar first paints), and `menu.clear()` takes the indicator with it. day re-applies
+        // the selection it knows about afterwards, but only if the patch that rebuilt the menu
+        // carried one; this covers the rebuild that does not.
+        int checked = -1;
+        for (MenuItem prev : navItems(nav)) {
+            if (prev.isChecked()) {
+                checked = prev.getItemId() - ROW_ID_BASE;
+                break;
+            }
+        }
+        menu.clear();
+        String[] items = joinedItems.isEmpty() ? new String[0] : joinedItems.split("\u001f");
+        // KeepEmptyParts (limit -1) so the parallel arrays stay index-aligned with rows that
+        // carry no icon and rows that open no section.
+        String[] icons = joinedIcons.isEmpty() ? new String[0] : joinedIcons.split("\u001f", -1);
+        String[] sections =
+                joinedSections.isEmpty() ? new String[0] : joinedSections.split("\u001f", -1);
+        float d = ctx.getResources().getDisplayMetrics().density;
+        Menu into = menu;
+        int group = 0;
+        for (int i = 0; i < items.length; i++) {
+            if (i < sections.length && !sections[i].isEmpty()) {
+                // A heading opens a new group. NavigationView draws a SubMenu's title as an M3
+                // subheader and separates the groups, which is what the flat list had no room for.
+                group++;
+                // The heading's own id must stay out of the row-index space: a row's id is its
+                // index, `Menu.NONE` is 0, and a heading carrying 0 made `findItem(0)` answer
+                // with the subheader instead of the first row, so the indicator never appeared
+                // on it. Anything past the row count works; this is unmistakable in a log.
+                into = menu.addSubMenu(group, SECTION_ID_BASE + group, group, sections[i]);
+            }
+            MenuItem it = into.add(group, ROW_ID_BASE + i, i, items[i]);
+            it.setCheckable(true);
+            android.graphics.drawable.Drawable icon = drawableByName(ctx, i < icons.length ? icons[i] : "");
+            if (icon != null) {
+                int sz = (int) (24 * d);
+                icon = icon.mutate();
+                icon.setBounds(0, 0, sz, sz);
+                it.setIcon(icon);
+            }
+        }
+        if (checked >= 0) setNavMenuSelected(nav, checked);
+    }
+
+    /** Move the active indicator to `index`, or clear it (day's `NavMenuProps::selected`).
+     *
+     *  Applied without re-emitting: `setCheckedItem` does not run the selection listener, so
+     *  there is no echo to suppress. Best-effort like the other follow-ups. */
+    public static void setNavMenuSelected(View navMenu, int index) {
+        try {
+            if (!(navMenu instanceof NavigationView)) return;
+            NavigationView nav = (NavigationView) navMenu;
+            if (index < 0) {
+                // Grouped destinations live inside submenus. Clearing only the top
+                // menu leaves a stale selected row after returning to the root.
+                for (MenuItem item : navItems(nav)) item.setChecked(false);
+                return;
+            }
+            MenuItem it = nav.getMenu().findItem(ROW_ID_BASE + index);
+            if (it != null) nav.setCheckedItem(it);
+        } catch (Throwable t) {
+            android.util.Log.e("Day", "nav menu selection skipped", t);
+        }
+    }
+
+    /** Every menu item in `nav`, in day's index order; the tint and badge follow-ups address
+     *  rows by index, and a grouped menu nests them inside SubMenus. */
+    private static java.util.List<MenuItem> navItems(NavigationView nav) {
+        java.util.ArrayList<MenuItem> out = new java.util.ArrayList<>();
+        Menu m = nav.getMenu();
+        for (int i = 0; i < m.size(); i++) {
+            MenuItem it = m.getItem(i);
+            if (it.hasSubMenu()) {
+                android.view.SubMenu sub = it.getSubMenu();
+                for (int j = 0; j < sub.size(); j++) out.add(sub.getItem(j));
+            } else {
+                out.add(it);
+            }
+        }
+        return out;
+    }
+
+    /** Per-row nav icon tints (docs/vectors.md), index-aligned ARGB ints ("0" = untinted;
+     *  the row keeps its text-color template tint). Best-effort: called after
+     *  makeNavMenu/updateNavMenu so a failure here can never abort the native tree build. */
+    public static void setNavMenuTints(View navMenu, String joinedTints) {
+        try {
+            if (!(navMenu instanceof NavigationView)) return;
+            java.util.List<MenuItem> rows = navItems((NavigationView) navMenu);
+            String[] tints = joinedTints.isEmpty() ? new String[0] : joinedTints.split("\u001f", -1);
+            for (int i = 0; i < rows.size() && i < tints.length; i++) {
+                android.graphics.drawable.Drawable icon = rows.get(i).getIcon();
+                if (icon == null) continue;
+                long tint;
+                try { tint = Long.parseLong(tints[i].trim()); } catch (NumberFormatException e) { continue; }
+                if (tint != 0) icon.setTint((int) tint);
+            }
+        } catch (Throwable t) {
+            android.util.Log.e("Day", "nav menu tints skipped", t);
+        }
+    }
+
+    /** Per-row trailing status glyphs (docs/navigation.md): a starred page's star. Index-aligned
+     *  names ("" = none) with matching ARGB tints ("0" = keep the row's text-color template
+     *  tint). The glyph goes in the compound drawable's end slot, so the row needs no new layout
+     *  and the label still ellipsizes into what is left.
+     *
+     *  Best-effort and called after makeNavMenu/updateNavMenu, exactly like setNavMenuTints: a
+     *  throw on the nav host's own build path takes the whole tree down with it, and a decoration
+     *  is never worth that. */
+    public static void setNavMenuBadges(View navMenu, String joinedIcons, String joinedTints, String joinedTexts) {
+        try {
+            // A tabs host draws this menu's rows as its own chrome (DayTabs), so the counts go
+            // there too: without it the bottom bar and the rail never showed a badge.
+            for (android.view.ViewParent p = navMenu.getParent(); p != null; p = p.getParent()) {
+                if (p instanceof DayTabs) {
+                    // Not when this IS the suite's drawer: the suite applying its own counts.
+                    if (!((DayTabs) p).isChrome(navMenu)) ((DayTabs) p).setBadges(joinedTexts);
+                    break;
+                }
+            }
+            if (!(navMenu instanceof NavigationView)) return;
+            java.util.List<MenuItem> rows = navItems((NavigationView) navMenu);
+            String[] icons = joinedIcons.isEmpty() ? new String[0] : joinedIcons.split("\u001f", -1);
+            String[] tints = joinedTints.isEmpty() ? new String[0] : joinedTints.split("\u001f", -1);
+            String[] texts = joinedTexts.isEmpty() ? new String[0] : joinedTexts.split("\u001f", -1);
+            float d = ctx.getResources().getDisplayMetrics().density;
+            for (int i = 0; i < rows.size(); i++) {
+                MenuItem row = rows.get(i);
+                android.graphics.drawable.Drawable badge = i < icons.length ? drawableByName(ctx, icons[i]) : null;
+                String text = i < texts.length ? texts[i] : "";
+                android.widget.TextView count = new android.widget.TextView(ctx);
+                count.setTextAppearance(android.R.style.TextAppearance_Material_Body2);
+                count.setTextColor(MaterialColors.getColor(navMenu, com.google.android.material.R.attr.colorOnSurfaceVariant));
+                count.setText(text);
+                count.setGravity(android.view.Gravity.CENTER_VERTICAL | android.view.Gravity.END);
+                count.setLayoutParams(new android.widget.FrameLayout.LayoutParams(
+                        -2, -2, android.view.Gravity.CENTER_VERTICAL | android.view.Gravity.END));
+                if (badge == null) {
+                    // Never null: NavigationMenuItemView only REPLACES an action view, so
+                    // clearing with null left the last count drawn (a "1" after the last item
+                    // was done). An empty count draws nothing.
+                    row.setActionView(count);
+                    continue;
+                }
+                // The end slot is a menu item's action view here, which NavigationView lays out
+                // opposite the label; the old compound-drawable trick had no menu to hang on.
+                badge = badge.mutate();
+                long tint = 0;
+                if (i < tints.length) {
+                    try { tint = Long.parseLong(tints[i].trim()); } catch (NumberFormatException e) { tint = 0; }
+                }
+                android.widget.ImageView iv = new android.widget.ImageView(ctx);
+                iv.setImageDrawable(badge);
+                int sz = (int) (18 * d);
+                // NavigationView adds the action view to a FrameLayout that spans the row's
+                // height; plain ViewGroup params convert to a FrameLayout's default gravity,
+                // top|start, which parked the star at the top of the row. Center it.
+                iv.setLayoutParams(new android.widget.FrameLayout.LayoutParams(sz, sz,
+                        android.view.Gravity.CENTER_VERTICAL | android.view.Gravity.END));
+                if (tint != 0) {
+                    iv.setImageTintList(android.content.res.ColorStateList.valueOf((int) tint));
+                }
+                if (text.isEmpty()) {
+                    row.setActionView(iv);
+                } else {
+                    android.widget.LinearLayout accessories = new android.widget.LinearLayout(ctx);
+                    accessories.setOrientation(android.widget.LinearLayout.HORIZONTAL);
+                    accessories.setGravity(android.view.Gravity.CENTER_VERTICAL);
+                    accessories.addView(count);
+                    android.widget.LinearLayout.LayoutParams iconParams = new android.widget.LinearLayout.LayoutParams(sz, sz);
+                    iconParams.setMarginStart((int) (6 * d));
+                    accessories.addView(iv, iconParams);
+                    row.setActionView(accessories);
+                }
+            }
+        } catch (Throwable t) {
+            android.util.Log.e("Day", "nav menu badges skipped", t);
+        }
+    }
+
+    // --- imperative presentation (docs/dialogs.md) ---
+    static final java.util.HashMap<Long, android.app.Dialog> presents = new java.util.HashMap<>();
+
+    /** A native alert / confirm / action sheet; onClick reports the spec button index. */
+    public static void present(final long req, boolean sheet, String title, String message,
+            String buttonsJoined, String rolesJoined) {
+        final String[] labels = buttonsJoined.isEmpty() ? new String[0] : buttonsJoined.split("\u001f");
+        MaterialAlertDialogBuilder b = new MaterialAlertDialogBuilder(ctx); // M3 dialog
+        b.setTitle(title);
+        if (sheet) {
+            // A titled list of choices, the Android idiom for an action sheet.
+            b.setItems(labels, new android.content.DialogInterface.OnClickListener() {
+                @Override public void onClick(android.content.DialogInterface d, int which) {
+                    presents.remove(req);
+                    nativeOnEvent(req, K_PRESENT_BUTTON, (double) which, null); // 8 = present button
+                }
+            });
+        } else {
+            if (message != null && !message.isEmpty()) b.setMessage(message);
+            String[] roles = rolesJoined.isEmpty() ? new String[0] : rolesJoined.split(",");
+            boolean positiveUsed = false;
+            for (int i = 0; i < labels.length; i++) {
+                final int idx = i;
+                int role = (i < roles.length) ? Integer.parseInt(roles[i]) : 0;
+                android.content.DialogInterface.OnClickListener cb =
+                    new android.content.DialogInterface.OnClickListener() {
+                        @Override public void onClick(android.content.DialogInterface d, int w) {
+                            presents.remove(req);
+                            nativeOnEvent(req, K_PRESENT_BUTTON, (double) idx, null);
+                        }
+                    };
+                if (role == 1) b.setNegativeButton(labels[i], cb);          // cancel
+                else if (!positiveUsed) { b.setPositiveButton(labels[i], cb); positiveUsed = true; }
+                else b.setNeutralButton(labels[i], cb);
+            }
+        }
+        b.setOnCancelListener(new android.content.DialogInterface.OnCancelListener() {
+            @Override public void onCancel(android.content.DialogInterface d) {
+                presents.remove(req);
+                nativeOnEvent(req, K_PRESENT_DISMISSED, 0.0, null); // 10 = dismissed
+            }
+        });
+        android.app.Dialog dlg = b.create();
+        presents.put(req, dlg);
+        dlg.show();
+    }
+
+    /** A native M3 text prompt (a TextInputLayout box); OK reports the entered text. */
+    public static void presentPrompt(final long req, String title, String message,
+            String placeholder, String initial, String ok, String cancel) {
+        TextInputLayout box = new TextInputLayout(ctx);
+        box.setHint(placeholder);
+        final TextInputEditText input = new TextInputEditText(box.getContext());
+        input.setText(initial);
+        input.setSingleLine(true);
+        box.addView(input, new TextInputLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        // The dialog content area has no inherent padding; give the box the M3 24dp side inset.
+        android.widget.FrameLayout wrap = new android.widget.FrameLayout(ctx);
+        int inset = (int) (24 * ctx.getResources().getDisplayMetrics().density);
+        wrap.setPadding(inset, inset / 2, inset, 0);
+        wrap.addView(box, new android.widget.FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        MaterialAlertDialogBuilder b = new MaterialAlertDialogBuilder(ctx); // M3 dialog
+        b.setTitle(title);
+        if (message != null && !message.isEmpty()) b.setMessage(message);
+        b.setView(wrap);
+        b.setPositiveButton(ok, new android.content.DialogInterface.OnClickListener() {
+            @Override public void onClick(android.content.DialogInterface d, int w) {
+                presents.remove(req);
+                nativeOnEvent(req, K_PRESENT_TEXT, 0.0, input.getText().toString()); // 9 = present text
+            }
+        });
+        b.setNegativeButton(cancel, new android.content.DialogInterface.OnClickListener() {
+            @Override public void onClick(android.content.DialogInterface d, int w) {
+                presents.remove(req);
+                nativeOnEvent(req, K_PRESENT_DISMISSED, 0.0, null);
+            }
+        });
+        b.setOnCancelListener(new android.content.DialogInterface.OnCancelListener() {
+            @Override public void onCancel(android.content.DialogInterface d) {
+                presents.remove(req);
+                nativeOnEvent(req, K_PRESENT_DISMISSED, 0.0, null);
+            }
+        });
+        android.app.Dialog dlg = b.create();
+        presents.put(req, dlg);
+        dlg.show();
+    }
+
+    public static void dismissPresent(long req) {
+        android.app.Dialog dlg = presents.remove(req);
+        if (dlg != null) dlg.dismiss();
+        // A pending SAF picker (docs/files.md): cancel the child DocumentsUI activity. Reached when
+        // a scripted respond answers the request Day-side (day-core dismisses the native control
+        // after recording the answer); without this the picker stays on screen over the app.
+        Integer rc = fileDayToReq.remove(req);
+        if (rc != null) {
+            fileReqToDay.remove(rc);
+            fileSaveSrc.remove(rc);
+            if (ctx instanceof android.app.Activity) {
+                ((android.app.Activity) ctx).finishActivity(rc);
+            }
+        }
+    }
+
+    /** Open a URL in the system's default handler (browser for http(s), mail app for mailto:, ...).
+     *  Backs the `link` piece. NEW_TASK is required because ctx may be the application context. */
+    public static boolean shareUrl(String url, String title) {
+        if (ctx == null || url == null) return false;
+        try {
+            android.content.Intent intent = new android.content.Intent(android.content.Intent.ACTION_SEND);
+            intent.setType("text/plain");
+            intent.putExtra(android.content.Intent.EXTRA_TEXT, url);
+            intent.putExtra(android.content.Intent.EXTRA_SUBJECT, title);
+            android.content.Intent chooser = android.content.Intent.createChooser(intent, null);
+            chooser.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
+            ctx.startActivity(chooser);
+            return true;
+        } catch (Exception ignored) { return false; }
+    }
+
+    public static void openUrl(String url) {
+        if (ctx == null || url == null) return;
+        try {
+            android.content.Intent intent = new android.content.Intent(
+                    android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url));
+            intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
+            ctx.startActivity(intent);
+        } catch (Exception ignored) {
+            // No handler for the scheme, or the URI was malformed: nothing to open.
+        }
+    }
+
+    // --- Native file open/save via the Storage Access Framework (docs/files.md) ---------------
+    // startActivityForResult carries an int requestCode, so a small table correlates it back to the
+    // Day request id (+ save mode/source). DayActivity.onActivityResult routes results here.
+
+    static final int FILE_REQUEST_BASE = 0x0DA7;
+    static int fileRequestNext = FILE_REQUEST_BASE;
+    static final java.util.HashMap<Integer, long[]> fileReqToDay = new java.util.HashMap<>();
+    static final java.util.HashMap<Integer, String> fileSaveSrc = new java.util.HashMap<>();
+    /** Reverse map (Day request id → requestCode) so dismissPresent can cancel a pending picker. */
+    static final java.util.HashMap<Long, Integer> fileDayToReq = new java.util.HashMap<>();
+
+    public static void presentFileOpen(final long req, String title, String filtersJoined) {
+        android.content.Intent intent =
+            new android.content.Intent(android.content.Intent.ACTION_OPEN_DOCUMENT);
+        intent.addCategory(android.content.Intent.CATEGORY_OPENABLE);
+        intent.setType("*/*");
+        String[] mimes = fileMimeTypes(filtersJoined);
+        if (mimes.length > 0) intent.putExtra(android.content.Intent.EXTRA_MIME_TYPES, mimes);
+        launchFile(req, intent, null);
+    }
+
+    public static void presentFileSave(final long req, String title, String suggested,
+            String srcPath, String filtersJoined) {
+        android.content.Intent intent =
+            new android.content.Intent(android.content.Intent.ACTION_CREATE_DOCUMENT);
+        intent.addCategory(android.content.Intent.CATEGORY_OPENABLE);
+        intent.setType(mimeForName(suggested));
+        if (suggested != null && !suggested.isEmpty())
+            intent.putExtra(android.content.Intent.EXTRA_TITLE, suggested);
+        launchFile(req, intent, srcPath);
+    }
+
+    private static void launchFile(long req, android.content.Intent intent, String srcPath) {
+        if (!(ctx instanceof android.app.Activity)) {
+            nativeOnEvent(req, K_PRESENT_DISMISSED, 0.0, null); // 10 = dismissed (no Activity to host the picker)
+            return;
+        }
+        int rc = fileRequestNext++;
+        fileReqToDay.put(rc, new long[] { req });
+        fileDayToReq.put(req, rc);
+        if (srcPath != null) fileSaveSrc.put(rc, srcPath);
+        try {
+            ((android.app.Activity) ctx).startActivityForResult(intent, rc);
+        } catch (Exception e) {
+            android.util.Log.w("Day", "file picker startActivityForResult failed", e);
+            fileReqToDay.remove(rc);
+            fileDayToReq.remove(req);
+            fileSaveSrc.remove(rc);
+            nativeOnEvent(req, K_PRESENT_DISMISSED, 0.0, null);
+        }
+    }
+
+    /** Called by DayActivity.onActivityResult for our file requests. */
+    static void onFileResult(int requestCode, int resultCode, android.content.Intent data) {
+        long[] slot = fileReqToDay.remove(requestCode);
+        if (slot == null) return;
+        long req = slot[0];
+        fileDayToReq.remove(req);
+        String src = fileSaveSrc.remove(requestCode);
+        android.net.Uri uri = (resultCode == android.app.Activity.RESULT_OK && data != null) ? data.getData() : null;
+        if (uri == null) {
+            nativeOnEvent(req, K_PRESENT_DISMISSED, 0.0, null); // dismissed
+            return;
+        }
+        final android.content.Context context = ctx;
+        new Thread(() -> {
+            java.io.File staged = null;
+            String result;
+            try {
+                if (src != null) {
+                    copyStream(new java.io.FileInputStream(src), context.getContentResolver().openOutputStream(uri));
+                    result = uri.toString();
+                } else {
+                    staged = java.io.File.createTempFile("day-open-", ".data", context.getCacheDir());
+                    copyStream(context.getContentResolver().openInputStream(uri), new java.io.FileOutputStream(staged));
+                    result = staged.getAbsolutePath();
+                }
+                final String locator = result;
+                new android.os.Handler(android.os.Looper.getMainLooper()).post(() -> nativeOnEvent(req, K_PRESENT_FILE, 0.0, locator));
+            } catch (Exception e) {
+                if (staged != null) staged.delete();
+                android.util.Log.w("Day", "file open/save transfer failed", e);
+                new android.os.Handler(android.os.Looper.getMainLooper()).post(() -> nativeOnEvent(req, K_PRESENT_FILE, 0.0, uri.toString()));
+            }
+        }, "day-file-picker").start();
+    }
+
+    private static void copyStream(java.io.InputStream in, java.io.OutputStream out)
+            throws java.io.IOException {
+        try (java.io.InputStream i = in; java.io.OutputStream o = out) {
+            byte[] buf = new byte[8192];
+            int n;
+            while ((n = i.read(buf)) > 0) o.write(buf, 0, n);
+            o.flush();
+        }
+    }
+
+    private static String displayName(android.net.Uri uri) {
+        String name = "file";
+        try (android.database.Cursor c = ctx.getContentResolver().query(uri, null, null, null, null)) {
+            if (c != null && c.moveToFirst()) {
+                int i = c.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME);
+                if (i >= 0 && c.getString(i) != null) name = c.getString(i);
+            }
+        } catch (Exception e) {
+            android.util.Log.w("Day", "display-name lookup failed for " + uri, e);
+        }
+        return name.replaceAll("[/\\\\]", "_");
+    }
+
+    // Map Day's "name|ext1,ext2" filter list (0x1f-joined) to MIME types for EXTRA_MIME_TYPES.
+    private static String[] fileMimeTypes(String filtersJoined) {
+        if (filtersJoined == null || filtersJoined.isEmpty()) return new String[0];
+        java.util.LinkedHashSet<String> mimes = new java.util.LinkedHashSet<>();
+        for (String f : filtersJoined.split("\u001f")) {
+            int bar = f.indexOf('|');
+            String exts = bar >= 0 ? f.substring(bar + 1) : "";
+            for (String e : exts.split(",")) if (!e.isEmpty()) mimes.add(mimeForExt(e));
+        }
+        return mimes.toArray(new String[0]);
+    }
+
+    private static String mimeForName(String name) {
+        int dot = name == null ? -1 : name.lastIndexOf('.');
+        return dot >= 0 ? mimeForExt(name.substring(dot + 1)) : "application/octet-stream";
+    }
+
+    private static String mimeForExt(String ext) {
+        String m = android.webkit.MimeTypeMap.getSingleton()
+                .getMimeTypeFromExtension(ext.toLowerCase());
+        return m != null ? m : "application/octet-stream";
+    }
+
+    public static int measureWidth(View v) {
+        v.measure(View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED),
+                  View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
+        return v.getMeasuredWidth();
+    }
+    public static int measureHeight(View v) {
+        v.measure(View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED),
+                  View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
+        return v.getMeasuredHeight();
+    }
+    /** Height-for-width (§7.2): AT_MOST width probe, never exactly (child-chooses). */
+    public static int measureHeightForWidth(View v, int wPx) {
+        v.measure(View.MeasureSpec.makeMeasureSpec(wPx, View.MeasureSpec.AT_MOST),
+                  View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
+        return v.getMeasuredHeight();
+    }
+    public static int measureWidthForWidth(View v, int wPx) {
+        v.measure(View.MeasureSpec.makeMeasureSpec(wPx, View.MeasureSpec.AT_MOST),
+                  View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
+        return v.getMeasuredWidth();
+    }
+
+    /** First text baseline from the view's top, in px, for a view laid out at `wPx` x `hPx`
+     *  (docs/baseline.md). `View.getBaseline()` is the platform's answer: TextView and its
+     *  subclasses (so EditText, MaterialButton, the pickers) override it, and the base View
+     *  returns -1 for "no baseline", which is exactly the distinction day wants.
+     *
+     *  Measured at the size day settled on first: a TextView's baseline moves with its height
+     *  whenever gravity centers its text in a taller box. */
+    public static int baselineAt(View v, int wPx, int hPx) {
+        v.measure(View.MeasureSpec.makeMeasureSpec(wPx, View.MeasureSpec.EXACTLY),
+                  View.MeasureSpec.makeMeasureSpec(hPx, View.MeasureSpec.EXACTLY));
+        return v.getBaseline();
+    }
+
+    public static void setEnabled(View v, boolean b) {
+        if (!b) DayKeyboard.endEditing(v);
+        v.setEnabled(b);
+    }
+
+    public static View makeCanvas(long id) { return new DayCanvasView(ctx, id); }
+    public static void setCanvasOps(View v, double[] nums, String textsJoined) {
+        ((DayCanvasView) v).setOps(nums, textsJoined);
+    }
+    // ---- Raster images from bytes (docs/images.md) -----------------------------------------
+
+    /** Decoded bitmaps, keyed by the id day-core minted. A bitmap outlives any one view and may
+     *  be drawn by several at once, so this is keyed by id rather than by View. Entries leave
+     *  only through {@link #imageRelease}, which day-core calls when the app drops its last
+     *  handle. */
+    static final java.util.HashMap<Long, android.graphics.Bitmap> bitmaps = new java.util.HashMap<>();
+
+    /** The bitmap `id` names, or null once released: what DayCanvasView's image op draws. */
+    public static android.graphics.Bitmap bitmapFor(long id) {
+        return bitmaps.get(id);
+    }
+
+    /** Decode `bytes` into the registry under `id`. Answers "w,h,alpha" (alpha 1/0), the same
+     *  comma-joined reply shape `measureText` uses, or null when the bytes are not an image
+     *  this platform decodes. */
+    public static String imageDecode(long id, byte[] bytes) {
+        // A null array would NPE inside decodeByteArray, and an exception thrown back across
+        // JNI aborts the process rather than failing the call.
+        if (bytes == null) {
+            return null;
+        }
+        android.graphics.Bitmap bmp =
+                android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.length);
+        if (bmp == null) {
+            return null;
+        }
+        bitmaps.put(id, bmp);
+        // `hasAlpha` is a real query here, unlike the backends that must infer it from the
+        // container format.
+        return bmp.getWidth() + "," + bmp.getHeight() + "," + (bmp.hasAlpha() ? 1 : 0);
+    }
+
+    /** Re-encode a decoded bitmap as "png" or "jpeg", optionally scaled to fit `fitW`×`fitH`
+     *  (0 = no fit), at `quality` 0..100 (-1 = the format's default). Null when the id names
+     *  nothing or the writer fails. */
+    public static byte[] imageEncode(long id, String format, int quality, double fitW, double fitH) {
+        android.graphics.Bitmap bmp = bitmaps.get(id);
+        if (bmp == null) {
+            return null;
+        }
+        // `fit` scales the longest side down first. A box LARGER than the original is ignored:
+        // upscaling on an export path inflates the bytes without adding any detail.
+        if (fitW > 0 && fitH > 0 && bmp.getWidth() > 0 && bmp.getHeight() > 0) {
+            double s = Math.min(Math.min(fitW / bmp.getWidth(), fitH / bmp.getHeight()), 1.0);
+            if (s < 1.0) {
+                bmp = android.graphics.Bitmap.createScaledBitmap(
+                        bmp,
+                        Math.max(1, (int) Math.round(bmp.getWidth() * s)),
+                        Math.max(1, (int) Math.round(bmp.getHeight() * s)),
+                        true);
+            }
+        }
+        android.graphics.Bitmap.CompressFormat fmt = "jpeg".equals(format)
+                ? android.graphics.Bitmap.CompressFormat.JPEG
+                : android.graphics.Bitmap.CompressFormat.PNG;
+        java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+        if (!bmp.compress(fmt, quality < 0 ? 90 : quality, out)) {
+            return null;
+        }
+        return out.toByteArray();
+    }
+
+    /** Drop a decoded bitmap; day-core calls this when the app's last handle goes.
+     *
+     *  Not `recycle()`: a view may still be showing this bitmap, and drawing a recycled one
+     *  is a hard crash ("trying to use a recycled bitmap"). Dropping the last reference is
+     *  enough; the GC frees the pixels once nothing draws them. */
+    public static void imageRelease(long id) {
+        bitmaps.remove(id);
+    }
+
+    /** An image view showing a DECODED bitmap rather than a staged drawable. */
+    public static View makeImageBitmap(long id, int mode) {
+        android.widget.ImageView iv = imageViewWithMode(mode);
+        android.graphics.Bitmap bmp = bitmaps.get(id);
+        if (bmp != null) {
+            iv.setImageBitmap(bmp);
+        }
+        return iv;
+    }
+
+    /** An image view showing raw encoded bytes the app already holds, with no staged resource
+     *  behind them. */
+    public static View makeImageBytes(byte[] bytes, int mode) {
+        android.widget.ImageView iv = imageViewWithMode(mode);
+        // An empty view rather than an NPE: allocating the array can fail on the Rust side, and
+        // an exception crossing back through JNI aborts the process.
+        if (bytes == null) {
+            return iv;
+        }
+        android.graphics.Bitmap bmp =
+                android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.length);
+        if (bmp != null) {
+            iv.setImageBitmap(bmp);
+        }
+        return iv;
+    }
+
+    /** Point a realized image view at a different staged drawable (an `ImageSource::Named`
+     *  swap). Goes through `drawableByName` so the weight-alias fallback still applies, and
+     *  `.mutate()` so a later tint cannot follow every other view showing the same glyph. */
+    public static void setImageName(View v, String name) {
+        if (!(v instanceof android.widget.ImageView)) {
+            return;
+        }
+        android.graphics.drawable.Drawable d = drawableByName(ctx, name);
+        if (d != null || name == null || name.isEmpty()) {
+            // The default/empty source explicitly clears a recycled image. An unresolved
+            // nonempty asset still preserves its predecessor (ImagePatch's failure policy).
+            ((android.widget.ImageView) v).setImageDrawable(d == null ? null : d.mutate());
+        }
+    }
+
+    /** Point a realized image view at a decoded bitmap (an `ImageSource::Decoded` swap). */
+    public static void setImageBitmap(View v, long id) {
+        if (!(v instanceof android.widget.ImageView)) {
+            return;
+        }
+        android.graphics.Bitmap bmp = bitmaps.get(id);
+        if (bmp != null) {
+            ((android.widget.ImageView) v).setImageBitmap(bmp);
+        }
+    }
+
+    /** Point a realized image view at raw encoded bytes (an `ImageSource::Bytes` swap). */
+    public static void setImageBytes(View v, byte[] bytes) {
+        if (!(v instanceof android.widget.ImageView) || bytes == null) {
+            return;
+        }
+        android.graphics.Bitmap bmp =
+                android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.length);
+        if (bmp != null) {
+            ((android.widget.ImageView) v).setImageBitmap(bmp);
+        }
+    }
+
+    /** A plain ImageView carrying day's scale-type mapping: 0=fit, 1=fill (crop), 2=stretch. */
+    private static android.widget.ImageView imageViewWithMode(int mode) {
+        android.widget.ImageView iv = new android.widget.ImageView(ctx);
+        iv.setScaleType(
+                mode == 2 ? android.widget.ImageView.ScaleType.FIT_XY
+                        : mode == 1 ? android.widget.ImageView.ScaleType.CENTER_CROP
+                                : android.widget.ImageView.ScaleType.FIT_CENTER);
+        return iv;
+    }
+
+    /** The tint channel's "template" value (docs/vectors.md "Template"): alpha 0, which no real
+     *  tint carries. The glyph takes the theme's primary text color — light on a dark surface,
+     *  dark on a light one — and keeps it across tint patches that clear the tint. */
+    private static final int TEMPLATE_TINT = 1;
+
+    /** The image views realized as templates, so a cleared tint returns them to the theme color.
+     *  Weak: a view leaves the set when the layout drops it. */
+    private static final java.util.Set<View> templateImages =
+            java.util.Collections.newSetFromMap(new java.util.WeakHashMap<View, Boolean>());
+
+    /** The theme's primary text color, what an untinted template glyph draws in. */
+    private static int templateTint() {
+        android.util.TypedValue tv = new android.util.TypedValue();
+        if (ctx.getTheme().resolveAttribute(android.R.attr.textColorPrimary, tv, true)) {
+            if (tv.resourceId != 0) return ctx.getColor(tv.resourceId);
+            return tv.data;
+        }
+        return 0xFF000000;
+    }
+
+    /** Apply the tint channel to an image view: a packed ARGB, {@link #TEMPLATE_TINT} for the
+     *  theme text color, or 0 for the authored colors — unless the view was realized as a
+     *  template, which 0 returns to the theme color rather than to the art. */
+    private static void applyImageTint(android.widget.ImageView iv, int tint) {
+        if (tint == 0 && templateImages.contains(iv)) {
+            tint = TEMPLATE_TINT;
+        }
+        int color = tint == TEMPLATE_TINT ? templateTint() : tint;
+        iv.setImageTintList(
+                tint == 0 ? null : android.content.res.ColorStateList.valueOf(color));
+    }
+
+    /** `ImagePatch::Tint`: repaint a realized glyph. 0 restores the authored colors (the theme
+     *  text color on a template glyph). */
+    public static void setImageTint(View v, int tint) {
+        if (!(v instanceof android.widget.ImageView)) {
+            return;
+        }
+        applyImageTint((android.widget.ImageView) v, tint);
+    }
+
+    public static View makeImage(String name, int mode, int tint) {
+        View v = makeImageInner(name, mode);
+        // Vector-glyph tint (docs/vectors.md): drawable tint keeps a VectorDrawable/PNG's alpha
+        // as the mask. 0 = untinted (a real tint always carries alpha 0xFF); TEMPLATE_TINT =
+        // the theme text color, remembered so a cleared tint lands back on it.
+        if (tint != 0 && v instanceof android.widget.ImageView) {
+            android.widget.ImageView iv = (android.widget.ImageView) v;
+            if (tint == TEMPLATE_TINT) templateImages.add(iv);
+            applyImageTint(iv, tint);
+        }
+        return v;
+    }
+
+    private static View makeImageInner(String name, int mode) {
+        android.widget.ImageView iv = new android.widget.ImageView(ctx);
+        // Scaling (§18.3): 0=fit, 1=fill (crop), 2=stretch.
+        iv.setScaleType(
+                mode == 2 ? android.widget.ImageView.ScaleType.FIT_XY
+                        : mode == 1 ? android.widget.ImageView.ScaleType.CENTER_CROP
+                                : android.widget.ImageView.ScaleType.FIT_CENTER);
+        // Resolution goes through drawableByName, which is also where the weight-alias fallback
+        // lives (docs/vectors.md): a plain SVG stages one asset, so `<glyph>__light`/`__bold` must
+        // land back on `<glyph>` rather than draw nothing. This path used to do its own
+        // getIdentifier + assets lookup and skip that fallback, which is why every
+        // `vector(plain).weight(Light|Bold)` was blank on Android while it resolved everywhere
+        // else, and invisible to `assert_visible`, since the ImageView had a frame either way.
+        //
+        // `.mutate()` because the drawable comes from the shared resource cache and the caller
+        // tints it: without it a tint would follow every other view showing the same glyph.
+        android.graphics.drawable.Drawable d = drawableByName(ctx, name);
+        if (d == null) {
+            android.util.Log.w("Day", "no drawable or asset resolved for image " + name);
+            return iv;
+        }
+        iv.setImageDrawable(d.mutate());
+        return iv;
+    }
+    /** Resolve bundled artwork or a downloaded local image. Absolute paths and local file:
+     *  URIs are files, never AssetManager names. All image channels (views, navigation rows,
+     *  badges and toolbars) share this resolver and preserve authored colors unless tinted. */
+    static android.graphics.drawable.Drawable drawableByName(Context c, String name) {
+        if (name == null || name.isEmpty()) return null;
+        String filePath = null;
+        if (new java.io.File(name).isAbsolute()) {
+            filePath = name;
+        } else if (name.startsWith("file:")) {
+            android.net.Uri uri = android.net.Uri.parse(name);
+            String authority = uri.getAuthority();
+            if (authority != null && !authority.isEmpty() && !"localhost".equals(authority)) return null;
+            filePath = uri.getPath();
+            if (filePath == null || !new java.io.File(filePath).isAbsolute()) return null;
+        }
+        if (filePath != null) {
+            android.graphics.Bitmap bitmap = android.graphics.BitmapFactory.decodeFile(filePath);
+            return bitmap == null ? null : new android.graphics.drawable.BitmapDrawable(c.getResources(), bitmap);
+        }
+        int id = c.getResources().getIdentifier(name, "drawable", c.getPackageName());
+        if (id != 0) return c.getResources().getDrawable(id, c.getTheme());
+        // A weight variant with no art of its own resolves to the base glyph (docs/vectors.md):
+        // only SF-template sources stage `__light`/`__bold`, so a plain SVG's weight names land
+        // here and must fall back rather than draw nothing.
+        for (String suffix : new String[] {"__light", "__bold"}) {
+            if (name.endsWith(suffix)) {
+                String base = name.substring(0, name.length() - suffix.length());
+                if (!base.isEmpty()) return drawableByName(c, base);
+            }
+        }
+        try (java.io.InputStream stream = c.getAssets().open(name)) {
+            android.graphics.Bitmap bm =
+                    android.graphics.BitmapFactory.decodeStream(stream);
+            if (bm != null) return new android.graphics.drawable.BitmapDrawable(c.getResources(), bm);
+        } catch (Exception e) {
+            // fall through to null
+        }
+        return null;
+    }
+
+    // --- Accessibility (docs/accessibility.md) --------------------------------
+    // What the View itself carries goes straight on it: contentDescription = label,
+    // importantForAccessibility hides a decorative element with its subtree, stateDescription =
+    // value (API 30+). Hint and role live only on the AccessibilityNodeInfo TalkBack builds, so
+    // they come from an AccessibilityDelegate reading the traits stored per view below.
+
+    /** Day's `Role`, by declaration order (day_spec::Role): 0 None 1 Button 2 Toggle 3 Slider
+     *  4 TextInput 5 Heading 6 Image 7 Meter 8 Group 9 Tree 10 TreeItem 11 Tab 12 TabList.
+     *  `set_a11y` sends it as the int, with the heading level beside it. */
+    static final int ROLE_NONE = 0, ROLE_BUTTON = 1, ROLE_TOGGLE = 2, ROLE_SLIDER = 3,
+            ROLE_TEXT_INPUT = 4, ROLE_HEADING = 5, ROLE_IMAGE = 6, ROLE_METER = 7, ROLE_GROUP = 8,
+            ROLE_TAB = 11, ROLE_TAB_LIST = 12;
+
+    /** The delegate-borne traits of one view: the hint, the explicit role, and the Day id. */
+    private static final class A11yTraits {
+        String hint = "";
+        int role = ROLE_NONE;
+        String id = "";
+    }
+    /** Per-view traits, read by `A11yDelegate` each time TalkBack builds the node. */
+    private static final java.util.WeakHashMap<View, A11yTraits> a11yTraits =
+            new java.util.WeakHashMap<>();
+
+    /** The one delegate `setA11y` installs. It wraps whatever delegate the widget already had
+     *  (Material's Slider and TextInputLayout, the RecyclerView list) and forwards every call to
+     *  it, so the widget's own node tree, actions and events stay intact and Day only adds its
+     *  traits on top. A view takes exactly one of these: repeated calls find it in place. */
+    private static final class A11yDelegate extends androidx.core.view.AccessibilityDelegateCompat {
+        /** The widget's own delegate, or null for a plain view. */
+        private final androidx.core.view.AccessibilityDelegateCompat inner;
+
+        A11yDelegate(androidx.core.view.AccessibilityDelegateCompat inner) {
+            this.inner = inner;
+        }
+
+        @Override public void onInitializeAccessibilityNodeInfo(View host,
+                androidx.core.view.accessibility.AccessibilityNodeInfoCompat info) {
+            if (inner != null) inner.onInitializeAccessibilityNodeInfo(host, info);
+            else super.onInitializeAccessibilityNodeInfo(host, info);
+            A11yTraits t = a11yTraits.get(host);
+            if (t == null) return;
+            // hintText is TalkBack's "usage hint", read after the label; the visible tooltip
+            // twin is left alone because its long-press trigger would collide with Day's
+            // long-press context menu (docs/menus.md).
+            if (!t.hint.isEmpty()) info.setHintText(t.hint);
+            // The automation id (§13): `uniqueId` is what UiAutomator and Appium address a
+            // node by. The platform carries it from API 33; the compat call stores it in the
+            // node's extras below that, where only an in-process reader finds it.
+            if (!t.id.isEmpty()) info.setUniqueId(t.id);
+            // TalkBack names the control type from the node's class name, so a canvas gauge
+            // reads as a progress bar and a drawn button as a button. Only an explicit role
+            // is applied: a native control's own class already says what it is.
+            switch (t.role) {
+                case ROLE_BUTTON: info.setClassName(android.widget.Button.class.getName()); break;
+                case ROLE_TOGGLE:
+                    info.setClassName(android.widget.Switch.class.getName());
+                    info.setCheckable(true);
+                    break;
+                case ROLE_SLIDER: info.setClassName(android.widget.SeekBar.class.getName()); break;
+                case ROLE_TEXT_INPUT: info.setClassName(EditText.class.getName()); break;
+                case ROLE_HEADING: info.setHeading(true); break;
+                case ROLE_IMAGE: info.setClassName(android.widget.ImageView.class.getName()); break;
+                case ROLE_METER: info.setClassName(ProgressBar.class.getName()); break;
+                case ROLE_GROUP: info.setClassName(ViewGroup.class.getName()); break;
+                // A tab reads as a button; its selected state (setA11y's `selected`, the view's
+                // own) is what tells the current one apart. The strip is a plain group.
+                case ROLE_TAB: info.setClassName(android.widget.Button.class.getName()); break;
+                case ROLE_TAB_LIST: info.setClassName(ViewGroup.class.getName()); break;
+                default: break; // None, Tree, TreeItem: the platform has no node type for them
+            }
+        }
+
+        // Everything else is the wrapped widget's business.
+        @Override public void sendAccessibilityEvent(View host, int eventType) {
+            if (inner != null) inner.sendAccessibilityEvent(host, eventType);
+            else super.sendAccessibilityEvent(host, eventType);
+        }
+        @Override public void sendAccessibilityEventUnchecked(View host,
+                android.view.accessibility.AccessibilityEvent event) {
+            if (inner != null) inner.sendAccessibilityEventUnchecked(host, event);
+            else super.sendAccessibilityEventUnchecked(host, event);
+        }
+        @Override public boolean dispatchPopulateAccessibilityEvent(View host,
+                android.view.accessibility.AccessibilityEvent event) {
+            return inner != null
+                    ? inner.dispatchPopulateAccessibilityEvent(host, event)
+                    : super.dispatchPopulateAccessibilityEvent(host, event);
+        }
+        @Override public void onPopulateAccessibilityEvent(View host,
+                android.view.accessibility.AccessibilityEvent event) {
+            if (inner != null) inner.onPopulateAccessibilityEvent(host, event);
+            else super.onPopulateAccessibilityEvent(host, event);
+        }
+        @Override public void onInitializeAccessibilityEvent(View host,
+                android.view.accessibility.AccessibilityEvent event) {
+            if (inner != null) inner.onInitializeAccessibilityEvent(host, event);
+            else super.onInitializeAccessibilityEvent(host, event);
+        }
+        @Override public boolean onRequestSendAccessibilityEvent(ViewGroup host, View child,
+                android.view.accessibility.AccessibilityEvent event) {
+            return inner != null
+                    ? inner.onRequestSendAccessibilityEvent(host, child, event)
+                    : super.onRequestSendAccessibilityEvent(host, child, event);
+        }
+        @Override public androidx.core.view.accessibility.AccessibilityNodeProviderCompat
+                getAccessibilityNodeProvider(View host) {
+            return inner != null
+                    ? inner.getAccessibilityNodeProvider(host)
+                    : super.getAccessibilityNodeProvider(host);
+        }
+        @Override public boolean performAccessibilityAction(View host, int action,
+                android.os.Bundle args) {
+            return inner != null
+                    ? inner.performAccessibilityAction(host, action, args)
+                    : super.performAccessibilityAction(host, action, args);
+        }
+    }
+
+    /** Apply a node's whole accessibility set (docs/accessibility.md). Empty strings and
+     *  `ROLE_NONE` mean "not set": those members leave the native default alone, and a member
+     *  set once stays set, so re-sending the same values changes nothing. `level` is the heading
+     *  level, informational here: Android's node has heading yes/no and no level. */
+    /** Views the app gave an accessibility label (setA11y), whose content description a later
+     *  button content change must leave alone. Weak: a released view drops out with it. */
+    static final java.util.Map<View, Boolean> appLabeled = new java.util.WeakHashMap<>();
+
+    public static void setA11y(View v, String label, String hint, String value, String id,
+            int role, int level, boolean hidden, int selected) {
+        try {
+            // The selected state (-1 unset): the view's own, which TalkBack reads as "selected".
+            if (selected >= 0) v.setSelected(selected == 1);
+            boolean hasLabel = label != null && !label.isEmpty();
+            if (hasLabel) appLabeled.put(v, Boolean.TRUE); else appLabeled.remove(v);
+            boolean hasValue = value != null && !value.isEmpty();
+            if (hasValue && android.os.Build.VERSION.SDK_INT >= 30) {
+                v.setStateDescription(value);
+                if (hasLabel) v.setContentDescription(label);
+            } else if (hasValue) {
+                // No stateDescription before API 30: the value rides on the description, after
+                // the label, so a custom control's reading still carries it.
+                v.setContentDescription(hasLabel ? label + ", " + value : value);
+            } else if (hasLabel) {
+                v.setContentDescription(label);
+            }
+            if (hidden) {
+                v.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS);
+            }
+            boolean hasHint = hint != null && !hint.isEmpty();
+            boolean hasId = id != null && !id.isEmpty();
+            if (!hasHint && !hasId && role == ROLE_NONE) return;
+            A11yTraits t = a11yTraits.get(v);
+            if (t == null) {
+                // First traits for this view: the delegate goes on once, wrapping the one the
+                // widget already has. The traits entry is what says it is in place, since the
+                // delegate cannot be read back below API 29 without reflection.
+                t = new A11yTraits();
+                a11yTraits.put(v, t);
+                androidx.core.view.ViewCompat.setAccessibilityDelegate(v,
+                        new A11yDelegate(androidx.core.view.ViewCompat.getAccessibilityDelegate(v)));
+            }
+            if (hasHint) t.hint = hint;
+            if (hasId) t.id = id;
+            if (role != ROLE_NONE) t.role = role;
+        } catch (Throwable t) {
+            android.util.Log.w("day", "setA11y (best-effort)", t);
+        }
+    }
+
+    /** Slots of `readNative`'s answer, in the order Rust's `read_native` unpacks them. */
+    static final int RN_FOUND = 0, RN_ROLE = 1, RN_LABEL = 2, RN_VALUE = 3, RN_ID = 4,
+            RN_TEXT = 5, RN_NUMBER = 6, RN_CHECKED = 7, RN_ENABLED = 8, RN_VISIBLE = 9,
+            RN_FRAME = 10, RN_COUNT = 11;
+
+    /** Read a view's actual native state back for `Toolkit::read_native` (docs/testing.md), in
+     *  one call. A null slot is a field this reader did not take from the view; Rust reports it
+     *  as unread, never as a value. Flags are "1"/"0", numbers `Double.toString`, the frame
+     *  "x,y,w,h" in dp from the Day root's top left.
+     *
+     *  The accessibility group comes from the node the platform itself builds for TalkBack
+     *  (`createAccessibilityNodeInfo`, so `setA11y`'s delegate has run on it). It is only
+     *  reported from API 30: below that `setA11y` folds the value into the content description
+     *  and the label can no longer be told apart from it. */
+    public static String[] readNative(View v) {
+        String[] out = new String[RN_COUNT];
+        if (v == null) return out;
+        try {
+            if (android.os.Build.VERSION.SDK_INT >= 30) {
+                androidx.core.view.accessibility.AccessibilityNodeInfoCompat info =
+                        androidx.core.view.accessibility.AccessibilityNodeInfoCompat.wrap(
+                                v.createAccessibilityNodeInfo());
+                CharSequence label = info.getContentDescription();
+                CharSequence value = info.getStateDescription();
+                out[RN_LABEL] = label != null ? label.toString() : null;
+                out[RN_VALUE] = value != null ? value.toString() : null;
+                out[RN_ID] = info.getUniqueId();
+                out[RN_ROLE] = Integer.toString(roleOfNode(info));
+                out[RN_FOUND] = "1";
+            }
+        } catch (Throwable t) {
+            // A widget's own delegate threw while building the node: report the group unread.
+            for (int i = RN_FOUND; i <= RN_ID; i++) out[i] = null;
+            android.util.Log.w("day", "readNative a11y (best-effort)", t);
+        }
+        try {
+            // The control itself: a text field's handle is its TextInputLayout box.
+            View c = v instanceof TextInputLayout ? editTextOf(v) : v;
+            if (c == null) c = v;
+            if (c instanceof EditText) {
+                EditText e = (EditText) c;
+                if (!isMasked(e)) out[RN_TEXT] = e.getText().toString();
+            } else if (c instanceof CompoundButton) {
+                out[RN_CHECKED] = ((CompoundButton) c).isChecked() ? "1" : "0";
+            } else if (c instanceof MaterialButton && buttonSelected.containsKey(c)) {
+                // A Day button: its title, and its selected state as checked (setButtonSelected).
+                MaterialButton b = (MaterialButton) c;
+                out[RN_TEXT] = b.getText().toString();
+                out[RN_CHECKED] = b.isCheckable() && b.isChecked() ? "1" : "0";
+            } else if (c instanceof TextView) {
+                // A label (runs flatten to their plain string) or a button's title.
+                out[RN_TEXT] = ((TextView) c).getText().toString();
+            } else if (c instanceof Slider) {
+                // Material's Slider holds Day's own range (makeSlider sets valueFrom/valueTo).
+                out[RN_NUMBER] = Double.toString(((Slider) c).getValue());
+            } else if (c instanceof LinearProgressIndicator) {
+                // makeProgress scales Day's 0..1 fraction onto 0..1000 ticks; only that exact
+                // scale is inverted, and an indeterminate bar has no value to read.
+                LinearProgressIndicator pb = (LinearProgressIndicator) c;
+                if (!pb.isIndeterminate() && pb.getMax() == 1000) {
+                    out[RN_NUMBER] = Double.toString(pb.getProgress() / 1000.0);
+                }
+            } else if (dev.daybrite.day.piece.picker.DayPicker.isPicker(c)) {
+                // A picker reads as its selected option's label (null with nothing selected).
+                out[RN_TEXT] = dev.daybrite.day.piece.picker.DayPicker.selectedText(c);
+            }
+            out[RN_ENABLED] = v.isEnabled() && c.isEnabled() ? "1" : "0";
+            out[RN_VISIBLE] = v.isShown() ? "1" : "0";
+            out[RN_FRAME] = frameInDayRoot(v);
+        } catch (Throwable t) {
+            android.util.Log.w("day", "readNative (best-effort)", t);
+        }
+        return out;
+    }
+
+    /** Day's `Role` index for what the platform node says it is: its class name, or the
+     *  heading flag. `ROLE_NONE` where the class names nothing Day has a role for, a plain
+     *  ViewGroup included: every container is one, so it cannot stand for `Group`. */
+    private static int roleOfNode(androidx.core.view.accessibility.AccessibilityNodeInfoCompat info) {
+        if (info.isHeading()) return ROLE_HEADING;
+        CharSequence cls = info.getClassName();
+        if (cls == null) return ROLE_NONE;
+        switch (cls.toString()) {
+            case "android.widget.Button": return ROLE_BUTTON;
+            case "android.widget.Switch":
+            case "android.widget.CheckBox":
+            case "android.widget.ToggleButton":
+            case "android.widget.CompoundButton": return ROLE_TOGGLE;
+            case "android.widget.SeekBar": return ROLE_SLIDER;
+            case "android.widget.EditText":
+            case "android.widget.AutoCompleteTextView":
+            case "android.widget.MultiAutoCompleteTextView": return ROLE_TEXT_INPUT;
+            case "android.widget.ImageView": return ROLE_IMAGE;
+            case "android.widget.ProgressBar": return ROLE_METER;
+            default: return ROLE_NONE;
+        }
+    }
+
+    /** Does this field mask what it holds? A password transformation, or a password input
+     *  variation (the visible-password variation shows its text, so it does not count). */
+    private static boolean isMasked(EditText e) {
+        if (e.getTransformationMethod() instanceof android.text.method.PasswordTransformationMethod) {
+            return true;
+        }
+        int type = e.getInputType();
+        int cls = type & android.text.InputType.TYPE_MASK_CLASS;
+        int variation = type & android.text.InputType.TYPE_MASK_VARIATION;
+        if (cls == android.text.InputType.TYPE_CLASS_TEXT) {
+            return variation == android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD
+                    || variation == android.text.InputType.TYPE_TEXT_VARIATION_WEB_PASSWORD;
+        }
+        return cls == android.text.InputType.TYPE_CLASS_NUMBER
+                && variation == android.text.InputType.TYPE_NUMBER_VARIATION_PASSWORD;
+    }
+
+    /** A view's frame as "x,y,w,h" in dp from the top left of the Day root it sits in: the
+     *  DayFixed that DayActivity/DayWindowActivity hold in a wrapper under android.R.id.content,
+     *  which is where Day's frames start. Null when the view is not attached under one (a
+     *  dialog's own window, a detached view): there is no Day origin to measure from. */
+    private static String frameInDayRoot(View v) {
+        if (!v.isAttachedToWindow()) return null;
+        View root = null;
+        for (View p = v; p != null; ) {
+            android.view.ViewParent wp = p.getParent();
+            if (p instanceof DayFixed && wp instanceof View) {
+                android.view.ViewParent cp = ((View) wp).getParent();
+                if (cp instanceof View && ((View) cp).getId() == android.R.id.content) {
+                    root = p;
+                    break;
+                }
+            }
+            p = wp instanceof View ? (View) wp : null;
+        }
+        if (root == null) return null;
+        int[] at = new int[2];
+        int[] origin = new int[2];
+        v.getLocationInWindow(at);
+        root.getLocationInWindow(origin);
+        float d = v.getResources().getDisplayMetrics().density;
+        if (d <= 0f) return null;
+        return ((at[0] - origin[0]) / (double) d) + "," + ((at[1] - origin[1]) / (double) d) + ","
+                + (v.getWidth() / (double) d) + "," + (v.getHeight() / (double) d);
+    }
+
+    /** Speak `text` through the running screen reader without moving its focus
+     *  (docs/accessibility.md). Nothing is sent while no accessibility service is enabled.
+     *  `urgent` cuts off what is being read first: the announcement event itself has no
+     *  queue/interrupt flag, so `AccessibilityManager.interrupt` supplies the distinction. The
+     *  deprecated `announceForAccessibility` stays the one request that is an announcement
+     *  (its suggested replacements, pane titles and live regions, describe views). */
+    @SuppressWarnings("deprecation")
+    public static void announce(String text, boolean urgent) {
+        try {
+            if (text == null || text.isEmpty()) return;
+            if (!(ctx instanceof android.app.Activity)) return;
+            android.view.accessibility.AccessibilityManager am =
+                    (android.view.accessibility.AccessibilityManager)
+                            ctx.getSystemService(Context.ACCESSIBILITY_SERVICE);
+            if (am == null || !am.isEnabled()) return;
+            View root = ((android.app.Activity) ctx).getWindow().findViewById(android.R.id.content);
+            if (root == null) return;
+            if (urgent) am.interrupt();
+            root.announceForAccessibility(text);
+        } catch (Throwable t) {
+            android.util.Log.w("day", "announce (best-effort)", t);
+        }
+    }
+
+    // --- Menus (docs/menus.md) -------------------------------------------------
+    // The context menu is a PopupMenu shown on long-press (the Android touch convention); the app
+    // menu is the app-bar overflow (⋮), built by DayActivity.onCreateOptionsMenu. Both parse the
+    // same tab-separated spec (kind\tid\tenabled\tlabel per line) and route item clicks to
+    // nativeOnEvent(id, K_MENU_ACTION, 0, "") = MenuAction.
+
+    /** The current app (overflow) menu spec, or null. Set by setAppMenu; read by DayActivity. */
+    public static String appMenuSpec = null;
+
+    // --- Lifecycle (docs/lifecycle.md) ----------------------------------------
+    // True once nativeStart has run; lifecycle events before that are dropped (native isn't ready).
+    // DayActivity forwards Activity lifecycle transitions here with the phase code (day_spec::Lifecycle
+    // order: 2=DidBecomeActive 3=WillResignActive 4=WillEnterForeground 5=DidEnterBackground
+    // 6=DidReceiveMemoryWarning 7=WillTerminate 8=DidExit), delivered to native as event kind 14.
+    public static volatile boolean started = false;
+
+    /** Forward an Activity lifecycle phase to native, once the app has started. */
+    public static void lifecycle(int code) {
+        if (started) nativeOnEvent(0L, K_LIFECYCLE, code, "");
+    }
+
+    // --- Navigation state (docs/navigation.md) --------------------------------
+    // A nav surface's `.restore(key)` persists through here, and DayActivity carries the map in
+    // the activity's saved instance state. That is not the same lifetime as prefs: Android
+    // reclaims a backgrounded process routinely, and a user returning through Recents expects
+    // the page they left, so the map has to survive process death. It must not survive the
+    // task, though; swiping the app off Recents, or launching it fresh, is the user asking
+    // for a clean start, and instance state is discarded in exactly those cases. Persisting to
+    // prefs instead would restore stale navigation onto a cold launch.
+    public static final java.util.HashMap<String, String> navState = new java.util.HashMap<>();
+
+    /** Read a `.restore` key (null when this launch carried no saved state). Called from Rust. */
+    public static String navLoad(String key) {
+        return navState.get(key);
+    }
+
+    /** Persist a `.restore` key for the next restore of this task instance. Called from Rust. */
+    public static void navSave(String key, String value) {
+        navState.put(key, value);
+    }
+
+    /** Read and clear a key: how a re-mount takes the route the previous mount saved under
+     *  `day.route` (willRecreate), so it can never apply to a later mount. Called from Rust. */
+    public static String navTake(String key) {
+        return navState.remove(key);
+    }
+
+    /** Forward a root size change (px) to native as a window resize (event kind 18). Posted:
+     *  onSizeChanged fires inside the layout pass, and the native relayout it triggers must not
+     *  re-enter it. */
+    public static void resized(final int w, final int h) {
+        if (!started) return;
+        main.post(new Runnable() {
+            public void run() { nativeOnEvent(0L, K_WINDOW_RESIZED, 0, w + "," + h); }
+        });
+    }
+
+    /** Per-row nav context menus (docs/menus.md): one {@link #setContextMenu} spec per row,
+     *  joined by U+001E (empty entry = no menu for that row). Best-effort; called after
+     *  makeNavMenu/updateNavMenu, like setNavMenuTints, so a failure here can never abort the
+     *  native tree build. */
+    public static void setNavRowMenus(View navMenu, String joinedSpecs) {
+        try {
+            if (!(navMenu instanceof NavigationView)) return;
+            final NavigationView nav = (NavigationView) navMenu;
+            final String[] specs =
+                    joinedSpecs.isEmpty() ? new String[0] : joinedSpecs.split("\u001e", -1);
+            navRowMenus.put(nav, specs);
+            // Rows are recycled now, so a menu cannot be attached once and left: a cell is bound
+            // to a different row every time it scrolls back into view. Attach on the one event
+            // that fires for each binding (the child joining the RecyclerView) and read the row
+            // it is currently showing from its own menu item rather than from its position, which
+            // headings and dividers shift.
+            android.view.ViewGroup list = navRecycler(nav);
+            if (list == null) return;
+            if (navRowMenuWatchers.add(nav)) {
+                ((androidx.recyclerview.widget.RecyclerView) list)
+                        .addOnChildAttachStateChangeListener(
+                                new androidx.recyclerview.widget.RecyclerView
+                                        .OnChildAttachStateChangeListener() {
+                            @Override public void onChildViewAttachedToWindow(View child) {
+                                applyNavRowMenu(nav, child);
+                            }
+                            @Override public void onChildViewDetachedFromWindow(View child) {}
+                        });
+            }
+            for (int i = 0; i < list.getChildCount(); i++) {
+                applyNavRowMenu(nav, list.getChildAt(i));
+            }
+        } catch (Throwable t) {
+            android.util.Log.w("day", "setNavRowMenus (best-effort)", t);
+        }
+    }
+
+    /** The specs a sidebar's rows carry, by nav view, read back as cells recycle. */
+    private static final java.util.WeakHashMap<View, String[]> navRowMenus =
+            new java.util.WeakHashMap<>();
+    /** Nav views whose recycler already has the attach watcher, so it goes on once. */
+    private static final java.util.Set<View> navRowMenuWatchers =
+            java.util.Collections.newSetFromMap(new java.util.WeakHashMap<View, Boolean>());
+
+    /** A NavigationView's list, which is the RecyclerView it keeps as its only real child. */
+    private static android.view.ViewGroup navRecycler(NavigationView nav) {
+        if (nav instanceof DayRefreshNavigationView && ((DayRefreshNavigationView) nav).menuList != null)
+            return ((DayRefreshNavigationView) nav).menuList;
+        for (int i = 0; i < nav.getChildCount(); i++) {
+            if (nav.getChildAt(i) instanceof androidx.recyclerview.widget.RecyclerView) {
+                return (android.view.ViewGroup) nav.getChildAt(i);
+            }
+        }
+        return null;
+    }
+
+    /** Give one bound cell the menu of the row it is showing (docs/menus.md). */
+    private static void applyNavRowMenu(NavigationView nav, View child) {
+        try {
+            if (!(child instanceof com.google.android.material.internal.NavigationMenuItemView)) {
+                return;
+            }
+            MenuItem item = ((com.google.android.material.internal.NavigationMenuItemView) child)
+                    .getItemData();
+            String[] specs = navRowMenus.get(nav);
+            if (item == null || specs == null) return;
+            int row = item.getItemId() - ROW_ID_BASE;
+            if (row < 0 || row >= specs.length) return;
+            setContextMenu(child, specs[row]);
+        } catch (Throwable t) {
+            android.util.Log.w("day", "nav row menu (best-effort)", t);
+        }
+    }
+
+    /**
+     * Hand a plain tap on `child` to the nearest ancestor that handles one.
+     *
+     * A long-press menu and a row tap have to coexist. `setOnLongClickListener` makes a view
+     * long-clickable, and `View.onTouchEvent` treats long-clickable as clickable, so the row's
+     * content (where the menu is attached) swallows the tap, and the RecyclerView cell's own
+     * click listener, which is what performs selection, never runs.
+     *
+     * Resolved at tap time rather than at attach time: Day builds a row's content and configures
+     * its menu before binding it into a cell, so the parent chain does not exist yet when the
+     * menu goes on.
+     */
+    private static void forwardClickToRow(View child) {
+        for (android.view.ViewParent p = child.getParent(); p instanceof View; p = p.getParent()) {
+            View pv = (View) p;
+            if (pv.hasOnClickListeners()) {
+                pv.performClick();
+                return;
+            }
+        }
+    }
+
+    private static final java.util.Set<View> contextMenuForwardedClicks =
+            java.util.Collections.newSetFromMap(new java.util.WeakHashMap<View, Boolean>());
+    private static final java.util.Set<View> gestureTapClicks =
+            java.util.Collections.newSetFromMap(new java.util.WeakHashMap<View, Boolean>());
+
+    /** Attach `spec` as `v`'s context menu (long-press). An empty spec detaches it. */
+    /** Give `v` the bounded ripple every Material row draws under a finger, as its foreground:
+     *  day fills these views with its own children, and a background ripple would be painted
+     *  underneath them and never seen (`android:foreground="?attr/selectableItemBackground"` is
+     *  what a Material list item uses, for the same reason).
+     *
+     *  It goes on whichever view receives the touch, which is not always the same one:
+     *  a plain row is handled by the RecyclerView cell, but a row carrying a context menu is
+     *  handled by the menu's own view, because being long-clickable makes it eat the touch and
+     *  hand the tap on (see setContextMenu / forwardClickToRow). Feedback has to follow the
+     *  finger, so it belongs on the eater, not on the view that ends up running the click. */
+    static void setTouchFeedback(View v, boolean on) {
+        if (!on) {
+            v.setForeground(null);
+            return;
+        }
+        if (v.getForeground() != null) {
+            return; // already carries one (or its own decoration); don't fight it
+        }
+        android.util.TypedValue tv = new android.util.TypedValue();
+        if (v.getContext().getTheme().resolveAttribute(
+                android.R.attr.selectableItemBackground, tv, true) && tv.resourceId != 0) {
+            v.setForeground(v.getContext().getDrawable(tv.resourceId));
+        }
+    }
+
+    public static void setContextMenu(final View v, final String spec) {
+        if (spec == null || spec.isEmpty()) {
+            v.setOnLongClickListener(null);
+            v.setLongClickable(false);
+            // Remove only the forwarding listener this menu installed. Native menu
+            // items, buttons and declared tap gestures own their own click actions.
+            if (contextMenuForwardedClicks.remove(v)) {
+                v.setOnClickListener(null);
+                v.setClickable(false);
+                setTouchFeedback(v, false);
+            }
+            return;
+        }
+        // See forwardClickToRow: the menu makes this view eat touches, so the tap it eats has to
+        // be handed on. Only where the view has no click behavior of its own; a button with a
+        // context menu keeps its own action.
+        if (!v.hasOnClickListeners()) {
+            contextMenuForwardedClicks.add(v);
+            v.setOnClickListener(new View.OnClickListener() {
+                public void onClick(View child) {
+                    forwardClickToRow(child);
+                }
+            });
+            // This view is now the row's touch target, so the row's press feedback is its job.
+            setTouchFeedback(v, true);
+        }
+        v.setOnLongClickListener(new View.OnLongClickListener() {
+            public boolean onLongClick(View anchor) {
+                android.widget.PopupMenu popup = new android.widget.PopupMenu(anchor.getContext(), anchor);
+                buildMenu(popup.getMenu(), spec);
+                popup.show();
+                return true;
+            }
+        });
+    }
+
+    /** Record the app menu spec + refresh the Activity's overflow menu. */
+    public static void setAppMenu(String spec) {
+        appMenuSpec = spec;
+        if (ctx instanceof android.app.Activity) {
+            ((android.app.Activity) ctx).invalidateOptionsMenu();
+        }
+    }
+
+    /** Populate `menu` from `spec`. Android SubMenus can't nest, so deeper submenus flatten into
+     *  the nearest SubMenu. Separators become group boundaries (dividers on API 28+). */
+    public static void buildMenu(Menu menu, String spec) {
+        if (spec == null || spec.isEmpty()) return;
+        if (android.os.Build.VERSION.SDK_INT >= 28) menu.setGroupDividerEnabled(true);
+        // A stack of the menu we are currently adding into (index 0 = root).
+        java.util.ArrayList<Menu> stack = new java.util.ArrayList<Menu>();
+        stack.add(menu);
+        int[] order = {0};
+        int[] group = {0};
+        for (String line : spec.split("\n")) {
+            if (line.isEmpty()) continue;
+            // kind \t action \t enabled \t checked \t label; the label is last so its spaces
+            // survive, and every kind writes all five fields so the indices never shift.
+            String[] f = line.split("\t", 5);
+            if (f.length < 1) continue;
+            String kind = f[0];
+            Menu cur = stack.get(stack.size() - 1);
+            if (kind.equals("-")) {
+                group[0]++; // next items land in a new group → a divider is drawn between them
+            } else if (kind.equals("S")) {
+                String label = f.length > 4 ? f[4] : "";
+                // SubMenu.addSubMenu is unsupported; when already in a submenu, flatten.
+                if (cur instanceof SubMenu) {
+                    stack.add(cur);
+                } else {
+                    stack.add(cur.addSubMenu(group[0], Menu.NONE, order[0]++, label));
+                }
+            } else if (kind.equals("E")) {
+                if (stack.size() > 1) stack.remove(stack.size() - 1);
+            } else { // "A" = action (roles too, with id 0)
+                final long id = f.length > 1 ? parseLong(f[1]) : 0L;
+                boolean enabled = f.length > 2 && f[2].equals("1");
+                String checked = f.length > 3 ? f[3] : "-1";
+                String label = f.length > 4 ? f[4] : "";
+                MenuItem it = cur.add(group[0], Menu.NONE, order[0]++, label);
+                it.setEnabled(enabled);
+                // A checkable row draws Material's own check. Android never flips it by itself,
+                // so the mark stays exactly what the app's next menu install says it is.
+                if (!checked.equals("-1")) {
+                    it.setCheckable(true);
+                    it.setChecked(checked.equals("1"));
+                }
+                it.setOnMenuItemClickListener(new MenuItem.OnMenuItemClickListener() {
+                    public boolean onMenuItemClick(MenuItem mi) {
+                        nativeOnEvent(id, K_MENU_ACTION, 0.0, "");
+                        return true;
+                    }
+                });
+            }
+        }
+    }
+
+    private static long parseLong(String s) {
+        try { return Long.parseLong(s); }
+        catch (NumberFormatException e) { android.util.Log.w("Day", "parseLong failed for " + s, e); return 0L; }
+    }
+}

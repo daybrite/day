@@ -194,10 +194,10 @@ tree. These are code observations, not hardware certification. Xcode reports 27.
 | Ambient geometry | Per-window class and safe-area signals in [`ambient.rs`](../crates/day-core/src/ambient.rs) | Add coherent metrics, local layout context, interior regions, source availability, and revisioning |
 | Layout | [`layout.rs`](../crates/day-core/src/layout.rs) supports adaptive rows and wrapping | Base nested adaptation on local constraints; add region-aware placement without rebuilding child scopes |
 | UIKit | Scene geometry, page safe-area updates, split/navigation/tab controllers in [`day-uikit`](../toolkits/day-uikit/src/lib.rs) | Bind reserved regions and new bar traits; handle dynamic scene failures; audit custom toolbar content |
-| Android hosts | Insets, resize handling, navigation saved state in [`DayActivity`](../toolkits/day-android/java/dev/daybrite/day/bridge/DayActivity.java) | Add explicit window-feature observation and activity-scoped geometry; broaden restoration beyond routes |
-| Android secondary windows | [`DayWindowActivity`](../toolkits/day-android/java/dev/daybrite/day/bridge/DayWindowActivity.java) uses a Rust node ID and closes when the process is not running | Restore a durable window descriptor before mounting native content |
-| Android navigation | Fragment-based host and SlidingPaneLayout in [`DayNavHost`](../toolkits/day-android/java/dev/daybrite/day/bridge/DayNavHost.java) | Independent content-list placement, horizontal division support, correct compact predictive Back |
-| Android build | [`DayAndroidPlugin`](../toolkits/day-android/gradle-plugin/src/main/java/dev/daybrite/day/gradle/DayAndroidPlugin.java) sets compile/target SDK 37; toolkit metadata declares native dependencies | Add pinned WindowManager dependencies through metadata and test the merged application |
+| Android hosts | Insets, resize handling, navigation saved state in [`DayActivity`](../toolkits/day-mdc/java/dev/daybrite/day/bridge/DayActivity.java) | Add explicit window-feature observation and activity-scoped geometry; broaden restoration beyond routes |
+| Android secondary windows | [`DayWindowActivity`](../toolkits/day-mdc/java/dev/daybrite/day/bridge/DayWindowActivity.java) uses a Rust node ID and closes when the process is not running | Restore a durable window descriptor before mounting native content |
+| Android navigation | Fragment-based host and SlidingPaneLayout in [`DayNavHost`](../toolkits/day-mdc/java/dev/daybrite/day/bridge/DayNavHost.java) | Independent content-list placement, horizontal division support, correct compact predictive Back |
+| Android build | [`DayAndroidPlugin`](../toolkits/day-mdc/gradle-plugin/src/main/java/dev/daybrite/day/gradle/DayAndroidPlugin.java) sets compile/target SDK 37; toolkit metadata declares native dependencies | Add pinned WindowManager dependencies through metadata and test the merged application |
 | ArkUI | Native Navigation and area-change reporting in [`platform/harmony`](../toolkits/day-arkui/platform/harmony) | Connect fold/display/crease observations and replace default-display assumptions where window-specific data is needed |
 | Camera | External `day-piece-camera` has physical front/back selection, native preview, and photo capture | Add view-relative intent, dynamic capability changes, and explicit preview policy; current API does not expose video recording |
 | Testing | DayScript `size_class` override and Android `resize` tooling | Add real posture/display scenarios and geometric hit-test assertions; a class override does not resize pixels |
@@ -549,7 +549,7 @@ all application work.
 ### Android Views implementation
 
 - Add lifecycle-bound WindowInfoTracker observation to primary and secondary activities using
-  explicit WindowManager dependencies in `day-android/Cargo.toml` metadata.
+  explicit WindowManager dependencies in `day-mdc/Cargo.toml` metadata.
 - Combine current window metrics, insets, display density, and folding-feature observations.
   Translate window-space feature bounds into the actual Day content host before conversion to
   logical layout regions. Recompute when the host moves even if its size is unchanged.

@@ -132,7 +132,7 @@ mod file;
 #[path = "apple.rs"]
 mod imp;
 
-// Android rides day-android's JVM/Context to reach SharedPreferences via a bundled Java shim.
+// Android rides day-android-runtime's JVM/Context to reach SharedPreferences via a bundled Java shim.
 #[cfg(all(not(feature = "memory"), target_os = "android"))]
 #[path = "android.rs"]
 mod imp;

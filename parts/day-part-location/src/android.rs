@@ -11,14 +11,14 @@
 //! Android reports "this field was not measured" with a `hasXxx()` companion rather than a sentinel,
 //! so the shim passes both the value and the flag and this file rebuilds the `Option`s.
 
-use day_android::jni::Env;
-use day_android::jni::objects::JClass;
-use day_android::jni::sys::{jdouble, jint, jlong};
-use day_android::{java, vm_ready};
+use day_android_runtime::jni::Env;
+use day_android_runtime::jni::objects::JClass;
+use day_android_runtime::jni::sys::{jdouble, jint, jlong};
+use day_android_runtime::{java, vm_ready};
 
 use crate::{Accuracy, Fix, LocationError};
 
-day_android::java_class! {
+day_android_runtime::java_class! {
     DayLocation => dev.daybrite.day.location.DayLocation,
     methods {
         static fn isAvailable() -> jboolean,
@@ -49,7 +49,7 @@ pub fn stop() {
 }
 
 impl DayLocationNativeInterface for DayLocationAPI {
-    type Error = day_android::jni::errors::Error;
+    type Error = day_android_runtime::jni::errors::Error;
 
     /// The shim's position callback.
     fn nativeFix<'l>(

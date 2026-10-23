@@ -679,7 +679,7 @@ pub mod lifecycle {
         }
         #[cfg(all(feature = "mdc", target_os = "android"))]
         {
-            return day_android::lifecycle_supported(phase);
+            return day_mdc::lifecycle_supported(phase);
         }
         #[cfg(all(feature = "xaml", windows))]
         {
@@ -963,7 +963,7 @@ macro_rules! day_start_macos {
 /// Expands to the two JNI exports that start the app, `DayBridge.nativeStart` (the primary
 /// window) and `DayBridge.nativeStartWindow` (a secondary one), wired to the given root piece.
 /// They live in the app cdylib because they name the app's root; every other native the bridge
-/// declares is registered by day-android's `DayBridge` binding (docs/android-jni.md).
+/// declares is registered by day-mdc's `DayBridge` binding (docs/android-jni.md).
 ///
 /// ```ignore
 /// day::day_start_android!(root);
@@ -1030,8 +1030,8 @@ macro_rules! day_start_android {
 /// Android glue (§17.4): the app cdylib's JNI exports forward here.
 #[cfg(all(feature = "mdc", target_os = "android"))]
 pub mod android {
-    pub use day_android::jni;
-    pub use day_android::{mount_settled, read_jstring, window_started};
+    pub use day_mdc::jni;
+    pub use day_mdc::{mount_settled, read_jstring, window_started};
 
     #[allow(clippy::too_many_arguments)]
     pub fn start<R: crate::Piece>(
@@ -1047,7 +1047,7 @@ pub mod android {
         root_piece: impl FnOnce() -> R + 'static,
     ) {
         // Before any println!: send stdout/stderr to logcat (Android drops them otherwise).
-        day_android::redirect_stdio_to_logcat();
+        day_mdc::redirect_stdio_to_logcat();
         // A second launch in one process: the activity was recreated (docs/settings.md
         // "Appearance on Android"). Two paths do it: a light/dark or language switch calls
         // `recreate()` itself, and any configuration change the manifest does not claim
@@ -1084,7 +1084,7 @@ pub mod android {
                 }
             }
         }
-        day_android::init(env, root, density, w, h);
+        day_mdc::init(env, root, density, w, h);
         // The dayscript engine belongs to the process, not the activity: its listener survives a
         // recreation and keeps serving against whatever tree is mounted. Re-running `init` only
         // tried to bind the same port again ("Address already in use"), so the re-mount skips it.
@@ -1100,10 +1100,10 @@ pub mod android {
         // because the app stopped calling `res::locales::install()` itself when the catalog
         // moved into `WindowOptions` (docs/localization.md). The window fields are inert on
         // Android, where the Activity owns the surface and the label comes from the manifest.
-        crate::start(day_android::Android::new(), options, root_piece);
+        crate::start(day_mdc::Android::new(), options, root_piece);
         // The tree is up: on a re-mount, bring the app back to the route the previous mount
         // saved, then let the activity take its crossfade down.
-        day_android::mount_settled(remount);
+        day_mdc::mount_settled(remount);
     }
 }
 

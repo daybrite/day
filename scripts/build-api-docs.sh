@@ -10,7 +10,7 @@
 # reads), so the reference and the page never drift. Every crate documents portably, with no native
 # toolkit and no cross-compiler: optional `model` integrations are included and the `day` umbrella
 # uses its headless `mock` backend, so this runs on a stock Linux CI runner. Build the Astro site
-# first: its header, footer, theme control, and exact stylesheets are reused through Rustdoc HTML hooks.
+# first: its footer, theme script, and exact stylesheets are reused through Rustdoc HTML hooks.
 set -euo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

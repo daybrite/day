@@ -252,7 +252,7 @@ day build -t android-mdc
 │
 └── gradle assembleDebug   build/android/
         │
-        ├── sourceSets: the day-android Java shim + piece Java + jniLibs + assets/
+        ├── sourceSets: the day-mdc Java shim + piece Java + jniLibs + assets/
         ├── aapt2: staged resource/images → res/drawable* → R.drawable ids
         └── Material 3 theme + DayActivity host (loads the .so, calls nativeStart)
         ▼

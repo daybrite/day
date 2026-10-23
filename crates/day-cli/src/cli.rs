@@ -2106,7 +2106,7 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
                             crate::ohos::stage_host(project).map_err(CliError::build)?;
                         }
                     }
-                    // Day's Gradle plugins are staged from the day-android crate the same way, so
+                    // Day's Gradle plugins are staged from the day-mdc crate the same way, so
                     // Android Studio can sync a fresh clone before its first `day build`.
                     let android = platforms.is_empty()
                         && project

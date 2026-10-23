@@ -21,7 +21,7 @@ impl Drop for Fixture {
 #[test]
 fn android_launch_and_stop_use_the_resolved_flavor_identity() {
     let fixture =
-        Fixture(std::env::temp_dir().join(format!("day-android-identity-{}", std::process::id())));
+        Fixture(std::env::temp_dir().join(format!("day-mdc-identity-{}", std::process::id())));
     let root = &fixture.0;
     std::fs::create_dir_all(root.join("src")).unwrap();
     std::fs::create_dir_all(root.join("sdk/platform-tools")).unwrap();

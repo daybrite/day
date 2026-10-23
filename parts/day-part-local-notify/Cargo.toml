@@ -64,7 +64,7 @@ objc2-user-notifications = { workspace = true, features = [
 block2 = { workspace = true }
 
 [target.'cfg(target_os = "android")'.dependencies]
-day-android = { workspace = true }
+day-android-runtime = { workspace = true }
 
 # The HarmonyOS arm (src/ohos.rs) is ArkTS: Notification Kit has no native C surface.
 [target.'cfg(target_env = "ohos")'.dependencies]

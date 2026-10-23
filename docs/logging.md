@@ -54,7 +54,7 @@ process, turning a clean exit into a spurious crash. Day's logger never panics o
 |---|---|
 | macOS, Linux, Windows | the process's stderr — your terminal |
 | iOS | stderr, which is the Xcode console |
-| Android | stderr, which day-android redirects into **logcat** (stdout at INFO, stderr at ERROR) |
+| Android | stderr, which day-mdc redirects into **logcat** (stdout at INFO, stderr at ERROR) |
 | **Web** | the browser's **JavaScript console** |
 
 On the web each level maps to the matching console method (`error!` to `console.error`, `warn!`
@@ -184,7 +184,7 @@ RUST_LOG=warn,day_gtk=debug,my_app=trace day launch -t linux-gtk
 logger is no longer installed.
 
 Day does not adopt `env_logger` as its default, because it writes ANSI text to stderr on every
-target. On Android that means every line lands in logcat at `ERROR`, because day-android maps
+target. On Android that means every line lands in logcat at `ERROR`, because day-mdc maps
 fd 2 to that level; on Web it means the lines are discarded, since std's stdio on wasm
 accepts bytes and drops them; on iOS it means escape codes in the Xcode console. Day's default
 exists to route per platform. `env_logger` fits an app that targets desktops; the other six

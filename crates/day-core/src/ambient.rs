@@ -182,7 +182,7 @@ pub fn restore_reported_size_class() {
 
 /// The window's safe-area insets, in points. Zero on every backend that clamps Day's root to
 /// the safe area natively (the default everywhere); nonzero only where a backend runs the root
-/// edge-to-edge, today day-android's opt-in immersive mode (docs/layout.md, the android
+/// edge-to-edge, today day-mdc's opt-in immersive mode (docs/layout.md, the android
 /// platform page). Compose it yourself where a background should run under the system bars:
 /// paint the background unpadded, pad the content by these insets. The read is tracked, but
 /// layout attributes like `.padding` capture the value at build time, so a mid-run inset change

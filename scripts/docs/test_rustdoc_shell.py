@@ -13,7 +13,7 @@ spec.loader.exec_module(module)
 
 
 class RustdocShell(unittest.TestCase):
-    def test_preserves_compiled_styles_scoped_markup_and_search_script(self):
+    def test_preserves_footer_and_styles_without_the_site_header(self):
         header = '<header class="nav" data-astro-cid-test><nav><a href="/docs">Docs</a></nav><script>const label="a>b";</script></header>'
         footer = '<footer class="footer"><nav><a href="/">Home</a></nav></footer>'
         with tempfile.TemporaryDirectory() as directory:
@@ -25,7 +25,8 @@ class RustdocShell(unittest.TestCase):
                             '<body>' + header + '<main>API bridge</main>' + footer + '</body></html>')
             output = site / 'shell'
             module.build(site, output)
-            self.assertEqual((output / 'before.html').read_text().strip(), header + '\n<div class="day-api-content">')
+            self.assertEqual((output / 'before.html').read_text().strip(), '<div class="day-api-content">')
+            self.assertNotIn('<header', (output / 'before.html').read_text())
             self.assertTrue((output / 'after.html').read_text().startswith('</div>'))
             self.assertIn(footer, (output / 'after.html').read_text())
             self.assertIn('href="/_astro/site.hash.css"', (output / 'head.html').read_text())

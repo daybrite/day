@@ -24,7 +24,7 @@ appkit = ["dep:day-appkit", "dep:objc2", "dep:objc2-app-kit", "dep:objc2-foundat
 gtk = ["dep:day-gtk", "dep:gtk4"]
 qt = ["dep:day-qt"]                 # + build.rs compiles src/lib-qt-shim.cpp (QTextEdit)
 uikit = ["dep:day-uikit", "dep:objc2", "dep:objc2-ui-kit", "dep:objc2-foundation", "dep:objc2-core-foundation"]
-mdc = ["dep:day-android"]           # + [package.metadata.day.android] carries DayTextEditor.java
+mdc = ["dep:day-mdc", "dep:day-android-runtime"]           # + [package.metadata.day.android] carries DayTextEditor.java
 # XAML: build.rs compiles src/lib-xaml-shim.cpp, a RichEditBox driven through its TOM
 # ITextDocument. Windows-only, built in CI, not verified locally.
 xaml = ["dep:day-xaml", "dep:day-xaml-sys"]
@@ -52,7 +52,8 @@ day-appkit = { workspace = true, optional = true }
 day-gtk = { workspace = true, optional = true }
 day-qt = { workspace = true, optional = true }
 day-uikit = { workspace = true, optional = true }
-day-android = { workspace = true, optional = true }
+day-mdc = { workspace = true, optional = true }
+day-android-runtime = { workspace = true, optional = true }
 day-xaml = { workspace = true, optional = true }
 day-xaml-sys = { workspace = true, optional = true }
 day-arkui = { workspace = true, optional = true }

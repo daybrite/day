@@ -60,7 +60,7 @@ then whatever context that toolkit needs:
 | AppKit  | `day_appkit::with_native` / `.appkit(…)` | `&Retained<NSView>`, `class`, `MainThreadMarker` (objc2 `downcast_ref` to the class) | typed |
 | UIKit   | `day_uikit::with_native` / `.uikit(…)`   | `&Retained<UIView>`, `class`, marker | typed |
 | GTK     | `day_gtk::with_native` / `.gtk(…)`       | `&gtk4::Widget`, `class` (`downcast_ref` to the class) | typed |
-| Android | `day_android::with_native` / `.android(…)` | `&GlobalRef`, `class`, attached `&mut JNIEnv` | typed (JNI) |
+| Android | `day_mdc::with_native` / `.android(…)` | `&GlobalRef`, `class`, attached `&mut JNIEnv` | typed (JNI) |
 | Qt      | `day_qt::with_native_raw` / `.qt_raw(…)` | the raw [`QWidget*`](https://doc.qt.io/qt-6/qwidget.html), `class`; bring your own C++ (below) | raw |
 | XAML   | `day_xaml::with_native_raw` / `.xaml_raw(…)` | the **borrowed** `IUIElement*` ABI pointer, `class`; bring your own C++/WinRT (below) | raw |
 | ArkUI   | `day_arkui::with_native_raw` / `.arkui_raw(…)` | the raw `ArkUI_NodeHandle`, `class`; NDK C API | raw |

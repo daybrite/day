@@ -82,7 +82,7 @@ the locked copy and ignore the table):
 ```toml
 [patch."https://github.com/daybrite/day.git"]
 day = { path = "/home/you/src/day/crates/day" }
-day-android = { path = "/home/you/src/day/toolkits/day-android" }
+day-mdc = { path = "/home/you/src/day/toolkits/day-mdc" }
 # … one entry per day crate the app resolves
 ```
 
@@ -94,7 +94,7 @@ Writing that table by hand is risky because a missing entry does not fail: cargo
 missing crate from its git cache, and the build mixes your checkout with a published release, so
 part of it is not the code you are editing. The table is also hard to keep right:
 
-- The crate set is bigger than the app's manifest. Toolkit backends like `day-android` reach
+- The crate set is bigger than the app's manifest. Toolkit backends like `day-mdc` reach
   the app through the `day` umbrella crate's per-target dependency tables, so the app never
   names them. `day patch` resolves the full graph for every platform Day targets, with every
   backend feature on, and patches whatever it finds.

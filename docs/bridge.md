@@ -70,7 +70,7 @@ day_bridge::bridge! {
     java!(
         prelude = r#"
             import android.speech.tts.TextToSpeech;
-            import dev.daybrite.day.bridge.DayBridge;
+            import dev.daybrite.day.bridge.DayRuntime;
         "#,
         body = r#"
             public static void speak_native(String text) { … }
@@ -467,9 +467,9 @@ staged root into the Kotlin source set the project already has and mark the file
 
 The Rust half reaches that class through a [`java_class!`](android-jni.md) binding day-build
 generates beside the wrappers, with each method named as declared (`speak_native` binds
-`speak_native`). So the generated calls are typed and cached, `day_android::init` checks the class
+`speak_native`). So the generated calls are typed and cached, `day_android_runtime::init` checks the class
 at launch, and the binding's keep rule keeps exactly these methods through R8. The completion
-natives (`dayComplete_<fn>`, `dayEmit_<fn>`) stay exported symbols, kept by day-android's rule for
+natives (`dayComplete_<fn>`, `dayEmit_<fn>`) stay exported symbols, kept by day-android-runtime's rule for
 native methods.
 
 **A part published for other people's apps should use `java`.** It cannot know whether its

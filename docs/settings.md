@@ -189,7 +189,7 @@ Two things make the recreation read as a theme change rather than a relaunch:
 - **The same place, not the first tab.** The recreation re-runs the app's `root()`: the tree
   is re-mounted, root-scope state ([`Signal::global`](https://daybrite.dev/api/day_reactive/struct.Signal.html#method.global), [`Ambient::app()`](https://daybrite.dev/api/day_core/trait.Ambient.html#method.app), every `Pref`) survives,
   but every signal `root()` creates starts over. A nav surface with [`.restore(key)`](https://daybrite.dev/api/day_pieces/trait.NavBuilder.html#tymethod.restore) reads its
-  own place back ([navigation](navigation.md)); for everything else day-android saves the full
+  own place back ([navigation](navigation.md)); for everything else day-mdc saves the full
   [`current_route()`](https://daybrite.dev/api/day_pieces/fn.current_route.html) into the activity's instance state (`DayBridge.navState`, under the
   reserved key `day.route`) just before the teardown and [`navigate`](https://daybrite.dev/api/day_pieces/fn.navigate.html)s to it one turn after the
   first build, so an app comes back on the section and the pushed page it was on (Settings ▸

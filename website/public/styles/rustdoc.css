@@ -68,7 +68,6 @@
   --code-highlight-macro-color: var(--adm-question);
   --code-highlight-comment-color: var(--faint);
   --code-highlight-doc-comment-color: var(--muted);
-  --day-header-height: 63px;
 }
 
 body.rustdoc {
@@ -77,11 +76,10 @@ body.rustdoc {
   font-size: 17px;
   line-height: 1.6;
 }
-.rustdoc > header.nav { z-index: 110; }
 .day-api-content { display: flex; align-items: start; }
 .day-api-content > .sidebar {
-  top: var(--day-header-height);
-  height: calc(100vh - var(--day-header-height));
+  top: 0;
+  height: 100vh;
   width: var(--desktop-sidebar-width);
   padding-top: 18px;
   font-family: var(--font);
@@ -98,8 +96,8 @@ body.rustdoc {
 .rustdoc summary.hideme, .rustdoc .scraped-example-list, .rustdoc .rustdoc-breadcrumbs,
 .rustdoc .search-switcher, .rustdoc ul.all-items, .rustdoc .deprecated-count { font-family: var(--font); }
 .rustdoc .sidebar-resizer {
-  top: var(--day-header-height);
-  height: calc(100vh - var(--day-header-height));
+  top: 0;
+  height: 100vh;
 }
 .sidebar-resizing > body.rustdoc { padding-left: 0; }
 .sidebar-resizing .day-api-content { padding-left: var(--resizing-sidebar-width); }
@@ -111,7 +109,7 @@ body.rustdoc {
   border-radius: var(--radius);
 }
 .rustdoc .docblock a { text-decoration: underline; text-underline-offset: 3px; }
-.rustdoc [id] { scroll-margin-top: calc(var(--day-header-height) + 16px); }
+.rustdoc [id] { scroll-margin-top: 16px; }
 .rustdoc .day-api-links {
   display: flex;
   flex-wrap: wrap;
@@ -122,19 +120,18 @@ body.rustdoc {
 }
 .rustdoc > .footer { margin-top: 0; }
 .rustdoc > .footer, .rustdoc > .day-api-links { position: relative; z-index: 105; }
-/* The shared header owns appearance; keep Rustdoc's API-specific settings available. */
-.rustdoc .setting-line:is(#theme, #preferred-light-theme, #preferred-dark-theme),
+/* Keep shared typography while Rustdoc's native controls manage appearance. */
 .rustdoc .setting-line:has(#sans-serif-fonts) { display: none; }
 
 @media (max-width: 700px) {
   .day-api-content { display: block; }
-  .rustdoc rustdoc-topbar { top: var(--day-header-height); }
+  .rustdoc rustdoc-topbar { top: 0; }
   .day-api-content > .sidebar {
-    top: calc(var(--day-header-height) + var(--topbar-height));
-    height: calc(100vh - var(--day-header-height) - var(--topbar-height));
+    top: var(--topbar-height);
+    height: calc(100vh - var(--topbar-height));
     width: 100%;
   }
   html:not(.hide-sidebar) .day-api-content > main { padding: 20px 16px; }
-  .rustdoc [id] { scroll-margin-top: calc(var(--day-header-height) + var(--topbar-height) + 16px); }
+  .rustdoc [id] { scroll-margin-top: calc(var(--topbar-height) + 16px); }
   .rustdoc .main-heading h1 { font-size: 1.45rem; }
 }

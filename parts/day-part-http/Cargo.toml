@@ -93,7 +93,7 @@ objc2-core-foundation = { workspace = true, default-features = false, features =
 
 # Android rides the day runtime's cached JVM, like every part with a Java arm.
 [target.'cfg(target_os = "android")'.dependencies]
-day-android = { workspace = true }
+day-android-runtime = { workspace = true }
 
 # Linux desktop: the system's libcurl, opened with dlopen at run time (src/linux.rs), so the
 # binary links no HTTP or TLS library of its own and a system without libcurl reports Unavailable.

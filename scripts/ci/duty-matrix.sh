@@ -37,7 +37,7 @@ backends = [
     ("gtk", "toolkits/day-gtk/src/lib.rs"),
     ("qt", "toolkits/day-qt/src/lib.rs"),
     ("xaml", "toolkits/day-xaml/src/lib.rs"),
-    ("android", "toolkits/day-android/src/lib.rs"),
+    ("android", "toolkits/day-mdc/src/lib.rs"),
     ("arkui", "toolkits/day-arkui/src/lib.rs"),
     ("dom", "toolkits/day-dom/src/lib.rs"),
     ("mock", "crates/day-mock/src/lib.rs"),

@@ -106,7 +106,7 @@ day_bridge::bridge! {
             import javax.net.ssl.TrustManager;
             import javax.net.ssl.X509ExtendedTrustManager;
             import javax.net.ssl.X509TrustManager;
-            import dev.daybrite.day.bridge.DayBridge;
+            import dev.daybrite.day.bridge.DayRuntime;
             import dev.daybrite.day.http.DayHttp;
             import okhttp3.Cache;
             import okhttp3.CacheControl;
@@ -382,8 +382,8 @@ day_bridge::bridge! {
             }
 
             private static synchronized Cache sharedCache(long bytes) {
-                if (sharedCache == null && DayBridge.ctx != null) {
-                    sharedCache = new Cache(new File(DayBridge.ctx.getCacheDir(), "day-http"), bytes);
+                if (sharedCache == null && DayRuntime.ctx != null) {
+                    sharedCache = new Cache(new File(DayRuntime.ctx.getCacheDir(), "day-http"), bytes);
                 }
                 return sharedCache;
             }

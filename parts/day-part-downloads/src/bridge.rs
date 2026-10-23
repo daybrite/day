@@ -52,7 +52,7 @@ day_bridge::bridge! {
             import java.io.DataOutputStream;
             import java.io.IOException;
             import java.nio.charset.StandardCharsets;
-            import dev.daybrite.day.bridge.DayBridge;
+            import dev.daybrite.day.bridge.DayRuntime;
         "#,
         body = r#"
             private static final int DAY_STARTED = 1;
@@ -111,7 +111,7 @@ day_bridge::bridge! {
             }
 
             private static DownloadManager dayManager() {
-                Context ctx = DayBridge.ctx;
+                Context ctx = DayRuntime.ctx;
                 if (ctx == null) {
                     return null;
                 }
@@ -150,7 +150,7 @@ day_bridge::bridge! {
                     }
                     request.setTitle(title);
                     request.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE);
-                    request.setDestinationInExternalFilesDir(DayBridge.ctx, Environment.DIRECTORY_DOWNLOADS,
+                    request.setDestinationInExternalFilesDir(DayRuntime.ctx, Environment.DIRECTORY_DOWNLOADS,
                         "day-" + System.nanoTime() + ".part");
                     id = dm.enqueue(request);
                 } else {

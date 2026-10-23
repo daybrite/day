@@ -38,11 +38,11 @@ fn apply(node: day_core::RNode, text: &str) {
     #[cfg(all(feature = "mdc", target_os = "android"))]
     {
         // View.setTooltipText(CharSequence) arrived in API 26; below it there is nothing to set.
-        if day_android::sdk_int() >= 26 {
-            let _ = day_android::with_native(node, |view, _class, env| {
-                day_android::java_in(env, |env| {
-                    let text = day_android::jni::objects::JString::from_str(env, text)?;
-                    day_android::downcast::<android::View>(env, view)?.setTooltipText(env, &text)
+        if day_mdc::sdk_int() >= 26 {
+            let _ = day_mdc::with_native(node, |view, _class, env| {
+                day_mdc::java_in(env, |env| {
+                    let text = day_mdc::jni::objects::JString::from_str(env, text)?;
+                    day_mdc::downcast::<android::View>(env, view)?.setTooltipText(env, &text)
                 });
             });
         }
@@ -53,7 +53,7 @@ fn apply(node: day_core::RNode, text: &str) {
 /// CharSequence).
 #[cfg(all(feature = "mdc", target_os = "android"))]
 mod android {
-    day_android::java_class! {
+    day_mdc::java_class! {
         pub View => android.view.View,
         since = 26,
         methods {

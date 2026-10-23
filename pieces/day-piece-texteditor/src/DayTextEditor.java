@@ -3,7 +3,7 @@
 
 // The styled-text editor's Android backing, bundled with the day-piece-texteditor crate and
 // pulled into the app's Gradle build through [package.metadata.day.android], with no edits to
-// day-android. It uses only DayBridge's public surface: `ctx`, `nativeOnEvent`, and the two event
+// day-mdc. It uses only DayBridge's public surface: `ctx`, `nativeOnEvent`, and the two event
 // kind constants.
 //
 // Two things make this more than "an EditText with spans":

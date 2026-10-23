@@ -635,7 +635,7 @@ fn scan_routes_macro_keys(dir: &Path, out: &mut Vec<Hit>) {
 ///
 /// `screenLayout` and `smallestScreenSize` are the two that matter and the two that were missing:
 /// entering split-screen or dragging a desktop-windowing edge across a size bucket changes both,
-/// and an activity that has not claimed them is destroyed and recreated. day-android does not
+/// and an activity that has not claimed them is destroyed and recreated. day-mdc does not
 /// survive a second `nativeStart` in one process, so what the user sees is an app that comes back
 /// without whatever it installed once at startup. The rest are here because a resizable window
 /// crosses them too: a window dragged to another display changes `density`, an accessibility
@@ -647,7 +647,7 @@ const ANDROID_CONFIG_CHANGES: &[&str] = &[
     "orientation",
     "keyboardHidden",
     // Claimed, even though a light/dark switch does need the activity recreated: an app-level
-    // `setApplicationNightMode` does not make the platform recreate it, so day-android performs
+    // `setApplicationNightMode` does not make the platform recreate it, so day-mdc performs
     // that recreation itself (docs/settings.md "Appearance on Android"). Unclaiming this was
     // tried and measured: the theme change then did nothing at all.
     "uiMode",

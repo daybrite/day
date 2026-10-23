@@ -6141,7 +6141,7 @@ pub mod props {
     pub enum NavPatch {
         /// The just-attached last page child became the top of the stack. `immersive` marks a
         /// page that keeps the floating transparent chrome on backends with an immersive nav
-        /// mode (day-android edge-to-edge today; ignored elsewhere). Unmarked pages get the
+        /// mode (day-mdc edge-to-edge today; ignored elsewhere). Unmarked pages get the
         /// standard opaque bar.
         Pushed { title: String, immersive: bool },
         /// The top page is about to be removed; present its predecessor.

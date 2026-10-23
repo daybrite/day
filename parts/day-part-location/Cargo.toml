@@ -36,7 +36,7 @@ objc2 = { workspace = true }
 objc2-foundation = { workspace = true, features = ["NSObject"] }
 
 [target.'cfg(target_os = "android")'.dependencies]
-day-android = { workspace = true }
+day-android-runtime = { workspace = true }
 
 # HarmonyOS location is ArkTS-only (no NDK surface), so its arm is a daybridge one.
 [target.'cfg(target_env = "ohos")'.dependencies]

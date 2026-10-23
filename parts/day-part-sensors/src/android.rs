@@ -2,14 +2,14 @@
 // SPDX-License-Identifier: MPL-2.0
 
 use super::{Sensor, SensorReading, push};
-use day_android::java;
-use day_android::jni::{
+use day_android_runtime::java;
+use day_android_runtime::jni::{
     Env,
     objects::JClass,
     sys::{jdouble, jint},
 };
 
-day_android::java_class! {
+day_android_runtime::java_class! {
     DaySensors => dev.daybrite.day.sensors.DaySensors,
     methods {
         static fn isAvailable(kind: jint) -> jboolean,
@@ -35,7 +35,7 @@ pub fn start(kind: Sensor, generation: u32) -> Option<Subscription> {
         .then_some(Subscription(kind))
 }
 impl DaySensorsNativeInterface for DaySensorsAPI {
-    type Error = day_android::jni::errors::Error;
+    type Error = day_android_runtime::jni::errors::Error;
     fn nativeSample<'l>(
         _: &mut Env<'l>,
         _: JClass<'l>,

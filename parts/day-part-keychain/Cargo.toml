@@ -67,7 +67,7 @@ objc2-security = { workspace = true, features = [
 
 # Android rides the day runtime's cached JVM, like every part with a Java arm.
 [target.'cfg(target_os = "android")'.dependencies]
-day-android = { workspace = true }
+day-android-runtime = { workspace = true }
 
 # Windows: DPAPI for the bytes, Windows Hello (through day-part-biometrics) for the person.
 [target.'cfg(target_os = "windows")'.dependencies]

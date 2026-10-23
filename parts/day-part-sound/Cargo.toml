@@ -56,10 +56,10 @@ windows = { workspace = true, features = [
     "Win32_System_Com",
 ] }
 
-# Android's Java arm is called through JNI, so the generated code needs day-android's cached JVM and
+# Android's Java arm is called through JNI, so the generated code needs day-android-runtime's cached JVM and
 # Context, like day-part-haptics.
 [target.'cfg(target_os = "android")'.dependencies]
-day-android = { workspace = true }
+day-android-runtime = { workspace = true }
 
 # A Flatpak's sandbox has no route to the sound server unless its manifest asks for one, so
 # `day pack` adds this to the finish-args of any app that depends on this crate

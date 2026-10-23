@@ -90,7 +90,7 @@ Platform guidance: [Apple: Core Location](https://developer.apple.com/documentat
 | OS | API | dependency |
 |---|---|---|
 | iOS / macOS | [`CLLocationManager`](https://developer.apple.com/documentation/corelocation/cllocationmanager) + a delegate defined with `objc2::define_class!` | `objc2`, `objc2-foundation`, `[package.metadata.day.ios].frameworks = ["CoreLocation"]` |
-| Android | [`LocationManager.requestLocationUpdates`](https://developer.android.com/reference/android/location/LocationManager) via the crate's own Java shim | `day-android` + `[package.metadata.day.android]` |
+| Android | [`LocationManager.requestLocationUpdates`](https://developer.android.com/reference/android/location/LocationManager) via the crate's own Java shim | `day-mdc` + `[package.metadata.day.android]` |
 | Web | [`navigator.geolocation.watchPosition`](https://www.w3.org/TR/geolocation/#watchposition-method) through the day-dom shim | `web.rs` (wasm32; needs the day-dom host page) |
 | HarmonyOS | [`geoLocationManager.on('locationChange')`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-location-kit/js-apis-geoLocationManager.md) (Location Kit) via an ArkTS arm; see below | [`day-bridge`](/contributing/backend-contracts/bridge) (`src/ohos.rs`) |
 | Linux | none; GeoClue2 would need a D-Bus dependency this tree does not have | — |

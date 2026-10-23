@@ -13,13 +13,13 @@
 //! `manifest-components` key), which rebuilds the notification from data persisted at schedule
 //! time. A reboot clears alarms, so a boot receiver re-arms them.
 
-use day_android::java;
-use day_android::jni::objects::JString;
+use day_android_runtime::java;
+use day_android_runtime::jni::objects::JString;
 
 use crate::{Capabilities, Channel, Importance, NotifId, Notification, NotifyError};
 
 // The shim (DayLocalNotify.java, staged into the app's Gradle build by `day build`).
-day_android::java_class! {
+day_android_runtime::java_class! {
     DayLocalNotify => dev.daybrite.day.notify.DayLocalNotify,
     methods {
         static fn isAvailable() -> jboolean,

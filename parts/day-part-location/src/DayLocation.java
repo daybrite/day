@@ -3,7 +3,7 @@
 
 // day-part-location's Android backend: a headless capability shim (no UI). Bundled with the
 // crate and folded into the app's Gradle build via [package.metadata.day.android], with no edits
-// to day-android; it registers no view. The Android twin of parts/day-part-location/src/*.rs's
+// to day-android-runtime; it registers no view. The Android twin of parts/day-part-location/src/*.rs's
 // other per-OS impls.
 //
 // Why LocationManager and not FusedLocationProviderClient. The fused provider is the usual Android
@@ -22,7 +22,7 @@ import android.location.LocationManager;
 import android.os.Bundle;
 import android.os.Looper;
 
-import dev.daybrite.day.bridge.DayBridge;
+import dev.daybrite.day.bridge.DayRuntime;
 
 public final class DayLocation {
     private DayLocation() {}
@@ -45,7 +45,7 @@ public final class DayLocation {
     private static native void nativeError(int code);
 
     private static LocationManager manager() {
-        Context ctx = DayBridge.ctx;
+        Context ctx = DayRuntime.ctx;
         return ctx == null ? null : (LocationManager) ctx.getSystemService(Context.LOCATION_SERVICE);
     }
 
@@ -96,7 +96,7 @@ public final class DayLocation {
                 return;
             }
             try {
-                // The listener needs a Looper; DayBridge.main is the UI thread's, which always has
+                // The listener needs a Looper; DayRuntime.main is the UI thread's, which always has
                 // one; a Rust-spawned caller thread would not.
                 lm.requestLocationUpdates(provider, 1000L, 0f, listener, Looper.getMainLooper());
                 // A cached fix makes the first update immediate instead of waiting for the radio.

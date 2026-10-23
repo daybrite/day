@@ -47,7 +47,7 @@ objc2-foundation = { workspace = true, features = ["NSString", "NSError", "NSObj
 
 # Android rides the day runtime's cached JVM, like every part with a Java arm.
 [target.'cfg(target_os = "android")'.dependencies]
-day-android = { workspace = true }
+day-android-runtime = { workspace = true }
 
 # Windows: UserConsentVerifier and its desktop interop, plus the window handle the dialog is owned by.
 [target.'cfg(target_os = "windows")'.dependencies]

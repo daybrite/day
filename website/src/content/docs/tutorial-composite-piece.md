@@ -88,7 +88,7 @@ day-fluent = { git = "https://github.com/daybrite/day.git" }
 [build-dependencies]
 day-build = { git = "https://github.com/daybrite/day.git" }
 
-# Note what is not here: no [features], no dep:day-appkit / day-gtk / day-android,
+# Note what is not here: no [features], no dep:day-appkit / day-gtk / day-mdc,
 # no build.rs. A composed piece needs no per-toolkit code at all.
 
 # The scaffolder appends this so the crate is its own cargo workspace and builds standalone.

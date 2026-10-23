@@ -57,7 +57,7 @@ day_bridge::bridge! {
             import android.os.VibrationEffect;
             import android.os.Vibrator;
             import android.os.VibratorManager;
-            import dev.daybrite.day.bridge.DayBridge;
+            import dev.daybrite.day.bridge.DayRuntime;
         "#,
         body = r#"
             private static final int LIGHT = 0;
@@ -69,7 +69,7 @@ day_bridge::bridge! {
             private static final int SELECTION = 6;
 
             public static void play_native(int style) {
-                Context ctx = DayBridge.ctx;
+                Context ctx = DayRuntime.ctx;
                 if (ctx == null) {
                     return;
                 }

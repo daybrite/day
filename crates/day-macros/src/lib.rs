@@ -205,11 +205,11 @@ fn compile_error(message: &str) -> TokenStream {
         })
 }
 
-/// A typed binding to one Java class, for day-android and the pieces and parts built on it
-/// (docs/android-jni.md). Use it as `day_android::java_class!`, which re-exports it.
+/// A typed binding to one Java class, for day-android-runtime and the pieces and parts built on it
+/// (docs/android-jni.md). Use it as `day_android_runtime::java_class!`, which re-exports it.
 ///
 /// ```ignore
-/// day_android::java_class! {
+/// day_android_runtime::java_class! {
 ///     DayCombo => dev.daybrite.day.piece.combobox.DayCombo,
 ///     methods {
 ///         static fn makeCombo(id: jlong, items: JString) -> android.view.View,
@@ -220,7 +220,7 @@ fn compile_error(message: &str) -> TokenStream {
 ///
 /// The grammar is jni's `bind_java_type!`. Names are Java's, verbatim: the binding above calls
 /// `DayCombo.makeCombo`, and a search for `makeCombo` finds both sides. The expansion also
-/// registers the class for day-android's startup check and records an R8 keep rule for exactly
+/// registers the class for day-android-runtime's startup check and records an R8 keep rule for exactly
 /// the class and members bound.
 #[proc_macro]
 pub fn java_class(input: TokenStream) -> TokenStream {

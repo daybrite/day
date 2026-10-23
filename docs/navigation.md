@@ -272,7 +272,7 @@ would answer one arrow and then go quiet.
 ### Immersive items ([`.immersive()`](https://daybrite.dev/api/day_pieces/struct.NavItem.html#method.immersive))
 
 [`item`](https://daybrite.dev/api/day_pieces/fn.item.html)`(key, title)`[`.immersive`](https://daybrite.dev/api/day_pieces/struct.NavItem.html#method.immersive)`()` marks that destination as an immersive-chrome page: on
-toolkits with an immersive nav mode (day-android's edge-to-edge opt-in today) its pushed page
+toolkits with an immersive nav mode (day-mdc's edge-to-edge opt-in today) its pushed page
 keeps the floating transparent bar over full-bleed content, while unmarked pages and the root
 get the standard opaque bar. Every other toolkit ignores the flag. Pair it with
 [`day::safe_area()`](https://daybrite.dev/api/day/fn.safe_area.html) ([docs/layout](/docs/explanation/layout)): the immersive page paints its background unpadded and pads

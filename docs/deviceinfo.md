@@ -67,7 +67,7 @@ framework at all.
 | Windows | [`RtlGetVersion`](https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/wdm/nf-wdm-rtlgetversion) (ntdll, resolved via `#[link]`) | raw FFI |
 | Linux | [`/etc/os-release`](https://www.freedesktop.org/software/systemd/man/latest/os-release.html) + `/sys/.../dmi/id/product_name` | std only |
 | HarmonyOS | [`OH_GetOSFullName`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-basic-services-kit/capi-deviceinfo.md) / [`OH_GetDisplayVersion`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-basic-services-kit/capi-deviceinfo.md) / [`OH_GetProductModel`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-basic-services-kit/capi-deviceinfo.md) (`libdeviceinfo_ndk.so`) | raw FFI (deviceinfo.h) |
-| Android | [`android.os.Build.*`](https://developer.android.com/reference/android/os/Build) via a Java shim | `day-android` + `[package.metadata.day.android]` |
+| Android | [`android.os.Build.*`](https://developer.android.com/reference/android/os/Build) via a Java shim | `day-mdc` + `[package.metadata.day.android]` |
 
 ## What each platform reports
 
@@ -103,6 +103,6 @@ Every field is best-effort; each platform reports what it can:
 
 Like [`day-part-device`](/docs/reference/battery) and [`day-part-connectivity`](/docs/reference/network), this is a headless external crate: it has no UI Piece
 and registers nothing into any toolkit's `RENDERERS` slice. On Android it rides the Day runtime only
-for its attached JNIEnv (via `day-android`); the Java shim is staged into the app's Gradle build by
+for its attached JNIEnv (via `day-mdc`); the Java shim is staged into the app's Gradle build by
 `[package.metadata.day.android]` without touching any core day crate, and it contributes no manifest
 permission. On every other platform the crate is fully day-independent: pure native FFI or std.

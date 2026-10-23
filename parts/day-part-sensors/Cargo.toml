@@ -31,10 +31,10 @@ objc2-core-motion = { workspace = true, default-features = false, features = [
 [target.'cfg(target_os = "windows")'.dependencies]
 windows = { workspace = true, features = ["Devices_Sensors", "Foundation", "Win32_System_WinRT"] }
 
-# Android reads SensorManager through a Java shim + day-android's cached JVM/Context. This is the one
+# Android reads SensorManager through a Java shim + day-android-runtime's cached JVM/Context. This is the one
 # platform where the headless crate rides on the day runtime (like the pieces' Android backends).
 [target.'cfg(target_os = "android")'.dependencies]
-day-android = { workspace = true }
+day-android-runtime = { workspace = true }
 
 # --- Android backend contribution (docs/extending.md) ---
 # The same mechanism the UI pieces use, but this crate registers no renderer. `day build` stages

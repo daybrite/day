@@ -216,7 +216,7 @@ checksum = "914a755b7c2d4af2bdcff7ce1739e2db9a1b81a9b07123d8015786ae03c0980d"
 name = "day"
 version = "0.6.0"
 dependencies = [
- "day-android",
+ "day-android-runtime",
  "day-appkit",
  "day-arkui",
  "day-core",
@@ -225,6 +225,7 @@ dependencies = [
  "day-geometry",
  "day-gtk",
  "day-macros",
+ "day-mdc",
  "day-mock",
  "day-part-clipboard",
  "day-part-prefs",
@@ -242,14 +243,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "day-android"
+name = "day-android-runtime"
 version = "0.6.0"
 dependencies = [
- "day-core",
  "day-macros",
- "day-pieces",
- "day-reactive",
- "day-spec",
  "jni",
  "linkme",
  "log",
@@ -437,6 +434,20 @@ name = "day-macros"
 version = "0.6.0"
 
 [[package]]
+name = "day-mdc"
+version = "0.6.0"
+dependencies = [
+ "day-android-runtime",
+ "day-core",
+ "day-pieces",
+ "day-reactive",
+ "day-spec",
+ "jni",
+ "linkme",
+ "log",
+]
+
+[[package]]
 name = "day-mock"
 version = "0.6.0"
 dependencies = [
@@ -449,7 +460,7 @@ name = "day-part-clipboard"
 version = "0.6.0"
 dependencies = [
  "base64",
- "day-android",
+ "day-android-runtime",
  "day-async",
  "day-bridge",
  "day-build",
@@ -463,7 +474,7 @@ dependencies = [
 name = "day-part-prefs"
 version = "0.6.0"
 dependencies = [
- "day-android",
+ "day-android-runtime",
  "day-bridge",
  "day-build",
  "day-core",
@@ -478,7 +489,7 @@ name = "day-piece-settings"
 version = "0.6.0"
 dependencies = [
  "cc",
- "day-android",
+ "day-android-runtime",
  "day-appkit",
  "day-arkui",
  "day-build",
@@ -487,6 +498,7 @@ dependencies = [
  "day-gtk",
  "day-l10n",
  "day-macros",
+ "day-mdc",
  "day-part-clipboard",
  "day-part-prefs",
  "day-pieces",
@@ -530,13 +542,14 @@ name = "day-piece-texteditor"
 version = "0.6.0"
 dependencies = [
  "cc",
- "day-android",
+ "day-android-runtime",
  "day-appkit",
  "day-arkui",
  "day-core",
  "day-dom",
  "day-gtk",
  "day-macros",
+ "day-mdc",
  "day-pieces",
  "day-qt",
  "day-reactive",

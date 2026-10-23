@@ -32,10 +32,10 @@ objc2-ui-kit = { workspace = true, features = ["UIApplication", "UIResponder"] }
 [target.'cfg(windows)'.dependencies]
 windows = { workspace = true, features = ["Win32_System_Power"] }
 
-# Android's Java arm is called through JNI, so the generated code needs day-android's cached JVM and
+# Android's Java arm is called through JNI, so the generated code needs day-android-runtime's cached JVM and
 # activity, like day-part-haptics.
 [target.'cfg(target_os = "android")'.dependencies]
-day-android = { workspace = true }
+day-android-runtime = { workspace = true }
 
 # The Xcode host project drives the final link and reads no Rust link metadata, so the generated
 # DayPieces package declares the framework the power assertion lives in.

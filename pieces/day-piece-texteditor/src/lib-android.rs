@@ -4,9 +4,9 @@
 // ---------------------------------------------------------------------------
 // Android: an `EditText` subclass over its live `SpannableStringBuilder`, with the piece's Java
 // (`dev.daybrite.day.piece.texteditor.DayTextEditor`, in `src/DayTextEditor.java`) pulled into
-// the app's Gradle build by `[package.metadata.day.android]`, with no edits to day-android.
+// the app's Gradle build by `[package.metadata.day.android]`, with no edits to day-mdc.
 //
-// Runs cross as flat parallel int arrays, the shape day-android's own `setLabelRuns` uses: one JNI
+// Runs cross as flat parallel int arrays, the shape day-mdc's own `setLabelRuns` uses: one JNI
 // call per patch rather than one per run, on a path a syntax highlighter runs on every keystroke.
 // The flag bits are the same ones the label path defines, so Android has one span
 // vocabulary rather than two.
@@ -16,13 +16,13 @@
 
 use super::*;
 
-use day_android::jni::objects::JString;
-use day_android::{AHandle, Android, java};
+use day_mdc::jni::objects::JString;
+use day_mdc::{AHandle, Android, java};
 use day_spec::sidetable::SideTable;
 use day_spec::{ListStyle, NodeId, ParagraphAlign, Proposal, Size};
 
 // This piece's Java class (src/DayTextEditor.java, on the app classpath at build).
-day_android::java_class! {
+day_mdc::java_class! {
     DayTextEditor => dev.daybrite.day.piece.texteditor.DayTextEditor,
     methods {
         static fn makeEditor(id: jlong, text: JString, placeholder: JString, editable: jboolean,
@@ -157,9 +157,9 @@ fn apply_attributes(h: &AHandle, text: &str, runs: &[TextRun], paragraphs: &[Par
 /// Allocate and fill N Java int arrays; a failed JNI array is not something to paper over
 /// halfway through a patch, so any failure ends the whole push.
 fn int_arrays<'a, const N: usize>(
-    env: &mut day_android::jni::Env<'a>,
+    env: &mut day_mdc::jni::Env<'a>,
     src: [&Vec<i32>; N],
-) -> day_android::jni::errors::Result<[day_android::jni::objects::JIntArray<'a>; N]> {
+) -> day_mdc::jni::errors::Result<[day_mdc::jni::objects::JIntArray<'a>; N]> {
     let mut out = Vec::with_capacity(N);
     for v in src {
         let arr = env.new_int_array(v.len())?;
@@ -167,12 +167,12 @@ fn int_arrays<'a, const N: usize>(
         out.push(arr);
     }
     out.try_into()
-        .map_err(|_| day_android::jni::errors::Error::WrongJValueType("int[]", "array count"))
+        .map_err(|_| day_mdc::jni::errors::Error::WrongJValueType("int[]", "array count"))
 }
 
 fn make(_backend: &mut Android, p: &EditorProps, id: NodeId) -> AHandle {
-    let base_points = day_android::font_style(p.base).0 as f64;
-    let h = day_android::realize("text_editor", |env| {
+    let base_points = day_mdc::font_style(p.base).0 as f64;
+    let h = day_mdc::realize("text_editor", |env| {
         let text = JString::from_str(env, &p.doc.text)?;
         let placeholder = JString::from_str(env, &p.placeholder)?;
         DayTextEditor::makeEditor(
@@ -295,6 +295,6 @@ fn release(_backend: &mut Android, h: &AHandle) {
     });
 }
 
-day_pieces::renderer!(day_android::RENDERERS, Android,
+day_pieces::renderer!(day_mdc::RENDERERS, Android,
     kind: KIND, props: EditorProps, patch: EditorPatch,
     make: make, update: update, measure: measure, release: release);

@@ -36,10 +36,10 @@ license.workspace = true
 objc2 = { workspace = true }
 block2 = { workspace = true }
 
-# Android calls its own Java shim through day-android's cached JVM/Context, the one platform where
+# Android calls its own Java shim through day-android-runtime's cached JVM/Context, the one platform where
 # this headless crate rides on the day runtime (like day-part-http and day-part-sensors).
 [target.'cfg(target_os = "android")'.dependencies]
-day-android = { workspace = true }
+day-android-runtime = { workspace = true }
 
 # HarmonyOS finds day-arkui's permission export in the app's own native library, which the ArkTS
 # loader opens with local symbol visibility; day-bridge's lookup knows to ask that library. The

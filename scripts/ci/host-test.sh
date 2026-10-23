@@ -46,7 +46,7 @@ exec cargo test --locked --workspace --no-fail-fast \
     --exclude day-qt \
     --exclude day-qt-sys \
     --exclude day-uikit \
-    --exclude day-android \
+    --exclude day-mdc \
     --exclude day-xaml \
     --exclude day-xaml-sys \
     --exclude day-dom \

@@ -1230,7 +1230,7 @@ pub fn set_transform(n: Handle, tx: f64, ty: f64, sx: f64, sy: f64, deg: f64) {
 }
 
 /// A determinate progress bar: ArkUI uses a value in [0, total]; Day passes the 0..1 fraction,
-/// scaled onto a fixed 0..1000 range (like day-android's LinearProgressIndicator ticks).
+/// scaled onto a fixed 0..1000 range (like day-mdc's LinearProgressIndicator ticks).
 pub fn set_progress(n: Handle, fraction: f64) {
     set_f32(n, Attr::NODE_PROGRESS_TOTAL, 1000.0);
     set_f32(

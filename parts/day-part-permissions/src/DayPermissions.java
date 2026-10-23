@@ -3,11 +3,11 @@
 
 // day-part-permissions' Android backend: a headless capability shim (no UI). It is bundled with
 // this crate and folded into the app's Gradle build via [package.metadata.day.android], with no
-// edits to day-android; it registers no view. It is the Android twin of
+// edits to day-android-runtime; it registers no view. It is the Android twin of
 // parts/day-part-permissions/src/*.rs's other per-OS impls.
 //
 // A fragment is used because runtime permission results arrive at
-// Activity.onRequestPermissionsResult, and day-android's DayActivity overrides only
+// Activity.onRequestPermissionsResult, and day-android-runtime's DayActivity overrides only
 // onActivityResult (hardcoded to the file picker). Rather than edit a core day crate (which every
 // part's Cargo.toml promises not to do), this shim attaches a headless Fragment of its own and
 // uses registerForActivityResult(RequestMultiplePermissions). Results
@@ -40,7 +40,7 @@ import androidx.fragment.app.FragmentManager;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
-import dev.daybrite.day.bridge.DayBridge;
+import dev.daybrite.day.bridge.DayRuntime;
 
 public final class DayPermissions {
     private DayPermissions() {}
@@ -67,7 +67,7 @@ public final class DayPermissions {
 
     /** 1 when the permission is currently granted, 0 otherwise. */
     public static int check(String perm) {
-        Context ctx = DayBridge.ctx;
+        Context ctx = DayRuntime.ctx;
         if (ctx == null) {
             return 0;
         }
@@ -80,7 +80,7 @@ public final class DayPermissions {
      * Status::Restricted means.
      */
     public static boolean isDeclared(String perm) {
-        Context ctx = DayBridge.ctx;
+        Context ctx = DayRuntime.ctx;
         if (ctx == null) {
             return false;
         }
@@ -105,7 +105,7 @@ public final class DayPermissions {
 
     /** The platform's "you should explain before asking again" signal. */
     public static boolean shouldShowRationale(String perm) {
-        Context ctx = DayBridge.ctx;
+        Context ctx = DayRuntime.ctx;
         if (!(ctx instanceof Activity)) {
             return false;
         }
@@ -118,7 +118,7 @@ public final class DayPermissions {
 
     /** Below API 33 there is no POST_NOTIFICATIONS permission; this is the whole answer. */
     public static boolean notificationsEnabled() {
-        Context ctx = DayBridge.ctx;
+        Context ctx = DayRuntime.ctx;
         if (ctx == null) {
             return false;
         }
@@ -129,7 +129,7 @@ public final class DayPermissions {
 
     /** Open this app's page in Settings, the only remedy once a permission is permanently denied. */
     public static boolean openSettings() {
-        Context ctx = DayBridge.ctx;
+        Context ctx = DayRuntime.ctx;
         if (ctx == null) {
             return false;
         }
@@ -157,13 +157,13 @@ public final class DayPermissions {
     public static void request(long token, String permsJoined) {
         String[] perms = permsJoined.isEmpty() ? new String[0] : permsJoined.split(SEP, -1);
         pending.put(token, perms);
-        Context ctx = DayBridge.ctx;
+        Context ctx = DayRuntime.ctx;
         if (!(ctx instanceof FragmentActivity)) {
             deliverCurrent(token, perms);
             return;
         }
         final FragmentActivity activity = (FragmentActivity) ctx;
-        DayBridge.main.post(new Runnable() {
+        DayRuntime.main.post(new Runnable() {
             @Override
             public void run() {
                 try {

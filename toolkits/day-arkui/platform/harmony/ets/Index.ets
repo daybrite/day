@@ -1,6 +1,6 @@
 // The ArkTS host page for a Day app — the framework's, not the app's. `day build` stages this
 // directory into the app's hvigor project at `entry/src/main/ets/day/` (gitignored) from the
-// day-arkui crate the app depends on, the way Gradle reads the Java shim from day-android
+// day-arkui crate the app depends on, the way Gradle reads the Java shim from day-mdc
 // (docs/harmonyos.md). The window mounts the Day tree and a separate cover layer.
 // DayNavigation.ets hosts a Navigation/NavPathStack inside EACH navigation surface,
 // so sibling tabs and independently mounted stacks cannot share titles or back history. Day owns layout,

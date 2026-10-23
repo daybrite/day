@@ -51,7 +51,7 @@ The source investigation found these reusable paths:
 | GTK | `toolkits/day-gtk/src/lib.rs`: `DragSource`, row-token provider, drop guards | Reuse controller lifetime patterns; replace row-only payload assumptions. |
 | Qt | `toolkits/day-qt-sys/src/shim.cpp`: `DayList`, `QDrag`, guarded `dropEvent` | Current source/target state is a list selection. General adapters require MIME data and session identity. |
 | Windows XAML | `toolkits/day-xaml-sys/src/shim.cpp`: `day_xaml_list_enable_reorder`, `day_xaml_cell_drag` | Existing `CanDrag`, `AllowDrop`, `DataPackageOperation` wiring is local row bookkeeping. Add actual data packages. |
-| Android MDC | `toolkits/day-android/java/dev/daybrite/day/bridge/DayBridge.java`: `ItemTouchHelper` | Incremental row swaps are not Android system data dragging. Add `View.OnDragListener` separately. |
+| Android MDC | `toolkits/day-mdc/java/dev/daybrite/day/bridge/DayBridge.java`: `ItemTouchHelper` | Incremental row swaps are not Android system data dragging. Add `View.OnDragListener` separately. |
 | Web | `crates/day-cli/resources/web/shim.js`: `day_dom_list_reorder` | Pointer capture and a CSS gap implement local reorder; there is no HTML transfer session in that path. |
 | Harmony ArkUI | `toolkits/day-arkui/src/transfer.rs` + `list.rs`: `NODE_ON_DRAG_START`, `NODE_ON_DROP`, draggable cells | Native drag events exist, but handlers are hard-wired to list state. Route by registered capability before list fallback. |
 

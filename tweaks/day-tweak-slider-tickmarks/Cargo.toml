@@ -15,7 +15,8 @@ day-appkit = { workspace = true, optional = true }
 objc2-app-kit = { workspace = true, optional = true, features = ["NSSlider", "NSSliderCell", "NSControl", "NSView", "NSResponder", "NSCell", "NSActionCell"] }
 day-gtk = { workspace = true, optional = true }
 gtk4 = { workspace = true, optional = true, features = ["v4_10"] }
-day-android = { workspace = true, optional = true }
+day-mdc = { workspace = true, optional = true }
+day-android-runtime = { workspace = true, optional = true }
 day-qt = { workspace = true, optional = true }
 day-xaml = { workspace = true, optional = true }
 day-arkui = { workspace = true, optional = true }
@@ -27,7 +28,7 @@ cc = { workspace = true }
 [features]
 appkit = ["dep:day-appkit", "dep:objc2-app-kit"]
 gtk = ["dep:day-gtk", "dep:gtk4"]
-mdc = ["dep:day-android"]
+mdc = ["dep:day-mdc", "dep:day-android-runtime"]
 qt = ["dep:day-qt"]
 xaml = ["dep:day-xaml"]
 # WinUI 3 (windows-winui, docs/winui.md): the xaml half, built against Microsoft.UI.Xaml.

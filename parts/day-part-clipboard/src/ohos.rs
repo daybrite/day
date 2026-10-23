@@ -6,7 +6,7 @@
 // OH_UdsPlainText inside an OH_UdmfRecord inside an OH_UdmfData handed to OH_Pasteboard_SetData;
 // a read is OH_Pasteboard_GetData + OH_UdmfData_GetPrimaryPlainText. Pure FFI, like macOS/iOS;
 // no ArkTS bridge or Day runtime needed (unlike Android's ClipboardManager, which rides
-// day-android's JVM/Context). Reading the pasteboard needs no permission.
+// day-android-runtime's JVM/Context). Reading the pasteboard needs no permission.
 
 use core::ffi::{CStr, c_char, c_int};
 use std::ffi::CString;

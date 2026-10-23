@@ -841,7 +841,7 @@ tree(src, row)
         let _ = env.call_method(view, "setVerticalScrollBarEnabled", "(Z)V", &[true.into()]);
     })
     .row_tweak(|row_view, _class, info| {
-        day_android::ext::set_elevation(row_view, if info.is_group { 2.0 } else { 0.0 });
+        day_mdc::ext::set_elevation(row_view, if info.is_group { 2.0 } else { 0.0 });
     })
 ```
 

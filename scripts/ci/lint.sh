@@ -5,7 +5,7 @@
 # clippy warning can't reach CI. It exists because the gate is a matrix, not one command: toolkit
 # and part crates are not in default-members and each compiles only under its own backend feature
 # and/or cross-target, so a bare `cargo clippy` silently skips them; that blind spot has shipped
-# `useless_conversion` (day-android) and unformatted imports to CI more than once.
+# `useless_conversion` (day-mdc) and unformatted imports to CI more than once.
 #
 #     scripts/ci/lint.sh            # run every leg this machine can
 #     scripts/ci/lint.sh -q         # quieter: only per-leg pass/fail + the summary
@@ -88,7 +88,7 @@ fi
 # 2) The showcase exercises the framework through an app's dependency graph.
 app_leg "clippy showcase (mock)" cargo clippy --no-default-features --features mock --all-targets
 
-# 3) Cross-target + feature-gated backends. Each pulls in its toolkit crate (day-android, day-arkui,
+# 3) Cross-target + feature-gated backends. Each pulls in its toolkit crate (day-mdc, day-arkui,
 #    day-appkit, …), the crates a host clippy never compiles.
 # The Android and OpenHarmony legs compile C too (bundled SQLite in day-persistence, ring under
 # day-part-http's fallback TLS, napi-ohos), and cc-rs never finds an NDK's cross clang on its own.

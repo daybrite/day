@@ -42,7 +42,7 @@ serde_json = { workspace = true }
 # HarmonyOS — both abilities, both pages (ets/), and the native module's type declarations
 # (types/Index.d.ts, which must match the `#[napi]` exports in src/host_api.rs). `day build`
 # resolves this crate through cargo metadata and stages the directory into the app's hvigor
-# project, the way Gradle reads the Java shim from day-android (docs/harmonyos.md). Nothing
+# project, the way Gradle reads the Java shim from day-mdc (docs/harmonyos.md). Nothing
 # here is metadata: the CLI finds the dir by the crate's name.
 
 [build-dependencies]

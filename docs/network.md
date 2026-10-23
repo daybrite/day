@@ -61,7 +61,7 @@ Platform guidance: [Android: network operations](https://developer.android.com/d
 | Windows | [`GetNetworkConnectivityHint`](https://learn.microsoft.com/en-us/windows/win32/api/netioapi/nf-netioapi-getnetworkconnectivityhint) (iphlpapi, resolved dynamically) | raw FFI (kernel32 + runtime lookup) |
 | Linux | `/sys/class/net` interface scan | std only |
 | HarmonyOS | [`OH_NetConn_HasDefaultNet`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-network-kit/capi-netconnection.md) / [`GetNetCapabilities`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-network-kit/capi-netconnection.md) (`libnet_connection.so`) | raw FFI (NetworkKit) |
-| Android | [`ConnectivityManager`](https://developer.android.com/reference/android/net/ConnectivityManager) + [`NetworkCapabilities`](https://developer.android.com/reference/android/net/NetworkCapabilities) via a Java shim | `day-android` + `[package.metadata.day.android]` |
+| Android | [`ConnectivityManager`](https://developer.android.com/reference/android/net/ConnectivityManager) + [`NetworkCapabilities`](https://developer.android.com/reference/android/net/NetworkCapabilities) via a Java shim | `day-mdc` + `[package.metadata.day.android]` |
 
 ## What each platform can report
 
@@ -106,4 +106,4 @@ into any toolkit's `RENDERERS` slice. It additionally exercises the **manifest-p
 (from the webview work, [docs/extending](extending.md)): `[package.metadata.day.android]` stages its own Java shim
 and contributes `android.permission.ACCESS_NETWORK_STATE`, which `day build` merges into the app
 manifest with no changes to any core Day crate. On Android the crate rides on the Day runtime
-(day-android's cached JVM + `DayBridge.ctx`); on every other platform it is fully day-independent.
+(day-mdc's cached JVM + `DayBridge.ctx`); on every other platform it is fully day-independent.

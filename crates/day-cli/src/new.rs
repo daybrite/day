@@ -223,7 +223,7 @@ fn subpath(crate_name: &str) -> String {
         "day" => "crates/day".into(),
         n if n.starts_with("day-piece-") => format!("pieces/{n}"),
         n if n.starts_with("day-part-") => format!("parts/{n}"),
-        "day-appkit" | "day-gtk" | "day-qt" | "day-qt-sys" | "day-uikit" | "day-android"
+        "day-appkit" | "day-gtk" | "day-qt" | "day-qt-sys" | "day-uikit" | "day-mdc"
         | "day-xaml" | "day-xaml-sys" | "day-arkui" => {
             format!("toolkits/{crate_name}")
         }
@@ -1955,7 +1955,7 @@ fn native_piece_files(
             "uikit" => {
                 "uikit = [\"dep:day-uikit\", \"dep:objc2\", \"dep:objc2-ui-kit\", \"dep:objc2-foundation\", \"dep:objc2-core-foundation\"]"
             }
-            "mdc" => "mdc = [\"dep:day-android\"]",
+            "mdc" => "mdc = [\"dep:day-mdc\", \"dep:day-android-runtime\"]",
             "xaml" => "xaml = [\"dep:day-xaml\", \"dep:day-xaml-sys\"]",
             // Enable WinUI in both the Rust toolkit and its C++ shim.
             "winui" => "winui = [\"xaml\", \"day-xaml/winui\", \"day-xaml-sys/winui\"]",
@@ -1991,7 +1991,8 @@ fn native_piece_files(
         push_dep(deps.dep("day-uikit", ", optional = true"));
     }
     if has("mdc") {
-        push_dep(deps.dep("day-android", ", optional = true"));
+        push_dep(deps.dep("day-mdc", ", optional = true"));
+        push_dep(deps.dep("day-android-runtime", ", optional = true"));
     }
     if has("xaml") {
         push_dep(deps.dep("day-xaml", ", optional = true"));
@@ -2020,7 +2021,7 @@ fn native_piece_files(
     if has("mdc") {
         meta.push_str(&format!(
             "\n# Standalone-piece Android contribution: `day build` reads this from `cargo metadata`\n\
-             # and folds the piece's own Java into the app's Gradle build, without touching day-android.\n\
+             # and folds the piece's own Java into the app's Gradle build, without touching day-mdc.\n\
              # `java` takes source dirs or single files; a file is linked in by its `package` line.\n\
              [package.metadata.day.android]\n\
              java = [\"{java_entry}\"]\n\
@@ -2207,14 +2208,14 @@ fn part_files(
         .map(|p| format!("target_os = \"{p}\""))
         .collect();
 
-    // Target-gated deps: only Android rides on the day runtime (its Java shim needs day-android).
+    // Target-gated deps: only Android rides on the day runtime (its Java shim needs day-android-runtime).
     let mut dep_sections = String::new();
     if has("android") {
         dep_sections.push_str(&format!(
-            "\n# Android reads through a Java shim + day-android's cached JVM/Context, the one platform\n\
+            "\n# Android reads through a Java shim + day-android-runtime's cached JVM/Context, the one platform\n\
              # where a headless part rides on the day runtime (like the pieces' Android backends).\n\
              [target.'cfg(target_os = \"android\")'.dependencies]\n{}\n",
-            deps.dep("day-android", ""),
+            deps.dep("day-android-runtime", ""),
         ));
     }
 
@@ -2223,7 +2224,7 @@ fn part_files(
     if has("android") {
         meta.push_str(&format!(
             "\n# `day build` stages this Java into the app's Gradle build (and merges any permissions),\n\
-             # without touching day-android. This headless part registers no renderer. `java` takes\n\
+             # without touching day-mdc. This headless part registers no renderer. `java` takes\n\
              # source dirs or single files; a file is linked in by its `package` line.\n\
              [package.metadata.day.android]\n\
              java = [\"{java_entry}\"]\n\
@@ -2878,17 +2879,17 @@ day_pieces::renderer!(day_uikit::RENDERERS, Uikit,
 
 const ANDROID_IMPL: &str = r#"// Android: an EditText. This crate's Java factory (Day__PASCAL__), declared by `java` in
 // [package.metadata.day.android], is pulled into the app's Gradle build without any edits to
-// day-android. A TextWatcher dispatches edits back to Rust via DayBridge.nativeOnEvent(id, 1, …)
+// day-mdc. A TextWatcher dispatches edits back to Rust via DayBridge.nativeOnEvent(id, 1, …)
 // (kind 1 = TextChanged).
 
 use super::*;
-use day_android::jni::objects::JString;
-use day_android::{AHandle, Android, java};
+use day_mdc::jni::objects::JString;
+use day_mdc::{AHandle, Android, java};
 use day_spec::{NodeId, Proposal, Size};
 
 // The Java factory, bound by its own names (docs/android-jni.md): a signature that stops matching
 // the Java is named when the app launches, and R8 keeps exactly these methods.
-day_android::java_class! {
+day_mdc::java_class! {
     Day__PASCAL__ => "__PKG_DOTS__.Day__PASCAL__",
     methods {
         static fn makeField(id: jlong, placeholder: JString, text: JString) -> android.view.View,
@@ -2897,7 +2898,7 @@ day_android::java_class! {
 }
 
 fn make(_backend: &mut Android, p: &__PASCAL__Props, id: NodeId) -> AHandle {
-    day_android::realize("__SNAKE__", |env| {
+    day_mdc::realize("__SNAKE__", |env| {
         let placeholder = JString::from_str(env, &p.placeholder)?;
         let text = JString::from_str(env, &p.text)?;
         Day__PASCAL__::makeField(env, id.0 as i64, &placeholder, &text)
@@ -2917,14 +2918,14 @@ fn measure(_backend: &mut Android, _h: &AHandle, p: Proposal) -> Size {
     Size::new(p.width.unwrap_or(180.0), p.height.unwrap_or(44.0))
 }
 
-day_pieces::renderer!(day_android::RENDERERS, Android,
+day_pieces::renderer!(day_mdc::RENDERERS, Android,
     kind: KIND, props: __PASCAL__Props, patch: __PASCAL__Patch,
     make: make, update: update, measure: measure);
 "#;
 
 const ANDROID_JAVA: &str = r#"// This piece's Android factory, bundled with the crate and pulled into the app's Gradle
-// build via [package.metadata.day.android], without touching day-android. It uses only
-// day-android's public Java surface: DayBridge.ctx (the Android Context) and
+// build via [package.metadata.day.android], without touching day-mdc. It uses only
+// day-mdc's public Java surface: DayBridge.ctx (the Android Context) and
 // DayBridge.nativeOnEvent (the event trampoline).
 package __PKG_DOTS__;
 
@@ -3404,12 +3405,12 @@ mod tests {
 
 const PART_ANDROID: &str = r#"// Android: read through this crate's Java shim (Day__PASCAL__.java, declared by `java` in
 // [package.metadata.day.android]), staged into the app's Gradle build by `day build` without
-// touching day-android (it registers no renderer). The Java uses day-android's cached Context
-// (DayBridge.ctx); Rust calls it through a `java_class!` binding (docs/android-jni.md).
+// touching day-android-runtime (it registers no renderer). The Java uses day-android-runtime's cached Context
+// (DayRuntime.ctx); Rust calls it through a `java_class!` binding (docs/android-jni.md).
 
-use day_android::java;
+use day_android_runtime::java;
 
-day_android::java_class! {
+day_android_runtime::java_class! {
     Day__PASCAL__ => "__PKG_DOTS__.Day__PASCAL__",
     methods {
         static fn read() -> jlong,
@@ -3426,7 +3427,7 @@ pub fn status() -> Option<super::Sample> {
 "#;
 
 const PART_ANDROID_JAVA: &str = r#"// __CRATE__'s Android backend: a headless capability shim (no UI), bundled with this crate and
-// folded into the app's Gradle build via [package.metadata.day.android], without touching day-android.
+// folded into the app's Gradle build via [package.metadata.day.android], without touching day-android-runtime.
 package __PKG_DOTS__;
 
 public final class Day__PASCAL__ {
@@ -3434,7 +3435,7 @@ public final class Day__PASCAL__ {
 
     /**
      * Returns a sample reading, or -1 when unavailable. Replace the body with a real native reading;
-     * the Android Context is available as dev.daybrite.day.bridge.DayBridge.ctx.
+     * the Android Context is available as dev.daybrite.day.bridge.DayRuntime.ctx.
      */
     public static long read() {
         return 42L;

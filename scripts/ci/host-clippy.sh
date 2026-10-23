@@ -11,8 +11,8 @@ cargo clippy --locked --all-targets "$@"
 # No workspace member enables dyn-registry; its consumer (day-lite) is a separate repo.
 cargo clippy --locked -p day-cli -p day-script -p day-pieces \
     --features day-pieces/dyn-registry --all-targets "$@"
-# Persistence has its own repository and CI; keep the core observable model covered here.
-cargo clippy --locked -p day-model --all-targets "$@"
+# Persistence has its own CI. Cover the core model and the portable Android runtime helpers.
+cargo clippy --locked -p day-model -p day-android-runtime --all-targets "$@"
 # Validate both native/default routing and the opt-in HTTP/WebSocket provider.
 cargo clippy --locked -p day-part-http --features reqwest --all-targets "$@"
 

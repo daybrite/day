@@ -19,7 +19,7 @@
       "reason": "Android/JNI API; the portable Rustdoc bundle does not publish this target-specific crate."
     },
     {
-      "code": "day_android::init",
+      "code": "day_android_runtime::init",
       "reason": "Android/JNI API; the portable Rustdoc bundle does not publish this target-specific crate."
     }
   ],
@@ -167,7 +167,7 @@
       "reason": "Generated foreign bridge/example function or target-specific runtime API; no portable public Rustdoc item."
     },
     {
-      "code": "day_android::init",
+      "code": "day_android_runtime::init",
       "reason": "Generated foreign bridge/example function or target-specific runtime API; no portable public Rustdoc item."
     },
     {
@@ -263,7 +263,7 @@
   ],
   "docs/extending.md": [
     {
-      "code": "day_android::realize",
+      "code": "day_mdc::realize",
       "reason": "Generated bridge, target-specific renderer, or external Objective-C/Java API; not a portable Day item."
     },
     {

@@ -113,7 +113,7 @@ Add `measure: f` for custom sizing: `measure: day_pieces::fill_measure` for a gr
 view, a canvas), or omit it for the backend's default. A **patchless** piece (configured once, e.g. Lottie)
 drops `patch:`/`update:`: `renderer!(day_uikit::RENDERERS, Uikit, kind: KIND, props: MyProps, make: make)`.
 Do the same for `day_gtk::RENDERERS`, `day_qt::RENDERERS`, `day_uikit::RENDERERS`,
-`day_android::RENDERERS`, `day_xaml::RENDERERS`. Each backend is behind a cargo feature that pulls in
+`day_mdc::RENDERERS`, `day_xaml::RENDERERS`. Each backend is behind a cargo feature that pulls in
 that toolkit crate; the app enables `my-piece/<backend>` alongside `day/<backend>`.
 
 **Reporting events back.** A renderer calls `day_<backend>::emit(node, event)`. Beyond the fixed
@@ -224,12 +224,12 @@ dirs, dependencies, and repos.
 `build/day/android/gradle-plugin` and applies `dev.daybrite.day.settings`, which adds the
 repositories. `app/build.gradle.kts` applies `dev.daybrite.day.android`, which applies
 `com.android.application` and configures the module from `build/day/android/`: Day.toml identity,
-the SDK levels, the day-android shim and piece sources, libraries, the manifest overlay, R8 rules, and
-release signing. The plugins are Java sources in `toolkits/day-android/gradle-plugin`, built on
+the SDK levels, the day-mdc shim and piece sources, libraries, the manifest overlay, R8 rules, and
+release signing. The plugins are Java sources in `toolkits/day-mdc/gradle-plugin`, built on
 AGP 9.4, which needs Android Studio 2026.1.4 or newer to sync. Raise that version only to one a
 current Android Studio release supports, and update the Android Studio prerequisite on the
 website's system requirements and android-mdc pages with it. `day build`,
-`day prepare`, and `day open` stage them from the day-android crate the app resolves, so an app
+`day prepare`, and `day open` stage them from the day-mdc crate the app resolves, so an app
 always builds with the plugin that matches its Java shim. The app's own `android {}` and
 `dependencies {}` blocks run after the plugin, so a value set there overrides Day's. A change to
 Day's Android build goes in the plugin: every app picks it up on its next `day build`, while a
@@ -250,7 +250,7 @@ or drawables its Java needs (e.g. a theme overlay for a dialog). The app's `R` p
 app, so the piece's Java resolves its own resources by name at runtime:
 `ctx.getResources().getIdentifier("SomeStyleName", "style", ctx.getPackageName())`. Prefix names with
 the piece to avoid collisions (resource names are one flat namespace per app).
-Core date-picker resources live under `toolkits/day-android/controls/datetime/platform/android/res`.
+Core date-picker resources live under `toolkits/day-mdc/controls/datetime/platform/android/res`.
 
 **Manifest components.** A part whose Java half is a `BroadcastReceiver` or `Service` needs it
 declared in the manifest, or Android never instantiates it. `manifest-components` names files
@@ -310,7 +310,7 @@ Three sources of keep rules cover it.
   and members it binds. `day build` reads those rules from the app's native library into
   `day-jni-keep.pro`. A first-party or third-party piece that binds its Java needs no rules of its
   own.
-- **The framework keeps natives and leaves the rest to R8.** `day-android`'s `proguard-rules.pro`
+- **The framework keeps natives and leaves the rest to R8.** `day-android-runtime`'s `proguard-rules.pro`
   keeps every class with `native` methods (Java's way into Rust). Manifest components (activities,
   services, providers, receivers) are kept by the rules AGP generates from the merged manifest.
   R8's optimizations stay off (`proguard-dontoptimize.pro`) unless the app sets
@@ -328,12 +328,12 @@ Day's Gradle plugin reads `dayProguardFile` and `proguardFiles` from
 `day-pieces.json` and applies them in the `release` build type. App Fair's `platform/android/proguard-rules.pro` (reflection, app side) are the
 references.
 
-The piece's Java uses only day-android's public surface: `DayBridge.ctx` (the `Context`) and
+The piece's Java uses only day-mdc's public surface: `DayBridge.ctx` (the `Context`) and
 `DayBridge.nativeOnEvent(id, kind, num, str)` (the event trampoline, `4` = selection).
-The Rust side binds its Java class with `day_android::java_class!` and makes its View with
-`day_android::realize`, which falls back to the visible placeholder when the factory throws
-([docs/android-jni](android-jni.md)). `toolkits/day-android/src/controls/searchfield.rs` is the
-reference; its Java factory lives in `toolkits/day-android/controls/searchfield/src/DaySearch.java`.
+The Rust side binds its Java class with `day_android_runtime::java_class!` and makes its View with
+`day_mdc::realize`, which falls back to the visible placeholder when the factory throws
+([docs/android-jni](android-jni.md)). `toolkits/day-mdc/src/controls/searchfield.rs` is the
+reference; its Java factory lives in `toolkits/day-mdc/controls/searchfield/src/DaySearch.java`.
 
 > **Gradle configuration cache.** Day's Gradle plugin reads `day-pieces.json`, and the other files
 > `day build` generates under `build/day/android/`, at *configuration* time through
@@ -519,17 +519,17 @@ its Rust declares.
 ### The Android bridging contract
 
 These are the guarantees a part or piece can rely on when its Rust calls its Java sidecar (all
-provided by `day-android`, all exercised in production by [`day-part-http`](/docs/reference/http)). A [daybridge](bridge.md)
+provided by `day-android-runtime`, all exercised in production by [`day-part-http`](/docs/reference/http)). A [daybridge](bridge.md)
 arm rides these same guarantees (its generated JNI wrapper is written against them), so this list
 is what that generated code does on your behalf, and what to know when you write the call by hand:
 
-- **Any thread may call.** `day_android::with_env(|env| …)` attaches the calling thread to the
+- **Any thread may call.** `day_android_runtime::with_env(|env| …)` attaches the calling thread to the
   JVM (and detaches scoped attachments). Blocking Java work runs on the caller's thread; keep
   it off the UI thread, exactly like any other blocking Rust.
 - **App classes resolve from any thread.** A `java_class!` binding loads its class through the
   app `ClassLoader` cached at startup, so a Rust-spawned worker resolves your sidecar class even
   though a bare JNI `FindClass` there only sees system classes.
-- **Calls clear their own exceptions.** Inside `day_android::java(|env| …)` a thrown Java exception
+- **Calls clear their own exceptions.** Inside `day_android_runtime::java(|env| …)` a thrown Java exception
   is described to logcat, cleared, and returned as `None`
   ([docs/android-jni](android-jni.md#calling)).
 - **Post to the UI thread** with `DayBridge.main.post(...)` on the Java side; on the Rust side,
@@ -538,7 +538,7 @@ is what that generated code does on your behalf, and what to know when you write
 - **Bulk payloads cross as one `byte[]` envelope**: `[status i32 BE][meta-len i32 BE]
   ["k\nv\n…" meta][payload]`; a negative status is your error sentinel with the message riding
   the meta block. Build it with `DayEnvelope.pack/error` in Java and parse it with
-  `day_android::envelope::Envelope` in Rust; the two encode identically and Rust unit tests pin
+  `day_android_runtime::envelope::Envelope` in Rust; the two encode identically and Rust unit tests pin
   the format. There is one JNI copy each way and no per-field JNI traffic.
 - **Piece-defined events** ride the `K_CUSTOM` kind (`DayBridge.nativeOnEvent(id, DayBridge.K_CUSTOM,
   num, text)` → `Event::Custom`): the tag can't cross JNI, so the piece reads the raw
@@ -553,7 +553,7 @@ appkit = ["dep:day-appkit", …]
 gtk = ["dep:day-gtk", "dep:gtk4"]
 qt = ["dep:day-qt"]                 # + a build.rs that compiles src/lib-qt-shim.cpp
 uikit = ["dep:day-uikit", …]
-mdc = ["dep:day-android"]        # + [package.metadata.day.android]
+mdc = ["dep:day-mdc", "dep:day-android-runtime"]        # + [package.metadata.day.android]
 xaml = ["dep:day-xaml", "dep:day-xaml-sys"]   # + build.rs compiles src/lib-xaml-shim.cpp
 ```
 

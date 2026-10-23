@@ -348,7 +348,7 @@ mod title_tag_tests {
 
 /// Where a formatted line goes. Unset means the process's own stderr, which is right on every
 /// native target: a terminal on the desktop, Xcode's console on Apple, and logcat on Android
-/// (day-android `dup2`s fd 2 into it). `wasm32-unknown-unknown` is the one target where that is
+/// (day-mdc `dup2`s fd 2 into it). `wasm32-unknown-unknown` is the one target where that is
 /// wrong rather than merely different (std's stdio there accepts the bytes and drops them, so
 /// every line vanishes), and day-dom installs a sink reaching the browser console instead.
 static LOG_SINK: std::sync::OnceLock<fn(log::Level, &str)> = std::sync::OnceLock::new();

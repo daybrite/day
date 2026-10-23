@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # Copyright © The Daybrite Project
 # SPDX-License-Identifier: MPL-2.0
-"""Reuse the built site's actual header, footer and styles through Rustdoc's HTML hooks."""
+"""Reuse the built site's footer and styles through Rustdoc's HTML hooks."""
 import argparse
 from html.parser import HTMLParser
 from pathlib import Path
@@ -28,7 +28,7 @@ class Shell(HTMLParser):
             self.styles.append(self.get_starttag_text())
         if tag == 'script' and 'data-day-theme' in attrs:
             self.theme = self.get_starttag_text() + '</script>'
-        if (tag == 'header' and 'nav' in attrs.get('class', '').split()) or tag == 'footer':
+        if tag == 'footer':
             self.start = (tag, self.source_offset())
 
     def handle_endtag(self, tag):
@@ -42,14 +42,13 @@ def build(site, output):
     if not bridge.is_file():
         raise ValueError(f'Build the site first (npm --prefix website run build:site): missing {bridge}')
     shell = Shell(bridge.read_text())
-    if not shell.styles or not shell.theme or set(shell.fragments) != {'header', 'footer'}:
-        raise ValueError('API bridge is missing the shared styles, theme script, header, or footer; rebuild the site.')
+    if not shell.styles or not shell.theme or 'footer' not in shell.fragments:
+        raise ValueError('API bridge is missing the shared styles, theme script or footer; rebuild the site.')
     output.mkdir(parents=True, exist_ok=True)
     (output / 'head.html').write_text('\n'.join(shell.styles + [shell.theme,
         '<link rel="stylesheet" href="/styles/rustdoc.css">',
-        '<script defer src="/scripts/rustdoc.js"></script>',
         '<link rel="icon" type="image/svg+xml" href="/favicon.svg">']) + '\n')
-    (output / 'before.html').write_text(shell.fragments['header'] + '\n<div class="day-api-content">\n')
+    (output / 'before.html').write_text('<div class="day-api-content">\n')
     (output / 'after.html').write_text(
         '</div>\n<nav class="day-api-links container" aria-label="Day API navigation">'
         '<a href="/docs/reference/api">All Day crates</a>'

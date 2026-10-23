@@ -17,15 +17,15 @@
 // ---------------------------------------------------------------------------
 
 use super::*;
-use day_android::jni::objects::JString;
-use day_android::{AHandle, Android, java};
+use day_mdc::jni::objects::JString;
+use day_mdc::{AHandle, Android, java};
 use day_core::{BuildCx, Flex, Layout, LayoutOps, RNode, with_tree};
 use day_spec::{NodeId, Proposal, Rect, Size};
 
-/// The row's piece kind, registered under `day_android::RENDERERS`.
+/// The row's piece kind, registered under `day_mdc::RENDERERS`.
 const ROW_KIND: &str = "day-piece-settings.row";
 // This piece's Java class (src/DaySettingsRow.java, on the app classpath at build).
-day_android::java_class! {
+day_mdc::java_class! {
     DaySettingsRow => dev.daybrite.day.piece.settings.DaySettingsRow,
     methods {
         static fn makeRow(title: JString, caption: JString, icon: JString, style: jint,
@@ -111,7 +111,7 @@ enum RowPatch {
 // ---------------------------------------------------------------------------
 
 fn make(_backend: &mut Android, p: &RowProps, _id: NodeId) -> AHandle {
-    day_android::realize("settings_row", |env| {
+    day_mdc::realize("settings_row", |env| {
         let title = JString::from_str(env, &p.title)?;
         let caption = JString::from_str(env, &p.caption)?;
         let icon = JString::from_str(env, &p.icon)?;
@@ -155,7 +155,7 @@ fn measure(_backend: &mut Android, h: &AHandle, p: Proposal) -> Size {
     Size::new(width, height)
 }
 
-day_pieces::renderer!(day_android::RENDERERS, Android,
+day_pieces::renderer!(day_mdc::RENDERERS, Android,
     kind: ROW_KIND, props: RowProps, patch: RowPatch,
     make: make, update: update, measure: measure);
 
@@ -503,11 +503,11 @@ fn tracked(t: &TextSource) -> String {
 }
 
 /// The drawable name of a group's icon: a bundled vector by its own name, a standard glyph by
-/// the Material Symbol day-android ships for it.
+/// the Material Symbol day-mdc ships for it.
 fn icon_drawable(icon: &GroupIcon) -> String {
     match icon {
         GroupIcon::Image(name) => name.as_str().to_owned(),
-        GroupIcon::Symbol(sym) => day_android::symbol_drawable(*sym),
+        GroupIcon::Symbol(sym) => day_mdc::symbol_drawable(*sym),
     }
 }
 

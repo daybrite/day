@@ -42,7 +42,7 @@ day_bridge::bridge! {
             import android.security.keystore.KeyPermanentlyInvalidatedException;
             import android.security.keystore.KeyProperties;
             import android.security.keystore.UserNotAuthenticatedException;
-            import dev.daybrite.day.bridge.DayBridge;
+            import dev.daybrite.day.bridge.DayRuntime;
             import java.io.ByteArrayOutputStream;
             import java.io.File;
             import java.io.FileInputStream;
@@ -111,7 +111,7 @@ day_bridge::bridge! {
             // --- files -----------------------------------------------------------------------
 
             private static File dir() {
-                Context ctx = DayBridge.ctx;
+                Context ctx = DayRuntime.ctx;
                 if (ctx == null) {
                     return null;
                 }
@@ -269,7 +269,7 @@ day_bridge::bridge! {
             }
 
             private static boolean deviceSecure() {
-                Context ctx = DayBridge.ctx;
+                Context ctx = DayRuntime.ctx;
                 if (ctx == null) {
                     return false;
                 }
@@ -471,8 +471,8 @@ day_bridge::bridge! {
                         return;
                     }
                 }
-                final Context ctx = DayBridge.ctx;
-                DayBridge.main.post(new Runnable() {
+                final Context ctx = DayRuntime.ctx;
+                DayRuntime.main.post(new Runnable() {
                     @Override
                     public void run() {
                         dayPrompt(ctx, r, unwrap, reason, done);

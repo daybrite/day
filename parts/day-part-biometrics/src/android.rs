@@ -13,7 +13,7 @@ use crate::{Availability, BiometricError, Biometry, Method, OnDone, Prompt, Supp
 const MIN_SDK: i32 = 28;
 
 pub fn support() -> Support {
-    if day_android::sdk_int() >= MIN_SDK {
+    if day_android_runtime::sdk_int() >= MIN_SDK {
         Support::Native
     } else {
         Support::Unsupported

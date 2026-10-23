@@ -62,7 +62,7 @@ Platform guidance: [Android: copying and pasting](https://developer.android.com/
 | Windows | [Win32 clipboard](https://learn.microsoft.com/en-us/windows/win32/dataxchg/clipboard), [`CF_UNICODETEXT`](https://learn.microsoft.com/en-us/windows/win32/dataxchg/standard-clipboard-formats) (OpenClipboard/Set/GetClipboardData) | raw FFI (user32/kernel32) |
 | Linux | `wl-copy`/`wl-paste` (Wayland), `xclip` (X11) via `std::process` | std only |
 | HarmonyOS | native [`OH_Pasteboard_*`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-basic-services-kit/capi-pasteboard.md) + UDMF plain-text record (`libpasteboard.so`, `libudmf.so`) | raw FFI (BasicServicesKit) |
-| Android | [`ClipboardManager`](https://developer.android.com/reference/android/content/ClipboardManager) via a Java shim | `day-android` + `[package.metadata.day.android]` |
+| Android | [`ClipboardManager`](https://developer.android.com/reference/android/content/ClipboardManager) via a Java shim | `day-mdc` + `[package.metadata.day.android]` |
 
 macOS is toolkit-independent: the general pasteboard needs no [NSApplication](https://developer.apple.com/documentation/appkit/nsapplication), run loop, or window, so it
 works identically in day-appkit and day-qt binaries (and plain `cargo test` processes). [NSPasteboard](https://developer.apple.com/documentation/appkit/nspasteboard) is

@@ -702,7 +702,7 @@ day_bridge::bridge! {
             import android.media.SoundPool;
             import android.os.Bundle;
             import android.util.Log;
-            import dev.daybrite.day.bridge.DayBridge;
+            import dev.daybrite.day.bridge.DayRuntime;
             import java.util.HashMap;
             import java.util.HashSet;
         "#,
@@ -754,7 +754,7 @@ day_bridge::bridge! {
 
             /** Pause the loops while no activity is in front, and resume them when one is. */
             private static void watch() {
-                Context ctx = DayBridge.ctx;
+                Context ctx = DayRuntime.ctx;
                 if (watching || ctx == null || !(ctx.getApplicationContext() instanceof Application)) {
                     return;
                 }
@@ -808,7 +808,7 @@ day_bridge::bridge! {
             }
 
             public static void preload_native(String path) {
-                Context ctx = DayBridge.ctx;
+                Context ctx = DayRuntime.ctx;
                 if (ctx == null || ids.containsKey(path)) {
                     return;
                 }
@@ -898,7 +898,7 @@ day_bridge::bridge! {
             }
 
             public static boolean ready_native() {
-                return DayBridge.ctx != null;
+                return DayRuntime.ctx != null;
             }
         "#,
     );

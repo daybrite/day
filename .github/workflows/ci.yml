@@ -182,6 +182,8 @@ jobs:
       # diff as "dropped", where someone has to agree with it (§14.6).
       - name: Recorder-matrix drift check
         run: bash scripts/ci/recorder-matrix.sh --check
+      - name: Android runtime dependency boundary
+        run: python3 -B scripts/ci/check-android-runtime.py
       - name: Readiness gate regression tests
         run: python3 scripts/ci/test-readiness.py
 

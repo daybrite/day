@@ -9,7 +9,7 @@ import android.hardware.SensorEventListener;
 import android.hardware.SensorManager;
 import android.os.Handler;
 import android.os.Looper;
-import dev.daybrite.day.bridge.DayBridge;
+import dev.daybrite.day.bridge.DayRuntime;
 
 public final class DaySensors {
     private DaySensors() {}
@@ -29,7 +29,7 @@ public final class DaySensors {
         }
     }
     private static SensorManager manager() {
-        Context ctx = DayBridge.ctx;
+        Context ctx = DayRuntime.ctx;
         return ctx == null ? null : (SensorManager) ctx.getSystemService(Context.SENSOR_SERVICE);
     }
     public static boolean isAvailable(int kind) {

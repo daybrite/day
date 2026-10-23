@@ -1,7 +1,7 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-//! `java_class!`: a typed binding to one Java class for day-android (docs/android-jni.md).
+//! `java_class!`: a typed binding to one Java class for day-android-runtime (docs/android-jni.md).
 //!
 //! The input is jni's `bind_java_type!` grammar, and the expansion is a `bind_java_type!` call
 //! with Day's policies around it. Four things are added:
@@ -14,7 +14,7 @@
 //!   and jni's generated code need (`non_snake_case`, and jni-macros 0.22's `deprecated` and
 //!   `clippy::too_many_arguments`) reach them and nothing else. The items are re-exported with
 //!   the binding's visibility.
-//! - **A startup check entry** in `day_android::JAVA_CLASSES`, which `day_android::init`
+//! - **A startup check entry** in `day_android_runtime::JAVA_CLASSES`, which `day_android_runtime::init`
 //!   resolves so a mismatch with the Java source is named at launch.
 //! - **An R8 keep rule** for exactly the class and members bound, as plain text in the
 //!   `day_keep` link section of the app's shared library. `day build` reads the section back and
@@ -183,15 +183,15 @@ fn expand(input: TokenStream) -> Result<TokenStream, Error> {
     let name_s = name.to_string();
     let module = Ident::new(&format!("__day_java_class_{name_s}"), Span::call_site());
 
-    // The module and its bind_java_type! call. Everything spelled out here names day_android by
+    // The module and its bind_java_type! call. Everything spelled out here names day_android_runtime by
     // its crate name: bind_java_type! reparses its `jni =` path as text, where `$crate` is no path.
     let mut inner: TokenStream = format!(
-        "jni = ::day_android::jni,\n\
+        "jni = ::day_android_runtime::jni,\n\
          pub {name_s} => {java_tokens},\n\
-         native_methods_error_policy = ::day_android::jni::errors::LogErrorAndDefault,\n\
+         native_methods_error_policy = ::day_android_runtime::jni::errors::LogErrorAndDefault,\n\
          hooks = {{\n\
              load_class = |env, load_context, initialize| {{\n\
-                 ::day_android::load_app_class::<{name_s}>(env, load_context, initialize)\n\
+                 ::day_android_runtime::load_app_class::<{name_s}>(env, load_context, initialize)\n\
              }},\n\
          }},\n",
         java_tokens = path_text(path_tokens),
@@ -209,7 +209,7 @@ fn expand(input: TokenStream) -> Result<TokenStream, Error> {
         "#[doc(hidden)]\n\
          #[allow(non_snake_case, non_camel_case_types, unused_imports, deprecated, \
                  clippy::too_many_arguments, clippy::needless_lifetimes)]\n\
-         mod {module} {{ use super::*; ::day_android::jni::bind_java_type! {{ }} }}"
+         mod {module} {{ use super::*; ::day_android_runtime::jni::bind_java_type! {{ }} }}"
     )
     .parse()
     .map_err(|e| {
@@ -238,15 +238,15 @@ fn expand(input: TokenStream) -> Result<TokenStream, Error> {
     let rule = keep.rule();
     let registration: TokenStream = format!(
         "const _: () = {{\n\
-             #[::day_android::linkme::distributed_slice(::day_android::JAVA_CLASSES)]\n\
-             #[linkme(crate = ::day_android::linkme)]\n\
-             static CHECK: ::day_android::JavaClassCheck = ::day_android::JavaClassCheck {{\n\
+             #[::day_android_runtime::linkme::distributed_slice(::day_android_runtime::JAVA_CLASSES)]\n\
+             #[linkme(crate = ::day_android_runtime::linkme)]\n\
+             static CHECK: ::day_android_runtime::JavaClassCheck = ::day_android_runtime::JavaClassCheck {{\n\
                  name: {java_lit},\n\
                  since: {since},\n\
                  resolve: |env| {{\n\
-                     <{name_s}<'static> as ::day_android::jni::refs::Reference>::lookup_class(\n\
+                     <{name_s}<'static> as ::day_android_runtime::jni::refs::Reference>::lookup_class(\n\
                          env,\n\
-                         &::day_android::jni::refs::LoaderContext::None,\n\
+                         &::day_android_runtime::jni::refs::LoaderContext::None,\n\
                      )\n\
                      .map(|_| ())\n\
                  }},\n\

@@ -119,9 +119,9 @@ fn apply(node: RNode, t: Tickmarks) {
     {
         // Material Slider: a step size yields visible ticks and snapping (Material always snaps
         // when stepped — `snap: false` is not honorable here, per the table above).
-        let _ = day_android::with_native(node, |view, _class, env| {
-            day_android::java_in(env, |env| {
-                let base = day_android::downcast::<android::BaseSlider>(env, view)?;
+        let _ = day_mdc::with_native(node, |view, _class, env| {
+            day_mdc::java_in(env, |env| {
+                let base = day_mdc::downcast::<android::BaseSlider>(env, view)?;
                 let lo = base.getValueFrom(env)?;
                 let hi = base.getValueTo(env)?;
                 let step = (hi - lo) / (t.count.saturating_sub(1).max(1)) as f32;
@@ -131,7 +131,7 @@ fn apply(node: RNode, t: Tickmarks) {
                 // Snap the current value now. NOTE: a programmatic setValue does not notify the
                 // bound Signal (fromUser=false), so an off-grid initial value diverges from the
                 // widget until the next user interaction — start stepped sliders on a grid value.
-                let slider = day_android::downcast::<android::Slider>(env, view)?;
+                let slider = day_mdc::downcast::<android::Slider>(env, view)?;
                 let value = slider.getValue(env)?;
                 let snapped = (lo + ((value - lo) / step).round() * step).clamp(lo, hi);
                 if snapped != value {
@@ -227,7 +227,7 @@ fn apply(node: RNode, t: Tickmarks) {
 /// subclass would leave the inherited methods free to be renamed.
 #[cfg(all(feature = "mdc", target_os = "android"))]
 mod android {
-    day_android::java_class! {
+    day_mdc::java_class! {
         pub BaseSlider => com.google.android.material.slider.BaseSlider,
         methods {
             fn getValueFrom() -> jfloat,
@@ -237,7 +237,7 @@ mod android {
         },
     }
 
-    day_android::java_class! {
+    day_mdc::java_class! {
         pub Slider => com.google.android.material.slider.Slider,
         methods {
             fn getValue() -> jfloat,

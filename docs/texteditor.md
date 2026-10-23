@@ -367,7 +367,7 @@ ships this control because it is not reasonable to write.
 2. **Eight label paths** got the two new run attributes and the scale, next to the code that
    already mapped `color` and `strikethrough`.
 3. **Public font resolution per toolkit** — `day_gtk::{gtk_style, pango_weight}`,
-   `day_qt::qt_style`, `day_android::font_style`, `day_arkui::font_vp`, `Uikit::mtm`,
+   `day_qt::qt_style`, `day_mdc::font_style`, `day_arkui::font_vp`, `Uikit::mtm`,
    `day_uikit::set_text_input_trait`. A piece has to resolve the same scale its labels do.
 4. **day-dom** grew the editor entry points: `Dom::set_html` (caret-preserving),
    `Dom::set_editor_selection`, the `listen::EDITABLE` bit, and event kind 17 (the piece channel,

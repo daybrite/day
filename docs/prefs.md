@@ -80,7 +80,7 @@ Platform guidance: [Apple: settings](https://developer.apple.com/design/human-in
 |---|---|---|
 | macOS | [`NSUserDefaults.standard`](https://developer.apple.com/documentation/foundation/nsuserdefaults) | `objc2` + `objc2-foundation`, shared `apple.rs` |
 | iOS | [`NSUserDefaults.standard`](https://developer.apple.com/documentation/foundation/nsuserdefaults) | `objc2` + `objc2-foundation`, shared `apple.rs` |
-| Android | [`SharedPreferences`](https://developer.android.com/reference/android/content/SharedPreferences) (`MODE_PRIVATE`) via a Java shim | `day-android` + `[package.metadata.day.android]` |
+| Android | [`SharedPreferences`](https://developer.android.com/reference/android/content/SharedPreferences) (`MODE_PRIVATE`) via a Java shim | `day-mdc` + `[package.metadata.day.android]` |
 | Linux | per-app file store under [`$XDG_CONFIG_HOME/day`](https://specifications.freedesktop.org/basedir/latest/) (or `~/.config/day`) | std only, shared `file.rs` |
 | Windows | per-app file store under `%APPDATA%\day` | std only, shared `file.rs` |
 | HarmonyOS | file store, best-effort in the app sandbox (`target_env = "ohos"`) | std only, shared `file.rs` |
@@ -96,7 +96,7 @@ Platform guidance: [Apple: settings](https://developer.apple.com/design/human-in
   [`NSString`](https://developer.apple.com/documentation/foundation/nsstring)); writes are immediately readable and flushed to disk by the system. [`set`](https://daybrite.dev/api/day_part_prefs/fn.set.html) always
   returns `true`.
 - **Android**: an app-private [`SharedPreferences`](https://developer.android.com/reference/android/content/SharedPreferences) file named `day_part_prefs`, opened with
-  `Context.MODE_PRIVATE` from `day-android`'s cached `Context` (`DayBridge.ctx`). Writes use
+  `Context.MODE_PRIVATE` from `day-mdc`'s cached `Context` (`DayBridge.ctx`). Writes use
   `Editor.commit()` (synchronous), so [`set`](https://daybrite.dev/api/day_part_prefs/fn.set.html)/[`remove`](https://daybrite.dev/api/day_part_prefs/fn.remove.html) return the true commit result. No manifest
   permission is required; [`SharedPreferences`](https://developer.android.com/reference/android/content/SharedPreferences) is private storage. Like the UI pieces, the crate
   stages its own Java shim through `[package.metadata.day.android]` and rides the Day runtime (it

@@ -307,7 +307,7 @@ a titled submenu of the same children, and a segmented item to its segments unde
 the segment in force. Tapping the row runs what the button would have run, the toggle's own
 flip included. Two kinds never reach a phone's bar: search, which rides the navigation
 list there ([docs/search](search.md)), and the sidebar toggle, which the split view owns.
-Android draws a `Symbol` from day-android's own glyph set — one Material Symbols vector per
+Android draws a `Symbol` from day-mdc's own glyph set — one Material Symbols vector per
 variant, shipped in the toolkit's `res/` and named `day_symbol_<variant>` — so a symbol-only
 item has an icon to show in the bar, the way an SF Symbol gives it one on Apple. An item with
 no icon at all still lives in the overflow, where its label reads as a menu row: a Material

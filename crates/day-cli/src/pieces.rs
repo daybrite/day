@@ -21,7 +21,7 @@
 //! linked into `build/day/android/piece-java/<package path>/`, a generated source root that joins
 //! the directories ([`link_java_files`]).
 //! The resolved contributions are written to `build/day/android/day-pieces.json`, which Day's Gradle
-//! plugin (`toolkits/day-android/gradle-plugin`, staged into `build/day/android/gradle-plugin`) reads
+//! plugin (`toolkits/day-mdc/gradle-plugin`, staged into `build/day/android/gradle-plugin`) reads
 //! generically (loops over the lists; no per-piece Gradle edits, ever).
 //! Permissions additionally go into a generated manifest overlay (`day-pieces-manifest.xml`) that the
 //! plugin registers with every app variant, so AGP merges them into the app manifest.
@@ -70,18 +70,18 @@ struct PermissionsMeta {
 /// The build-side contribution list handed to Gradle (serialized to day-pieces.json).
 #[derive(Debug, Default, Serialize)]
 pub struct AndroidPieces {
-    /// The day-android framework Java shim (DayActivity, DayBridge, …), resolved from the
-    /// `day-android` crate the app depends on, wherever cargo has it (workspace path, git
+    /// The day-mdc framework Java shim (DayActivity, DayBridge, …), resolved from the
+    /// `day-mdc` crate the app depends on, wherever cargo has it (workspace path, git
     /// checkout, or registry source). Without this dir in the dex, the APK installs and then
     /// crashes with ClassNotFoundException at launch; the Gradle scaffold hard-fails instead.
     #[serde(rename = "dayJavaSrcDir")]
     pub day_java_src_dir: Option<String>,
-    /// The day-android framework's own R8/ProGuard keep rules (bridge classes + native methods),
-    /// resolved from the day-android crate. Applied to every release build so minification never
+    /// The Android runtime's shared R8/ProGuard keep rules (bridge classes + native methods),
+    /// resolved from the day-android-runtime crate. Applied to every release build so minification never
     /// renames the JNI-reached bridge (docs/extending.md).
     #[serde(rename = "dayProguardFile")]
     pub day_proguard_file: Option<String>,
-    /// Day's Gradle plugins (`gradle-plugin/` beside the day-android crate), which
+    /// Day's Gradle plugins (`gradle-plugin/` beside the day-mdc crate), which
     /// `write_android_manifest` stages into `build/day/android/gradle-plugin` for the app's
     /// `settings.gradle.kts` to include. Never written to day-pieces.json.
     #[serde(skip)]
@@ -637,36 +637,38 @@ pub fn resolve_android(project: &Project, features: &[&str]) -> Result<AndroidPi
         if !in_closure.contains(&pkg.id) {
             continue;
         }
-        // The framework's Java shim rides with the day-android crate (§17.1); resolve it
+        // The framework's Java shim rides with the day-mdc crate (§17.1); resolve it
         // from wherever cargo checked the crate out instead of assuming a day repo layout.
-        if pkg.name == "day-android" {
+        if pkg.name == "day-mdc" {
             let java = Path::new(&pkg.manifest_path)
                 .parent()
                 .unwrap_or(Path::new("."))
                 .join("java");
             if !java.is_dir() {
                 return Err(format!(
-                    "day-android crate at {:?} has no java/ dir — the Android Java shim is \
+                    "day-mdc crate at {:?} has no java/ dir — the Android Java shim is \
                      missing from this day checkout",
                     pkg.manifest_path
                 ));
             }
             pieces.day_java_src_dir = Some(java.to_string_lossy().into_owned());
-            // The framework's R8 keep rules ride alongside the Java shim (optional: an older
-            // day-android checkout without the file contributes none).
-            let rules = Path::new(&pkg.manifest_path)
-                .parent()
-                .unwrap_or(Path::new("."))
-                .join("proguard-rules.pro");
-            if rules.is_file() {
-                pieces.day_proguard_file = Some(rules.to_string_lossy().into_owned());
-            }
             let plugin = Path::new(&pkg.manifest_path)
                 .parent()
                 .unwrap_or(Path::new("."))
                 .join("gradle-plugin");
             if plugin.is_dir() {
                 pieces.gradle_plugin_dir = Some(plugin);
+            }
+        }
+        if pkg.name == "day-android-runtime" {
+            // The framework's R8 keep rules ride alongside the Java shim (optional: an older
+            // day-android-runtime checkout without the file contributes none).
+            let rules = Path::new(&pkg.manifest_path)
+                .parent()
+                .unwrap_or(Path::new("."))
+                .join("proguard-rules.pro");
+            if rules.is_file() {
+                pieces.day_proguard_file = Some(rules.to_string_lossy().into_owned());
             }
         }
         let Some(android) = piece_meta::<AndroidMeta>(pkg, "android") else {
@@ -1127,7 +1129,7 @@ pub fn write_android_manifest(project: &Project) -> Result<(), String> {
     if let Some(dir) = link_java_files(&project.root, &pieces.java_files)? {
         pieces.java_src_dirs.push(dir.display().to_string());
     }
-    // Day's Gradle plugins, from the same day-android crate as the Java shim, so the build logic
+    // Day's Gradle plugins, from the same day-mdc crate as the Java shim, so the build logic
     // always matches the shim it configures.
     if let Some(src) = &pieces.gradle_plugin_dir {
         stage_gradle_plugin(src, &dir.join("gradle-plugin"))?;
@@ -1910,7 +1912,7 @@ fn resolve_ohos(project: &Project, features: &[&str]) -> Result<OhosPieces, Stri
             continue;
         }
         // The framework's ArkTS host rides with the day-arkui crate (§17.1), the way the Java
-        // shim rides with day-android, resolved from wherever cargo checked it out.
+        // shim rides with day-mdc, resolved from wherever cargo checked it out.
         if pkg.name == "day-arkui" {
             let host = Path::new(&pkg.manifest_path)
                 .parent()

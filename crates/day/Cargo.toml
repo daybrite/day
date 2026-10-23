@@ -29,7 +29,7 @@ appkit = ["day-piece-swiftui?/appkit", "day-piece-texteditor?/appkit", "day-piec
 gtk = ["day-piece-texteditor?/gtk", "day-piece-settings?/gtk", "dep:day-gtk"]
 qt = ["day-piece-texteditor?/qt", "day-piece-settings?/qt", "dep:day-qt"]
 uikit = ["day-piece-swiftui?/uikit", "day-piece-texteditor?/uikit", "day-piece-settings?/uikit", "dep:day-uikit"]
-mdc = ["day-piece-texteditor?/mdc", "day-piece-settings?/mdc", "dep:day-android"]
+mdc = ["day-piece-texteditor?/mdc", "day-piece-settings?/mdc", "dep:day-mdc", "dep:day-android-runtime"]
 xaml = ["day-piece-texteditor?/xaml", "day-piece-settings?/xaml", "dep:day-xaml"]
 # WinUI 3 (the Windows App SDK) on the same backend: the xaml toolkit with its shim built
 # against Microsoft.UI.Xaml (docs/winui.md). Implies `xaml`, whose code it is.
@@ -75,7 +75,8 @@ day-appkit = { workspace = true, optional = true }
 day-gtk = { workspace = true, optional = true }
 day-qt = { workspace = true, optional = true }
 day-uikit = { workspace = true, optional = true }
-day-android = { workspace = true, optional = true }
+day-mdc = { workspace = true, optional = true }
+day-android-runtime = { workspace = true, optional = true }
 day-xaml = { workspace = true, optional = true }
 day-arkui = { workspace = true, optional = true }
 day-dom = { workspace = true, optional = true }

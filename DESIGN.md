@@ -412,7 +412,7 @@ Day runtime dependencies), and `day-cli` (the `day` binary).
 | `day-fonts` | sfnt name-table parsing ([§18.4](#184-bundled-custom-fonts-docsresourcesmd)), shared by the CLI stagers and the runtimes | — |
 | `day-toolchain` | one place that knows where host toolchains/SDKs live — used by the CLI, the `-sys` build scripts, and generated scaffolds | — |
 | `day` | umbrella: `prelude`, `day::launch`, feature-gated re-export of the selected backend, plus `day::prefs` (day-part-prefs, default-on `prefs` feature — [docs/prefs.md](docs/prefs.md)) | all of the above |
-| `toolkits/day-appkit`, `day-uikit`, `day-gtk`, `day-qt` (+`day-qt-sys`), `day-android`, `day-xaml` (+`day-xaml-sys`), `day-arkui`, `day-dom` (whose JS shim ships in `crates/day-cli/resources/web/`) | backend crates | day-spec; day-core for native frame tickets and toolkit-access hooks |
+| `toolkits/day-appkit`, `day-uikit`, `day-gtk`, `day-qt` (+`day-qt-sys`), `day-mdc`, `day-xaml` (+`day-xaml-sys`), `day-arkui`, `day-dom` (whose JS shim ships in `crates/day-cli/resources/web/`) | backend crates | day-spec; day-core for native frame tickets and toolkit-access hooks |
 | `toolkits/day-macos-tabs` | Qt macOS window-tab bridge; forwards the toolkit delegate and routes document add/close requests | day-core, day-reactive, day-spec; macOS-only Objective-C bindings |
 | `day-cli` | the `day` binary ([§16](#16-the-day-cli)) | day-build, day-toolchain, day-fonts, day-script-proto (+ clap, serde, `serde_norway` YAML, fluent-syntax) |
 
@@ -1755,9 +1755,16 @@ renderers, so missing snapshot inputs cannot invent drift and a correct unstaged
 mask a stale commit. The hook checks matrices and formatting only; host Clippy runs in
 `check-ready.sh` and CI, not at commit time. Backend Clippy remains a separate platform check;
 unavailable SDKs must be reported.
-`scripts/ci/test-readiness.py` exercises drift, staged/unstaged mismatches, and lint failures.
+`scripts/ci/test-readiness.py` exercises drift, staged/unstaged mismatches, scaffold-generation
+failures, and lint failures. Both CI and `check-ready.sh` run this suite. Its synthetic Cargo
+fixture creates the minimal scaffold consumed by the real generator; it also verifies that a
+failed suite stops the completion gate before Cargo runs. Only temporary fixture copies replace
+the nested suite invocation, so the production gate has no self-test bypass.
+`check-android-runtime.py` rejects service dependencies on widget backends and references to
+MDC's Java bridge, including Java embedded in Rust. Regression tests inject forbidden Rust and
+Java dependencies and require rejection.
 Its synthetic Cargo records the shared host-Clippy script's command sequence independently,
-then checks that readiness runs formatting followed by that entire sequence and stops at each
+then checks that readiness runs formatting followed by that entire sequence, including scaffold generation, and stops at each
 injected failure. New host lint combinations automatically join this test; it does not assume
 a fixed invocation count or duplicate the script's feature combinations.
 
@@ -2219,7 +2226,7 @@ the Qt toolkit CI job and covers coalescing and both disposal paths.
 > hold them together (2026-07 — after a kind collision silently swallowed the resize rail).
 > Additions since: `BridgeKind::SafeArea = 19` (2026-07) feeds `day_core::set_safe_area` from an
 > edge-to-edge backend — px insets in `text`, no `Event` emitted — and `NavPatch::Pushed` gained
-> an `immersive: bool` (the nav host item's `.immersive()` flag; day-android flips the pushed
+> an `immersive: bool` (the nav host item's `.immersive()` flag; day-mdc flips the pushed
 > page between the floating-scrim and opaque bars, other backends ignore it). docs/layout.md and
 > [docs/navigation.md](docs/navigation.md) are normative. The built-in facts that rode `Event::Custom` tags became
 > typed variants (2026-08): `ListReorder`/`ListDelete` (the list piece's deferred commit echoes,
@@ -2487,7 +2494,8 @@ Shared mechanics came from pane's working code; every FFI choice below now runs 
 | `day-uikit` | `objc2` (`objc2-ui-kit`) | `UIView` | shipped; Simulator walkthrough + pack in CI |
 | `day-gtk` | `gtk4-rs` | `gtk4::Fixed` | shipped (Linux + macOS host); headless CI walkthrough |
 | `day-qt` | `cc`-built C++ shim (`day-qt-sys`) | bare `QWidget` | shipped (Linux + macOS host); headless CI walkthrough |
-| `day-android` | `jni` + a Java shim (`DayBridge`/`DayFixed`/`DayActivity`) | absolute-layout `ViewGroup` (`DayFixed`) | shipped; emulator walkthrough + pack in CI |
+| `day-mdc` | `jni` + a Java shim (`DayBridge`/`DayFixed`/`DayActivity`) | absolute-layout `ViewGroup` (`DayFixed`) | shipped; emulator walkthrough + pack in CI |
+| `day-android-runtime` | JVM, class loader, JNI bindings, context and main-thread handler | shared by Android backends and services | independent of widget backends |
 | `day-xaml` | C++/WinRT shim (`day-xaml-sys`; a projection generated from the Windows App SDK's metadata under `winui`, the Windows SDK's cppwinrt headers otherwise) | XAML `Canvas` in a `DesktopWindowXamlSource` | shipped; Showcase walkthrough + self-contained pack on `windows-winui` ([docs/winui.md](docs/winui.md)); CI-verified build/walkthrough/pack as the deprecated `windows-xaml` |
 | `day-arkui` | ArkUI **NDK C API** through openharmony-rs's `ohos-sys` bindings + ohos-rs's `napi-ohos` for the ArkTS module (`aarch64-unknown-linux-ohos`; no C++) | ArkUI stack node | shipped; cross-compile in CI, emulator via `day devices boot -t harmony-arkui` ([docs/harmonyos.md](docs/harmonyos.md)) |
 | `day-dom` | plain `extern "C"` imports to an ES-module JS shim (`crates/day-cli/resources/web/shim.js`, embedded in the CLI; `wasm32-unknown-unknown`, no wasm-bindgen) | `<div id="day-root">` | experimental ([docs/web.md](docs/web.md)); `day build\|launch -t web-dom` |
@@ -2622,6 +2630,27 @@ walkthrough support, native drawing, focus, dialogs, rawfile resources, `.hap` p
 `day devices boot -t harmony-arkui` emulator helpers. [docs/harmonyos.md](docs/harmonyos.md) is the reference.
 
 ---
+
+### Shared Android runtime
+
+`crates/day-android-runtime` owns process-wide JVM attachment, the app class loader, typed
+`java_class!` registration and startup checks, exception handling, JNI string conversion,
+logcat forwarding, the bridge envelope, and generic R8 native-symbol keep rules. Its Java sources provide `DayRuntime.ctx`, the
+main-thread handler, app data/cache directory helpers, and `DayEnvelope`. It depends on JNI,
+logging, linkme, and procedural macros, with no dependency on day-core, day-pieces, or a toolkit.
+
+`toolkits/day-mdc` owns Material widgets, view handles, renderer registration, DayActivity,
+DayBridge, and the current Android Gradle plugin. Its startup initializes the shared runtime
+before registering resources and mounting views. DayBridge inherits the shared context and
+handler, so UI and service code observe the same current activity across recreations and
+secondary-window resumes. A future Compose or OpenGL backend supplies its own host and view
+bridge while initializing this same runtime. The target name remains `android-mdc`.
+
+Services and generated bridge calls depend directly on the runtime. External view pieces name
+both crates, and `day new piece`/`day new part` generate those dependencies. See
+[Android JNI bindings](docs/android-jni.md) for the host contract. Runtime initialization retains
+the first JVM and app class loader for the process lifetime; switching class loaders in one
+process is not supported.
 
 ## §10 Native list integration
 
@@ -4180,7 +4209,7 @@ reference generically, exactly once:
   edits, ever. Permissions merge through a generated manifest overlay. Release builds minify
   with R8: Rust reaches Java by name, so `day build` folds in keep rules — the ones every
   `java_class!` binding records in the app's native library (`day-jni-keep.pro`, §15.7),
-  day-android's own (classes with natives), and each app/piece's declared `proguard` file for
+  day-mdc's own (classes with natives), and each app/piece's declared `proguard` file for
   what something reaches reflectively — so minification never renames a JNI-reached class out from
   under native code ([docs/extending.md](docs/extending.md)).
 - **apple**: the CLI generates a LOCAL SwiftPM package at `build/day/ios/DayPieces` whose
@@ -4409,7 +4438,7 @@ the Rust fallback. It lives in its own repository, the first part to do so (§15
 > [!NOTE]
 > **Shipped 2026-10.** [docs/android-jni.md](docs/android-jni.md) is the normative reference.
 
-Every Rust-to-Java call on Android goes through a **binding**: `day_android::java_class!`
+Every Rust-to-Java call on Android goes through a **binding**: `day_mdc::java_class!`
 (day-macros) declares one Java class's methods, fields and natives, and expands to jni's
 `bind_java_type!` with Day's policies applied. It replaced the hand-typed `DayEnv` helpers
 (`dcall_static` with a signature string per call), which parsed the signature and looked the class
@@ -4420,11 +4449,11 @@ and method up on every call, found a mismatch only when that call ran, and gave 
 - **Calls are typed and cached.** Method IDs resolve once; a call costs about 20 ns in release
   against 1 to 7 µs for the string-signature path it replaced. Calls run inside `java(|env| …)`,
   which clears a thrown Java exception and returns `None`.
-- **The startup check.** Every binding joins `day_android::JAVA_CLASSES`, which `init` resolves:
+- **The startup check.** Every binding joins `day_mdc::JAVA_CLASSES`, which `init` resolves:
   a missing class or a renamed member is named at launch. In a debug build or a scripted run the
   process stops there, because a piece rendering as its placeholder still passes a walkthrough.
 - **Natives.** `native_methods` are registered at that check and exported, and jni's wrapper catches
-  panics. day-android binds `DayBridge`'s natives; only `nativeStart`/`nativeStartWindow` stay in the
+  panics. day-mdc binds `DayBridge`'s natives; only `nativeStart`/`nativeStartWindow` stay in the
   app's `day_start_android!`, because they name the app's root.
 - **R8.** Each binding writes its keep rule into the `day_keep` section of the native library; `day
   build` reads it back into `day-jni-keep.pro`. The `dev.daybrite.day.**` namespace keep is gone, so
@@ -4864,7 +4893,7 @@ Manifest policy and migration requirements are described in §17.3 and
 Regression tests in `native_host::tests` and `new::tests` cover derivation, drift checks,
 regeneration and opt-in persistence.
 
-`day prepare`, `day open`, and every Android build stage Day's Gradle plugins from day-android into `build/day/android/gradle-plugin` the
+`day prepare`, `day open`, and every Android build stage Day's Gradle plugins from day-mdc into `build/day/android/gradle-plugin` the
 same way (§17.4), so Android Studio can sync a fresh clone. `day open -t <target>` prepares, then
 opens the target's host project in its IDE (Xcode, Android Studio, DevEco Studio).
 
@@ -5585,7 +5614,7 @@ manifest through `day metadata --json` (a versioned envelope), never by parsing 
   applies `dev.daybrite.day.settings` for the repositories; `app/build.gradle.kts` applies
   `dev.daybrite.day.android` and keeps empty `android {}` and `dependencies {}` blocks for the app's
   own settings, which run after the plugin and so override it. The plugins are Java sources in the
-  day-android crate (`toolkits/day-android/gradle-plugin`), staged by `day build`, `day prepare`,
+  day-mdc crate (`toolkits/day-mdc/gradle-plugin`), staged by `day build`, `day prepare`,
   and `day open` from the crate the app resolves, so the build logic always matches the Java shim
   it configures and a change to Day's Android build reaches existing apps without script edits.
   The plugin carries the AGP version (9.4, which needs Android Studio 2026.1.4 or newer; always one a
@@ -5925,7 +5954,7 @@ day/                                # THIS repository
                                     #   day-pieces, day-fluent, day-l10n, day-script, day-script-proto, day-mock,
                                     #   day-build, day-fonts, day-toolchain, day-cli
   toolkits/                         # day-appkit, day-uikit, day-gtk, day-qt(+sys), day-macos-tabs,
-                                    #   day-android, day-xaml(+sys), day-arkui(+sys)
+                                    #   day-mdc, day-xaml(+sys), day-arkui(+sys)
   pieces/                           # optional settings, texteditor and SwiftUI integration
                                     # media, lottie and webview remain separate repositories (§15.2)
   parts/                            # headless platform services: device (info + battery),
@@ -6219,12 +6248,11 @@ The `daybrite/actions` companion repository provides reusable workflows for exte
    makes it the does-rustdoc-still-build check on crate changes too; the separate `api-docs`
    job it replaced is gone. The `screenshots-<combo>` artifacts the platform legs upload stay, as
    each run's evidence of what its walkthrough rendered.
-   Rustdoc's stable HTML hooks reuse the Astro API bridge's rendered header and footer, plus
+   Rustdoc's stable HTML hooks reuse the Astro API bridge's rendered footer, plus
    the exact compiled site stylesheets. A small adapter maps Rustdoc colors and typography to
-   the site's design tokens and offsets its sidebar below the responsive header. Both roots
-   use `scripts/theme.js` and the `day-theme` preference; Rustdoc retains its API search and
-   settings. The shared header's search continues to search the guides. Build the Astro site
-   before generating Rustdoc; `--site-dir` selects another assembled site for isolated builds.
+   the site's design tokens. Rustdoc retains its native header, search, sidebar, and theme controls;
+   the Day navigation header is not injected. Both roots use `scripts/theme.js` and the
+   `day-theme` preference. Build the Astro site before generating Rustdoc; `--site-dir` selects another assembled site for isolated builds.
 
    Documentation authoring standards and unpublished templates live in `website/authoring/`;
    the published guides retain their canonical-source symlinks and route-catalog entries.
@@ -6724,7 +6752,7 @@ annotations, and ids throughout.
 | M2 | `day-appkit` + desktop `launch()` + **default main menu** (Cmd+C/V/X/A via responder-chain selectors, Cmd+Q — NSTextField editing is broken without it); pieces: toggle/slider/text_field/spacer/scroll/when/each; styling core + `PerTarget`; `snapshot_window`; showcase v0 | manual + screenshot verification on host; **manual Japanese-IME smoke** |
 | M3 | `day-gtk`, `day-qt` (host macOS; C++ shim per pane) incl. `snapshot_window`; **registered core control renderers (appkit/gtk/qt)**; showcase parity across 3 desktop toolkits | side-by-side screenshots; external piece renders on all 3 |
 | M4 | CLI v0: `new`/`build`/`launch` (desktop targets), Day.toml + day-meta, templates, doctor-lite, JSON events (hello/log/result), cancellation | `day new app t && cd t && day launch` works |
-| M5 | mobile: `day-uikit` + ios scaffold (VC-hosted root, xcode-backend callback, sandboxing off) + simctl pipeline; `day-android` + gradle scaffold (fragment-hosted root, DayRustBuildTask, configChanges) + adb pipeline; **assets/locales resource conveyance ([§18.1](#181-data-resources-lands-in-m5-with-the-scaffolds--fluent-m6-and-the-walkthrough-m7-depend-on-it))**; safe-area/keyboard insets ([§7.7](#77-safe-areas-insets-and-the-keyboard)); combobox uikit/android renderers | showcase on Simulator + emulator via `day launch`; wrapping-label reflow test; **manual keyboard + iOS IME smokes** |
+| M5 | mobile: `day-uikit` + ios scaffold (VC-hosted root, xcode-backend callback, sandboxing off) + simctl pipeline; `day-mdc` + gradle scaffold (fragment-hosted root, DayRustBuildTask, configChanges) + adb pipeline; **assets/locales resource conveyance ([§18.1](#181-data-resources-lands-in-m5-with-the-scaffolds--fluent-m6-and-the-walkthrough-m7-depend-on-it))**; safe-area/keyboard insets ([§7.7](#77-safe-areas-insets-and-the-keyboard)); combobox uikit/android renderers | showcase on Simulator + emulator via `day launch`; wrapping-label reflow test; **manual keyboard + iOS IME smokes** |
 | M6 | `day-fluent` (tr/locale signal/negotiation/ICU4X functions/en-XA/ar-XB), a11y props + lint v0, ids, per-target locale plumbing | live locale switch + relayout benchmark; VoiceOver smoke on appkit/uikit; **`a11y_audit` green on apple targets**; fr/de number-format conformance |
 | M7 | dayscript: engine, rendezvous/transport, `day script`, screenshots, JUnit; `--locale`/`--script` on launch | walkthrough (showcase-v1, no gauge step yet) passes on all 5 targets locally |
 | M8a | canvas: `Draw`/DrawOp/replay on all 5 (PangoCairo/CoreText/QPainter/minikin/DirectWrite text); gauge joins showcase + walkthrough screenshot step | gauge renders natively on all 5; mock display-list tests |

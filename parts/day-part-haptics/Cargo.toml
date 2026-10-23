@@ -37,11 +37,11 @@ objc2-ui-kit = { workspace = true, features = [
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2-app-kit = { workspace = true, features = ["NSHapticFeedback"] }
 
-# Android plays through Vibrator/VibrationEffect from a Java shim + day-android's cached JVM/Context.
+# Android plays through Vibrator/VibrationEffect from a Java shim + day-android-runtime's cached JVM/Context.
 # This is the one platform where the headless crate rides on the day runtime (like the pieces' Android
 # backends).
 [target.'cfg(target_os = "android")'.dependencies]
-day-android = { workspace = true }
+day-android-runtime = { workspace = true }
 # daybridge (docs/bridge.md): the Java and ArkTS arms and their declaration live in src/bridge.rs,
 # so the dependency is Android- and HarmonyOS-only; every other target compiles as it did before.
 day-bridge = { workspace = true }

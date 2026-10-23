@@ -36,7 +36,7 @@ BACKENDS = [
     ("gtk", "toolkits/day-gtk/src/lib.rs", "lib-gtk.rs"),
     ("qt", "toolkits/day-qt/src/lib.rs", "lib-qt.rs"),
     ("xaml", "toolkits/day-xaml/src/lib.rs", "lib-xaml.rs"),
-    ("android", "toolkits/day-android/src/lib.rs", "lib-android.rs"),
+    ("android", "toolkits/day-mdc/src/lib.rs", "lib-android.rs"),
     ("arkui", "toolkits/day-arkui/src/lib.rs", "lib-arkui.rs"),
     ("dom", "toolkits/day-dom/src/lib.rs", "lib-dom.rs"),
 ]

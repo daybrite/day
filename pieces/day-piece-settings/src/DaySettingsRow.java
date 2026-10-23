@@ -13,7 +13,7 @@
 // the index of a Day child. A tappable row wears the theme's `selectableItemBackground` ripple;
 // day wires the click itself (`enableGesture`) when the Rust side attaches a tap, and a choice
 // row forwards its click to the spinner it hosts, so the whole row opens the choice the way a
-// ListPreference does. Uses only day-android's public Java surface.
+// ListPreference does. Uses only day-mdc's public Java surface.
 package dev.daybrite.day.piece.settings;
 
 import android.content.Context;
@@ -97,7 +97,7 @@ public final class DaySettingsRow extends DayFixed {
         setTexts(title, caption);
 
         // The leading glyph: a staged drawable (a group's vector, the app icon, a Material Symbol
-        // of day-android's), through the bridge's own resolution. A template glyph takes the
+        // of day-mdc's), through the bridge's own resolution. A template glyph takes the
         // list item's icon color; the app icon keeps its authored colors.
         Drawable d = null;
         if (iconName != null && !iconName.isEmpty()) {

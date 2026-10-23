@@ -2523,7 +2523,7 @@ fn parse_abi_list(v: &str) -> Vec<String> {
 }
 
 /// The Android API level the `.so` links against: the scaffold's `minSdk`, which the shared
-/// Gradle plugin sets (`DayAndroidPlugin.MIN_SDK`, toolkits/day-android/gradle-plugin). cargo-ndk
+/// Gradle plugin sets (`DayAndroidPlugin.MIN_SDK`, toolkits/day-mdc/gradle-plugin). cargo-ndk
 /// would otherwise link against its own default, API 21, three levels below the floor the APK
 /// declares, so symbols the floor guarantees would still go through the older stubs.
 pub(crate) const ANDROID_MIN_SDK: &str = "24";
@@ -3156,12 +3156,12 @@ fn apk_install_command(serial: &str, apk: &Path, no_streaming: bool) -> Command 
     cmd
 }
 
-/// Stream one device's app logs (day-android's `redirect_stdio_to_logcat` routes the app's
+/// Stream one device's app logs (day-mdc's `redirect_stdio_to_logcat` routes the app's
 /// stdout/stderr into logcat under tag `Day`). `-v tag` prefixes each line with `<prio>/Day:`;
 /// map the priority to a stream (I→stdout/blue, E/W/F→stderr/yellow) and re-prefix with `label`.
 ///
 /// Both spellings of the tag are allowed through because logcat tag filters are case-sensitive.
-/// day-android logged under `day` until it was renamed `Day` for branding, and this filter kept
+/// day-mdc logged under `day` until it was renamed `Day` for branding, and this filter kept
 /// asking for `day`, which silenced every app line on Android while every other platform kept
 /// streaming. Accepting both means neither a stale installed app nor another rename can take the
 /// console away again.
@@ -3472,7 +3472,7 @@ id = "org.example.Legacy-Mac"
     }
 
     #[test]
-    fn day_android_abi_overrides_connected_devices() {
+    fn day_mdc_abi_overrides_connected_devices() {
         let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         // When set, the override is authoritative and short-circuits device detection (so this
         // test never touches adb): exactly the listed ABIs are built, deduped and sorted.
@@ -3772,7 +3772,7 @@ mod android_cxx_tests {
 
     #[test]
     fn switching_flavors_replaces_a_newer_staged_library_with_the_selected_cached_one() {
-        let root = std::env::temp_dir().join(format!("day-android-flavor-{}", std::process::id()));
+        let root = std::env::temp_dir().join(format!("day-mdc-flavor-{}", std::process::id()));
         std::fs::create_dir_all(&root).unwrap();
         let selected = root.join("cached-servo.so");
         let staged = root.join("jni/libapp.so");
@@ -3800,7 +3800,7 @@ mod android_cxx_tests {
 
     #[test]
     fn stages_only_an_actual_dynamic_cxx_dependency_and_requires_the_runtime() {
-        let root = std::env::temp_dir().join(format!("day-android-cxx-{}", std::process::id()));
+        let root = std::env::temp_dir().join(format!("day-mdc-cxx-{}", std::process::id()));
         let ndk = root.join("ndk");
         let out = root.join("out");
         let lib = out.join("arm64-v8a/libfixture.so");

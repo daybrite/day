@@ -54,12 +54,12 @@ day_bridge::bridge! {
             import android.net.ConnectivityManager;
             import android.net.Network;
             import android.net.NetworkCapabilities;
-            import dev.daybrite.day.bridge.DayBridge;
+            import dev.daybrite.day.bridge.DayRuntime;
         "#,
         body = r#"
             /** The active network's capabilities, or null when there is nothing to read. */
             private static NetworkCapabilities caps() {
-                Context ctx = DayBridge.ctx;
+                Context ctx = DayRuntime.ctx;
                 if (ctx == null) return null;
                 ConnectivityManager cm =
                         (ConnectivityManager) ctx.getSystemService(Context.CONNECTIVITY_SERVICE);

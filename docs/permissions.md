@@ -162,7 +162,7 @@ Platform guidance: [Apple: privacy](https://developer.apple.com/design/human-int
 |---|---|---|---|
 | iOS | [`CLLocationManager`](https://developer.apple.com/documentation/corelocation/cllocationmanager), [`AVCaptureDevice`](https://developer.apple.com/documentation/avfoundation/avcapturedevice), [`PHPhotoLibrary`](https://developer.apple.com/documentation/photos/phphotolibrary), [`UNUserNotificationCenter`](https://developer.apple.com/documentation/usernotifications/unusernotificationcenter) (async-only), [`CMMotionActivityManager`](https://developer.apple.com/documentation/coremotion/cmmotionactivitymanager) | the matching block-based `request…` | `objc2` + `block2`, `[package.metadata.day.ios].frameworks` |
 | macOS | the same TCC APIs where they exist; no CoreMotion | same | shared `apple.rs` |
-| Android | [`Context.checkSelfPermission`](https://developer.android.com/reference/android/content/Context#checkSelfPermission(java.lang.String)) + `getPackageInfo(GET_PERMISSIONS)` | `requestPermissions` from a headless `Fragment` | `day-android` + the crate's own Java shim |
+| Android | [`Context.checkSelfPermission`](https://developer.android.com/reference/android/content/Context#checkSelfPermission(java.lang.String)) + `getPackageInfo(GET_PERMISSIONS)` | `requestPermissions` from a headless `Fragment` | `day-mdc` + the crate's own Java shim |
 | HarmonyOS | [`OH_AT_CheckSelfPermission`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-ability-kit/capi-ability-access-control-h.md); for notifications, `notificationManager.isNotificationEnabledSync` | `requestPermissionsFromUser`, through the host page's `registerPermissions` seam in `day-arkui` (found in the app's own library by `dlsym`, so the part links no toolkit); for notifications, `requestEnableNotification` | raw FFI; the notification switch through an ArkTS daybridge arm |
 | Web | [`navigator.permissions.query`](https://www.w3.org/TR/permissions/#dom-permissions-query) + a live `change` cache; `Notification.permission` is sync | the per-API call | the day-dom shim |
 | Linux / Windows | constants | resolves immediately | — |
@@ -331,6 +331,6 @@ else.
 The crate registers nothing in any `RENDERERS` slice. Its Android half is bundled with it and folded
 into the app's Gradle build by `[package.metadata.day.android]`, with **no edits to any core Day
 crate**, including the permission-result callback, which lives in a headless `Fragment` the crate
-attaches itself rather than in `day-android`'s `DayActivity`. Its `permissions = []` entry is
+attaches itself rather than in `day-mdc`'s `DayActivity`. Its `permissions = []` entry is
 empty and must stay that way, because a permissions crate must never force a permission into an
 app's manifest. See [extending](extending.md).

@@ -435,7 +435,7 @@ checksum = "be1e0bca6c3637f992fc1cc7cbc52a78c1ef6db076dbf1059c4323d6a2048376"
 name = "day"
 version = "0.6.0"
 dependencies = [
- "day-android",
+ "day-android-runtime",
  "day-appkit",
  "day-arkui",
  "day-core",
@@ -444,6 +444,7 @@ dependencies = [
  "day-geometry",
  "day-gtk",
  "day-macros",
+ "day-mdc",
  "day-mock",
  "day-model",
  "day-part-clipboard",
@@ -467,14 +468,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "day-android"
+name = "day-android-runtime"
 version = "0.6.0"
 dependencies = [
- "day-core",
  "day-macros",
- "day-pieces",
- "day-reactive",
- "day-spec",
  "jni",
  "linkme",
  "log",
@@ -697,6 +694,20 @@ name = "day-macros"
 version = "0.6.0"
 
 [[package]]
+name = "day-mdc"
+version = "0.6.0"
+dependencies = [
+ "day-android-runtime",
+ "day-core",
+ "day-pieces",
+ "day-reactive",
+ "day-spec",
+ "jni",
+ "linkme",
+ "log",
+]
+
+[[package]]
 name = "day-mock"
 version = "0.6.0"
 dependencies = [
@@ -722,7 +733,7 @@ name = "day-part-biometrics"
 version = "0.6.0"
 dependencies = [
  "block2",
- "day-android",
+ "day-android-runtime",
  "day-async",
  "day-bridge",
  "day-build",
@@ -737,7 +748,7 @@ name = "day-part-clipboard"
 version = "0.6.0"
 dependencies = [
  "base64",
- "day-android",
+ "day-android-runtime",
  "day-async",
  "day-bridge",
  "day-build",
@@ -751,7 +762,7 @@ dependencies = [
 name = "day-part-connectivity"
 version = "0.6.0"
 dependencies = [
- "day-android",
+ "day-android-runtime",
  "day-bridge",
  "day-build",
 ]
@@ -762,7 +773,7 @@ version = "0.6.0"
 dependencies = [
  "core-foundation",
  "core-foundation-sys",
- "day-android",
+ "day-android-runtime",
  "day-bridge",
  "day-build",
  "libc",
@@ -776,7 +787,7 @@ name = "day-part-downloads"
 version = "0.6.0"
 dependencies = [
  "block2",
- "day-android",
+ "day-android-runtime",
  "day-async",
  "day-bridge",
  "day-build",
@@ -800,7 +811,7 @@ dependencies = [
 name = "day-part-haptics"
 version = "0.6.0"
 dependencies = [
- "day-android",
+ "day-android-runtime",
  "day-bridge",
  "day-build",
  "objc2",
@@ -813,7 +824,7 @@ name = "day-part-http"
 version = "0.6.0"
 dependencies = [
  "block2",
- "day-android",
+ "day-android-runtime",
  "day-async",
  "day-bridge",
  "day-build",
@@ -839,7 +850,7 @@ dependencies = [
 name = "day-part-keychain"
 version = "0.6.0"
 dependencies = [
- "day-android",
+ "day-android-runtime",
  "day-async",
  "day-bridge",
  "day-build",
@@ -856,7 +867,7 @@ name = "day-part-local-notify"
 version = "0.6.0"
 dependencies = [
  "block2",
- "day-android",
+ "day-android-runtime",
  "day-bridge",
  "day-build",
  "day-core",
@@ -870,7 +881,7 @@ dependencies = [
 name = "day-part-location"
 version = "0.6.0"
 dependencies = [
- "day-android",
+ "day-android-runtime",
  "day-bridge",
  "day-build",
  "objc2",
@@ -882,7 +893,7 @@ name = "day-part-permissions"
 version = "0.6.0"
 dependencies = [
  "block2",
- "day-android",
+ "day-android-runtime",
  "day-bridge",
  "day-build",
  "objc2",
@@ -892,7 +903,7 @@ dependencies = [
 name = "day-part-prefs"
 version = "0.6.0"
 dependencies = [
- "day-android",
+ "day-android-runtime",
  "day-bridge",
  "day-build",
  "day-core",
@@ -907,7 +918,7 @@ name = "day-part-sensors"
 version = "0.6.0"
 dependencies = [
  "block2",
- "day-android",
+ "day-android-runtime",
  "objc2",
  "objc2-core-motion",
  "objc2-foundation",
@@ -918,7 +929,7 @@ dependencies = [
 name = "day-part-sound"
 version = "0.6.0"
 dependencies = [
- "day-android",
+ "day-android-runtime",
  "day-bridge",
  "day-build",
  "day-spec",
@@ -932,7 +943,7 @@ dependencies = [
 name = "day-part-wakelock"
 version = "0.6.0"
 dependencies = [
- "day-android",
+ "day-android-runtime",
  "day-bridge",
  "day-build",
  "objc2",
@@ -945,7 +956,7 @@ name = "day-piece-settings"
 version = "0.6.0"
 dependencies = [
  "cc",
- "day-android",
+ "day-android-runtime",
  "day-appkit",
  "day-arkui",
  "day-build",
@@ -954,6 +965,7 @@ dependencies = [
  "day-gtk",
  "day-l10n",
  "day-macros",
+ "day-mdc",
  "day-part-clipboard",
  "day-part-prefs",
  "day-pieces",
@@ -998,13 +1010,14 @@ name = "day-piece-texteditor"
 version = "0.6.0"
 dependencies = [
  "cc",
- "day-android",
+ "day-android-runtime",
  "day-appkit",
  "day-arkui",
  "day-core",
  "day-dom",
  "day-gtk",
  "day-macros",
+ "day-mdc",
  "day-mock",
  "day-pieces",
  "day-qt",
@@ -1128,11 +1141,12 @@ name = "day-tweak-slider-tickmarks"
 version = "0.6.0"
 dependencies = [
  "cc",
- "day-android",
+ "day-android-runtime",
  "day-appkit",
  "day-arkui",
  "day-core",
  "day-gtk",
+ "day-mdc",
  "day-pieces",
  "day-qt",
  "day-toolchain",
@@ -1145,10 +1159,11 @@ dependencies = [
 name = "day-tweak-tooltip"
 version = "0.6.0"
 dependencies = [
- "day-android",
+ "day-android-runtime",
  "day-appkit",
  "day-core",
  "day-gtk",
+ "day-mdc",
  "day-pieces",
  "gtk4",
  "objc2-app-kit",
@@ -5197,3 +5212,27 @@ name = "zmij"
 version = "1.0.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "29666d0abbfad1e3dc4dcf6144730dd3a3ab225bbbdac83319345b1b44ccfc1b"
+
+[[patch.unused]]
+name = "day-piece-media"
+version = "0.4.3"
+
+[[patch.unused]]
+name = "day-persistence"
+version = "0.1.0"
+
+[[patch.unused]]
+name = "day-persistence-macros"
+version = "0.1.0"
+
+[[patch.unused]]
+name = "day-sqlite-worker"
+version = "0.1.0"
+
+[[patch.unused]]
+name = "day-conformance-registry-fixture"
+version = "0.0.0"
+
+[[patch.unused]]
+name = "day-id-registry-fixture"
+version = "0.0.0"

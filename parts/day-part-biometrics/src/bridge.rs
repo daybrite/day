@@ -52,14 +52,14 @@ day_bridge::bridge! {
             import android.hardware.biometrics.BiometricPrompt;
             import android.os.Build;
             import android.os.CancellationSignal;
-            import dev.daybrite.day.bridge.DayBridge;
+            import dev.daybrite.day.bridge.DayRuntime;
             import java.util.concurrent.Executor;
         "#,
         body = r#"
             private static CancellationSignal daySignal = null;
 
             public static int availability_native(int kind) {
-                Context ctx = DayBridge.ctx;
+                Context ctx = DayRuntime.ctx;
                 if (ctx == null || Build.VERSION.SDK_INT < 28) {
                     return 3;
                 }
@@ -91,7 +91,7 @@ day_bridge::bridge! {
             }
 
             public static int biometry_native() {
-                Context ctx = DayBridge.ctx;
+                Context ctx = DayRuntime.ctx;
                 if (ctx == null) {
                     return 0;
                 }
@@ -105,7 +105,7 @@ day_bridge::bridge! {
 
             public static void authenticate_native(byte[] challenge, final String reason, final String fallback,
                                                    final boolean allowCredential, final long done) {
-                final Context ctx = DayBridge.ctx;
+                final Context ctx = DayRuntime.ctx;
                 if (ctx == null) {
                     authenticate_native_fail(done, "no application context");
                     return;
@@ -115,7 +115,7 @@ day_bridge::bridge! {
                     return;
                 }
                 // The prompt is built and shown on the main thread; its callbacks arrive there.
-                DayBridge.main.post(new Runnable() {
+                DayRuntime.main.post(new Runnable() {
                     @Override
                     public void run() {
                         dayShow(ctx, reason, fallback, allowCredential, done);
@@ -184,7 +184,7 @@ day_bridge::bridge! {
             public static void cancel_native() {
                 final CancellationSignal signal = daySignal;
                 if (signal != null) {
-                    DayBridge.main.post(new Runnable() {
+                    DayRuntime.main.post(new Runnable() {
                         @Override
                         public void run() {
                             signal.cancel();

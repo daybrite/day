@@ -246,24 +246,24 @@ day_bridge::bridge! {
     }
 
     // Android: a window flag, which holds only while that window is showing, so leaving the app
-    // lets the screen sleep with no bookkeeping here. `DayBridge.ctx` is the running activity.
+    // lets the screen sleep with no bookkeeping here. `DayRuntime.ctx` is the running activity.
     #[day_bridge::impl(java, platforms = [android])]
     java!(
         prelude = r#"
             import android.app.Activity;
             import android.content.Context;
             import android.view.WindowManager;
-            import dev.daybrite.day.bridge.DayBridge;
+            import dev.daybrite.day.bridge.DayRuntime;
         "#,
         body = r#"
             public static void hold_native(boolean on) {
-                Context ctx = DayBridge.ctx;
+                Context ctx = DayRuntime.ctx;
                 if (!(ctx instanceof Activity)) {
                     return;
                 }
                 Activity activity = (Activity) ctx;
                 // Window flags belong to the UI thread.
-                DayBridge.main.post(() -> {
+                DayRuntime.main.post(() -> {
                     if (on) {
                         activity.getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
                     } else {
@@ -273,7 +273,7 @@ day_bridge::bridge! {
             }
 
             public static boolean ready_native() {
-                return DayBridge.ctx instanceof Activity;
+                return DayRuntime.ctx instanceof Activity;
             }
         "#,
     );

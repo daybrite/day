@@ -2285,7 +2285,7 @@ fn render_java(bridge: &Bridge, arm: &Arm, crate_name: &str) -> String {
     out
 }
 
-/// The Rust half of a Kotlin or Java arm: one `day_android::java_class!` binding of the generated
+/// The Rust half of a Kotlin or Java arm: one `day_android_runtime::java_class!` binding of the generated
 /// class (docs/android-jni.md), and a wrapper per function that calls it inside `java`. The
 /// binding names each method as declared, so `speak_native` binds `speak_native`, and it records
 /// the R8 keep rule that keeps exactly these methods in a release build.
@@ -2298,7 +2298,7 @@ fn render_jvm_rust(bridge: &Bridge, crate_name: &str) -> String {
     let object = kotlin_object(crate_name);
     let mut out = String::new();
     // The binding, one item: the split on blank lines that cfg-gates each item keeps it whole.
-    let _ = writeln!(out, "day_android::java_class! {{");
+    let _ = writeln!(out, "day_android_runtime::java_class! {{");
     let _ = writeln!(out, "    {object} => {class},");
     let _ = writeln!(out, "    methods {{");
     for decl in &bridge.decls {
@@ -2318,7 +2318,7 @@ fn render_jvm_rust(bridge: &Bridge, crate_name: &str) -> String {
         // A headless part is ordinary Rust anyone may call, including before (or without) a Day
         // app's init, where there is no JVM to attach to. Asking first makes that an ordinary
         // `Runtime` error.
-        let _ = writeln!(out, "    if !day_android::vm_ready() {{");
+        let _ = writeln!(out, "    if !day_android_runtime::vm_ready() {{");
         let _ = writeln!(
             out,
             "        return{};",
@@ -2334,14 +2334,14 @@ fn render_jvm_rust(bridge: &Bridge, crate_name: &str) -> String {
         }
         // Inside `java`, a Java exception (the JVM arm's error channel) is described to logcat
         // and cleared, and the call comes back `None`.
-        let _ = writeln!(out, "    let called = day_android::java(|env| {{");
+        let _ = writeln!(out, "    let called = day_android_runtime::java(|env| {{");
         let mut call_args: Vec<String> = vec!["env".into()];
         for (n, t) in decl.plain_args() {
             match t.trim() {
                 "&str" => {
                     let _ = writeln!(
                         out,
-                        "        let {n}_j = day_android::jni::objects::JString::from_str(env, {n})?;"
+                        "        let {n}_j = day_android_runtime::jni::objects::JString::from_str(env, {n})?;"
                     );
                     call_args.push(format!("&{n}_j"));
                 }
@@ -2400,22 +2400,22 @@ fn render_jvm_rust(bridge: &Bridge, crate_name: &str) -> String {
             continue;
         };
         let mut params: Vec<String> = vec![
-            "_env: day_android::jni::EnvUnowned<'_>".into(),
-            "_class: day_android::jni::objects::JClass<'_>".into(),
-            "done: day_android::jni::sys::jlong".into(),
-            "status: day_android::jni::sys::jint".into(),
+            "_env: day_android_runtime::jni::EnvUnowned<'_>".into(),
+            "_class: day_android_runtime::jni::objects::JClass<'_>".into(),
+            "done: day_android_runtime::jni::sys::jlong".into(),
+            "status: day_android_runtime::jni::sys::jint".into(),
         ];
         match value.as_str() {
             "()" => {}
-            "bool" => params.push("value: day_android::jni::sys::jboolean".into()),
-            "i32" => params.push("value: day_android::jni::sys::jint".into()),
-            "i64" => params.push("value: day_android::jni::sys::jlong".into()),
-            "f32" => params.push("value: day_android::jni::sys::jfloat".into()),
-            "f64" => params.push("value: day_android::jni::sys::jdouble".into()),
-            "String" => params.push("value: day_android::jni::objects::JString<'_>".into()),
-            _ => params.push("value: day_android::jni::objects::JByteArray<'_>".into()),
+            "bool" => params.push("value: day_android_runtime::jni::sys::jboolean".into()),
+            "i32" => params.push("value: day_android_runtime::jni::sys::jint".into()),
+            "i64" => params.push("value: day_android_runtime::jni::sys::jlong".into()),
+            "f32" => params.push("value: day_android_runtime::jni::sys::jfloat".into()),
+            "f64" => params.push("value: day_android_runtime::jni::sys::jdouble".into()),
+            "String" => params.push("value: day_android_runtime::jni::objects::JString<'_>".into()),
+            _ => params.push("value: day_android_runtime::jni::objects::JByteArray<'_>".into()),
         }
-        params.push("message: day_android::jni::objects::JString<'_>".into());
+        params.push("message: day_android_runtime::jni::objects::JString<'_>".into());
         let convert = match value.as_str() {
             "()" => "Ok(())".to_string(),
             "bool" => "Ok(value)".to_string(),
@@ -2430,7 +2430,10 @@ fn render_jvm_rust(bridge: &Bridge, crate_name: &str) -> String {
             jni_export_name(crate_name, &jvm_native_name(decl)),
             params.join(", ")
         );
-        let _ = writeln!(out, "    use day_android::{{read_jstring, with_env}};");
+        let _ = writeln!(
+            out,
+            "    use day_android_runtime::{{read_jstring, with_env}};"
+        );
         let _ = writeln!(out, "    day_bridge::guard(|| {{");
         let _ = writeln!(out, "        let outcome = if status == 0 {{");
         let _ = writeln!(out, "            {convert}");
@@ -2964,7 +2967,7 @@ fn render_rust(bridge: &Bridge, crate_name: &str) -> String {
         let cfg = arm_cfg(arm, bridge);
         for item in block.split("\n\n").filter(|i| !i.trim().is_empty()) {
             // A lint attribute on a macro call is rejected as unused; the binding scopes its own.
-            let allow = if item.starts_with("day_android::java_class!") {
+            let allow = if item.starts_with("day_android_runtime::java_class!") {
                 ""
             } else {
                 "#[allow(dead_code, clippy::too_many_arguments)]\n"
@@ -3472,7 +3475,9 @@ day_bridge::bridge! {
             "the declared name is bound verbatim:\n{rust}"
         );
         assert!(
-            rust.contains("let text_j = day_android::jni::objects::JString::from_str(env, text)?;"),
+            rust.contains(
+                "let text_j = day_android_runtime::jni::objects::JString::from_str(env, text)?;"
+            ),
             "{rust}"
         );
         assert!(

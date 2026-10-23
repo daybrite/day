@@ -71,7 +71,7 @@ Platform guidance: [Apple: playing haptics](https://developer.apple.com/design/h
 |---|---|---|
 | iOS | [`UIImpactFeedbackGenerator`](https://developer.apple.com/documentation/uikit/uiimpactfeedbackgenerator) / [`UINotificationFeedbackGenerator`](https://developer.apple.com/documentation/uikit/uinotificationfeedbackgenerator) / [`UISelectionFeedbackGenerator`](https://developer.apple.com/documentation/uikit/uiselectionfeedbackgenerator) | `objc2` + `objc2-ui-kit` |
 | macOS | [`NSHapticFeedbackManager.defaultPerformer`](https://developer.apple.com/documentation/appkit/nshapticfeedbackmanager) (Force Touch trackpad) | `objc2-app-kit` |
-| Android | [`Vibrator`](https://developer.android.com/reference/android/os/Vibrator) / [`VibrationEffect`](https://developer.android.com/reference/android/os/VibrationEffect) via a Java shim | `day-android` + `[package.metadata.day.android]` |
+| Android | [`Vibrator`](https://developer.android.com/reference/android/os/Vibrator) / [`VibrationEffect`](https://developer.android.com/reference/android/os/VibrationEffect) via a Java shim | `day-mdc` + `[package.metadata.day.android]` |
 | HarmonyOS | [`vibrator.startVibration`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-sensor-service-kit/js-apis-vibrator.md) (Sensor Service Kit) via an ArkTS arm | [`day-bridge`](/contributing/backend-contracts/bridge) + `[package.metadata.day.ohos]` |
 | Windows · desktop Linux (GTK/Qt) | — (no haptic engine wired) | none (no-op, [`is_supported() == false`](https://daybrite.dev/api/day_part_haptics/fn.is_supported.html)) |
 
@@ -108,4 +108,4 @@ Piece and registers nothing into any toolkit's `RENDERERS` slice. It exercises t
 **manifest-permission overlay** ([docs/extending](extending.md)): `[package.metadata.day.android]` stages its own
 Java shim and contributes `android.permission.VIBRATE`, which `day build` merges into the app
 manifest with no edits to any core day crate. On Android the crate rides on the Day runtime
-(day-android's cached JVM + `DayBridge.ctx`); on every other platform it is fully day-independent.
+(day-mdc's cached JVM + `DayBridge.ctx`); on every other platform it is fully day-independent.
