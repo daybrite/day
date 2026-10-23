@@ -433,8 +433,8 @@ void* day_xaml_progress_new(int determinate, int value) {
     }
     WUXC::ProgressRing r;
     r.IsActive(true);
-    // WinUI's unloaded template has no intrinsic size. Keep the built-in spinner
-    // at the same 20-DIP size as the activity piece, including its first measure.
+    // WinUI's unloaded template has no intrinsic size. Reserve a 20-DIP minimum
+    // for the built-in spinner, including its first measure.
     r.MinWidth(20.0);
     r.MinHeight(20.0);
     return boxh(r);

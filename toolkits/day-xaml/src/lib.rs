@@ -811,12 +811,71 @@ fn apply_custom_family(h: *mut c_void, spec: day_spec::FontSpec) {
     });
 }
 
-/// A canvas font family as XAML resolves it (docs/fonts.md): a bundled family through its
-/// staged file — `ms-appx:///fonts/<file>#<family>`, the one form unpackaged XAML loads (see
-/// [`apply_custom_family`]) — and a system family by its name. A `TextBlock` handed the bare
-/// name of a bundled family draws the system font instead, silently, which is how canvas text
-/// in Pacifico came out in Segoe UI while the labels beside it were right. Cached per family:
-/// resolution parses font name tables.
+/// Win2D resolves bundled fonts through file URIs. Unlike XAML's FontFamily, its ms-appx
+/// resolver requires package identity and throws ERROR_NOT_FOUND in an unpackaged app.
+/// Use Windows' file-URI conversion to match the StorageFile resolver used by Win2D.
+#[cfg(feature = "winui")]
+fn win2d_font_family(path: &std::path::Path, family: &str) -> Option<String> {
+    use std::os::windows::ffi::OsStrExt;
+
+    #[link(name = "shlwapi")]
+    unsafe extern "system" {
+        fn UrlCreateFromPathW(path: *const u16, url: *mut u16, len: *mut u32, flags: u32) -> i32;
+    }
+
+    let path = std::path::absolute(path).ok()?;
+    let path = path.to_str()?;
+    // The shell converter does not accept the verbatim prefixes returned by canonicalize.
+    let path = if let Some(unc) = path.strip_prefix(r"\\?\UNC\") {
+        format!(r"\\{unc}")
+    } else {
+        path.strip_prefix(r"\\?\").unwrap_or(path).to_string()
+    };
+    let path: Vec<u16> = std::ffi::OsStr::new(&path)
+        .encode_wide()
+        .chain(Some(0))
+        .collect();
+    let mut url = vec![0u16; path.len() * 3 + 16];
+    let mut len = u32::try_from(url.len()).ok()?;
+    let hr = unsafe { UrlCreateFromPathW(path.as_ptr(), url.as_mut_ptr(), &mut len, 0) };
+    if hr < 0 {
+        return None;
+    }
+    let uri = String::from_utf16(&url[..len as usize]).ok()?;
+    Some(format!("{uri}#{family}"))
+}
+
+#[cfg(all(test, feature = "winui"))]
+#[test]
+fn win2d_font_paths_are_windows_file_uris() {
+    for (path, expected) in [
+        (
+            r"C:\Font fixtures\é #100%.ttf",
+            "file:///C:/Font%20fixtures/%E9%20%23100%25.ttf#Pacifico",
+        ),
+        (
+            r"\\server\fonts\Pacifico.ttf",
+            "file://server/fonts/Pacifico.ttf#Pacifico",
+        ),
+        (
+            r"\\?\C:\fonts\Pacifico.ttf",
+            "file:///C:/fonts/Pacifico.ttf#Pacifico",
+        ),
+        (
+            r"\\?\UNC\server\fonts\Pacifico.ttf",
+            "file://server/fonts/Pacifico.ttf#Pacifico",
+        ),
+    ] {
+        assert_eq!(
+            win2d_font_family(std::path::Path::new(path), "Pacifico").as_deref(),
+            Some(expected)
+        );
+    }
+}
+
+/// A bundled canvas family names its file as well as its family, so it cannot silently fall
+/// back to a system face. Win2D uses file URIs; the deprecated XAML renderer uses ms-appx.
+/// System families stay as bare names. Cached because resolution parses font name tables.
 fn canvas_family(family: &str) -> String {
     thread_local! {
         static CANVAS_FAMILIES: RefCell<HashMap<String, String>> = RefCell::new(HashMap::new());
@@ -826,20 +885,26 @@ fn canvas_family(family: &str) -> String {
             .borrow_mut()
             .entry(family.to_string())
             .or_insert_with(|| {
-                match day_spec::fonts::resolve_font_file(family)
-                    .as_deref()
-                    .and_then(|p| p.file_name())
-                    .and_then(|n| n.to_str())
+                let Some(path) = day_spec::fonts::resolve_font_file(family) else {
+                    return family.to_string();
+                };
+                #[cfg(feature = "winui")]
                 {
-                    Some(file) => format!("ms-appx:///fonts/{file}#{family}"),
-                    None => family.to_string(),
+                    win2d_font_family(&path, family).unwrap_or_else(|| family.to_string())
+                }
+                #[cfg(not(feature = "winui"))]
+                {
+                    path.file_name()
+                        .and_then(|n| n.to_str())
+                        .map(|file| format!("ms-appx:///fonts/{file}#{family}"))
+                        .unwrap_or_else(|| family.to_string())
                 }
             })
             .clone()
     })
 }
 
-/// The display list with every text font's family in the form XAML resolves
+/// The display list with every text font's family in the form the canvas renderer resolves
 /// ([`canvas_family`]); ops without a named family are untouched.
 fn resolve_canvas_fonts(ops: &[DrawOp]) -> Vec<DrawOp> {
     ops.iter()
@@ -2987,7 +3052,7 @@ impl Toolkit for Xaml {
     }
 
     fn replay(&mut self, h: &WinHandle, ops: &[DrawOp], _size: Size) {
-        // Bundled families go to the shim as the `ms-appx:///fonts/…#family` XAML loads them by.
+        // Bundled families name a file URI for Win2D (ms-appx for the legacy XAML renderer).
         let ops = resolve_canvas_fonts(ops);
         let (nums, texts) = day_spec::encode_ops(&ops);
         let joined = cstr(&texts.join("\u{1f}"));

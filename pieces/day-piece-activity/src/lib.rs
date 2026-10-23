@@ -136,6 +136,10 @@ pub mod conformance {
                     activity()
                         .animating(on)
                         .id(day_core::id!(activity::spinner)),
+                    activity()
+                        .large()
+                        .animating(on)
+                        .id(day_core::id!(activity::large_spinner)),
                     button("Stop")
                         .action(move || on.set(false))
                         .id(day_core::id!(activity::stop)),
@@ -150,8 +154,23 @@ pub mod conformance {
                     },
                 )
                 .await?;
+                d.shot("animating").await?;
+                // WinUI's ring must hug its native size, even in a wide column. Qt uses
+                // a busy progress bar, so square dimensions are not a portable contract.
+                #[cfg(feature = "winui")]
+                {
+                    d.assert_size("activity::spinner", 32.0, 32.0).await?;
+                    d.assert_size("activity::large_spinner", 48.0, 48.0).await?;
+                }
                 d.tap("activity::stop").await?;
-                d.assert_visible("activity::spinner").await
+                d.assert_visible("activity::spinner").await?;
+                d.assert_visible("activity::large_spinner").await?;
+                #[cfg(feature = "winui")]
+                {
+                    d.assert_size("activity::spinner", 32.0, 32.0).await?;
+                    d.assert_size("activity::large_spinner", 48.0, 48.0).await?;
+                }
+                Ok(())
             })
     }
 }

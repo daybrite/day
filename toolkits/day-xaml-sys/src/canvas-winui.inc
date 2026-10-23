@@ -10,39 +10,23 @@ namespace WCT = WC::Text;
 namespace WCX = WC::UI::Xaml;
 namespace WFN = winrt::Windows::Foundation::Numerics;
 
-// Cargo does not run MSBuild's WinRT registration task. Resolve Win2D classes from
-// the app-local DLL, with the pinned SDK cache as the development fallback.
+// Cargo does not run MSBuild's WinRT registration task. Preload Win2D from the
+// app-local DLL, with the pinned SDK cache as the development fallback. C++/WinRT's
+// normal activation then finds it by namespace. Do not replace winrt_activation_handler:
+// delegating only to RoGetActivationFactory bypasses C++/WinRT's DLL fallback and
+// breaks other unpackaged components such as WebView2 after the first canvas draws.
 static void canvas_activate() {
-    static bool installed = [] {
-        static auto previous = winrt_activation_handler;
-        winrt_activation_handler = [](void* name, winrt::guid const& iid, void** out) noexcept -> int32_t {
-            uint32_t length = 0;
-            auto class_name = WindowsGetStringRawBuffer(static_cast<HSTRING>(name), &length);
-            if (std::wstring_view(class_name, length).starts_with(L"Microsoft.Graphics.Canvas.")) {
-                static HMODULE module = [] {
-                    wchar_t path[32768]{};
-                    GetModuleFileNameW(nullptr, path, 32768);
-                    std::wstring local(path);
-                    local.resize(local.find_last_of(L"\\/") + 1);
-                    local += L"Microsoft.Graphics.Canvas.dll";
-                    auto dll = LoadLibraryExW(local.c_str(), nullptr, LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS);
-                    if (!dll) dll = LoadLibraryExW(DAY_WIN2D_DLL, nullptr, LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS);
-                    return dll;
-                }();
-                if (!module) return HRESULT_FROM_WIN32(ERROR_MOD_NOT_FOUND);
-                using Factory = HRESULT (WINAPI*)(HSTRING, void**);
-                auto factory = reinterpret_cast<Factory>(GetProcAddress(module, "DllGetActivationFactory"));
-                if (!factory) return E_NOINTERFACE;
-                winrt::com_ptr<IUnknown> object;
-                HRESULT hr = factory(static_cast<HSTRING>(name), object.put_void());
-                return FAILED(hr) ? hr : object->QueryInterface(reinterpret_cast<GUID const&>(iid), out);
-            }
-            return previous ? previous(name, iid, out)
-                : RoGetActivationFactory(static_cast<HSTRING>(name), reinterpret_cast<GUID const&>(iid), out);
-        };
-        return true;
+    static HMODULE module = [] {
+        wchar_t path[32768]{};
+        GetModuleFileNameW(nullptr, path, 32768);
+        std::wstring local(path);
+        local.resize(local.find_last_of(L"\\/") + 1);
+        local += L"Microsoft.Graphics.Canvas.dll";
+        auto dll = LoadLibraryExW(local.c_str(), nullptr, LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS);
+        if (!dll) dll = LoadLibraryExW(DAY_WIN2D_DLL, nullptr, LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS);
+        return dll;
     }();
-    (void)installed;
+    if (!module) winrt::throw_hresult(HRESULT_FROM_WIN32(ERROR_MOD_NOT_FOUND));
 }
 
 static WC::CanvasDevice canvas_device() {

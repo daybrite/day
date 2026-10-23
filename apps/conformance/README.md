@@ -20,6 +20,12 @@ cargo run -q -p day-cli -- --project apps/conformance test -p ios-uikit --list
 
 The built-in cases also run on the mock toolkit under `cargo test -p day-script --test conformance`.
 
+The `canvas-bundled-font` case uses Pacifico from `crates/day-fonts/fixtures/conformance/`
+(SIL Open Font License, included beside the font). `generate.sh` stages it with a filename
+containing spaces and a non-ASCII character. The case checks custom font metrics, live canvas
+drawing and bitmap export, including unpackaged Win2D font resolution. Run it with
+`target/debug/day test --project apps/conformance -t windows-winui canvas-bundled-font --shots always`.
+
 The app additionally registers `vector-*` pixel cases in `src/vector_icons.rs`, using the SVG
 fixtures in `crates/day-vector/fixtures/conformance/`. `generate.sh` copies these into the app's
 generated resources, so they exercise the same staging and loading paths as application icons.

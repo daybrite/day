@@ -23,6 +23,7 @@ use day_piece_texteditor as _;
 
 use day::prelude::*;
 
+mod canvas_fonts;
 #[cfg(all(target_os = "windows", feature = "winui"))]
 mod native_canvas;
 mod vector_icons;

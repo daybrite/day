@@ -105,6 +105,8 @@ Platform guidance: [Apple: progress indicators](https://developer.apple.com/desi
   (`Microsoft.UI.Xaml.Controls`), boxed via day-xaml-sys's `day_xaml_box` functions like the media /
   picker / webview XAML pieces. `IsActive` runs/stops it; `.large` sets Width/Height. WinUI 3's
   ring measures to nothing before it loads, so the WinUI build also sets `MinWidth`/`MinHeight`
-  (20, or 48 when large). Creation degrades to a [`TextBlock`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.xaml.controls.textblock) on any unexpected throw.
+  (32, or 48 when large). Its renderer measures the native fitting size independently of the
+  parent's proposed width, keeping the ring circular in wide columns. Stopping the animation
+  preserves that size. Creation degrades to a [`TextBlock`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.xaml.controls.textblock) on any unexpected throw.
 - **mock**: the feature exists (so an app can enable `day-piece-activity/mock` uniformly per
   toolkit) but registers no renderer; the activity kind falls back to day's placeholder leaf.

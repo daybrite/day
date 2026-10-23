@@ -3,16 +3,16 @@
 
 // ---------------------------------------------------------------------------
 // XAML: this crate's C++/WinRT shim (src/lib-xaml-shim.cpp) wrapping a
-// Windows.UI.Xaml.Controls.ProgressRing (the native UWP-XAML indeterminate spinner), boxed into a
+// ProgressRing (Microsoft.UI.Xaml on WinUI, Windows.UI.Xaml on legacy XAML), boxed into a
 // day handle via day-xaml-sys's `day_xaml_box`/`day_xaml_unbox` functions (like the
 // media/picker/webview xaml pieces). `IsActive` maps to `.animating`; `.large` sets Width/Height.
-// Windows-only; written blind and built in CI.
+// Windows-only; built and exercised by native conformance tests.
 // ---------------------------------------------------------------------------
 
 use super::*;
 use std::os::raw::{c_int, c_void};
 
-use day_spec::NodeId;
+use day_spec::{NodeId, Proposal, Size};
 use day_xaml::{WinHandle, Xaml};
 
 unsafe extern "C" {
@@ -32,6 +32,15 @@ fn update(_backend: &mut Xaml, h: &WinHandle, patch: &ActivityPatch) {
     }
 }
 
+fn measure(_backend: &mut Xaml, h: &WinHandle, _proposal: Proposal) -> Size {
+    // The generic XAML leaf measure fills the parent's proposal. A ProgressRing
+    // instead hugs its native size; stretching only its width distorts the animation.
+    let mut width = 0.0;
+    let mut height = 0.0;
+    unsafe { day_xaml_sys::day_xaml_measure(h.0, -1.0, -1.0, &mut width, &mut height) };
+    Size::new(width.ceil(), height.ceil())
+}
+
 day_pieces::renderer!(day_xaml::RENDERERS, Xaml,
     kind: KIND, props: ActivityProps, patch: ActivityPatch,
-    make: make, update: update);
+    make: make, update: update, measure: measure);

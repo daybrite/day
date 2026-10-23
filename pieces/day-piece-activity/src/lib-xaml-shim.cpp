@@ -1,15 +1,13 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-// The activity piece's C++/WinRT shim, parallel to src/lib-qt-shim.cpp. day-xaml hosts the UWP
-// system XAML (DAY_XAML_NS, from the base Windows SDK, not WinAppSDK), so the matching
-// spinner is Windows.UI.Xaml.Controls.ProgressRing, whose `IsActive` runs/stops the animation. The
+// The activity piece's C++/WinRT shim, parallel to src/lib-qt-shim.cpp. Both XAML stacks provide
+// ProgressRing, whose `IsActive` runs/stops the animation. The
 // element is boxed into a day handle via the `day_xaml_box`/`day_xaml_unbox` functions day-xaml-sys
 // exports (zero edits to day's toolkit crates), exactly like the media/picker/webview shims.
 //
-// Written blind (no Windows host here); Windows-only, compiled by build.rs and linked alongside
-// day-xaml-sys. ProgressRing is core system XAML so construction can't fail like EdgeHTML, but
-// creation still degrades to a TextBlock on any unexpected throw so the app keeps running.
+// Windows-only, compiled by build.rs and linked alongside day-xaml-sys. Creation degrades to
+// a TextBlock on any unexpected throw so the app keeps running.
 
 #include <winrt/Windows.Foundation.h>
 // One shim, two XAML stacks (docs/winui.md): windows-xaml builds it against system XAML,
@@ -59,11 +57,12 @@ void *day_activity_xaml_new(int large, int animating) {
             ring.Height(48.0);
         }
 #ifdef DAY_WINUI
-        // System XAML's template sizes the ring itself (20, or the 48 set above); WinUI 3's draws
+        // System XAML's template sizes the ring itself; WinUI 3's draws
         // it with an AnimatedVisualPlayer that measures to nothing before the control loads, which
-        // is when Day measures it, so the spinner laid out with no frame at all. The floor goes on
+        // is when Day measures it. Reserve its loaded size (32 regular, 48 large) from
+        // the first measure, so loading the template does not change layout. The floor goes on
         // MinWidth/MinHeight because day-xaml's measure clears Width/Height to Auto first.
-        const double side = large ? 48.0 : 20.0;
+        const double side = large ? 48.0 : 32.0;
         ring.MinWidth(side);
         ring.MinHeight(side);
 #endif

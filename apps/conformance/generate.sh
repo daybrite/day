@@ -50,4 +50,6 @@ for part in Day.toml build.rs resource platform; do
   cp -R "$scratch/conformance/$part" "$here/$part"
 done
 cp "$repo"/crates/day-vector/fixtures/conformance/*.svg "$here/resource/vectors/"
+mkdir -p "$here/resource/fonts"
+cp "$repo"/crates/day-fonts/fixtures/conformance/*.ttf "$here/resource/fonts/"
 echo "regenerated the conformance app's scaffold in $here"
