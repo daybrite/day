@@ -102,6 +102,7 @@
       "fs",
       "http",
       "downloads",
+      "auth",
       "keychain",
       "persistence",
       "applications",

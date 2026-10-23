@@ -16,6 +16,10 @@ person before opening it. `day-part-biometrics` shows the platform's own authent
 reason in the person's language, lets the device credential pass where the app allows it, and
 reports one answer: verified, or why not.
 
+To sign in to an account service or request a passkey, use
+[sign-in and passkeys](/docs/reference/auth). A local biometric check does not establish a
+server session.
+
 ## Add to your app
 
 Defined in [`day-part-biometrics`](https://github.com/daybrite/day/tree/main/parts/day-part-biometrics). Add this to your app's `Cargo.toml`

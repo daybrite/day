@@ -51,7 +51,7 @@ However a link arrives, the behavior inside the app is the same:
 - **Handlers stack.** `day::on_open_url` registrations stack, newest first: the newest live
   handler sees a URL first, and a handler that returns `false` passes it on. A part that waits for
   one callback URL for the life of one operation (the sign-in redirect in
-  [day-part-auth](https://github.com/daybrite/day-part-auth)) registers in a scope of its own,
+  [day-part-auth](/docs/reference/auth)) registers in a scope of its own,
   takes the one URL it expects, and declines everything else, so the app's root handler keeps
   receiving the rest. A registration goes with its scope.
 - **Navigation only.** A scheme URL can be sent by any app or web page, unauthenticated. Deep

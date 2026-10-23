@@ -49,6 +49,12 @@
     "type": "explanation",
     "audience": "app developer"
   },
+  "internal/auth": {
+    "route": "/docs/reference/auth",
+    "source": "docs/auth.md",
+    "type": "reference",
+    "audience": "app developer"
+  },
   "internal/badge": {
     "route": "/docs/reference/badge",
     "source": "docs/badge.md",

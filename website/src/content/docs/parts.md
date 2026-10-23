@@ -38,7 +38,7 @@ The UI snippets use generated `res::str` accessors from an app's Fluent catalog;
 | [`day-part-sound`](/docs/reference/sound) | sound effects | [sound](/docs/reference/sound) |
 | [`day-part-wakelock`](/docs/reference/wakelock) | keeping the screen on | [wakelock](/docs/reference/wakelock) |
 | `day-part-speech` | text to speech through each platform's speech API; in a separate repository | [day-part-speech](https://github.com/daybrite/day-part-speech) |
-| `day-part-auth` | sign-in: the system's auth browser, OpenID Connect with PKCE and verified ID tokens, Sign in with Apple, Google, passkeys; in a separate repository | [day-part-auth](https://github.com/daybrite/day-part-auth) |
+| [`day-part-auth`](/docs/reference/auth) | experimental account sign-in and native credential requests; separate checkout required | [sign-in and passkeys](/docs/reference/auth) |
 
 ## Select an API by its completion model
 
@@ -77,5 +77,5 @@ additional app-facing Part interface.
 
 Source review: [part crates](https://github.com/daybrite/day/tree/main/parts) and
 [facade feature gates](https://github.com/daybrite/day/blob/main/crates/day/Cargo.toml), 2026-10-22.
-The speech and sign-in parts are external projects; their implementation and current
-compatibility were not verified in this repository-only review.
+The speech part is an external project; consult its repository for current compatibility.
+The [sign-in reference](/docs/reference/auth) describes the auth part's setup and current limitations.
