@@ -14,15 +14,16 @@
     "build:force": "npm run build:site:force && npm run build:api",
     "build:site": "astro build && pagefind --site dist",
     "build:site:force": "astro build --force && pagefind --site dist",
-    "build:api": "bash ../scripts/build-api-docs.sh --out website/dist/api && node scripts/check-api-bundle.mjs && python3 -B ../scripts/docs/check-api-links.py",
+    "build:api": "bash ../scripts/build-api-docs.sh --out website/dist/api && node scripts/check-api-bundle.mjs && python3 -B ../scripts/docs/check-api-links.py && npm run docs:api-references",
     "api:dev": "bash ../scripts/build-api-docs.sh --out website/public/api",
     "linkcheck": "node scripts/linkcheck.mjs",
     "preview": "astro preview",
     "assemble": "node scripts/assemble-gallery.mjs",
     "astro": "astro",
     "docs:check": "node scripts/docs-check.mjs",
-    "docs:test": "node --test scripts/docs-check.test.mjs scripts/target-labels.test.mjs",
-    "docs:architecture": "node scripts/check-content-routes.mjs && node --test scripts/content-routes.test.mjs"
+    "docs:test": "node --test scripts/docs-check.test.mjs scripts/target-labels.test.mjs scripts/api-links.test.mjs scripts/api-reference-coverage.test.mjs",
+    "docs:architecture": "node scripts/check-content-routes.mjs && node --test scripts/content-routes.test.mjs",
+    "docs:api-references": "node scripts/check-api-references.mjs"
   },
   "dependencies": {
     "@astrojs/markdown-remark": "^7.2.3",

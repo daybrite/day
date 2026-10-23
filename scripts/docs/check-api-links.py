@@ -106,11 +106,14 @@ def main():
 
     manifest = json.loads((ROOT / 'website/src/data/api-crates.json').read_text())
     crates = [crate['pkg'].replace('-', '_') for group in manifest['groups'] for crate in group['crates']]
-    bridge = Page(DIST / 'docs/reference/api/index.html')
+    bridge_path = DIST / 'docs/reference/api/index.html'
+    bridge = Page(bridge_path)
+    bridge_targets = {destination(bridge_path, href)[0] for href in bridge.links}
     navigation_failures = []
     for crate in crates:
         route = f'/api/{crate}/index.html'
-        if route not in bridge.links or DIST / route.lstrip('/') not in files:
+        target = DIST / route.lstrip('/')
+        if target not in bridge_targets or target not in files:
             navigation_failures.append(route)
     for path in api_pages:
         page = pages[path]

@@ -1,4 +1,5 @@
 ---
+navTitle: "Websites"
 title: App websites
 description: Set up a localized app website, customize daysite or own its Astro pages, and publish with Day's GitHub Actions workflow and an optional custom domain.
 order: 32.6

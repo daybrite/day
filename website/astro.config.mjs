@@ -11,6 +11,7 @@ import accentTargetCode from './plugins/accent-target-code.mjs';
 import tierBadge from './plugins/tier-badge.mjs';
 import admonitions from './plugins/admonitions.mjs';
 import glossaryLinks from './plugins/glossary-links.mjs';
+import apiLinks from './plugins/api-links.mjs';
 
 // Deployed to GitHub Pages on the custom domain https://daybrite.dev. A custom apex domain serves
 // the repo at the root, so there is no base path (public/CNAME pins the domain). The `gallery`
@@ -39,15 +40,15 @@ export default defineConfig({
     // the tier definitions as tier badges (plugins/tier-badge.mjs); links into the glossary as
     // defined terms with a hover popover (plugins/glossary-links.mjs); box call-out blockquotes as
     // admonitions (plugins/admonitions.mjs). tierBadge and glossaryLinks run after the rewrite so they see the
-    // final href, and admonitions runs last so a badge inside a call-out is already a badge when
-    // it moves into the title.
+    // final href. Admonitions move badges into titles; apiLinks then marks exact Rustdoc
+    // references with a distinct underline and absolute published URLs.
     //
     // Astro 7.2 deprecated `markdown.rehypePlugins` (and its remark siblings) in favor of naming
     // the processor explicitly: `unified()` IS the default remark/rehype pipeline, so this is the
     // same processing, declared through the factory that now owns the plugin lists. `shikiConfig`
     // stays at this level — it configures the highlighter, not the unified pipeline.
     processor: unified({
-      rehypePlugins: [contentLinks, accentTargetCode, tierBadge, glossaryLinks, admonitions],
+      rehypePlugins: [contentLinks, accentTargetCode, tierBadge, glossaryLinks, admonitions, apiLinks],
     }),
   },
 });

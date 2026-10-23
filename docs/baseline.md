@@ -1,4 +1,5 @@
 ---
+navTitle: "Baseline"
 title: "Baseline alignment"
 description: "How text in a row sits on a shared baseline across toolkits, and the layout rules that keep mixed fonts aligned."
 ---
@@ -59,7 +60,7 @@ the size is a parameter rather than something the backend reads off the current 
 | Android | `View.getBaseline()` | Native |
 | UIKit | derived: the view's font ascent, centered in its height | Emulated |
 | Qt | derived: `QFontMetricsF::ascent()`, centered in its height | Emulated |
-| web-dom | derived: canvas `TextMetrics.fontBoundingBoxAscent`, offset by the element's border and padding | Emulated |
+| Web | derived: canvas `TextMetrics.fontBoundingBoxAscent`, offset by the element's border and padding | Emulated |
 | XAML | `TextBlock.BaselineOffset`; font-derived for templated controls | Emulated |
 | ArkUI | derived from `NODE_FONT_SIZE` | Emulated |
 
@@ -84,22 +85,22 @@ font of its own falls back to the report.
 
 ## Containers and decorators
 
-A container answers on behalf of its content, through `Layout::baseline`:
+A container answers on behalf of its content, through [`Layout::baseline`](https://daybrite.dev/api/day_core/trait.Layout.html#method.baseline):
 
 - a **row** reports the line its children were aligned to;
 - a **column** reports its first baseline-bearing child's, offset by where that child sits;
-- a **`labeled` row** reports the line its label and control now share, so a form row nested in
+- a **[`labeled`](https://daybrite.dev/api/day_pieces/fn.labeled.html) row** reports the line its label and control now share, so a form row nested in
   another baseline-aligned row joins the same line;
-- every **single-child wrapper** (`.width()`, `.frame()`, `.padding()`, `.grow()`,
-  `.max_width()`, `.min_width()`, `.background()`) forwards its child's, offset by where it places it.
+- every **single-child wrapper** ([`.width()`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.width), [`.frame()`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.frame), [`.padding()`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.padding), [`.grow()`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.grow),
+  [`.max_width()`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.max_width), [`.min_width()`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.min_width), [`.background()`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.background)) forwards its child's, offset by where it places it.
 
 That last one matters more than it looks. A decorator is invisible at the call site:
-`label(res::str::qty()).width(90.0)` still reads as "a label". If wrappers reported no baseline, a row
+[`label`](https://daybrite.dev/api/day_pieces/fn.label.html)`(res::str::qty())`[`.width`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.width)`(90.0)` still reads as "a label". If wrappers reported no baseline, a row
 would silently center the very children the author asked to align, and the feature would look
 like it did not work. The `decorated_children_keep_their_baseline` test in
 `day-pieces/tests/mock_e2e.rs` pins it.
 
-Grid cells are **not** baseline-aligned; `grid_row(..).align(VAlign::FirstBaseline)` reads as
+Grid cells are **not** baseline-aligned; [`grid_row`](https://daybrite.dev/api/day_pieces/fn.grid_row.html)`(..)`[`.align`](https://daybrite.dev/api/day_pieces/trait.GridRowBuilder.html#tymethod.align)`(VAlign::FirstBaseline)` reads as
 `Center`. See [docs/grid](grid.md).
 
 ## Row height

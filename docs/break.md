@@ -1,4 +1,5 @@
 ---
+navTitle: "Crash reporting"
 title: "day-piece-break: crash reporting"
 description: "The external crash capture, report review, and submission Piece."
 ---

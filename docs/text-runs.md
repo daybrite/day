@@ -26,13 +26,13 @@ label(text).runs(runs)
 
 > [!TIP]
 > **Keep translated sentences whole.** For app-owned instructions, put the complete sentence
-> and its emphasis in Fluent, then use `label(res::str::save_instructions()).markdown()`.
+> and its emphasis in Fluent, then use [`label`](https://daybrite.dev/api/day_pieces/fn.label.html)`(res::str::save_instructions())`[`.markdown`](https://daybrite.dev/api/day_pieces/trait.LabelBuilder.html#tymethod.markdown)`()`.
 > Translators can reorder it without changing byte ranges or assembling English fragments.
 > Use `TextBuilder` for structured user-authored content or styles that Markdown cannot express.
 > See [Localization](/docs/how-to/localization).
 
 `TextBuilder` returns the plain string and the runs that style it, which is exactly what
-`label().runs()` takes. `.runs_from(builder)` does both in one call.
+[`label`](https://daybrite.dev/api/day_pieces/fn.label.html)`()`[`.runs`](https://daybrite.dev/api/day_pieces/trait.LabelBuilder.html#tymethod.runs)`()` takes. [`.runs_from(builder)`](https://daybrite.dev/api/day_pieces/trait.LabelBuilder.html#tymethod.runs_from) does both in one call.
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
 [example messages](snippet-catalog.md) and [catalog setup](/docs/how-to/localization).
@@ -71,7 +71,7 @@ means something against a particular string; patching one without the other woul
 next edit.
 
 `FontSpec::monospace` asks for the platform's fixed-pitch face. It rides the ordinary font path,
-so it works on a whole label (`label(res::str::loading()).monospace()`) as well as on a run.
+so it works on a whole label ([`label`](https://daybrite.dev/api/day_pieces/fn.label.html)`(res::str::loading())`[`.monospace`](https://daybrite.dev/api/day_pieces/trait.LabelBuilder.html#tymethod.monospace)`()`) as well as on a run.
 
 `FontSpec::scale` is a **relative** size: it multiplies whatever the semantic style resolves to, so
 a run at `1.4` still tracks the reader's text-size setting. `Font::System(pt)` is the absolute form
@@ -79,25 +79,25 @@ and does not, which is why an editor's size control moves `scale` and an importe
 `font-size: 14px` lands in `Font::System`.
 
 A label's runs are the character half of [`StyledText`](texteditor.md), the document type
-`.markdown()` produces and [`day-piece-texteditor`](texteditor.md) edits. The same runs render in
+[`.markdown()`](https://daybrite.dev/api/day_pieces/trait.LabelBuilder.html#tymethod.markdown) produces and [`day-piece-texteditor`](texteditor.md) edits. The same runs render in
 both places.
 
 ## Builder vocabulary
 
 | Method | Run |
 | --- | --- |
-| `.text(s)` | unstyled, at the base font |
-| `.strong(s)` | bold |
-| `.emphasis(s)` | italic |
-| `.code(s)` | the fixed-pitch face |
-| `.colored(s, c)` | a color |
-| `.underline(s)` | underlined |
-| `.highlight(s, c)` | a background, with a readable foreground over it |
-| `.sized(s, k)` | `k` times the base size (relative, so it still scales) |
-| `.strikethrough(s)` | struck through |
-| `.link(s, url)` | drawn as a link (see below) |
+| [`.text(s)`](https://daybrite.dev/api/day_pieces/struct.TextBuilder.html#method.text) | unstyled, at the base font |
+| [`.strong(s)`](https://daybrite.dev/api/day_pieces/struct.TextBuilder.html#method.strong) | bold |
+| [`.emphasis(s)`](https://daybrite.dev/api/day_pieces/struct.TextBuilder.html#method.emphasis) | italic |
+| [`.code(s)`](https://daybrite.dev/api/day_pieces/struct.TextBuilder.html#method.code) | the fixed-pitch face |
+| [`.colored(s, c)`](https://daybrite.dev/api/day_pieces/struct.TextBuilder.html#method.colored) | a color |
+| [`.underline(s)`](https://daybrite.dev/api/day_pieces/struct.TextBuilder.html#method.underline) | underlined |
+| [`.highlight(s, c)`](https://daybrite.dev/api/day_pieces/struct.TextBuilder.html#method.highlight) | a background, with a readable foreground over it |
+| [`.sized(s, k)`](https://daybrite.dev/api/day_pieces/struct.TextBuilder.html#method.sized) | `k` times the base size (relative, so it still scales) |
+| [`.strikethrough(s)`](https://daybrite.dev/api/day_pieces/struct.TextBuilder.html#method.strikethrough) | struck through |
+| [`.link(s, url)`](https://daybrite.dev/api/day_pieces/struct.TextBuilder.html#method.link) | drawn as a link (see below) |
 
-`.base(font)` sets the font the runs vary from; without it, runs sit on the label's own font.
+[`.base(font)`](https://daybrite.dev/api/day_pieces/struct.TextBuilder.html#method.base) sets the font the runs vary from; without it, runs sit on the label's own font.
 
 ## Per-toolkit
 
@@ -110,7 +110,7 @@ both places.
 | Android | `SpannableString` spans | `TypefaceSpan("monospace")` |
 | ArkUI | [`ARKUI_NODE_SPAN`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-arkui/capi-native-node-h.md) children | `HarmonyOS Sans Mono, monospace` |
 | XAML | `Run` inlines in [`TextBlock.Inlines`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.xaml.controls.textblock) | `Consolas, Courier New, monospace` |
-| web-dom | `<span class="day-run">` children | the `ui-monospace` stack |
+| Web | `<span class="day-run">` children | the `ui-monospace` stack |
 
 Ranges convert to UTF-16 for the Apple and Android toolkits, which index text that way; any emoji
 or CJK in the string makes the two disagree.
@@ -136,14 +136,14 @@ Link activation is `Cap::TextLinks`, and it is narrower than rendering:
 | UIKit | a text-view delegate (see below) |
 | Android | a `ClickableSpan` + `LinkMovementMethod` |
 | XAML | `Hyperlink.Click` |
-| web-dom | the anchor's click, with its navigation cancelled |
+| Web | the anchor's click, with its navigation cancelled |
 | AppKit | the native field editor reports to the `DayLabel` text-field subclass |
 | ArkUI | native `NODE_ON_CLICK` on each link's `SPAN` |
 
 Every one of these reports the target to the app rather than opening it itself, so a label's
-`.on_link()` decides. Its default calls `open_link`: a leading `#` navigates to the route after
-the hash, and other targets open through `Toolkit::open_url`. This also applies to links made
-with `TextBuilder::link`; see [markdown links](./markdown.md#links) for the route contract and
+[`.on_link()`](https://daybrite.dev/api/day_pieces/trait.LabelBuilder.html#tymethod.on_link) decides. Its default calls [`open_link`](https://daybrite.dev/api/day_pieces/fn.open_link.html): a leading `#` navigates to the route after
+the hash, and other targets open through [`Toolkit::open_url`](https://daybrite.dev/api/day_spec/trait.Toolkit.html#method.open_url). This also applies to links made
+with [`TextBuilder::link`](https://daybrite.dev/api/day_pieces/struct.TextBuilder.html#method.link); see [markdown links](./markdown.md#links) for the route contract and
 custom-handler behavior. Where activation is missing the run still draws as a link; the tap does
 nothing.
 
@@ -184,22 +184,22 @@ markup with its tags stripped, and measuring it would size every run at the base
 proportional), so the fixed face comes from `<code>` instead.
 
 **A label with a link on iOS is a [`UITextView`](https://developer.apple.com/documentation/uikit/uitextview).** UIKit reserves both selection and link hit
-testing for text-input views, so `.selectable()` rebuilds the label as a read-only text view, and
+testing for text-input views, so [`.selectable()`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.selectable) rebuilds the label as a read-only text view, and
 a label that arrives with a link run is built as one from the start. That swap carries the
 attributed text across rather than the plain string. A link that first appears in a later patch
 cannot upgrade the backing, since `patch` has no way to hand back a new handle: seed the text with
-its link, or mark the label `.selectable()`.
+its link, or mark the label [`.selectable()`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.selectable).
 
 ## Markdown
 
-[markdown](./markdown.md) covers `.markdown()`, which parses inline markdown at run time and
+[markdown](./markdown.md) covers [`.markdown()`](https://daybrite.dev/api/day_pieces/trait.LabelBuilder.html#tymethod.markdown), which parses inline markdown at run time and
 produces exactly these runs; it is the convenient way to get them when the text is a translated
 string or something a user typed.
 
 ## What `Cap` answers
 
 `Cap::TextRuns` and `Cap::TextLinks` are Native on all eight toolkits (AppKit, GTK, Qt,
-UIKit, Android, XAML, ArkUI and web-dom).
+UIKit, Android, XAML, ArkUI and Web).
 
 ## Platform guidance
 

@@ -60,31 +60,31 @@ if (200..300).contains(&resp.status) {
 }
 ```
 
-`Request` is a builder: `get`, `post`, `put`, `delete`, `patch` and `head` start one, then
-`.header(name, value)` (duplicates allowed), `.bearer(token)`, `.basic_auth(user, password)`,
-`.body(bytes)`, `.timeout(d)`, `.timeout_total(d)`, `.allow_expensive(bool)`,
-`.allow_constrained(bool)`, `.cache(policy)` and `.priority(p)`. The upload builders are under
-[Uploads](#uploads). `Response { status, headers, body }` adds `text()` (lossy UTF-8) and a
-case-insensitive `header(name)`.
+`Request` is a builder: [`get`](https://daybrite.dev/api/day_part_http/struct.Request.html#method.get), [`post`](https://daybrite.dev/api/day_part_http/struct.Request.html#method.post), [`put`](https://daybrite.dev/api/day_part_http/struct.Request.html#method.put), [`delete`](https://daybrite.dev/api/day_part_http/struct.Request.html#method.delete), [`patch`](https://daybrite.dev/api/day_part_http/struct.Request.html#method.patch) and [`head`](https://daybrite.dev/api/day_part_http/struct.Request.html#method.head) start one, then
+[`.header(name, value)`](https://daybrite.dev/api/day_part_http/struct.Request.html#method.header) (duplicates allowed), [`.bearer(token)`](https://daybrite.dev/api/day_part_http/struct.Request.html#method.bearer), [`.basic_auth(user, password)`](https://daybrite.dev/api/day_part_http/struct.Request.html#method.basic_auth),
+[`.body(bytes)`](https://daybrite.dev/api/day_part_http/struct.Request.html#method.body), [`.timeout(d)`](https://daybrite.dev/api/day_part_http/struct.Request.html#method.timeout), [`.timeout_total(d)`](https://daybrite.dev/api/day_part_http/struct.Request.html#method.timeout_total), [`.allow_expensive(bool)`](https://daybrite.dev/api/day_part_http/struct.Request.html#method.allow_expensive),
+[`.allow_constrained(bool)`](https://daybrite.dev/api/day_part_http/struct.Request.html#method.allow_constrained), [`.cache(policy)`](https://daybrite.dev/api/day_part_http/struct.Request.html#method.cache) and [`.priority(p)`](https://daybrite.dev/api/day_part_http/struct.Request.html#method.priority). The upload builders are under
+[Uploads](#uploads). `Response { status, headers, body }` adds [`text()`](https://daybrite.dev/api/day_part_http/struct.Response.html#method.text) (lossy UTF-8) and a
+case-insensitive [`header(name)`](https://daybrite.dev/api/day_part_http/struct.Response.html#method.header).
 
 Two contract points apply everywhere:
 
 - **4xx and 5xx are responses.** An HTTP error status arrives as `resp.status == 404`. An
   `HttpError` is a transport failure: `BadUrl`, `Timeout`, `Dns`, `Connect`, `Tls`, `Io`,
   `Cancelled`, `TooManyRedirects`, `Status` or `Unsupported` (the enum is `#[non_exhaustive]`).
-- **`timeout` bounds progress.** It covers connecting, waiting for the response head, and idle
+- **[`timeout`](https://daybrite.dev/api/day_part_http/struct.Request.html#method.timeout) bounds progress.** It covers connecting, waiting for the response head, and idle
   gaps in the body, so a long download that keeps moving runs to the end. The default is 30 s.
-  `timeout_total` bounds the whole request, redirects and challenges included.
+  [`timeout_total`](https://daybrite.dev/api/day_part_http/struct.Request.html#method.timeout_total) bounds the whole request, redirects and challenges included.
 
 The root functions are:
 
 | Function | Shape |
 |---|---|
-| `fetch(&req)` | blocks; returns `Response` |
-| `fetch_async(req, on_done)` | `on_done` runs on a background thread |
-| `fetch_future(req)` | a future; dropping it cancels the request |
-| `fetch_to_file(&req, &dest)`, `fetch_to_file_async` | writes the body to `dest` as it arrives |
-| `fetch_streamed(&req, &mut sink)` | hands the head and each chunk to a `StreamSink`, which can stop the transfer |
+| [`fetch(&req)`](https://daybrite.dev/api/day_part_http/fn.fetch.html) | blocks; returns `Response` |
+| [`fetch_async(req, on_done)`](https://daybrite.dev/api/day_part_http/fn.fetch_async.html) | `on_done` runs on a background thread |
+| [`fetch_future(req)`](https://daybrite.dev/api/day_part_http/fn.fetch_future.html) | a future; dropping it cancels the request |
+| [`fetch_to_file(&req, &dest)`](https://daybrite.dev/api/day_part_http/fn.fetch_to_file.html), [`fetch_to_file_async`](https://daybrite.dev/api/day_part_http/fn.fetch_to_file_async.html) | writes the body to `dest` as it arrives |
+| [`fetch_streamed(&req, &mut sink)`](https://daybrite.dev/api/day_part_http/fn.fetch_streamed.html) | hands the head and each chunk to a `StreamSink`, which can stop the transfer |
 
 They share one client that keeps no cookies and no cache, so every call starts fresh.
 
@@ -116,8 +116,8 @@ day_part_http::fetch_async(Request::get(url), move |result| {
 });
 ```
 
-The crate never calls `day_reactive::on_main` itself, which keeps it usable from plain `main`
-programs and `cargo test`. Aborting a `day::task` drops its future, which cancels the request.
+The crate never calls [`day_reactive::on_main`](https://daybrite.dev/api/day_reactive/fn.on_main.html) itself, which keeps it usable from plain `main`
+programs and `cargo test`. Aborting a [`day::task`](https://daybrite.dev/api/day/fn.task.html) drops its future, which cancels the request.
 
 ## The client
 
@@ -161,24 +161,24 @@ cancels what it stands for.
 
 | Builder option | Default |
 |---|---|
-| `timeout_idle(d)` | 30 s, for requests that set no `timeout` |
-| `timeout_total(d)` | none |
-| `redirects(Redirects::Follow(n) \| Redirects::Never)` | `Follow(10)` |
-| `on_redirect`, `on_challenge`, `on_server_trust` | none |
-| `trust(Trust)`, `identity(Identity)` | the platform's evaluation, no identity |
-| `cookies(Cookies)` | the platform store on Apple and the web, an in-memory jar elsewhere |
-| `cache(Cache)` | the platform cache at 8 MiB in memory and 64 MiB on disk |
-| `header(name, value)`, `user_agent(agent)` | none |
-| `max_per_host(n)` | the platform's |
-| `wait_for_connectivity(bool)` | `false` |
-| `question_timeout(d)` | two minutes |
-| `transport(t)` | the platform's transport |
+| [`timeout_idle(d)`](https://daybrite.dev/api/day_part_http/struct.ClientBuilder.html#method.timeout_idle) | 30 s, for requests that set no [`timeout`](https://daybrite.dev/api/day_part_http/struct.Request.html#method.timeout) |
+| [`timeout_total(d)`](https://daybrite.dev/api/day_part_http/struct.ClientBuilder.html#method.timeout_total) | none |
+| [`redirects(Redirects::Follow(n) \| Redirects::Never)`](https://daybrite.dev/api/day_part_http/struct.ClientBuilder.html#method.redirects) | `Follow(10)` |
+| [`on_redirect`](https://daybrite.dev/api/day_part_http/struct.ClientBuilder.html#method.on_redirect), [`on_challenge`](https://daybrite.dev/api/day_part_http/struct.ClientBuilder.html#method.on_challenge), [`on_server_trust`](https://daybrite.dev/api/day_part_http/struct.ClientBuilder.html#method.on_server_trust) | none |
+| [`trust(Trust)`](https://daybrite.dev/api/day_part_http/struct.ClientBuilder.html#method.trust), [`identity(Identity)`](https://daybrite.dev/api/day_part_http/struct.ClientBuilder.html#method.identity) | the platform's evaluation, no identity |
+| [`cookies(Cookies)`](https://daybrite.dev/api/day_part_http/struct.ClientBuilder.html#method.cookies) | the platform store on Apple and the web, an in-memory jar elsewhere |
+| [`cache(Cache)`](https://daybrite.dev/api/day_part_http/struct.ClientBuilder.html#method.cache) | the platform cache at 8 MiB in memory and 64 MiB on disk |
+| [`header(name, value)`](https://daybrite.dev/api/day_part_http/struct.ClientBuilder.html#method.header), [`user_agent(agent)`](https://daybrite.dev/api/day_part_http/struct.ClientBuilder.html#method.user_agent) | none |
+| [`max_per_host(n)`](https://daybrite.dev/api/day_part_http/struct.ClientBuilder.html#method.max_per_host) | the platform's |
+| [`wait_for_connectivity(bool)`](https://daybrite.dev/api/day_part_http/struct.ClientBuilder.html#method.wait_for_connectivity) | `false` |
+| [`question_timeout(d)`](https://daybrite.dev/api/day_part_http/struct.ClientBuilder.html#method.question_timeout) | two minutes |
+| [`transport(t)`](https://daybrite.dev/api/day_part_http/struct.ClientBuilder.html#method.transport) | the platform's transport |
 
 A handler receives a reply object (`RedirectReply`, `ChallengeReply`, `TrustReply`). It may answer
 at once, or keep the reply and answer later from any thread while the exchange waits, up to the
 question timeout. Dropping a reply unanswered takes its default.
 
-`client.capabilities()` (or the root `capabilities()`) reports what the platform's transport
+[`client.capabilities()`](https://daybrite.dev/api/day_part_http/struct.Client.html#method.capabilities) (or the root [`capabilities()`](https://daybrite.dev/api/day_part_http/fn.capabilities.html)) reports what the platform's transport
 offers, and the [capability table](#capabilities) lists them per platform. An option the
 platform cannot honor fails the request with `Unsupported`, so a pin or a redirect handler never
 silently does nothing.
@@ -206,28 +206,28 @@ day::task(async move {
 });
 ```
 
-`send_future` resolves with the head: `status()`, `headers()`, `header(name)`, the final `url()`
-and `expected_length()`. The body is then pulled chunk by chunk as the platform delivers it:
+[`send_future`](https://daybrite.dev/api/day_part_http/struct.Client.html#method.send_future) resolves with the head: [`status()`](https://daybrite.dev/api/day_part_http/struct.Streaming.html#method.status), [`headers()`](https://daybrite.dev/api/day_part_http/struct.Streaming.html#method.headers), [`header(name)`](https://daybrite.dev/api/day_part_http/struct.Streaming.html#method.header), the final [`url()`](https://daybrite.dev/api/day_part_http/struct.Streaming.html#method.url)
+and [`expected_length()`](https://daybrite.dev/api/day_part_http/struct.Streaming.html#method.expected_length). The body is then pulled chunk by chunk as the platform delivers it:
 
 - **Backpressure.** A body holds at most four chunks, queued or granted, before it stops asking
-  the transport for more, so a slow reader slows the socket. `pause()` and `resume()` stop and
+  the transport for more, so a slow reader slows the socket. [`pause()`](https://daybrite.dev/api/day_part_http/struct.Body.html#method.pause) and [`resume()`](https://daybrite.dev/api/day_part_http/struct.Body.html#method.resume) stop and
   restart the flow explicitly.
-- **Other ways to read.** `next_blocking()` waits on the calling thread, `read_async(callback)`
+- **Other ways to read.** [`next_blocking()`](https://daybrite.dev/api/day_part_http/struct.Body.html#method.next_blocking) waits on the calling thread, [`read_async(callback)`](https://daybrite.dev/api/day_part_http/struct.Body.html#method.read_async)
   delivers each chunk to a callback that returns whether it wants the next, and
-  `streaming.collect_future()` gathers the whole body into a `Response`.
-- **Cancellation.** Dropping the `Body` cancels the transfer. `body.in_flight()` returns an
+  [`streaming.collect_future()`](https://daybrite.dev/api/day_part_http/struct.Streaming.html#method.collect_future) gathers the whole body into a `Response`.
+- **Cancellation.** Dropping the `Body` cancels the transfer. [`body.in_flight()`](https://daybrite.dev/api/day_part_http/struct.Body.html#method.in_flight) returns an
   `InFlight` handle that cancels it from anywhere, which is what [day-part-downloads](downloads.md)
   keeps for each download.
-- **Progress.** `received()` counts bytes so far, and `metrics()` reports the finished transfer.
+- **Progress.** [`received()`](https://daybrite.dev/api/day_part_http/struct.Body.html#method.received) counts bytes so far, and [`metrics()`](https://daybrite.dev/api/day_part_http/struct.Body.html#method.metrics) reports the finished transfer.
 
 ## Uploads
 
 | Builder | Body |
 |---|---|
-| `.body(bytes)` | bytes in memory |
-| `.body_file(path)` | a file, read as it is sent |
-| `.body_stream(reader, len)` | any `Read + Send`, with its length when known |
-| `.form(Form)` | `multipart/form-data`, with text fields, in-memory files and files on disk |
+| [`.body(bytes)`](https://daybrite.dev/api/day_part_http/struct.Request.html#method.body) | bytes in memory |
+| [`.body_file(path)`](https://daybrite.dev/api/day_part_http/struct.Request.html#method.body_file) | a file, read as it is sent |
+| [`.body_stream(reader, len)`](https://daybrite.dev/api/day_part_http/struct.Request.html#method.body_stream) | any `Read + Send`, with its length when known |
+| [`.form(Form)`](https://daybrite.dev/api/day_part_http/struct.Request.html#method.form) | `multipart/form-data`, with text fields, in-memory files and files on disk |
 
 ```rust
 use day_part_http::{Form, Request};
@@ -241,7 +241,7 @@ let request = Request::post(url, Vec::new())
     .upload_progress(move |bytes, total| progress.set((bytes, total)));
 ```
 
-`upload_progress` reports bytes sent and the total where the length is known. A stream of
+[`upload_progress`](https://daybrite.dev/api/day_part_http/struct.Request.html#method.upload_progress) reports bytes sent and the total where the length is known. A stream of
 unknown length goes out with chunked transfer encoding. Where the platform cannot send a body
 from a reader (`upload_streaming` is false: HarmonyOS and the web), file and stream bodies are
 read into memory first.
@@ -271,20 +271,20 @@ let client = Client::builder()
 ```
 
 `Hop` carries the `status`, `from` and `to` URLs, the `method` the next request uses, and how many
-redirects were `followed` before it. `stop()` makes the redirect response the response, and
-`cancel()` fails the request with `Cancelled`. HarmonyOS and the web follow redirects inside the
-platform, so there `on_redirect` fails requests with `Unsupported`, while `Redirects::Follow` and
+redirects were `followed` before it. [`stop()`](https://daybrite.dev/api/day_part_http/struct.RedirectReply.html#method.stop) makes the redirect response the response, and
+[`cancel()`](https://daybrite.dev/api/day_part_http/struct.RedirectReply.html#method.cancel) fails the request with `Cancelled`. HarmonyOS and the web follow redirects inside the
+platform, so there [`on_redirect`](https://daybrite.dev/api/day_part_http/struct.ClientBuilder.html#method.on_redirect) fails requests with `Unsupported`, while `Redirects::Follow` and
 `Redirects::Never` still apply to what the platform returns.
 
 ## Authentication
 
-A `401` or `407` without a handler is delivered as the response. With `on_challenge`, the client
+A `401` or `407` without a handler is delivered as the response. With [`on_challenge`](https://daybrite.dev/api/day_part_http/struct.ClientBuilder.html#method.on_challenge), the client
 parses the `WWW-Authenticate` (or `Proxy-Authenticate`) header, asks the handler, and retries:
 
-- `reply.credential(user, password)` answers Basic or Digest (MD5 or SHA-256, `qop=auth`), and
+- [`reply.credential(user, password)`](https://daybrite.dev/api/day_part_http/struct.ChallengeReply.html#method.credential) answers Basic or Digest (MD5 or SHA-256, `qop=auth`), and
   the client writes whichever the server offered, preferring Digest.
-- `reply.bearer(token)` sends `Authorization: Bearer`.
-- `reply.default_handling()` delivers the challenge response; `reply.cancel()` fails the request.
+- [`reply.bearer(token)`](https://daybrite.dev/api/day_part_http/struct.ChallengeReply.html#method.bearer) sends `Authorization: Bearer`.
+- [`reply.default_handling()`](https://daybrite.dev/api/day_part_http/struct.ChallengeReply.html#method.default_handling) delivers the challenge response; [`reply.cancel()`](https://daybrite.dev/api/day_part_http/struct.ChallengeReply.html#method.cancel) fails the request.
 
 `Challenge` names the `url`, `host`, `port`, `realm`, `scheme`, whether a `proxy` asked, and the
 `previous_failures` for this request. After three refused answers the `401` is delivered.
@@ -293,7 +293,7 @@ asking again.
 
 URLSession raises Basic, Digest, NTLM and Negotiate challenges itself (`auth_questions`,
 `native_auth_schemes`), and the client routes them to the same handler, so NTLM and Negotiate
-work on Apple. `Request::basic_auth` and `Request::bearer` set the header up front with no
+work on Apple. [`Request::basic_auth`](https://daybrite.dev/api/day_part_http/struct.Request.html#method.basic_auth) and [`Request::bearer`](https://daybrite.dev/api/day_part_http/struct.Request.html#method.bearer) set the header up front with no
 challenge round trip.
 
 ## Server trust and client certificates
@@ -317,13 +317,13 @@ let client = Client::builder()
 - **Pins.** A pin is the SHA-256 of a certificate's public key, written `sha256/<base64>`. A host
   (or `*.example.com`) with pins must present a chain holding one of them, on top of the
   platform's own evaluation; several pins for one host accept any, which is how a key rotation
-  ships. `ServerTrust::pins()` prints the pins of a chain the platform reported. Pins need the
+  ships. [`ServerTrust::pins()`](https://daybrite.dev/api/day_part_http/struct.ServerTrust.html#method.pins) prints the pins of a chain the platform reported. Pins need the
   platform to report the chain (`server_trust`). Where it cannot, a pinned request fails with
   `Unsupported` rather than connecting unpinned, and so does a WebSocket to a pinned host.
-- **Trust decisions.** `on_server_trust` sees the host, the DER chain, the platform's verdict
-  and its error. `accept()` trusts a server the platform refused (a self-signed development
-  server), `reject()` fails with `Tls`, and `default_handling()` keeps the verdict.
-- **Client certificates.** `Identity::pkcs12(der, password)` is presented when a server asks for
+- **Trust decisions.** [`on_server_trust`](https://daybrite.dev/api/day_part_http/struct.ClientBuilder.html#method.on_server_trust) sees the host, the DER chain, the platform's verdict
+  and its error. [`accept()`](https://daybrite.dev/api/day_part_http/struct.TrustReply.html#method.accept) trusts a server the platform refused (a self-signed development
+  server), [`reject()`](https://daybrite.dev/api/day_part_http/struct.TrustReply.html#method.reject) fails with `Tls`, and [`default_handling()`](https://daybrite.dev/api/day_part_http/struct.TrustReply.html#method.default_handling) keeps the verdict.
+- **Client certificates.** [`Identity::pkcs12(der, password)`](https://daybrite.dev/api/day_part_http/struct.Identity.html#method.pkcs12) is presented when a server asks for
   one, where `client_identity` is true.
 
 ## Cookies
@@ -333,21 +333,21 @@ let client = Client::builder()
 | Variant | Store |
 |---|---|
 | `Cookies::Platform` | `HTTPCookieStorage` on Apple and the browser's jar on the web; an in-memory jar where the platform offers none to share |
-| `Cookies::jar()` | an in-memory jar the client reads and writes |
-| `Cookies::jar_at(file)` | the same jar, saved to `file`, so cookies with an expiry survive a relaunch |
+| [`Cookies::jar()`](https://daybrite.dev/api/day_part_http/enum.Cookies.html#method.jar) | an in-memory jar the client reads and writes |
+| [`Cookies::jar_at(file)`](https://daybrite.dev/api/day_part_http/enum.Cookies.html#method.jar_at) | the same jar, saved to `file`, so cookies with an expiry survive a relaunch |
 | `Cookies::Off` | none sent, none kept |
 
 The jar follows RFC 6265: domain and path matching, `Secure`, `HttpOnly`, `Max-Age` and
 `Expires`, and the public suffix list, which keeps a site from setting a cookie for
 a whole registry such as `co.uk`. Cookies set on a redirect response apply to the next hop.
-`client.cookies()` lists the store and `client.clear_cookies()` empties it. A `CookieJar` also
-works on its own, through `store(url, set_cookie_values)` and `header(url)`.
+[`client.cookies()`](https://daybrite.dev/api/day_part_http/struct.Client.html#method.cookies) lists the store and [`client.clear_cookies()`](https://daybrite.dev/api/day_part_http/struct.Client.html#method.clear_cookies) empties it. A `CookieJar` also
+works on its own, through [`store(url, set_cookie_values)`](https://daybrite.dev/api/day_part_http/struct.CookieJar.html#method.store) and [`header(url)`](https://daybrite.dev/api/day_part_http/struct.CookieJar.html#method.header).
 
 ## Caching
 
-`Cache::platform()` (the default) or `Cache::Platform { memory, disk }` uses the platform's HTTP
+[`Cache::platform()`](https://daybrite.dev/api/day_part_http/enum.Cache.html#method.platform) (the default) or `Cache::Platform { memory, disk }` uses the platform's HTTP
 cache where it has one (`platform_cache`), and `Cache::Off` disables it. A request chooses how to
-use it with `Request::cache`:
+use it with [`Request::cache`](https://daybrite.dev/api/day_part_http/struct.Request.html#method.cache):
 
 | `CachePolicy` | Behavior |
 |---|---|
@@ -355,12 +355,12 @@ use it with `Request::cache`:
 | `Reload` | always from the network |
 | `PreferCache` | cached data when present, however old |
 
-`Metrics::from_cache` says whether a response came from the cache, and `client.clear_cache()`
+`Metrics::from_cache` says whether a response came from the cache, and [`client.clear_cache()`](https://daybrite.dev/api/day_part_http/struct.Client.html#method.clear_cache)
 empties it. The root functions use no cache.
 
 ## Metrics
 
-`body.metrics()` reports the finished transfer where the platform measures it (`metrics`): DNS,
+[`body.metrics()`](https://daybrite.dev/api/day_part_http/struct.Body.html#method.metrics) reports the finished transfer where the platform measures it (`metrics`): DNS,
 connect, TLS, time to first byte and total durations, the protocol (`http/1.1`, `h2`, `h3`),
 whether the connection was reused, the remote address, the TLS version, whether the response came
 from the cache, bytes sent and received, and the redirects followed. A field the platform does not
@@ -397,10 +397,10 @@ day::task(async move {
 });
 ```
 
-`websocket_future` resolves once the handshake completes, and `socket.protocol()` names the
-subprotocol the server chose. `socket.sender()` returns a `WsSender` that any thread may keep, with
-`send_async`/`send_future`, `ping_async`/`ping_future` where `websocket_ping` is true, and
-`close(code, reason)`. Messages arrive in order through `next()` or `read_async`, with the same
+[`websocket_future`](https://daybrite.dev/api/day_part_http/struct.Client.html#method.websocket_future) resolves once the handshake completes, and [`socket.protocol()`](https://daybrite.dev/api/day_part_http/struct.WebSocket.html#method.protocol) names the
+subprotocol the server chose. [`socket.sender()`](https://daybrite.dev/api/day_part_http/struct.WebSocket.html#method.sender) returns a `WsSender` that any thread may keep, with
+[`send_async`](https://daybrite.dev/api/day_part_http/struct.WsSender.html#method.send_async)/[`send_future`](https://daybrite.dev/api/day_part_http/struct.WsSender.html#method.send_future), `ping_async`/`ping_future` where `websocket_ping` is true, and
+[`close(code, reason)`](https://daybrite.dev/api/day_part_http/struct.WsSender.html#method.close). Messages arrive in order through [`next()`](https://daybrite.dev/api/day_part_http/struct.WebSocket.html#method.next) or [`read_async`](https://daybrite.dev/api/day_part_http/struct.WebSocket.html#method.read_async), with the same
 four-message backpressure window as a body. The last message is `Close`. The handshake carries the
 client's headers and cookies where `websocket_headers` is true. Dropping the [`WebSocket`](https://websockets.spec.whatwg.org/) closes it.
 
@@ -435,7 +435,7 @@ queue in the client.
 Each platform implements the crate's `Transport` trait, which performs one exchange at a time and
 reports it as events: the head, body chunks, upload progress, trust or authentication questions,
 metrics, then the end or a failure. The client asks for body chunks with `demand`, answers
-questions with `answer`, and stops an exchange with `cancel`.
+questions with `answer`, and stops an exchange with [`cancel`](https://daybrite.dev/api/day_part_http/transport/trait.Transfer.html#tymethod.cancel).
 
 | Platform | Transport |
 |---|---|
@@ -467,16 +467,16 @@ sentinels are −1 timeout, −2 DNS, −3 TLS, −4 connect, −5 I/O, −6 bad
 calls go the other way: `demand_native`, `answer_native`, `body_native` (an empty chunk ends an
 upload), `exchange_cancel_native`, `ws_send_native` and `ws_close_native`.
 
-`ClientBuilder::transport` swaps in any other `Transport`: a scripted double in a unit test, or an
+[`ClientBuilder::transport`](https://daybrite.dev/api/day_part_http/struct.ClientBuilder.html#method.transport) swaps in any other `Transport`: a scripted double in a unit test, or an
 app's own stack.
 
-`tier()` reports `NativeStack` wherever a transport is present. It reports `Unavailable` on Linux
+[`tier()`](https://daybrite.dev/api/day_part_http/fn.tier.html) reports `NativeStack` wherever a transport is present. It reports `Unavailable` on Linux
 when no [libcurl](https://curl.se/libcurl/) loads, on a HarmonyOS build made with bare cargo instead of `day build` (which
 stages the ArkTS arm), and on any other target; there every call fails with `Unsupported`.
 
 ## Threads and blocking calls
 
-`fetch`, `fetch_to_file`, `fetch_streamed` and `Body::next_blocking` wait on the calling thread,
+[`fetch`](https://daybrite.dev/api/day_part_http/fn.fetch.html), [`fetch_to_file`](https://daybrite.dev/api/day_part_http/fn.fetch_to_file.html), [`fetch_streamed`](https://daybrite.dev/api/day_part_http/fn.fetch_streamed.html) and [`Body::next_blocking`](https://daybrite.dev/api/day_part_http/struct.Body.html#method.next_blocking) wait on the calling thread,
 so keep them off the UI thread. Callbacks and wakeups come from the transport's own thread:
 URLSession's delegate queue, OkHttp's reader pool, the [libcurl](https://curl.se/libcurl/) driver thread, [WinHTTP](https://learn.microsoft.com/en-us/windows/win32/winhttp/about-winhttp)'s callback
 threads, the HarmonyOS JS thread, or the browser's only thread. The one thread the crate starts
@@ -574,19 +574,19 @@ in-app tier.
 
 `CacheValidators { etag, last_modified }` stores opaque origin validators beside an
 application's representation (for example, parsed RSS articles in SQLite).
-`Request::get(url).conditional(&validators)` sets `If-None-Match` and
+[`Request::get`](https://daybrite.dev/api/day_part_http/struct.Request.html#method.get)`(url)`[`.conditional`](https://daybrite.dev/api/day_part_http/struct.Request.html#method.conditional)`(&validators)` sets `If-None-Match` and
 `If-Modified-Since`, replacing existing copies case-insensitively. The origin gives ETags
 precedence. The helper also supports HEAD; it leaves mutating requests alone, rejects control
 characters and oversized values, and preserves weak ETags and quotes.
 
 After successfully parsing and storing a new 2xx representation, persist
-`validators.updated(&response)` in the same transaction. Missing validators on a new 2xx clear
+[`validators.updated(&response)`](https://daybrite.dev/api/day_part_http/struct.CacheValidators.html#method.updated) in the same transaction. Missing validators on a new 2xx clear
 old ones. A 304 has no replacement body: keep the stored representation and merge any updated
 validators. Error responses leave validators unchanged. The helper does not synthesize a 200
 or cache bodies; use it with `Cache::Off` when the application owns the cache. An explicit
 refresh revalidates immediately rather than being satisfied from a fresh platform cache.
 
-`Client::fetch_limited_future(request, max_bytes)` and its stateless root counterpart collect
+[`Client::fetch_limited_future(request, max_bytes)`](https://daybrite.dev/api/day_part_http/struct.Client.html#method.fetch_limited_future) and its stateless root counterpart collect
 at most the specified number of delivered body bytes. They reject an oversized advertised
 length before collecting, and check each chunk even when the length is absent or incorrect.
 HEAD, 204 and 304 can advertise a representation length without carrying it; those lengths do
@@ -600,7 +600,7 @@ publishers must allow conditional request headers and expose ETag/Last-Modified 
 Reuse a `Client` for connection pooling; the root helpers already share one stateless client.
 See `validators::tests` and `client_tests::bounded_*` for portable regression coverage.
 
-`Client::fetch_limited_with_progress_future` (also available at the crate root) adds a
+[`Client::fetch_limited_with_progress_future`](https://daybrite.dev/api/day_part_http/struct.Client.html#method.fetch_limited_with_progress_future) (also available at the crate root) adds a
 `FnMut(received_bytes, Option<total_bytes>)` observer to the bounded collector. It runs on the
 future's polling thread, so a UI-polled future can safely update UI-owned signals. Calls occur
 at connection start `(0, None)`, after headers, and after each consumed body chunk. A missing,
@@ -613,7 +613,7 @@ backend. `bounded_progress_distinguishes_known_unknown_and_encoded_bodies` cover
 ## Runtime sessions, interception and statistics
 
 `Session` adds an explicit scope around HTTP/WebSocket provider selection and accounting.
-Clients follow the global session unless built with `.session(Session::new())`; isolated sessions
+Clients follow the global session unless built with [`.session`](https://daybrite.dev/api/day_part_http/struct.ClientBuilder.html#method.session)`(`[`Session::new`](https://daybrite.dev/api/day_part_http/struct.Session.html#method.new)`())`; isolated sessions
 are the recommended unit-test boundary. Selection is captured when an operation starts, so a
 provider change cannot move an active transfer to another stack. Provider factories are cached
 per client and generation. The optional `reqwest` feature adds a reqwest/tungstenite provider on
@@ -627,7 +627,7 @@ stack itself: interception bypasses native TLS, DNS and OS network policy.
 
 See [the part README](../parts/day-part-http/README.md#sessions-and-runtime-providers) for runnable
 API examples, provider capabilities, request matching, fault schedules, and statistics contracts.
-`Session::statistics()` / `transfers()` describe a session; `Statistics::global()` aggregates all
+[`Session::statistics()`](https://daybrite.dev/api/day_part_http/struct.Session.html#method.statistics) / [`transfers()`](https://daybrite.dev/api/day_part_http/struct.Session.html#method.transfers) describe a session; [`Statistics::global()`](https://daybrite.dev/api/day_part_http/struct.Statistics.html#method.global) aggregates all
 sessions. Counts represent HTTP exchanges and WebSocket lifetimes, not physical TCP connections.
 **Only traffic through day-part-http is included**, not networking performed by WebViews, media,
 maps or other libraries. Rates count application payload, with simulated bytes separately labeled.

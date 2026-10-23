@@ -1,4 +1,5 @@
 ---
+navTitle: "Combo boxes"
 title: "Combo box"
 description: "An editable text field with a native completion popup, as the external day-piece-combobox crate."
 ---
@@ -48,13 +49,13 @@ combo_box(flavors, flavor)
     .id(id!(flavor))
 ```
 
-`combo_box(items, text)` binds `text` two-way: typing writes the signal per keystroke, picking a
+[`combo_box(items, text)`](https://daybrite.dev/api/day_piece_combobox/fn.combo_box.html) binds `text` two-way: typing writes the signal per keystroke, picking a
 dropdown item writes the item's string, and setting the signal patches the control (echo-guarded,
-the guard remembers the last value that arrived from the native control so `bind_seeded`
+the guard remembers the last value that arrived from the native control so [`bind_seeded`](https://daybrite.dev/api/day_reactive/fn.bind_seeded.html)
 does not patch it straight back). `items` is reactive: a change patches the native dropdown live,
-and the typed text survives the swap. `.placeholder(impl IntoText)` sets the empty-state prompt
-(read once at build). `ComboBox` implements `Piece`, so `.id()`/`.a11y()`/`.frame()` chain via
-`Decorate`. Like `text_field` it is a **width-growing leaf** (`grow_w = true`, natural
+and the typed text survives the swap. [`.placeholder(impl IntoText)`](https://daybrite.dev/api/day_piece_combobox/trait.ComboBoxBuilder.html#tymethod.placeholder) sets the empty-state prompt
+(read once at build). `ComboBox` implements `Piece`, so [`.id()`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.id)/[`.a11y()`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.a11y)/[`.frame()`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.frame) chain via
+`Decorate`. Like [`text_field`](https://daybrite.dev/api/day_pieces/fn.text_field.html) it is a **width-growing leaf** (`grow_w = true`, natural
 single-line height).
 
 Every toolkit reports both change paths (typing and picking) through the one
@@ -72,7 +73,7 @@ Platform guidance: [Apple: pickers](https://developer.apple.com/design/human-int
 | [`NSComboBox`](https://developer.apple.com/documentation/appkit/nscombobox) | [`GtkComboBoxText`](https://docs.gtk.org/gtk4/class.ComboBoxText.html) with entry | editable [`QComboBox`](https://doc.qt.io/qt-6/qcombobox.html) | [`AutoCompleteTextView`](https://developer.android.com/reference/android/widget/AutoCompleteTextView) | editable [`ComboBox`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.xaml.controls.combobox) (1809+) | — placeholder | ArkTS `TextInput` + suggestions menu |
 
 iOS has no native combo-box control, so the piece carries **no renderer** there: day renders its
-placeholder leaf, and the showcase adds a footnote saying why. Use `picker` or `text_field` on
+placeholder leaf, and the showcase adds a footnote saying why. Use [`picker`](https://daybrite.dev/api/day_pieces/fn.picker.html) or [`text_field`](https://daybrite.dev/api/day_pieces/fn.text_field.html) on
 iOS. HarmonyOS has none either, but ArkTS composes one cheaply: the piece ships an ArkTS half
 (`platform/harmony/ets`) that sets a `TextInput` beside a chevron button whose `bindMenu` lists
 the items, and reports typing and picks alike as `Event::TextChanged`, as the native toolkits do. The change plumbing per toolkit:

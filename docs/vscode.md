@@ -1,4 +1,5 @@
 ---
+navTitle: "VS Code"
 title: "VS Code extension"
 description: "The Day extension: the target cockpit, MCP tools for agent mode, and Day.toml schema wiring."
 ---

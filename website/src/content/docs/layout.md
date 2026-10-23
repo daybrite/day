@@ -25,8 +25,8 @@ The UI snippets use generated `res::str` accessors from an app's Fluent catalog;
 
 ## Arrange controls
 
-Use `column` for vertical content and `row` for horizontal content. Their `.spacing()` sets
-the gap between children; `.padding()` adds space around a group.
+Use [`column`](https://daybrite.dev/api/day_pieces/fn.column.html) for vertical content and [`row`](https://daybrite.dev/api/day_pieces/fn.row.html) for horizontal content. Their [`.spacing()`](https://daybrite.dev/api/day_pieces/trait.ColumnBuilder.html#tymethod.spacing) sets
+the gap between children; [`.padding()`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.padding) adds space around a group.
 
 ```rust
 column((
@@ -40,12 +40,12 @@ column((
 Here, `enabled` is a `Signal<bool>`. `Space` is the spacing scale: `XS` (4), `S` (8), `M` (12),
 `L` (16) and `XL` (24) points, accepted wherever a gap or an inset is, beside a raw `f64`. Use
 the steps the way you use `Font::Headline` instead of a point size: `S` between siblings, `M`
-between groups, `L` for a page's edge inset, `XL` between major regions. `labeled` lays out the title and control
-and supplies the control’s accessible name. Use `scroll(content)` when the content can be
+between groups, `L` for a page's edge inset, `XL` between major regions. [`labeled`](https://daybrite.dev/api/day_pieces/fn.labeled.html) lays out the title and control
+and supplies the control’s accessible name. Use [`scroll(content)`](https://daybrite.dev/api/day_pieces/fn.scroll.html) when the content can be
 taller than its window.
 
-Containers fit their content by default. Add `.grow()` when a pane should take the available
-space in its parent’s direction. Use a fixed `.frame()` only when the design calls for a fixed
+Containers fit their content by default. Add [`.grow()`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.grow) when a pane should take the available
+space in its parent’s direction. Use a fixed [`.frame()`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.frame) only when the design calls for a fixed
 size; text needs room to wrap and to grow in translation.
 
 ## The modifier vocabulary
@@ -65,9 +65,9 @@ zstack((photo, badge)).align(Alignment::TopTrailing);
 scroll(long_column);
 ```
 
-`padding`, `frame`, and friends are layout-only wrapper nodes: they exist in Day's tree but
-create no native widget, so they add layout work without adding native widgets. They wrap in call order; `.id(..)` names the
-piece's own node wherever it sits in the chain, and `.card()` is the platform's grouped surface
+[`padding`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.padding), [`frame`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.frame), and friends are layout-only wrapper nodes: they exist in Day's tree but
+create no native widget, so they add layout work without adding native widgets. They wrap in call order; [`.id(..)`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.id) names the
+piece's own node wherever it sits in the chain, and [`.card()`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.card) is the platform's grouped surface
 (rounded, with a `Space::M` inset) in one call.
 
 ## Parent proposes, child chooses
@@ -97,16 +97,16 @@ row gets Proposal { w: 400, h: None }       row gets Rect { 0,0 400×32 }
 row answers 400×32
 ```
 
-Containers like `row` and `column` measure rigid children first, then divide the remaining space
-among flexible ones (`spacer`, anything marked `.grow()`). A child is never forced: if you propose
+Containers like [`row`](https://daybrite.dev/api/day_pieces/fn.row.html) and [`column`](https://daybrite.dev/api/day_pieces/fn.column.html) measure rigid children first, then divide the remaining space
+among flexible ones ([`spacer`](https://daybrite.dev/api/day_pieces/fn.spacer.html), anything marked [`.grow()`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.grow)). A child is never forced: if you propose
 100 points to a label that needs 120, it answers 120, and the parent decides what to do about the
-overflow (usually: let `scroll` handle it).
+overflow (usually: let [`scroll`](https://daybrite.dev/api/day_pieces/fn.scroll.html) handle it).
 
-The `Layout` trait is public and has no private privileges; `column` is implemented with the
+The `Layout` trait is public and has no private privileges; [`column`](https://daybrite.dev/api/day_pieces/fn.column.html) is implemented with the
 same trait a custom masonry or flow container would use.
 
 Containers don't stretch children by default. A
-`column` is as wide as its widest child; a pane you want to fill available space needs `.grow()`.
+[`column`](https://daybrite.dev/api/day_pieces/fn.column.html) is as wide as its widest child; a pane you want to fill available space needs [`.grow()`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.grow).
 Forgetting this shows up as a view collapsing to its content size, or to nothing when it has no
 content.
 
@@ -128,8 +128,8 @@ a caching regression fails tests.
 
 When a [binding](/docs/reference/glossary#binding) changes something size-affecting (a label's text grows, a font changes), the node
 is marked dirty and the change propagates to the nearest **layout boundary**: a node whose size is
-externally fixed, like the window root, a `scroll`, or a node with an explicit two-axis
-`.frame(w, h)`. At the turn boundary, layout re-enters *there*, not at the root:
+externally fixed, like the window root, a [`scroll`](https://daybrite.dev/api/day_pieces/fn.scroll.html), or a node with an explicit two-axis
+[`.frame(w, h)`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.frame). At the turn boundary, layout re-enters *there*, not at the root:
 
 ```text
 window root (boundary)
@@ -152,13 +152,13 @@ Mock-toolkit golden tests pin this behavior down.
 ## Windows, safe areas, and direction
 
 - **Window sizing:** the minimum window size is the one the app declares
-  (`WindowOptions::min_size`, an `Option<Size>` that defaults to none), applied verbatim; Day
+  ([`WindowOptions::min_size`](https://daybrite.dev/api/day_spec/struct.WindowOptions.html#method.min_size), an `Option<Size>` that defaults to none), applied verbatim; Day
   doesn't derive a minimum from content measurement. The window relayouts on native resize and
   never shrinks on its own.
 - **Safe areas and keyboards** (mobile): the root applies safe-area insets as padding by default;
-  a root-level `scroll` converts them to content insets and slides the focused field above the
+  a root-level [`scroll`](https://daybrite.dev/api/day_pieces/fn.scroll.html) converts them to content insets and slides the focused field above the
   keyboard. Backends with an edge-to-edge mode (Android's immersive opt-in) stop clamping the
-  top and report the insets through `day::safe_area()` instead. Paint a background unpadded
+  top and report the insets through [`day::safe_area()`](https://daybrite.dev/api/day/fn.safe_area.html) instead. Paint a background unpadded
   and pad the content by those insets to run it under the system bars.
 - **Right-to-left**: since Day owns placement, RTL is a single x-mirror applied at place time.
   `Layout` implementations are written using leading/trailing coordinates, and the
@@ -186,7 +186,7 @@ Next: [Styling](/docs/explanation/styling), what you can restyle and what stays 
 
 ## Build a labeled settings row
 
-Use `labeled` to associate a visible title with a control. Put the stable ID on the control
+Use [`labeled`](https://daybrite.dev/api/day_pieces/fn.labeled.html) to associate a visible title with a control. Put the stable ID on the control
 itself. This example leaves text height flexible and scrolls when space is limited.
 
 Complete module for `src/layout_recipe.rs` in the

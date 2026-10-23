@@ -1,4 +1,5 @@
 ---
+navTitle: "HarmonyOS"
 title: "HarmonyOS backend"
 description: "The ArkUI backend in depth: the C node API, the ArkTS shim, hvigor packaging, and emulator workflows."
 ---
@@ -102,7 +103,7 @@ will resolve from a different directory in the staged project.
   piece drives its own node through `day_arkui::node` and the raw `day_arkui::arkui_sys` bindings
   ([day-piece-datetime](/docs/reference/datepicker), [day-piece-pullrefresh](/docs/reference/pullrefresh), day-tweak-slider-tickmarks): no C++ of its own.
 - **`day::day_start_arkui!(root)`**: exports `day_arkui_start`, the symbol the shim's NAPI `start` calls;
-  it mounts the app's root piece and runs the loop (`day::arkui::start` → `launch_with`). Apps
+  it mounts the app's root piece and runs the loop (`day::arkui::start` → [`launch_with`](https://daybrite.dev/api/day_core/fn.launch_with.html)). Apps
   reach it through `day::day_start!("App Name", root)`, which expands to this macro and to every
   other platform's entry; the title argument is ignored here, since the label comes from
   `AppScope/resources/base/element/string.json`.
@@ -340,14 +341,14 @@ all connected devices, building whatever ABIs they need.
 `harmony-arkui` is a maintained target. Pieces render as ArkUI Native NodeAPI nodes, verified
 on the Oniro emulator:
 
-- **Nav shell** (`nav`) — ArkUI's `Navigation`: the rows beside the detail where the window has
+- **Nav shell** ([`nav`](https://daybrite.dev/api/day_pieces/fn.nav.html)) — ArkUI's `Navigation`: the rows beside the detail where the window has
   room (a tablet, `NavigationMode.Auto` tiling its nav bar and content), a list that pushes detail
   pages where it has not; the mode is ArkUI's decision, observed and reconciled
   ([docs/size-classes](size-classes.md)).
 - **Controls** — `Text`, `Button`, `TextInput`, native `Slider` / `Toggle`, a determinate `Progress`
   bar + an indeterminate `LoadingProgress` spinner, and `Divider` hairlines.
 - **Inline links** — native clickable `SPAN` children route their original targets through
-  `Event::LinkActivated`. Markdown, `TextBuilder` and standalone `link(...)` use the same
+  `Event::LinkActivated`. Markdown, `TextBuilder` and standalone [`link(...)`](https://daybrite.dev/api/day_pieces/fn.link.html) use the same
   path, including wrapped text and reactive updates. `Cap::TextLinks` reports `Native`.
   See [text-runs](text-runs.md) and the [native tap tests](testing.md#native-arkui-link-tests).
 - **Text areas** — native `TextArea` with live read-only and selection policies. Day vetoes edits
@@ -356,7 +357,7 @@ on the Oniro emulator:
   `Emulated` because the API 18 C editor lacks equivalent persistent properties. Read-only
   text can still be copied, and app writes still replace its contents. Spell-check remains
   unsupported. See [textarea](textarea.md) and the [native-input tests](testing.md#native-arkui-text-area-tests).
-  `.on_submit(...)` uses the native Send action and submit event. Shift+Enter dispatches the
+  [`.on_submit(...)`](https://daybrite.dev/api/day_pieces/trait.TextAreaBuilder.html#tymethod.on_submit) uses the native Send action and submit event. Shift+Enter dispatches the
   native newline action through the ArkTS host, retaining selection and undo/redo; plain
   text areas keep multiline Enter behavior.
 - **Canvas** — an `ARKUI_NODE_CUSTOM` node whose on-draw callback replays Day's display list
@@ -365,7 +366,7 @@ on the Oniro emulator:
   empty label. The button receives focus and keys for the canvas; the Stack lays out both
   siblings and owns accessibility. Keeping drawing outside the button avoids its native
   switch between text layout and a focus scope with no focusable children. This preserves
-  drawing and `.focused(..)` after native layout (`canvas::create`; [focus](focus.md)).
+  drawing and [`.focused(..)`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.focused) after native layout (`canvas::create`; [focus](focus.md)).
 - **Switch alignment** — Day clears the native Toggle's default outer margins. ArkUI adds
   theme hot-zone margins otherwise, moving a switch below and to the right of its assigned
   frame and into neighboring form rows. Native inspection uses the painted window position:
@@ -385,7 +386,7 @@ on the Oniro emulator:
   after disappearance. Content is a themed ArkUI builder, rather than Day-rendered overlay
   controls. See [dialogs](dialogs.md#arkui-presentation-and-lifetime) for lifecycle and
   primary-window ownership, and [testing](testing.md#native-arkui-dialog-tests) for real-input tests.
-- **Gestures** — `.on_tap` (NODE_ON_CLICK) and `.on_drag` (a native pan recognizer via the
+- **Gestures** — [`.on_tap`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.on_tap) (NODE_ON_CLICK) and [`.on_drag`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.on_drag) (a native pan recognizer via the
   NDK gesture API, reported on the shared kind-11 wire in px). The existing toolkit hook
   `GestureKind::LongPress` uses ArkUI's one-finger, non-repeating, 500 ms recognizer and emits
   `Event::LongPress` once on acceptance, with coordinates local to the native target in Day
@@ -398,9 +399,9 @@ on the Oniro emulator:
   a public `.on_long_press` modifier, and this does not add native context menus. UIKit and
   Android likewise use long presses internally for menus/dragging without implementing this
   generic hook. See [native-input regression tests](testing.md#native-arkui-long-press-tests).
-- **Scrolling** — `scroll()` is a real `ARKUI_NODE_SCROLL` whose day children live in a
+- **Scrolling** — [`scroll()`](https://daybrite.dev/api/day_pieces/fn.scroll.html) is a real `ARKUI_NODE_SCROLL` whose day children live in a
   shim-owned container sized by `set_scroll_content`; without it the Scroll measures a content
-  extent of 0 (day's content nodes are layout-only) and neither touch nor `scroll_to` moves.
+  extent of 0 (day's content nodes are layout-only) and neither touch nor [`scroll_to`](https://daybrite.dev/api/day_core/fn.scroll_to.html) moves.
 - **Frame clock** — `OH_NativeVSync_RequestFrame` drives `day::frame`, with delivery
   marshaled to the JS/UI loop. Integer request tickets make cancellation and late callbacks safe;
   the native source is released when idle. See [frames](frames.md) for timing and lifecycle.

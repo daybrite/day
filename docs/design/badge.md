@@ -19,7 +19,7 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 > [!NOTE]
 > **Status: shipped on every platform with an API.** `AppBadge`, `Cap::AppBadge{Count,Text,Dot}`,
 > the defaulted `Toolkit::set_app_badge` duty and the `day::set_app_badge` facade, with arms on
-> AppKit, UIKit, web-dom, HarmonyOS, Linux GTK and Qt (the Unity launcher signal through the
+> AppKit, UIKit, Web, HarmonyOS, Linux GTK and Qt (the Unity launcher signal through the
 > `day-dbus` crate, `Emulated`), and Windows XAML (an overlay icon Day draws, compile-checked).
 > Android answers `Unsupported`: it has no API. [docs/duty-matrix.md](../duty-matrix.md) and
 > [docs/coverage-matrix.md](../coverage-matrix.md) carry the rows. Progress on the Dock or
@@ -190,7 +190,7 @@ property, a bar on the Dock tile, and `ITaskbarList3::SetProgressValue`.
 ## Phasing
 
 1. **`Cap::AppBadge{Count,Text,Dot}` + the defaulted duty + the `day::app_badge` facade + the
-   AppKit, UIKit, and web-dom arms.** Those three are small and cover the platforms with a real API:
+   AppKit, UIKit, and Web arms.** Those three are small and cover the platforms with a real API:
    `badgeLabel`, `setBadgeCount`, `setAppBadge`. Android answers `Unsupported` from the default and
    its doc points at `Notification::badge`.
 2. **Linux** (done), over the Unity D-Bus signal through the std-only `day-dbus` crate. Reports

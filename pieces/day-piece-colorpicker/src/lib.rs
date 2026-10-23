@@ -33,7 +33,7 @@
 //! for it.
 //!
 //! The value is Day's ordinary [`Color`], so the same signal drives `.tint(…)`, `.background(…)`,
-//! a canvas fill or a gradient stop with no conversion; see [docs/color.md](../color/) for what
+//! a canvas fill or a gradient stop with no conversion; see [color guide](https://daybrite.dev/docs/reference/color/) for what
 //! that currency does and does not carry across from a native pick.
 //!
 //! The native leaf also accepts `Event::TextChanged` carrying any form [`Color::parse`] reads

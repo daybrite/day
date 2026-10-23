@@ -1,4 +1,5 @@
 ---
+navTitle: "Text editors"
 title: "Styled text editor"
 description: "day-piece-texteditor: editing the same StyledText that labels render, in each platform's rich-text view."
 ---
@@ -11,8 +12,8 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 # Styled text editor
 
 Let people write and format rich text in the platform’s native editor.
-`text_editor(doc)` edits a [`StyledText`](#2-the-document), the same document a label renders and
-`.markdown()` produces, live in each platform's text editor: bold, italic, underline,
+[`text_editor(doc)`](https://daybrite.dev/api/day_piece_texteditor/fn.text_editor.html) edits a [`StyledText`](#2-the-document), the same document a label renders and
+[`.markdown()`](https://daybrite.dev/api/day_spec/styled/struct.StyledText.html#method.markdown) produces, live in each platform's text editor: bold, italic, underline,
 strikethrough, relative size, text and highlight color, plus paragraph alignment, indent, spacing
 and list markers.
 
@@ -67,14 +68,14 @@ The UI snippets use generated `res::str` accessors from an app's Fluent catalog;
 ## 1. Every toolkit already has one
 
 The finding that shaped the piece is that Day targets eight toolkits and all eight ship a styled
-text editor, including web-dom. Nothing here is drawn by Day.
+text editor, including Web. Nothing here is drawn by Day.
 
 | Toolkit | Editor | Model it edits | Offsets it speaks |
 |---|---|---|---|
 | appkit | [`NSTextView`](https://developer.apple.com/documentation/appkit/nstextview) (`setRichText(true)`) in an [`NSScrollView`](https://developer.apple.com/documentation/appkit/nsscrollview) | [`NSTextStorage`](https://developer.apple.com/documentation/uikit/nstextstorage) | UTF-16 |
 | uikit | [`UITextView`](https://developer.apple.com/documentation/uikit/uitextview) (itself a scroll view) | the same TextKit [`NSTextStorage`](https://developer.apple.com/documentation/uikit/nstextstorage) | UTF-16 |
 | gtk | [`GtkTextView`](https://docs.gtk.org/gtk4/class.TextView.html) in a [`GtkScrolledWindow`](https://docs.gtk.org/gtk4/class.ScrolledWindow.html) | [`GtkTextBuffer`](https://docs.gtk.org/gtk4/class.TextBuffer.html) + interned [`GtkTextTag`](https://docs.gtk.org/gtk4/class.TextTag.html)s | characters |
-| qt | [`QTextEdit`](https://doc.qt.io/qt-6/qtextedit.html) (not the [`QPlainTextEdit`](https://doc.qt.io/qt-6/qplaintextedit.html) `text_area` uses) | [`QTextDocument`](https://doc.qt.io/qt-6/qtextdocument.html) through a [`QTextCursor`](https://doc.qt.io/qt-6/qtextcursor.html) | UTF-16 (QChar) |
+| qt | [`QTextEdit`](https://doc.qt.io/qt-6/qtextedit.html) (not the [`QPlainTextEdit`](https://doc.qt.io/qt-6/qplaintextedit.html) [`text_area`](https://daybrite.dev/api/day_pieces/fn.text_area.html) uses) | [`QTextDocument`](https://doc.qt.io/qt-6/qtextdocument.html) through a [`QTextCursor`](https://doc.qt.io/qt-6/qtextcursor.html) | UTF-16 (QChar) |
 | mdc | an [`EditText`](https://developer.android.com/reference/android/widget/EditText) subclass | its live [`SpannableStringBuilder`](https://developer.android.com/reference/android/text/SpannableStringBuilder) | UTF-16 (Java `char`) |
 | xaml | [`RichEditBox`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.xaml.controls.richeditbox) | RichEdit's [`ITextDocument`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.text.itextdocument) (TOM) | UTF-16 |
 | arkui | the ArkTS [`RichEditor`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-arkui/arkui-ts/ts-basic-components-richeditor.md) | [`RichEditorController`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-arkui/arkui-ts/ts-basic-components-richeditor.md) spans | UTF-16 (ArkTS string index) |
@@ -82,14 +83,14 @@ text editor, including web-dom. Nothing here is drawn by Day.
 
 The offset column matters most: a range is a **byte** range into a Rust `String`
 everywhere in Day, and four different index units meet it at the boundary. The conversions
-(`utf16_range`, `byte_of_utf16`, `char_range`, `byte_of_char`) live in the piece's `lib.rs` and are
+([`utf16_range`](https://daybrite.dev/api/day_piece_texteditor/fn.utf16_range.html), [`byte_of_utf16`](https://daybrite.dev/api/day_piece_texteditor/fn.byte_of_utf16.html), [`char_range`](https://daybrite.dev/api/day_piece_texteditor/fn.char_range.html), [`byte_of_char`](https://daybrite.dev/api/day_piece_texteditor/fn.byte_of_char.html)) live in the piece's `lib.rs` and are
 tested once, on astral text, because an off-by-N there styles the wrong words and only in text
 that has an emoji or a CJK character in it.
 
 ## 2. The document
 
 [`StyledText`](../crates/day-spec/src/styled.rs) is in **day-spec**, not in the piece: a label
-renders it, `.markdown()` produces it, the Markdown / HTML / RTF codecs read and write it, and the
+renders it, [`.markdown()`](https://daybrite.dev/api/day_spec/styled/struct.StyledText.html#method.markdown) produces it, the Markdown / HTML / RTF codecs read and write it, and the
 editor edits it.
 
 ```rust
@@ -131,7 +132,7 @@ reader's text-size setting, and an absolute one does not, which is why the Showc
 
 ### Import and export
 
-`StyledText::{markdown, html, rtf}` parse; `to_markdown`, `to_html`, `to_rtf` write. All six are
+`StyledText::{`[`markdown`](https://daybrite.dev/api/day_spec/styled/struct.StyledText.html#method.markdown), [`html`](https://daybrite.dev/api/day_spec/styled/struct.StyledText.html#method.html), [`rtf`](https://daybrite.dev/api/day_spec/styled/struct.StyledText.html#method.rtf)`}` parse; [`to_markdown`](https://daybrite.dev/api/day_spec/styled/struct.StyledText.html#method.to_markdown), [`to_html`](https://daybrite.dev/api/day_spec/styled/struct.StyledText.html#method.to_html), [`to_rtf`](https://daybrite.dev/api/day_spec/styled/struct.StyledText.html#method.to_rtf) write. All six are
 lossy in their own ways, and [styled_codec.rs](../crates/day-spec/src/styled_codec.rs) states each
 loss next to the code that causes it. The largest losses are that Markdown has no syntax for
 color, background or size, so those runs export as plain text; that a heading scale that is not
@@ -165,13 +166,13 @@ future read-back would use is [`NSTextStorageDelegate`](https://developer.apple.
 ### Recovering the edit
 
 A native view reports its whole text and nothing else. The piece recovers the delta with a common
-prefix / common suffix diff (`diff_edit`), pulled back to character boundaries:
+prefix / common suffix diff ([`diff_edit`](https://daybrite.dev/api/day_piece_texteditor/fn.diff_edit.html)), pulled back to character boundaries:
 
 - one keystroke, one deletion, one paste or one autocorrect **is** exactly that span;
 - an edit that touched two separate places comes back as one span covering both, which is
   coarser but never wrong, and costs only the styling between them.
 
-`reflow` then moves the runs: ranges before the edit are untouched, ranges after shift, a range
+[`reflow`](https://daybrite.dev/api/day_spec/styled/struct.StyledText.html#method.reflow) then moves the runs: ranges before the edit are untouched, ranges after shift, a range
 containing the edit grows or shrinks, and an emptied range is dropped. It is O(runs) rather than
 O(document), and needs no toolkit cooperation, which lets one code path serve all eight arms.
 
@@ -332,7 +333,7 @@ and only on that platform.
 
 None of the eight is in this position; the mock toolkit is, and an external toolkit
 ([extending](extending.md)) could be. The tier for those is **plain text**: realize the ordinary
-`text_area`, drop the runs, report `Support::Emulated`, and keep the document's *text*
+[`text_area`](https://daybrite.dev/api/day_pieces/fn.text_area.html), drop the runs, report `Support::Emulated`, and keep the document's *text*
 round-tripping so nothing is lost but the styling.
 
 **Do not compose one.** This is the opposite call from
@@ -371,7 +372,7 @@ ships this control because it is not reasonable to write.
 4. **day-dom** grew the editor entry points: `Dom::set_html` (caret-preserving),
    `Dom::set_editor_selection`, the `listen::EDITABLE` bit, and event kind 17 (the piece channel,
    as the Android and ArkTS bridges already spell it).
-5. **day-mock** grew `MockProbe::describe_patch`, so a standalone piece's own patch type shows up in
+5. **day-mock** grew [`MockProbe::describe_patch`](https://daybrite.dev/api/day_mock/struct.MockProbe.html#method.describe_patch), so a standalone piece's own patch type shows up in
    the op log instead of `?`. Without it, a test cannot assert that a write patched attributes
    without replacing the document.
 6. **`dom_renderer!`** grew a `release:` arm, matching `renderer!`.
@@ -381,12 +382,12 @@ ships this control because it is not reasonable to write.
 
 ## 8. The Showcase's Text editing page
 
-`Day-Showcase/src/pages/text_areas.rs` leads with the styled editor and keeps the plain `text_area`
+`Day-Showcase/src/pages/text_areas.rs` leads with the styled editor and keeps the plain [`text_area`](https://daybrite.dev/api/day_pieces/fn.text_area.html)
 below it, which remains the right control for a chat composer or a commit message.
 
 - **A formatting toolbar**: B / I / U / S, relative size up and down, a highlight toggle, a
   [`color_picker`](colorpicker.md) driving the selection's text color, and an alignment picker.
-  Every one of them reads `style_of` and writes `apply`; with a collapsed caret they write the
+  Every one of them reads [`style_of`](https://daybrite.dev/api/day_spec/styled/struct.StyledText.html#method.style_of) and writes [`apply`](https://daybrite.dev/api/day_spec/styled/struct.StyledText.html#method.apply); with a collapsed caret they write the
   typing style instead.
 - **Three documents**: a formatted note parsed from Markdown, a Rust sample the page re-tokenizes on
   every keystroke and pushes back as fresh runs, and an empty one that shows the placeholder.
@@ -403,24 +404,24 @@ round trip, on every target in the matrix.
 An API client wants three things a prose editor does not, and they are built on the piece
 rather than beside it (Day-Yaak is the app that asked for them).
 
-**Highlighting** is a function from text to runs. `text_editor(doc).highlight(f)` runs `f` after
+**Highlighting** is a function from text to runs. [`text_editor`](https://daybrite.dev/api/day_piece_texteditor/fn.text_editor.html)`(doc)`[`.highlight`](https://daybrite.dev/api/day_piece_texteditor/trait.TextEditorBuilder.html#tymethod.highlight)`(f)` runs `f` after
 every edit, and whenever a signal `f` reads changes, and pushes the runs back as the attributes
-patch, so the caret and the undo stack stay put. `highlight::highlighter(language, palette,
-templates)` builds `f` for the languages the crate tokenizes itself, with no grammar engine
+patch, so the caret and the undo stack stay put. [`highlight::highlighter(language, palette,
+templates)`](https://daybrite.dev/api/day_piece_texteditor/highlight/fn.highlighter.html) builds `f` for the languages the crate tokenizes itself, with no grammar engine
 behind them: JSON (with comments), XML and HTML, GraphQL, Rust, and `Plain`. `templates` paints
 every `${[ … ]}` tag over whatever token it sits in, the way a Yaak-style client renders a
-variable. `Language::for_mime` picks one for a response body. The `Palette` is a set of colors
+variable. [`Language::for_mime`](https://daybrite.dev/api/day_piece_texteditor/highlight/enum.Language.html#method.for_mime) picks one for a response body. The `Palette` is a set of colors
 that read on a light and on a dark surface over a monospace base; an app's own palette (the
 Showcase's Rust sample uses its page colors) is a struct update away.
 
-`text_editor_text(text)` is the same editor over a `String` binding (a signal, or a [day-model](/docs/explanation/model)
+[`text_editor_text(text)`](https://daybrite.dev/api/day_piece_texteditor/fn.text_editor_text.html) is the same editor over a `String` binding (a signal, or a [day-model](/docs/explanation/model)
 field), for a model that holds text rather than a document: the piece owns the `StyledText`,
 edits write the string, a string the app writes replaces the text, and the highlighter supplies
 the runs. The mock asserts that a keystroke under a highlighter goes out as `SetAttributes` and
 that an app's write goes out as `SetDocument`.
 
-**A single line** (`.single_line()`) is a styled `text_field`: it never wraps and scrolls
-sideways under the caret, Enter runs `.on_submit(f)` and inserts nothing, and a pasted newline
+**A single line** ([`.single_line()`](https://daybrite.dev/api/day_piece_texteditor/trait.TextEditorBuilder.html#tymethod.single_line)) is a styled [`text_field`](https://daybrite.dev/api/day_pieces/fn.text_field.html): it never wraps and scrolls
+sideways under the caret, Enter runs [`.on_submit(f)`](https://daybrite.dev/api/day_piece_texteditor/trait.TextEditorBuilder.html#tymethod.on_submit) and inserts nothing, and a pasted newline
 becomes a space (same byte length, so the edit's offsets hold). It also measures like a field.
 An editor that wraps answers a width proposal with at least 120 points, room to wrap in; a
 single line gives way down to 48, so it can share a row with a switch, a name and a button
@@ -435,10 +436,10 @@ the Qt shim, the IME's Done action and a hardware Enter on Android, `KeyDown` on
 is the `Event::Key` a dayscript `key` step delivers (`"key Enter"` on the custom channel for the
 ArkTS bridge and the web shim), so a scripted Enter and a typed one take the same path.
 
-**Code mode** (`.code()`) claims Tab the same way, and keeps spell-check, smart quotes,
+**Code mode** ([`.code()`](https://daybrite.dev/api/day_piece_texteditor/trait.TextEditorBuilder.html#tymethod.code)) claims Tab the same way, and keeps spell-check, smart quotes,
 capitalization and smart insert/delete off wherever a toolkit has them. The editing rules are
 pure functions in `lib.rs`, tested on the mock: Tab inserts spaces to the next stop
-(`.indent(n)`, default 2); Enter keeps the previous line's indentation, one level deeper after an
+([`.indent(n)`](https://daybrite.dev/api/day_piece_texteditor/trait.TextEditorBuilder.html#tymethod.indent), default 2); Enter keeps the previous line's indentation, one level deeper after an
 opening bracket; an opening bracket or quote gets its closer typed after the caret, which goes
 back between the pair. Each goes in through `EditorPatch::Insert`, the one new arm duty: insert
 text at a byte offset through the view's own insertion, so the platform's undo records it as

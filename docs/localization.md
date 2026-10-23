@@ -22,8 +22,8 @@ workflows. This reference defines the generation, lookup, and tooling contracts.
 
 | Entry point in `build.rs` | Output in `OUT_DIR` | Include macro | Lookup |
 | --- | --- | --- | --- |
-| `day_build::prebuild_project()` | `day_resources.rs` | `day::resources!()` | Global app/core catalogs |
-| `day_build::generate_locales()` | `day_locales.rs` | `day_fluent::locales!()` | Private crate/file catalog |
+| [`day_build::prebuild_project()`](https://daybrite.dev/api/day_build/fn.prebuild_project.html) | `day_resources.rs` | `day::resources!()` | Global app/core catalogs |
+| [`day_build::generate_locales()`](https://daybrite.dev/api/day_build/fn.generate_locales.html) | `day_locales.rs` | `day_fluent::locales!()` | Private crate/file catalog |
 
 Both generators normally read `resource/locales/` relative to the crate and emit embedded
 Fluent sources. The app resource generator can read a merged flavor tree through
@@ -31,12 +31,12 @@ Fluent sources. The app resource generator can read a merged flavor tree through
 next build.
 The generated files belong in Cargo's output directory and are not edited by hand.
 
-`prebuild_project()` also emits image, vector, asset, and font names. Its localization API
+[`prebuild_project()`](https://daybrite.dev/api/day_build/fn.prebuild_project.html) also emits image, vector, asset, and font names. Its localization API
 is unchanged: files within a locale concatenate into one source, and `res::str` accessors use
-the global `tr` lookup. The app supplies `res::locales::CATALOG` through
-`WindowOptions::locales`. See [resources](resources.md) for the other generated modules.
+the global [`tr`](https://daybrite.dev/api/day_fluent/fn.tr.html) lookup. The app supplies `res::locales::CATALOG` through
+[`WindowOptions::locales`](https://daybrite.dev/api/day_spec/struct.WindowOptions.html#method.locales). See [resources](resources.md) for the other generated modules.
 
-`generate_locales()` requires `day-fluent` at runtime. It reads the crate's resource directory
+[`generate_locales()`](https://daybrite.dev/api/day_build/fn.generate_locales.html) requires `day-fluent` at runtime. It reads the crate's resource directory
 even when an app build sets `DAY_RESOURCE_ROOT`. An app's flavor overlay therefore does not
 replace its dependencies' catalogs. Private catalog generation does not currently apply
 flavor overlays.
@@ -74,8 +74,8 @@ Each generated `locales` module contains:
 | `SCOPE` | A static `day_fluent::Catalog` containing the namespace, default, and sources |
 | `register()` | Makes this catalog available to qualified script lookups without changing the app locale |
 
-The global resource generator emits `DEFAULT`, `CATALOG`, and `ALL`, plus `install()` instead
-of `SCOPE` and `register()`. Normal app startup uses `WindowOptions::locales`; the explicit
+The global resource generator emits `DEFAULT`, `CATALOG`, and `ALL`, plus [`install()`](https://daybrite.dev/api/day_fluent/fn.install.html) instead
+of `SCOPE` and `register()`. Normal app startup uses [`WindowOptions::locales`](https://daybrite.dev/api/day_spec/struct.WindowOptions.html#method.locales); the explicit
 install function remains available for code that manages installation itself.
 
 ### Combining resource and private catalog generation
@@ -126,8 +126,8 @@ signals through `IntoFArg`. A variable used numerically in any translation requi
 The generated module also carries `res::window_options()`: the `WindowOptions` every window of
 the app starts from, with the locale catalog installed, the title taken from the `app_title`
 message (or the manifest's title when the catalog has none) and the version from Cargo.toml.
-An app chains the rest onto it (`res::window_options().size(960.0, 640.0)`) and hands the result
-to `day_start!`/`day::launch` and `open_window` ([docs/windows](windows.md)).
+An app chains the rest onto it ([`res::window_options().size(960.0, 640.0)`](https://daybrite.dev/api/day_spec/struct.WindowOptions.html#method.size)) and hands the result
+to `day_start!`/[`day::launch`](https://daybrite.dev/api/day/fn.launch.html) and [`open_window`](https://daybrite.dev/api/day_core/windows/fn.open_window.html) ([docs/windows](windows.md)).
 
 Plural selectors and `NUMBER()` arguments are numeric. String selectors, such as a selection
 on `$gender`, remain string-capable. The generator unions message keys across locales;
@@ -139,7 +139,7 @@ another key produces the same Rust name. A locale may omit an attribute and inhe
 catalog default's value; coverage lint requires message keys, not every attribute.
 
 `LocalizedText` implements the text conversion used by pieces. A text binding tracks both
-the locale signal and signal arguments. Calling `.format()` resolves a `String` immediately;
+the locale signal and signal arguments. Calling [`.format()`](https://daybrite.dev/api/day_fluent/struct.LocalizedText.html#method.format) resolves a `String` immediately;
 it remains reactive only when the call runs inside a reactive computation.
 
 ## Runtime implementation
@@ -148,9 +148,9 @@ it remains reactive only when the call runs inside a reactive computation.
 and generates the accessors. [`day-l10n`](https://github.com/daybrite/day/tree/main/crates/day-l10n)
 manages Fluent bundles, locale selection, formatting, and the core catalog.
 [`day-fluent`](https://github.com/daybrite/day/tree/main/crates/day-fluent) adds `LocalizedText`
-and the `tr_in` constructor used by private accessors.
+and the [`tr_in`](https://daybrite.dev/api/day_fluent/fn.tr_in.html) constructor used by private accessors.
 
-A private accessor calls `tr_in(&SCOPE, key)`. Registration parses its catalog on first use
+A private accessor calls [`tr_in(&SCOPE, key)`](https://daybrite.dev/api/day_fluent/fn.tr_in.html). Registration parses its catalog on first use
 and caches the bundles in thread-local runtime state. The static descriptor's address
 identifies the catalog; its diagnostic name does not determine typed lookup. Two versions of
 a crate can therefore keep separate translations even when their script namespace is the same.
@@ -169,7 +169,7 @@ attribute follows the relevant default-catalog fallback below.
 | Lookup | Resolution order |
 | --- | --- |
 | Private accessor | Selected private bundle → that private catalog's default bundle |
-| Global `tr(key)` | Selected app bundle → app default → selected core bundle → English core |
+| Global [`tr(key)`](https://daybrite.dev/api/day_fluent/fn.tr.html) | Selected app bundle → app default → selected core bundle → English core |
 
 Private lookup never searches the app, core, or another private catalog for a matching key.
 An unresolved global key renders as `⟨key⟩`; a private key renders as
@@ -190,7 +190,7 @@ and one store listing per language stay enough.
 
 ## Which language an app opens in
 
-`day::launch` collects toolkit locale hints, installs `WindowOptions::locales`, computes
+[`day::launch`](https://daybrite.dev/api/day/fn.launch.html) collects toolkit locale hints, installs [`WindowOptions::locales`](https://daybrite.dev/api/day_spec/struct.WindowOptions.html#method.locales), computes
 the localized title `res::window_options()` carries, and then builds the UI. The app catalog declares supported launch languages;
 private catalogs do not add languages to that declaration.
 
@@ -201,9 +201,9 @@ matches. Launch matching accepts exact tags, tags without Unicode extensions, la
 subtags, and pseudolocales. Core catalogs determine availability only when the app registers
 no catalog entries.
 
-`set_locale` from `day::prelude` changes the shared signal at runtime. It does not persist a
+[`set_locale`](https://daybrite.dev/api/day_fluent/fn.set_locale.html) from `day::prelude` changes the shared signal at runtime. It does not persist a
 preference. An app that saves a selection must restore it through its startup flow. Locale
-strings passed to `set_locale` normalize underscores to hyphens.
+strings passed to [`set_locale`](https://daybrite.dev/api/day_fluent/fn.set_locale.html) normalize underscores to hyphens.
 
 ## Core strings the framework provides
 
@@ -214,16 +214,16 @@ Framework code resolves these through the global lookup, so an installed app cat
 override them. Private catalog messages do not override core strings.
 
 Code names a core string the way it names an app string, through a generated accessor:
-`res::str::day_about_website()` in an app or a piece with a private catalog, whose `res::str`
-re-exports the core accessors beside the crate's messages, and `day::res::str::day_cancel()` (or
+[`res::str::day_about_website()`](https://daybrite.dev/api/day_fluent/res/str/fn.day_about_website.html) in an app or a piece with a private catalog, whose `res::str`
+re-exports the core accessors beside the crate's messages, and [`day::res::str::day_cancel()`](https://daybrite.dev/api/day/res/str/fn.day_cancel.html) (or
 `day_fluent::res::str`) anywhere else. Framework crates below day-fluent pass the generated key
-constant to the one-shot lookup, `day_l10n::t(day_l10n::key::day_cancel)`. day-l10n's build
+constant to the one-shot lookup, [`day_l10n::t(day_l10n::key::day_cancel)`](https://daybrite.dev/api/day_l10n/fn.t.html). day-l10n's build
 script generates all three from `catalog/en.ftl`, so every core key is a Rust identifier, and a
 message an app defines under a core key's name replaces that accessor as it replaces the text.
 
 Name a localized string by its accessor, never by its key in a string literal: `res::str::x()`
-fails to compile when `x` is renamed or removed, where `tr("x")` shows `⟨x⟩` at run time.
-`day lint` reports each `tr("…")` in an app's sources as `string-key`.
+fails to compile when `x` is renamed or removed, where [`tr("x")`](https://daybrite.dev/api/day_fluent/fn.tr.html) shows `⟨x⟩` at run time.
+`day lint` reports each [`tr("…")`](https://daybrite.dev/api/day_fluent/fn.tr.html) in an app's sources as `string-key`.
 
 Native dialogs and permission UI may also contain text supplied by the operating system.
 Those strings follow the system's language rules and may not follow an in-app locale switch.
@@ -257,8 +257,8 @@ functions, invalid option names or values, and options that Day does not support
 
 ## Numbers outside a message
 
-`day::format_decimal(value, fraction_digits)` formats a number using the selected locale.
-`day::format_decimal_in(locale, value, fraction_digits)` takes an explicit locale. The first
+[`day::format_decimal(value, fraction_digits)`](https://daybrite.dev/api/day/fn.format_decimal.html) formats a number using the selected locale.
+[`day::format_decimal_in(locale, value, fraction_digits)`](https://daybrite.dev/api/day/fn.format_decimal_in.html) takes an explicit locale. The first
 tracks the locale signal, so it can update a readout inside a reactive closure:
 
 ```rust
@@ -268,15 +268,15 @@ label(move || day::format_decimal(total.get(), 2))
 Grouping, decimal separators, and digits come from locale data. Non-finite values or missing
 data fall back to Rust formatting.
 
-`day::format_percent(fraction, fraction_digits)` renders a fraction as a percentage: `0.5` is
+[`day::format_percent(fraction, fraction_digits)`](https://daybrite.dev/api/day/fn.format_percent.html) renders a fraction as a percentage: `0.5` is
 `50%` in English, `50 %` in French (a narrow no-break space) and `%50` in Turkish. The number
 comes from the same formatter; where the sign goes and what separates it follows the locale's CLDR
 percent pattern. `NUMBER($n, style: "percent")` in a message places it the same way.
-`format_percent_in` takes an explicit locale.
+[`format_percent_in`](https://daybrite.dev/api/day_fluent/fn.format_percent_in.html) takes an explicit locale.
 
 ## Dates outside a message
 
-`day::format_date(epoch_seconds, fields)` writes an instant (seconds since the Unix epoch, read
+[`day::format_date(epoch_seconds, fields)`](https://daybrite.dev/api/day/fn.format_date.html) writes an instant (seconds since the Unix epoch, read
 as UTC civil time like `DATETIME()`'s numeric input) in the selected locale. `fields` is a
 `day::DateFields` naming which parts to show; the locale decides their words, order and hour
 cycle:
@@ -292,21 +292,21 @@ cycle:
 | `HourMinuteSecond` | `3:30:15 PM`  | `15:30:15`    | `15:30:15`   |
 
 Dates use the locale's medium form: an abbreviated month name where the locale writes one, and
-its own numeric form where it does not. Like `format_decimal`, `format_date` tracks the locale
-signal and `format_date_in(locale, ..)` takes an explicit one. A chart's time axis is the typical
+its own numeric form where it does not. Like [`format_decimal`](https://daybrite.dev/api/day_fluent/fn.format_decimal.html), [`format_date`](https://daybrite.dev/api/day_fluent/fn.format_date.html) tracks the locale
+signal and [`format_date_in(locale, ..)`](https://daybrite.dev/api/day_fluent/fn.format_date_in.html) takes an explicit one. A chart's time axis is the typical
 caller: day-piece-charts labels its ticks this way at the precision the axis spans.
 
 ## Sorting: locale-aware collation
 
-`day::compare`, `day::compare_in`, and `day::sort_localized` use ICU4X collation. The first and
-last track the selected locale. `compare_in` accepts locale extensions, such as
+[`day::compare`](https://daybrite.dev/api/day/fn.compare.html), [`day::compare_in`](https://daybrite.dev/api/day/fn.compare_in.html), and [`day::sort_localized`](https://daybrite.dev/api/day/fn.sort_localized.html) use ICU4X collation. The first and
+last track the selected locale. [`compare_in`](https://daybrite.dev/api/day_fluent/fn.compare_in.html) accepts locale extensions, such as
 `zh-u-co-stroke`, for an alternate collation. Sort translated display strings; keep stable
 IDs unchanged when the display order changes.
 
 ## Searching: localized match
 
-`day::matches_search(text, query)` performs a case-insensitive prefix match at word starts.
-`matches_search_in` takes an explicit locale. An empty query matches everything, and the
+[`day::matches_search(text, query)`](https://daybrite.dev/api/day/fn.matches_search.html) performs a case-insensitive prefix match at word starts.
+[`matches_search_in`](https://daybrite.dev/api/day_fluent/fn.matches_search_in.html) takes an explicit locale. An empty query matches everything, and the
 start of the text is always a candidate. Multi-word prefixes are supported.
 
 ICU4X segmentation supplies word boundaries for scripts that do not separate words with
@@ -379,13 +379,13 @@ adds coverage and metadata checks:
 | Finding | Scope |
 | --- | --- |
 | `unknown-key`, `unused-key` | Heuristic source-reference checks for the global app catalog |
-| `string-key` | A `tr("…")` naming a string by its key instead of its `res::str` accessor |
+| `string-key` | A [`tr("…")`](https://daybrite.dev/api/day_fluent/fn.tr.html) naming a string by its key instead of its `res::str` accessor |
 | `missing-translation` | Default-locale message keys absent from another existing locale |
 | `invalid-catalog` | Private catalog generation errors, including invalid syntax and collisions |
 | `unknown-function`, `bad-format-option`, `unsupported-format-option` | Fluent formatting calls |
 
 Private catalog lint recognizes workspace source roots whose `build.rs` calls
-`generate_locales()`. It checks files separately and does not report unused public accessors.
+[`generate_locales()`](https://daybrite.dev/api/day_build/fn.generate_locales.html). It checks files separately and does not report unused public accessors.
 It does not audit arbitrary downloaded dependencies or require every crate to ship the app's
 full locale set. Project checks can enforce exact locale, filename, key, and argument parity.
 
@@ -402,8 +402,8 @@ while toolkits configure widget text and internal behavior for the selected dire
 Leading and trailing layout values follow that direction. Canvas drawings and other leaf
 content are not automatically mirrored.
 
-Runtime locale changes update strings, a navigation surface's bars included (a `nav_stack`'s
-root title and a `nav` item's title re-resolve, so a native bar retitles with its rows), but do
+Runtime locale changes update strings, a navigation surface's bars included (a [`nav_stack`](https://daybrite.dev/api/day_pieces/fn.nav_stack.html)'s
+root title and a [`nav`](https://daybrite.dev/api/day_pieces/fn.nav.html) item's title re-resolve, so a native bar retitles with its rows), but do
 not recompute the launch-time layout direction. A direction change requires relaunching. Real right-to-left locales, such as Arabic, are used
 for layout verification; Day does not provide an `ar-XB` pseudolocale.
 

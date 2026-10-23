@@ -1,4 +1,5 @@
 ---
+navTitle: "WinUI"
 title: "WinUI 3 (windows-winui)"
 description: "The windows-winui target: the XAML backend built against WinUI 3 and the Windows App SDK."
 ---
@@ -21,7 +22,7 @@ The two stacks expose nearly the same control set under two namespaces, so there
 backend and one shim, not two:
 
 - `day` feature `winui` implies `xaml` and turns on `day-xaml/winui` → `day-xaml-sys/winui`.
-  Everything written for the XAML backend in Rust applies unchanged; `day::toolkit_name()`
+  Everything written for the XAML backend in Rust applies unchanged; [`day::toolkit_name()`](https://daybrite.dev/api/day/fn.toolkit_name.html)
   reports `"WinUI"`.
 - `day-xaml-sys/src/shim.cpp` is written against namespace aliases (`WUX`, `WUXC`, …) that point
   at `Windows::UI::Xaml` or, under `DAY_WINUI`, `Microsoft::UI::Xaml`. What genuinely differs
@@ -87,9 +88,9 @@ whichever stack the build targets.
   `day-xaml/winui` and `day-xaml-sys/winui` (or forwards to the piece it wraps), with `"winui"` in
   `[package.metadata.day.piece] backends`. The Rust half is the `xaml` half, unchanged, and
   `day build -t windows-winui` switches `<piece>/winui` on like any backend feature.
-- **build.rs.** `.includes(day_toolchain::winappsdk::shim_includes(&cppwinrt))` where the shim used
+- **build.rs.** [`.includes(day_toolchain::winappsdk::shim_includes(&cppwinrt))`](https://daybrite.dev/api/day_toolchain/winappsdk/fn.shim_includes.html) where the shim used
   to add the SDK's cppwinrt directory, and `DAY_WINUI` defined when
-  `day_toolchain::winappsdk::shim_is_winui()`.
+  [`day_toolchain::winappsdk::shim_is_winui()`](https://daybrite.dev/api/day_toolchain/winappsdk/fn.shim_is_winui.html).
 - **The shim.** Its `winrt/Windows.UI.Xaml*.h` includes switch on `DAY_WINUI`, and its namespace
   aliases go through `DAY_XAML_NS`. What else differs is small: the text editor's document API is
   `Microsoft.UI.Text`, and the activity ring needs a size floor (WinUI's template measures to
@@ -119,7 +120,7 @@ build:
 1. **The runtime beside the exe.** Each component package's
    `runtimes-framework\win-<arch>\native` payload (DLLs, `.pri` resource indexes, compiled XAML,
    localized `.mui` strings) and its metadata are staged into the payload root
-   (`day_toolchain::winappsdk::self_contained_payload`): Foundation, WinUI and
+   ([`day_toolchain::winappsdk::self_contained_payload`](https://daybrite.dev/api/day_toolchain/winappsdk/fn.self_contained_payload.html)): Foundation, WinUI and
    InteractiveExperiences.
 2. **Registration-free activation.** The exe is linked with a second manifest input
    (`self_contained_manifest`) that registers every WinRT class those DLLs implement

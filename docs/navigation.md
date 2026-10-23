@@ -13,20 +13,20 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 Navigation state lives in signals. Selecting a tab or pressing Back updates the signal;
 changing the signal from app code updates the native container.
 
-- **`nav`** selects one destination, such as a tab or sidebar item. Its signal holds the active key.
-- **`nav_stack`** holds a path of destinations in a `Signal<Vec<_>>`. Pushing or removing a key
+- **[`nav`](https://daybrite.dev/api/day_pieces/fn.nav.html)** selects one destination, such as a tab or sidebar item. Its signal holds the active key.
+- **[`nav_stack`](https://daybrite.dev/api/day_pieces/fn.nav_stack.html)** holds a path of destinations in a `Signal<Vec<_>>`. Pushing or removing a key
   opens or closes a level of the native stack.
 
 Keys implement [`Route`](#typed-routes). Start with strings, or use an app-defined enum when
 you want the compiler to check destinations and their associated data. The string adapter
-(`navigate`, `nav_back`, `current_route`) lets deep links and dayscript address either form.
+([`navigate`](https://daybrite.dev/api/day_pieces/fn.navigate.html), [`nav_back`](https://daybrite.dev/api/day_pieces/fn.nav_back.html), [`current_route`](https://daybrite.dev/api/day_pieces/fn.current_route.html)) lets deep links and dayscript address either form.
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
 [example messages](snippet-catalog.md) and [catalog setup](/docs/how-to/localization).
 
 ## Sidebar pull-to-refresh
 
-`nav(selection).refreshable(refreshing, action)` installs the native pull control on
+[`nav`](https://daybrite.dev/api/day_pieces/fn.nav.html)`(selection)`[`.refreshable`](https://daybrite.dev/api/day_pieces/trait.NavBuilder.html#tymethod.refreshable)`(refreshing, action)` installs the native pull control on
 UIKit ([`UIRefreshControl`](https://developer.apple.com/documentation/uikit/uirefreshcontrol)) and Android ([`SwipeRefreshLayout`](https://developer.android.com/reference/androidx/swiperefreshlayout/widget/SwipeRefreshLayout)) sidebar menus, including
 lists shorter than the viewport. The native scroll view owns gesture arbitration: a pull
 starts only at the top, without intercepting ordinary row taps, long presses or scrolling.
@@ -50,7 +50,7 @@ A row activation must present the resident content-list column even when its rou
 already selected. Selection alone is insufficient: UIKit can show the feeds root after
 initial split collapse or native Back while the model already considers the list selected.
 For a merged content list in stack presentation, every native row selection that satisfies
-`ContentList::only_for` reissues `ListInStack(true)` without rebuilding that list. The native
+[`ContentList::only_for`](https://daybrite.dev/api/day_pieces/struct.ContentList.html#method.only_for) reissues `ListInStack(true)` without rebuilding that list. The native
 stack remains authoritative for Back; this does not add a second stack mirror. UIKit
 coalesces pending list requests with a generation ticket, waits for active push/pop transitions,
 and checks the native stack for the list controller before showing the column. This avoids
@@ -61,7 +61,7 @@ injecting a route change can miss this failure.
 
 ## Document tabs
 
-`document_tabs(tabs, new_label, close_label, title, content)` hosts documents with independent
+[`document_tabs(tabs, new_label, close_label, title, content)`](https://daybrite.dev/api/day_pieces/fn.document_tabs.html) hosts documents with independent
 lifetimes. `TabSet<K>` owns their ordered stable keys and optional selected key; `K` implements
 `Route`. Application payloads, undo history, persistence, pinning, and suspension remain app-owned.
 Pass localized `res::str` accessors for the add/close labels and app-owned titles. Publication or
@@ -69,31 +69,31 @@ user-supplied document titles can pass through unchanged.
 
 | Operation | Contract |
 |---|---|
-| `TabSet::new()` | Starts empty with no selection. Own it above the host. |
-| `open(key, foreground)` | Adds an absent key once. A background open preserves selection unless the set was empty. |
-| `select(&key)` | Selects an existing identity; returns false for an unknown key. |
-| `move_to(&key, index)` | Moves to the final index, clamped to the last position; preserves selected identity. |
-| `select_next(backwards)` | Wraps through the collection; does nothing when empty. |
-| `close(&key)` | Accepts removal. If selected, chooses the following neighbor or the preceding last tab. The final close selects `None`. |
-| `keys()`, `selected()`, `contains(&key)` | Read order, selection, or membership. |
+| [`TabSet::new()`](https://daybrite.dev/api/day_pieces/struct.TabSet.html#method.new) | Starts empty with no selection. Own it above the host. |
+| [`open(key, foreground)`](https://daybrite.dev/api/day_pieces/struct.TabSet.html#method.open) | Adds an absent key once. A background open preserves selection unless the set was empty. |
+| [`select(&key)`](https://daybrite.dev/api/day_pieces/struct.TabSet.html#method.select) | Selects an existing identity; returns false for an unknown key. |
+| [`move_to(&key, index)`](https://daybrite.dev/api/day_pieces/struct.TabSet.html#method.move_to) | Moves to the final index, clamped to the last position; preserves selected identity. |
+| [`select_next(backwards)`](https://daybrite.dev/api/day_pieces/struct.TabSet.html#method.select_next) | Wraps through the collection; does nothing when empty. |
+| [`close(&key)`](https://daybrite.dev/api/day_pieces/struct.TabSet.html#method.close) | Accepts removal. If selected, chooses the following neighbor or the preceding last tab. The final close selects `None`. |
+| [`keys()`](https://daybrite.dev/api/day_pieces/struct.TabSet.html#method.keys), [`selected()`](https://daybrite.dev/api/day_pieces/struct.TabSet.html#method.selected), [`contains(&key)`](https://daybrite.dev/api/day_pieces/struct.TabSet.html#method.contains) | Read order, selection, or membership. |
 
 The host builds each document once, including background documents. Reordering permutes resident
 native pages with `NavPatch::Reorder`: each entry is an old resident-page index in the new order.
 Closing disposes only that document's scope. Selection and native indices never identify payloads.
-An `.on_close(handler)` callback receives a request; the app calls `tabs.close(&key)` after it
+An [`.on_close(handler)`](https://daybrite.dev/api/day_pieces/struct.DocumentTabs.html#method.on_close) callback receives a request; the app calls [`tabs.close(&key)`](https://daybrite.dev/api/day_pieces/struct.TabSet.html#method.close) after it
 accepts. Keeping the key vetoes the request. Without a handler, a request removes the key directly.
-`.on_new(handler)` delegates creation and key allocation to the app.
+[`.on_new(handler)`](https://daybrite.dev/api/day_pieces/struct.DocumentTabs.html#method.on_new) delegates creation and key allocation to the app.
 
-`.native(|| preference.get())` changes presentation reactively. Supported toolkits use a native
+[`.native`](https://daybrite.dev/api/day_pieces/struct.DocumentTabs.html#method.native)`(|| preference`[`.get`](https://daybrite.dev/api/day_reactive/struct.Signal.html#method.get)`())` changes presentation reactively. Supported toolkits use a native
 in-window control or an OS window group. Unsupported toolkits keep the composed strip. Content,
 scopes, and native handles survive each switch; only composed chrome is conditionally built.
-`.chrome(|actions| ...)` replaces that strip; `TabActions` supplies `tabs`, `new_tab`, `close`,
+[`.chrome(|actions| ...)`](https://daybrite.dev/api/day_pieces/struct.DocumentTabs.html#method.chrome) replaces that strip; `TabActions` supplies `tabs`, `new_tab`, `close`,
 `drag`, and `drop_before`. Drag payloads are host-scoped so equal keys in unrelated collections
-cannot move each other's documents. `.layout(|chrome, content| ...)` places the composed chrome.
+cannot move each other's documents. [`.layout(|chrome, content| ...)`](https://daybrite.dev/api/day_pieces/struct.DocumentTabs.html#method.layout) places the composed chrome.
 The default strip is native buttons: the current document's is a selected button
-(`button(..).selected(..)`, [docs/buttons](buttons.md)), so it keeps its focus stop and activation, the
+([`button`](https://daybrite.dev/api/day_pieces/fn.button.html)`(..)`[`.selected`](https://daybrite.dev/api/day_pieces/trait.ButtonBuilder.html#tymethod.selected)`(..)`, [docs/buttons](buttons.md)), so it keeps its focus stop and activation, the
 platform draws its own selected look, and assistive tech hears a selected tab in a tab list
-(`Role::Tab`, `Role::TabList`). `.strip_id(id!(docs))` gives the strip a declared ID.
+(`Role::Tab`, `Role::TabList`). [`.strip_id(id!(docs))`](https://daybrite.dev/api/day_pieces/struct.DocumentTabs.html#method.strip_id) gives the strip a declared ID.
 Child IDs use the `document_tab`, `document_close`, and `document_new` families. For
 document key `a`, the tab is `document_tab:docs%3Aa`; the colon in the combined host/key
 is percent-encoded. Without an explicit strip ID, the host uses `document_strip:<n>`.
@@ -108,7 +108,7 @@ See [element IDs](element-ids.md) before writing script locators.
 | Android | Scrollable Material TabLayout with add/close controls and host-scoped long-press dragging. |
 | UIKit, ArkUI, DOM | Composed strip; UIKit uses a [UIViewController](https://developer.apple.com/documentation/uikit/uiviewcontroller) container for documents. |
 
-Toolkit duties distinguish OS-window grouping (`native_window_tabs`) from in-window chrome
+Toolkit duties distinguish OS-window grouping ([`native_window_tabs`](https://daybrite.dev/api/day_spec/trait.Toolkit.html#method.native_window_tabs)) from in-window chrome
 (`native_document_tabs`). Both default to false. `DocumentTabsConfig` carries localized labels
 and add-button availability through `NavProps`; `NavMenuProps::document_keys` aligns stable keys
 with rows. `DocumentTabsPatch` toggles native chrome while retaining pages. `day:tab-new`,
@@ -135,7 +135,7 @@ insertion, removal, repeated presentation switching, native reorder across detac
 close vetoes, and zero frame requests while idle. See [document-window tabs](windows.md#document-window-tabs)
 for focus, command routing, and close lifecycle.
 
-## `nav`: one-of-N
+## [`nav`](https://daybrite.dev/api/day_pieces/fn.nav.html): one-of-N
 
 ```rust
 let section = Signal::new("home".to_string());
@@ -191,7 +191,7 @@ which is the invariant a morph has to keep. Pages build on first visit.
 A chrome presentation is the exception, because its bar needs an item per destination: every page
 is built up front, in row order, before the initial selection is applied. `NavPatch::Select` names
 a page by attach order while the chrome draws the rows, so page i has to be row i; that pairing
-is all a suite has. Building the selected destination first (the selection a `.restore(key)` came
+is all a suite has. Building the selected destination first (the selection a [`.restore(key)`](https://daybrite.dev/api/day_pieces/trait.NavBuilder.html#tymethod.restore) came
 back with, say) would attach it at index 0 and leave the bar highlighting the first row while
 another destination's page is the one on screen.
 
@@ -202,10 +202,10 @@ switches; the user picking natively writes it back (origin-tagged, no echo).
 |---|---|
 | `Split` | a NavigationSplitView: macOS [`NSSplitViewController`](https://developer.apple.com/documentation/appkit/nssplitviewcontroller) with a sidebar [`NSSplitViewItem`](https://developer.apple.com/documentation/appkit/nssplitviewitem) (system material, source-list [`NSOutlineView`](https://developer.apple.com/documentation/appkit/nsoutlineview), full-height under the titlebar) + detail; GTK two nested [`GtkPaned`](https://docs.gtk.org/gtk4/class.Paned.html)s (sidebar | list | detail, every divider draggable); Qt [`QSplitter`](https://doc.qt.io/qt-6/qsplitter.html); iOS [`UISplitViewController`](https://developer.apple.com/documentation/uikit/uisplitviewcontroller); Android `SlidingPaneLayout`. |
 | `Stack` | one page at a time, back-navigable: [`UINavigationController`](https://developer.apple.com/documentation/uikit/uinavigationcontroller), [`AdwNavigationView`](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/class.NavigationView.html), the Android back stack, or a desktop back-header above the pages. |
-| `Tabs` | the rows drawn as a tab bar: [`UITabBarController`](https://developer.apple.com/documentation/uikit/uitabbarcontroller) / Material [`NavigationBarView`](https://developer.android.com/reference/com/google/android/material/navigation/NavigationBarView) / [`NavigationView.PaneDisplayMode = Top`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.xaml.controls.navigationview) / an [`NSTabView`](https://developer.apple.com/documentation/appkit/nstabview) on macOS / an [`AdwViewSwitcher`](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/class.ViewSwitcher.html) on GTK / a [`QTabWidget`](https://doc.qt.io/qt-6/qtabwidget.html) on Qt / a composed bar on web-dom. |
+| `Tabs` | the rows drawn as a tab bar: [`UITabBarController`](https://developer.apple.com/documentation/uikit/uitabbarcontroller) / Material [`NavigationBarView`](https://developer.android.com/reference/com/google/android/material/navigation/NavigationBarView) / [`NavigationView.PaneDisplayMode = Top`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.xaml.controls.navigationview) / an [`NSTabView`](https://developer.apple.com/documentation/appkit/nstabview) on macOS / an [`AdwViewSwitcher`](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/class.ViewSwitcher.html) on GTK / a [`QTabWidget`](https://doc.qt.io/qt-6/qtabwidget.html) on Qt / a composed bar on Web. |
 | `Rail` | the rows as a narrow strip: Material [`NavigationRailView`](https://developer.android.com/reference/com/google/android/material/navigationrail/NavigationRailView), `PaneDisplayMode = LeftCompact`, an ArkUI vertical `Tabs`; **roundable** where a toolkit has none. |
 
-`nav` is one primitive, a selection-bound switcher, and a presentation is chrome plus page
+[`nav`](https://daybrite.dev/api/day_pieces/fn.nav.html) is one primitive, a selection-bound switcher, and a presentation is chrome plus page
 lifetime rather than a different host. That is why a window crossing a breakpoint re-presents
 (`NavPatch::Presentation`) rather than rebuilding: the pages it already has are re-homed, so
 nothing loses a scroll offset, a focused field, or an animation in flight.
@@ -252,7 +252,7 @@ desktop may pin one with `NavStyle::Tabs`, but narrowing hides its sidebar and p
 > of that block now.
 
 > [!NOTE]
-> **Renamed.** `nav(sel).style(Tabs)` was `tabs()`, and `nav(sel).style(Sidebar)` was `nav()`.
+> **Renamed.** [`nav`](https://daybrite.dev/api/day_pieces/fn.nav.html)`(sel)`[`.style`](https://daybrite.dev/api/day_pieces/trait.NavBuilder.html#tymethod.style)`(Tabs)` was `tabs()`, and [`nav`](https://daybrite.dev/api/day_pieces/fn.nav.html)`(sel)`[`.style`](https://daybrite.dev/api/day_pieces/trait.NavBuilder.html#tymethod.style)`(Sidebar)` was [`nav()`](https://daybrite.dev/api/day_pieces/fn.nav.html).
 
 ### Keyboard
 
@@ -262,23 +262,23 @@ this from the widget the style maps to (an [`NSOutlineView`](https://developer.a
 nothing of Day's in front of it: keys go to whatever has focus and no route sits above them
 ([docs/menus](menus.md)).
 
-**web-dom** has no such widget, so the toolkit builds the behavior: `.day-navmenu` carries the tab
+**Web** has no such widget, so the toolkit builds the behavior: `.day-navmenu` carries the tab
 stop and `role="listbox"`, its rows carry `role="option"` and `aria-selected`, and the shim moves
 the selection by reporting the new index the way the click handler does. It also holds the focus
 across the page swap its own key press caused: a detail pane can contain an element the browser
 focuses as soon as it appears (a `<video>`, a web view's iframe), and without that the sidebar
 would answer one arrow and then go quiet.
 
-### Immersive items (`.immersive()`)
+### Immersive items ([`.immersive()`](https://daybrite.dev/api/day_pieces/struct.NavItem.html#method.immersive))
 
-`item(key, title).immersive()` marks that destination as an immersive-chrome page: on
+[`item`](https://daybrite.dev/api/day_pieces/fn.item.html)`(key, title)`[`.immersive`](https://daybrite.dev/api/day_pieces/struct.NavItem.html#method.immersive)`()` marks that destination as an immersive-chrome page: on
 toolkits with an immersive nav mode (day-android's edge-to-edge opt-in today) its pushed page
 keeps the floating transparent bar over full-bleed content, while unmarked pages and the root
 get the standard opaque bar. Every other toolkit ignores the flag. Pair it with
-`day::safe_area()` ([docs/layout](/docs/explanation/layout)): the immersive page paints its background unpadded and pads
+[`day::safe_area()`](https://daybrite.dev/api/day/fn.safe_area.html) ([docs/layout](/docs/explanation/layout)): the immersive page paints its background unpadded and pads
 its content by the reported insets.
 
-## `nav_stack`: push/pop with a value path
+## [`nav_stack`](https://daybrite.dev/api/day_pieces/fn.nav_stack.html): push/pop with a value path
 
 ```rust
 let path = Signal::new(Vec::<String>::new());
@@ -315,22 +315,22 @@ nav(section)
     .destination(|k| page(k).toolbar(share_button())) // the page's
 ```
 
-`Nav::toolbar` and `NavStack::toolbar` put items on that host's own chrome — the sidebar column
+[`Nav::toolbar`](https://daybrite.dev/api/day_pieces/struct.Nav.html#method.toolbar) and [`NavStack::toolbar`](https://daybrite.dev/api/day_pieces/struct.NavStack.html#method.toolbar) put items on that host's own chrome — the sidebar column
 where the presentation has one, the root list when it has collapsed. Items declared on a
 destination page ride the detail. Both leave the bar when what they act on leaves the screen, so
 neither needs a scope to be spelled out.
 
 The affordance that shows and hides the sidebar is the toolkit's, not the app's: a
-`nav(Sidebar)` supplies it, and `.no_sidebar_toggle()` suppresses it.
+[`nav(Sidebar)`](https://daybrite.dev/api/day_pieces/fn.nav.html) supplies it, and [`.no_sidebar_toggle()`](https://daybrite.dev/api/day_pieces/trait.NavBuilder.html#tymethod.no_sidebar_toggle) suppresses it.
 
-## Items are values (`item`, `nav_items`, `.items`)
+## Items are values ([`item`](https://daybrite.dev/api/day_pieces/fn.item.html), [`nav_items`](https://daybrite.dev/api/day_pieces/fn.nav_items.html), [`.items`](https://daybrite.dev/api/day_pieces/trait.NavBuilder.html#tymethod.items))
 
-An item is a value: `item(key, title)` with its decorations chained onto it (`.icon(..)`,
-`.badge(..)`, `.icon_tint(..)`, `.immersive()`, `.page(build)`). `.items(..)` takes one item, a
+An item is a value: [`item(key, title)`](https://daybrite.dev/api/day_pieces/fn.item.html) with its decorations chained onto it ([`.icon(..)`](https://daybrite.dev/api/day_pieces/struct.NavItem.html#method.icon),
+[`.badge(..)`](https://daybrite.dev/api/day_pieces/struct.NavItem.html#method.badge), [`.icon_tint(..)`](https://daybrite.dev/api/day_pieces/struct.NavItem.html#method.icon_tint), [`.immersive()`](https://daybrite.dev/api/day_pieces/struct.NavItem.html#method.immersive), [`.page(build)`](https://daybrite.dev/api/day_pieces/struct.NavItem.html#method.page)). [`.items(..)`](https://daybrite.dev/api/day_pieces/trait.NavBuilder.html#tymethod.items) takes one item, a
 tuple of them, an `Option<NavItem>` (an item a platform may not want, such as
-`prefs.nav_item(Section::Settings)`), a `Vec`, or a data-driven `nav_items(..)` block, in any
-mix; the final list is the declaration order. `.item(key, title, build)` stays as the shorthand
-for `items(item(key, title).page(build))`.
+[`prefs.nav_item(Section::Settings)`](https://daybrite.dev/api/day_piece_settings/struct.Prefs.html#method.nav_item)), a `Vec`, or a data-driven [`nav_items(..)`](https://daybrite.dev/api/day_pieces/fn.nav_items.html) block, in any
+mix; the final list is the declaration order. [`.item(key, title, build)`](https://daybrite.dev/api/day_pieces/trait.NavBuilder.html#tymethod.item) stays as the shorthand
+for [`items`](https://daybrite.dev/api/day_pieces/fn.items.html)`(`[`item`](https://daybrite.dev/api/day_pieces/fn.item.html)`(key, title)`[`.page`](https://daybrite.dev/api/day_pieces/struct.NavItem.html#method.page)`(build))`.
 
 ```rust
 nav(section)
@@ -342,8 +342,8 @@ nav(section)
 ```
 
 Items can also come from a signal, so a sidebar or tab set grows and shrinks with your data (a
-rooms list, open documents). `nav_items(reader, map)` is the data-driven block; static items and
-blocks mix, and an item without a `.page` is built by `.destination` (like `nav_stack`).
+rooms list, open documents). [`nav_items(reader, map)`](https://daybrite.dev/api/day_pieces/fn.nav_items.html) is the data-driven block; static items and
+blocks mix, and an item without a [`.page`](https://daybrite.dev/api/day_pieces/struct.NavItem.html#method.page) is built by [`.destination`](https://daybrite.dev/api/day_pieces/trait.NavBuilder.html#tymethod.destination) (like [`nav_stack`](https://daybrite.dev/api/day_pieces/fn.nav_stack.html)).
 
 ```rust
 let tabs = Signal::new(vec!["general".to_string(), "random".to_string()]);
@@ -356,24 +356,24 @@ nav(current)
 The row set re-derives whenever a block's signal changes: rows are added/removed on the native
 widget, and if the selected key disappears the selection resets (to `None` for an `Option` key).
 For a filtered sidebar whose current document should remain open, use
-`.retain_selection_when(|key| record_still_exists(key))`. On item-list changes, a true result
+[`.retain_selection_when(|key| record_still_exists(key))`](https://daybrite.dev/api/day_pieces/trait.NavBuilder.html#tymethod.retain_selection_when). On item-list changes, a true result
 keeps that destination and its state alive while the native sidebar has no highlighted row.
-Returning false preserves the normal fallback for deleted records. Supply `.destination`
+Returning false preserves the normal fallback for deleted records. Supply [`.destination`](https://daybrite.dev/api/day_pieces/trait.NavBuilder.html#tymethod.destination)
 for dynamic keys.
 The same effect resolves every row title tracked, so a runtime `set_locale` retitles the native
-rows in place, static `.item`s included.
-`NavItem::icon` also accepts an owned absolute path for downloaded image files. AppKit and
+rows in place, static [`.item`](https://daybrite.dev/api/day_pieces/trait.NavBuilder.html#tymethod.item)s included.
+[`NavItem::icon`](https://daybrite.dev/api/day_pieces/struct.NavItem.html#method.icon) also accepts an owned absolute path for downloaded image files. AppKit and
 UIKit preserve the colors of these file icons; bundled symbolic icons still use template
-rendering and `icon_tint`. Cache a thumbnail locally and change its filename when its bytes
+rendering and [`icon_tint`](https://daybrite.dev/api/day_pieces/struct.NavItem.html#method.icon_tint). Cache a thumbnail locally and change its filename when its bytes
 change so native image caches invalidate. A missing/unreadable file has no image, so apps
 should supply their own bundled fallback until the download is ready.
 
-`item(key, title).icon(name)` is the row spec; `.icon_tint(color)` recolors the row's glyph
-([docs/vectors](vectors.md)), `.context_menu(vec![…])` attaches a per-row context menu ([docs/menus](menus.md)),
-and `.immersive()` on it marks that row's pushed page immersive-chrome, same as the static
+[`item`](https://daybrite.dev/api/day_pieces/fn.item.html)`(key, title)`[`.icon`](https://daybrite.dev/api/day_pieces/struct.NavItem.html#method.icon)`(name)` is the row spec; [`.icon_tint(color)`](https://daybrite.dev/api/day_pieces/struct.NavItem.html#method.icon_tint) recolors the row's glyph
+([docs/vectors](vectors.md)), [`.context_menu(vec![…])`](https://daybrite.dev/api/day_pieces/struct.NavItem.html#method.context_menu) attaches a per-row context menu ([docs/menus](menus.md)),
+and [`.immersive()`](https://daybrite.dev/api/day_pieces/struct.NavItem.html#method.immersive) on it marks that row's pushed page immersive-chrome, same as the static
 form above.
 
-`.badge(text)` is the row's count or status word, drawn in the platform's own badge slot: the
+[`.badge(text)`](https://daybrite.dev/api/day_pieces/struct.NavItem.html#method.badge) is the row's count or status word, drawn in the platform's own badge slot: the
 source-list count on AppKit, a dim count in the GTK row and on Qt and the web, a [`UITab`](https://developer.apple.com/documentation/uikit/uitab)'s badge
 on iPadOS and in the tab bar, a Material badge on Android's bottom bar and rail and a trailing
 count in its drawer. Empty text is no badge, so a count can return `""` at zero rather than
@@ -381,9 +381,9 @@ switching the badge off. A badge that ticks (or a title that changes language) u
 place on every toolkit that can (`NavMenuPatch::Items::rows_changed`), without rebuilding the
 bar or replaying its selection animation.
 
-`.badge_icon(name)` puts a glyph at the row's trailing edge, with `.badge_tint(color)` for a
+[`.badge_icon(name)`](https://daybrite.dev/api/day_pieces/struct.NavItem.html#method.badge_icon) puts a glyph at the row's trailing edge, with [`.badge_tint(color)`](https://daybrite.dev/api/day_pieces/struct.NavItem.html#method.badge_tint) for a
 color that carries meaning (a starred page's yellow star). It shares the trailing slot with the
-text `.badge(…)` and is drawn after it, so a row can show a count and a status at once:
+text [`.badge(…)`](https://daybrite.dev/api/day_pieces/struct.NavItem.html#method.badge) and is drawn after it, so a row can show a count and a status at once:
 
 ```rust
 item(section, title)
@@ -397,15 +397,15 @@ the theme; a tinted one keeps its color because the color carries meaning. Every
 the trailing slot of the AppKit cell, the GTK row box, a [`QStyledItemDelegate`](https://doc.qt.io/qt-6/qstyleditemdelegate.html) on Qt (a
 [`QListWidgetItem`](https://doc.qt.io/qt-6/qlistwidgetitem.html) has only the leading icon slot), the `end` compound drawable on Android, the
 composed [`NavigationViewItem.Content`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.xaml.controls.navigationviewitem) on XAML, between label and chevron on ArkUI, a masked
-element on web-dom, and a trailing [`UIImageView`](https://developer.apple.com/documentation/uikit/uiimageview) on UIKit, which is also where the nav badge slot
+element on Web, and a trailing [`UIImageView`](https://developer.apple.com/documentation/uikit/uiimageview) on UIKit, which is also where the nav badge slot
 first appeared on that toolkit. A nav host used as a self-contained widget inside a
-page that already routes should call `.local()` so it does not add a segment to `current_route` or
-intercept `navigate`.
+page that already routes should call [`.local()`](https://daybrite.dev/api/day_pieces/trait.NavBuilder.html#tymethod.local) so it does not add a segment to [`current_route`](https://daybrite.dev/api/day_pieces/fn.current_route.html) or
+intercept [`navigate`](https://daybrite.dev/api/day_pieces/fn.navigate.html).
 
-**Section headers.** `nav(…).section(title, content)` puts a header over `content`, which is
-anything `.items` takes: one item, a tuple, an `Option`, a `nav_items` block, or a mix. The header
+**Section headers.** [`nav`](https://daybrite.dev/api/day_pieces/fn.nav.html)`(…)`[`.section`](https://daybrite.dev/api/day_pieces/trait.NavBuilder.html#tymethod.section)`(title, content)` puts a header over `content`, which is
+anything [`.items`](https://daybrite.dev/api/day_pieces/trait.NavBuilder.html#tymethod.items) takes: one item, a tuple, an `Option`, a [`nav_items`](https://daybrite.dev/api/day_pieces/fn.nav_items.html) block, or a mix. The header
 rides the first row of the content (the first row of a data-driven block, wherever the data
-starts). `item(key, title).section(title)` opens a header from inside a data-driven mapper, which
+starts). [`item`](https://daybrite.dev/api/day_pieces/fn.item.html)`(key, title)`[`.section`](https://daybrite.dev/api/day_pieces/struct.NavItem.html#method.section)`(title)` opens a header from inside a data-driven mapper, which
 is how a derived list keeps its groups under a search filter: attach the header to the first
 surviving row of each group, and a group whose rows are all filtered out disappears with them. Headers are a grouping hint: a toolkit
 without grouped rows (a tab strip, a plain phone list) shows one flat list, so a header is never
@@ -418,7 +418,7 @@ an opaque system secondary-background surface across their full width by default
 row text never overlaps the heading. The semantic color follows light/dark appearance changes;
 apps do not need to add their own backgrounds. GTK draws them
 in its list box's header slot. Qt, whose [`QListWidget`](https://doc.qt.io/qt-6/qlistwidget.html) has no header slot, draws each as a small
-bold dimmed item of its own that takes no click, hover or selection, and web-dom as a heading
+bold dimmed item of its own that takes no click, hover or selection, and Web as a heading
 element between the rows. Windows adds a [`NavigationViewItemHeader`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.xaml.controls.navigationviewitemheader) to the pane's items (a disabled
 item in the plain `ListView` sidebar), collapsing them while the pane is a tab strip or an icon
 rail, and HarmonyOS a secondary-colored title above the group's first row. These four translate
@@ -434,7 +434,7 @@ nav(section)
 ```
 
 **A data-driven item is a label + optional icon**: the native sidebar/tab row. It is not an
-arbitrary rich row (an avatar + preview + badge); a master list that needs those is a `list`, and
+arbitrary rich row (an avatar + preview + badge); a master list that needs those is a [`list`](https://daybrite.dev/api/day_pieces/fn.list.html), and
 combining a rich master list with native master-detail push is a separate, not-yet-built feature.
 
 **Toolkit support (2026-07):** dynamic add/remove/reselect renders on `macos-appkit`, `linux-gtk`,
@@ -479,7 +479,7 @@ Six things this toolkit learned the hard way:
   native switch is deferred a few runloop turns until no on-screen stack is transitioning.
 - **A tab's page is wrapped in a navigation controller on a wide window, unless the page brings
   its own.** The wrapper is what gives a tab a bar for its page's commands. A page whose root is a
-  `nav_stack` (or another stack or split host) already has one, and the wrapper stacked a second
+  [`nav_stack`](https://daybrite.dev/api/day_pieces/fn.nav_stack.html) (or another stack or split host) already has one, and the wrapper stacked a second
   bar over it with the same title and commands (Stanza's tabs on an iPad, 2026-10). The host
   arrives after its page, so the toolkit undoes the wrapper when it does, leaving the tab as a
   compact window has it: the page, whose own stack owns the bar.
@@ -507,7 +507,7 @@ It becomes the right realization if Day's nav host ever grows real hierarchy.
 
 ### The iOS sidebar is a collection-view list
 
-`nav(NavStyle::Sidebar)` realizes on ios-uikit as a [`UICollectionView`](https://developer.apple.com/documentation/uikit/uicollectionview) laid out by
+[`nav(NavStyle::Sidebar)`](https://daybrite.dev/api/day_pieces/fn.nav.html) realizes on ios-uikit as a [`UICollectionView`](https://developer.apple.com/documentation/uikit/uicollectionview) laid out by
 [`UICollectionLayoutListConfiguration`](https://developer.apple.com/documentation/uikit/uicollectionlayoutlistconfiguration) with the **`.sidebar` appearance**, in the primary column of
 a [`UISplitViewController`](https://developer.apple.com/documentation/uikit/uisplitviewcontroller). That appearance publishes the `listEnvironment` trait the cells'
 adaptive [`UIListContentConfiguration::cellConfiguration`](https://developer.apple.com/documentation/uikit/uilistcontentconfiguration) reads, and it is what gives the Settings
@@ -516,7 +516,7 @@ A [`UITableView`](https://developer.apple.com/documentation/uikit/uitableview) d
 so the rounded shape is the list appearance's to give.
 
 **The list runs under the bars.** A page whose content is one scroll view — this list, a
-`scroll`-rooted detail, a tree — fills the page's full bounds, and UIKit's inset adjustment
+[`scroll`](https://daybrite.dev/api/day_pieces/fn.scroll.html)-rooted detail, a tree — fills the page's full bounds, and UIKit's inset adjustment
 starts the content below the navigation bar and lets it pass under the translucent bar and the
 bottom search field as it scrolls, as Settings and Mail do. A page whose content is a navigation
 host fills its bounds too, because the host passes the bars on to its own pages — which is what
@@ -541,7 +541,7 @@ keeps speaking in flat row indices.
 
 ### The Android sidebar is a NavigationView
 
-`nav(NavStyle::Sidebar)` realizes on android-mdc as a Material
+[`nav(NavStyle::Sidebar)`](https://daybrite.dev/api/day_pieces/fn.nav.html) realizes on android-mdc as a Material
 [`NavigationView`](https://developer.android.com/reference/com/google/android/material/navigation/NavigationView),
 the class Android means for a standing navigation column. It was a [`LinearLayout`](https://developer.android.com/reference/android/widget/LinearLayout) of [`TextView`](https://developer.android.com/reference/android/widget/TextView)
 rows in a [`ScrollView`](https://developer.android.com/reference/android/widget/ScrollView) until 2026-09, with the 48dp height, the padding, the ripple and the 24dp
@@ -648,13 +648,13 @@ that proceeds pops through Day's rail and the next swipe works with nothing to r
 > needs the same fight.
 
 `nav_back:` in a walkthrough drives Day's rail and reaches none of this; `nav_back: { native: true }`
-presses the bar's button (`Toolkit::native_back` → `DayNavController::press_back`), which asks
+presses the bar's button ([`Toolkit::native_back`](https://daybrite.dev/api/day_spec/trait.Toolkit.html#method.native_back) → `DayNavController::press_back`), which asks
 `shouldPopItem:` through its selector and pops through the override, so a script covers the code
 a tap runs. Trace it with `--env DAY_DIAG_NAV=1`: `user pop levels=1`, `exec SET native=N -> target=M`.
 
-## Back interception (`on_back`)
+## Back interception ([`on_back`](https://daybrite.dev/api/day_pieces/trait.NavStackBuilder.html#tymethod.on_back))
 
-`NavStack::on_back` intercepts the user's back affordance (a native gesture/button, or `nav_back()`)
+[`NavStack::on_back`](https://daybrite.dev/api/day_pieces/struct.NavStack.html#method.on_back) intercepts the user's back affordance (a native gesture/button, or [`nav_back()`](https://daybrite.dev/api/day_pieces/fn.nav_back.html))
 to run a policy before the pop. It does not run for a programmatic `path.set` (a write is not a
 back), matching Jetpack Compose's `BackHandler`.
 
@@ -679,8 +679,8 @@ nav_stack(path, home_view)
 ```
 
 The guard returns `Proceed` (pop now) or `Handled` (consume; the pop does not happen). A `Handled`
-guard may hold the `BackRequest` and call `proceed()` later: the unsaved-changes → confirm → leave
-flow. `proceed()` performs exactly the pop `Proceed` would have.
+guard may hold the `BackRequest` and call [`proceed()`](https://daybrite.dev/api/day_pieces/struct.BackRequest.html#method.proceed) later: the unsaved-changes → confirm → leave
+flow. [`proceed()`](https://daybrite.dev/api/day_pieces/struct.BackRequest.html#method.proceed) performs exactly the pop `Proceed` would have.
 
 While a guard is armed above the root, Day tells the toolkit to stop auto-popping on a native
 gesture and route the back through Day instead (`NavPatch::GuardTop`). What that means per toolkit:
@@ -713,13 +713,13 @@ query    = name "=" value *( "&" name "=" value )     (params for the destinatio
 ```
 
 Reserved characters inside a segment or param value (`/ ? & = %`) are percent-encoded;
-`day_core::nav::{parse_route, encode_route}` do this for you. Two addressing modes:
+`day_core::nav::{`[`parse_route`](https://daybrite.dev/api/day_core/fn.parse_route.html), [`encode_route`](https://daybrite.dev/api/day_core/fn.encode_route.html)`}` do this for you. Two addressing modes:
 
-- **A single key is relative**: `navigate("inbox")` reaches the innermost surface first and
-  falls through outward. For a `nav`/tabs it sets the active key; a `nav_stack` claims only
+- **A single key is relative**: [`navigate("inbox")`](https://daybrite.dev/api/day_pieces/fn.navigate.html) reaches the innermost surface first and
+  falls through outward. For a [`nav`](https://daybrite.dev/api/day_pieces/fn.nav.html)/tabs it sets the active key; a [`nav_stack`](https://daybrite.dev/api/day_pieces/fn.nav_stack.html) claims only
   `""` (pop to root), so sibling keys fall through to the enclosing surface. This is what a
   button deep inside a page wants: address the nearest thing that knows the key.
-- **A `/`-separated path is absolute**: `navigate("mail/inbox/msg-42")` anchors at the
+- **A `/`-separated path is absolute**: [`navigate("mail/inbox/msg-42")`](https://daybrite.dev/api/day_pieces/fn.navigate.html) anchors at the
   outermost surface that knows the first segment, resets every surface inside the anchor to its
   root, then feeds the remaining segments inward. Segments for surfaces that only mount as the
   outer switch takes effect are queued and consumed as those surfaces register. One string
@@ -729,12 +729,12 @@ Reserved characters inside a segment or param value (`/ ? & = %`) are percent-en
   and switching back into a resident tab with a deeper path, `settings/privacy` after an
   earlier `settings/general`, first pops that tab's stack to its root).
 
-**Params** ride the query string: `route_param("hint")` / `route_params()` inside a destination
+**Params** ride the query string: [`route_param("hint")`](https://daybrite.dev/api/day_pieces/fn.route_param.html) / [`route_params()`](https://daybrite.dev/api/day_pieces/fn.route_params.html) inside a destination
 builder return the values of the navigation being applied. They describe the navigation in
 flight; a push you perform by writing the path signal directly carries its data in your own
 state instead.
 
-- `nav_back()`: pops the innermost visible surface, falling through when it is already at its
+- [`nav_back()`](https://daybrite.dev/api/day_pieces/fn.nav_back.html): pops the innermost visible surface, falling through when it is already at its
   root. Inactive resident tabs are skipped. A presented cover and its inner navigation take
   precedence over the covered window: Back pops its inner stack first, then dismisses the cover.
   On a
@@ -742,30 +742,30 @@ state instead.
   the list in a collapsed stack or shown beside it in a split: the call closes it
   (`detail_visible` := false), the same place the native back lands, and only a second call
   leaves the section.
-- `current_route()`: the **full** path, every mounted surface's contribution from outermost to
-  innermost (`"mail/inbox/msg-42"`). It round-trips through `navigate`, so persisting the *whole*
-  route by hand is two lines: save `current_route()` on the way out ([day-part-prefs](/docs/reference/prefs) works),
-  `navigate(&saved)` after the first mount on the way back. For a single surface, `.restore`
+- [`current_route()`](https://daybrite.dev/api/day_pieces/fn.current_route.html): the **full** path, every mounted surface's contribution from outermost to
+  innermost (`"mail/inbox/msg-42"`). It round-trips through [`navigate`](https://daybrite.dev/api/day_pieces/fn.navigate.html), so persisting the *whole*
+  route by hand is two lines: save [`current_route()`](https://daybrite.dev/api/day_pieces/fn.current_route.html) on the way out ([day-part-prefs](/docs/reference/prefs) works),
+  [`navigate(&saved)`](https://daybrite.dev/api/day_pieces/fn.navigate.html) after the first mount on the way back. For a single surface, [`.restore`](https://daybrite.dev/api/day_pieces/trait.NavBuilder.html#tymethod.restore)
   (below) does the same without the plumbing. dayscript's `assert_route` compares against the same
   full path.
 - Startup deep links (`DAY_DEEPLINK`) and warm links (`RouteRequested`) route the
   same way. On hosts with no process environment the platform entry records the launch route
-  with `day_core::set_launch_deeplink` instead; web-dom seeds it from the page's URL hash
+  with [`day_core::set_launch_deeplink`](https://daybrite.dev/api/day_core/fn.set_launch_deeplink.html) instead; Web seeds it from the page's URL hash
   ([docs/web](web.md)), so `…/#controls` opens on that section. The OS side (scheme registration,
   per-platform intake, and testing) is [docs/deep-links](deep-links.md).
-- The URL stays live both ways on web-dom: day-core reports every route change to the toolkit
-  (`Toolkit::set_route`: the hash updates as you navigate, one history entry per step), and a
+- The URL stays live both ways on Web: day-core reports every route change to the toolkit
+  ([`Toolkit::set_route`](https://daybrite.dev/api/day_spec/trait.Toolkit.html#method.set_route): the hash updates as you navigate, one history entry per step), and a
   hash change the app didn't write (browser back/forward, a hand-edited URL) arrives as
   `Event::RouteRequested` and navigates. Other toolkits inherit the no-op default.
 
-Because each surface owns its own signal, a `nav(Tabs)` or a `nav_stack` nests inside a
-`nav(Sidebar)` section with no extra wiring. There is no global navigation controller
+Because each surface owns its own signal, a [`nav(Tabs)`](https://daybrite.dev/api/day_pieces/fn.nav.html) or a [`nav_stack`](https://daybrite.dev/api/day_pieces/fn.nav_stack.html) nests inside a
+[`nav(Sidebar)`](https://daybrite.dev/api/day_pieces/fn.nav.html) section with no extra wiring. There is no global navigation controller
 to arbitrate, only this string adapter for addressing.
 
-**Sibling one-of-N surfaces need `.local()`.** Every routed surface contributes to the full
-route, so *two* `nav`/tabs at the **same level** (a filter tab strip beside a main tab bar)
-both feed `current_route()`: you get `section/mainKey/filterKey`, and `navigate("filterKey")` is
-ambiguous. Mark all but the primary one `.local()`; it then drives its own signal without touching
+**Sibling one-of-N surfaces need [`.local()`](https://daybrite.dev/api/day_pieces/trait.NavBuilder.html#tymethod.local).** Every routed surface contributes to the full
+route, so *two* [`nav`](https://daybrite.dev/api/day_pieces/fn.nav.html)/tabs at the **same level** (a filter tab strip beside a main tab bar)
+both feed [`current_route()`](https://daybrite.dev/api/day_pieces/fn.current_route.html): you get `section/mainKey/filterKey`, and [`navigate("filterKey")`](https://daybrite.dev/api/day_pieces/fn.navigate.html) is
+ambiguous. Mark all but the primary one [`.local()`](https://daybrite.dev/api/day_pieces/trait.NavBuilder.html#tymethod.local); it then drives its own signal without touching
 the route. A nav host nested one level *deeper* (a `Tabs` inside a `Sidebar` section) is the
 opposite case and should stay routed; that cascade is what nesting is for. In debug builds,
 two routed one-of-N surfaces at the same level log a warning naming this fix.
@@ -775,16 +775,16 @@ which equals nesting depth for a single active chain. Two *sibling* surfaces mou
 (two independent stacks visible in one window) are ordered by mount time, not focus. Prefer
 absolute routes (or drive the signals directly) in such layouts.
 
-`day lint` cross-checks literal `navigate("…")` calls and dayscript `navigate:`/`assert_route:`
-routes against the declared keys in your sources (`.item("key", …)` and `item("key", …)` call
-sites, the literals in the first argument of `nav_items(…)`, as in
-`nav_items(|| vec![String::from("settings")], …)`, and `routes! { … => "key" }` blocks): a route whose first segment nothing declares is reported
+`day lint` cross-checks literal [`navigate("…")`](https://daybrite.dev/api/day_pieces/fn.navigate.html) calls and dayscript `navigate:`/`assert_route:`
+routes against the declared keys in your sources ([`.item("key", …)`](https://daybrite.dev/api/day_pieces/trait.NavBuilder.html#tymethod.item) and [`item("key", …)`](https://daybrite.dev/api/day_pieces/fn.item.html) call
+sites, the literals in the first argument of [`nav_items(…)`](https://daybrite.dev/api/day_pieces/fn.nav_items.html), as in
+[`nav_items(|| vec![String::from("settings")], …)`](https://daybrite.dev/api/day_pieces/fn.nav_items.html), and `routes! { … => "key" }` blocks): a route whose first segment nothing declares is reported
 (`day::lint::unknown-route`) rather than failing silently at runtime.
 
-## Restoring state across launches (`.restore`)
+## Restoring state across launches ([`.restore`](https://daybrite.dev/api/day_pieces/trait.NavBuilder.html#tymethod.restore))
 
-When you want a surface to reopen where the user left it, mark it with `.restore(key)`
-instead of wiring `current_route()` by hand:
+When you want a surface to reopen where the user left it, mark it with [`.restore(key)`](https://daybrite.dev/api/day_pieces/trait.NavBuilder.html#tymethod.restore)
+instead of wiring [`current_route()`](https://daybrite.dev/api/day_pieces/fn.current_route.html) by hand:
 
 ```rust
 nav(section).restore("nav.section")   // reopens on the last-viewed section
@@ -792,21 +792,21 @@ nav_stack(path, home).restore("mail.path")     // rebuilds the pushed path
 ```
 
 The selected key (or the stack's `/`-joined path) is saved under `key` on every change and read
-back at build. A pending launch deep link **wins**: a `DAY_DEEPLINK` (or a `set_launch_deeplink`
-hint) routes one turn after mount, so `.restore` steps aside and the link decides where the app
+back at build. A pending launch deep link **wins**: a `DAY_DEEPLINK` (or a [`set_launch_deeplink`](https://daybrite.dev/api/day_core/fn.set_launch_deeplink.html)
+hint) routes one turn after mount, so [`.restore`](https://daybrite.dev/api/day_pieces/trait.NavBuilder.html#tymethod.restore) steps aside and the link decides where the app
 opens. A saved value that no longer fits (a nav host key whose item is gone, a stack segment that
 no longer parses) is ignored rather than restoring a broken state.
 
-`.restore` reads and writes through the app's preferences: `day::launch` installs
-`day::prefs::install_nav_store()` before the UI mounts unless the app installed a store of its
-own with `day_core::set_nav_store` first (or turned off the `day` crate's `prefs` feature).
+[`.restore`](https://daybrite.dev/api/day_pieces/trait.NavBuilder.html#tymethod.restore) reads and writes through the app's preferences: [`day::launch`](https://daybrite.dev/api/day/fn.launch.html) installs
+[`day::prefs::install_nav_store()`](https://daybrite.dev/api/day/prefs/fn.install_nav_store.html) before the UI mounts unless the app installed a store of its
+own with [`day_core::set_nav_store`](https://daybrite.dev/api/day_core/fn.set_nav_store.html) first (or turned off the `day` crate's `prefs` feature).
 
 The prefs store is disk-backed, so restore also survives an **Android process death**: the OS
 reclaims a backgrounded app and rebuilds it on return, and the value is still on disk. With no
-store installed, `.restore` is a silent no-op, so the same code compiles and runs on a target
+store installed, [`.restore`](https://daybrite.dev/api/day_pieces/trait.NavBuilder.html#tymethod.restore) is a silent no-op, so the same code compiles and runs on a target
 where you don't want persistence: the Showcase installs the store on web only, where a reload is
-routine, and starts fresh on native. To back `.restore` with your own storage, implement
-`day_core::NavStore` and hand it to `day_core::set_nav_store`.
+routine, and starts fresh on native. To back [`.restore`](https://daybrite.dev/api/day_pieces/trait.NavBuilder.html#tymethod.restore) with your own storage, implement
+`day_core::NavStore` and hand it to [`day_core::set_nav_store`](https://daybrite.dev/api/day_core/fn.set_nav_store.html).
 
 ## Typed routes
 
@@ -821,10 +821,10 @@ pub trait Route: Clone + PartialEq + 'static {
 }
 ```
 
-`title()` is the label a [stack](#nav_stack-pushpop-with-a-value-path) shows in the native navigation bar
+[`title()`](https://daybrite.dev/api/day_pieces/trait.NavBuilder.html#tymethod.title) is the label a [stack](#nav_stack-pushpop-with-a-value-path) shows in the native navigation bar
 for a pushed page. It defaults to the wire `key`, so override it to display a name when the key
 is not presentable (e.g. a route that carries only an id can look the name up from your data).
-The stack tracks `title()` separately from route equality. A route can read reactive metadata
+The stack tracks [`title()`](https://daybrite.dev/api/day_pieces/trait.NavBuilder.html#tymethod.title) separately from route equality. A route can read reactive metadata
 and change its native header after a load without replacing the page. A merged stack only
 updates the header while it owns the top page.
 
@@ -842,9 +842,9 @@ nav(section)
     .item(Section::Stack, res::str::stack(), stack_page)
 ```
 
-A sidebar `nav` keys on `Option<Section>` (`None` ↔ `""`, the no-selection list state);
-tabs always have a selection, so they key on the bare enum (`Signal::new(Tab::One)`). Blanket
-impls cover both: `Option<R>` is a `Route` whenever `R` is, and `.item` takes the bare variant
+A sidebar [`nav`](https://daybrite.dev/api/day_pieces/fn.nav.html) keys on `Option<Section>` (`None` ↔ `""`, the no-selection list state);
+tabs always have a selection, so they key on the bare enum ([`Signal::new(Tab::One)`](https://daybrite.dev/api/day_reactive/struct.Signal.html#method.new)). Blanket
+impls cover both: `Option<R>` is a `Route` whenever `R` is, and [`.item`](https://daybrite.dev/api/day_pieces/trait.NavBuilder.html#tymethod.item) takes the bare variant
 either way.
 
 **Variants carry data**: this is where typed routes improve on string encoding. Implement
@@ -866,7 +866,7 @@ The destination builder receives the parsed value; encode/decode lives in exactl
 rejects is refused (the navigation stops there) instead of pushing an unparsed key; a `String`
 stack keeps its open-ended accept-anything behavior.
 
-Typed absolute paths compose with `route(…)`, and `navigate_to` is the typed relative form:
+Typed absolute paths compose with [`route(…)`](https://daybrite.dev/api/day_pieces/fn.route.html), and [`navigate_to`](https://daybrite.dev/api/day_pieces/fn.navigate_to.html) is the typed relative form:
 
 ```rust
 navigate_to(&Section::Home); // ≙ navigate("home")
@@ -880,7 +880,7 @@ nav_link_to(
 )
 ```
 
-Everything downstream is unchanged: `current_route()` still returns the encoded string (which
+Everything downstream is unchanged: [`current_route()`](https://daybrite.dev/api/day_pieces/fn.current_route.html) still returns the encoded string (which
 is what you persist), deep links and dayscript still speak segments, and the two layers meet
 only at `key`/`from_key`. Mixed trees are fine: a typed nav host over a `String` stack, or
 vice versa.
@@ -924,26 +924,26 @@ nav(section)
     })
 ```
 
-The sidebar selection drives which section shows; the selected section is itself a `nav_stack` that
+The sidebar selection drives which section shows; the selected section is itself a [`nav_stack`](https://daybrite.dev/api/day_pieces/fn.nav_stack.html) that
 drills down. Each surface owns its signal.
 
 **Nested stacks share one native container on mobile.** When the enclosing host presents as a
 push stack (a phone, or any window too narrow for two panes; see
-[size classes](size-classes.md)), a `nav_stack` built inside one of its pages does **not** mint a second native
+[size classes](size-classes.md)), a [`nav_stack`](https://daybrite.dev/api/day_pieces/fn.nav_stack.html) built inside one of its pages does **not** mint a second native
 navigation controller; it pushes its own pages onto the enclosing host, so the whole chain
-(list → section → drill-down) is one native stack with a single back button. The inner `nav_stack`
-keeps its own path signal and route registration (so `current_route()`, deep links, and
-`nav_back()` fall-through are unchanged); only the native container is shared. Where the
-enclosing host presents as split panes a nested `nav_stack` is *not* merged; it renders in the
+(list → section → drill-down) is one native stack with a single back button. The inner [`nav_stack`](https://daybrite.dev/api/day_pieces/fn.nav_stack.html)
+keeps its own path signal and route registration (so [`current_route()`](https://daybrite.dev/api/day_pieces/fn.current_route.html), deep links, and
+[`nav_back()`](https://daybrite.dev/api/day_pieces/fn.nav_back.html) fall-through are unchanged); only the native container is shared. Where the
+enclosing host presents as split panes a nested [`nav_stack`](https://daybrite.dev/api/day_pieces/fn.nav_stack.html) is *not* merged; it renders in the
 detail pane with its own back-header, which matches the desktop idiom. A resident container
-(`nav(Tabs)`) is a merge barrier: a `nav_stack` inside a tab keeps its own host.
+([`nav(Tabs)`](https://daybrite.dev/api/day_pieces/fn.nav.html)) is a merge barrier: a [`nav_stack`](https://daybrite.dev/api/day_pieces/fn.nav_stack.html) inside a tab keeps its own host.
 
 ## Split or stacked
 
-A `nav(Sidebar)` shows its list beside the selected page in a wide window and pushes the
+A [`nav(Sidebar)`](https://daybrite.dev/api/day_pieces/fn.nav.html) shows its list beside the selected page in a wide window and pushes the
 page over the list in a narrow one. That follows the window, not the platform: it is resolved
 from the window's size class and re-resolved whenever the window crosses a breakpoint, so one
-`nav` is right on a desktop, a tablet, and a phone. `.presentation(…)` pins it where the
+[`nav`](https://daybrite.dev/api/day_pieces/fn.nav.html) is right on a desktop, a tablet, and a phone. [`.presentation(…)`](https://daybrite.dev/api/day_pieces/trait.NavBuilder.html#tymethod.presentation) pins it where the
 content only works one way. [docs/size-classes](size-classes.md) is normative; it covers the
 breakpoints, what survives a re-presentation, and which toolkits morph today.
 
@@ -965,7 +965,7 @@ breakpoints, what survives a re-presentation, and which toolkits morph today.
 > `Automatic` nav host declares the pane freely; a phone gets all three layers either way
 > (the sections, the list, and the detail).
 
-`.content_list(ContentList::new(build))` gives a nav host the Mail shape: sidebar, content
+[`.content_list`](https://daybrite.dev/api/day_pieces/trait.NavBuilder.html#tymethod.content_list)`(`[`ContentList::new`](https://daybrite.dev/api/day_pieces/struct.ContentList.html#method.new)`(build))` gives a nav host the Mail shape: sidebar, content
 list, detail (mailboxes, message list, message). The list is built once and stays resident for
 the host's life; its content follows the app's own signals (the sidebar selection scoping it,
 the row chosen from it), so switching sections re-scopes it without a rebuild. The pane's
@@ -1001,7 +1001,7 @@ nav(section).style(NavStyle::Sidebar)
   split's view fills, so the rebuild never touches the tree. `Unsupported` (everything else): the nav host
   composes the list beside each list-backed destination while split, and as the root layer of
   the gated push flow while compact.
-- **`ContentList::detail_visible` is the compact flow's gate**, two-way like every binding. Wide layouts
+- **[`ContentList::detail_visible`](https://daybrite.dev/api/day_pieces/struct.ContentList.html#method.detail_visible) is the compact flow's gate**, two-way like every binding. Wide layouts
   never gate on it (the detail pane is always on screen, showing the app's empty state until a
   row is chosen), but a back still treats it as the open layer: while it is `true` beside the
   list, the back closes the detail (writes `false`) and only the next back leaves the section,
@@ -1017,30 +1017,30 @@ nav(section).style(NavStyle::Sidebar)
   and a native back, and the nav host's bar actions ride that bar (a tabs chrome otherwise
   draws none). Without `detail_visible` a stacked host behaves classically (the detail pushes
   on selection).
-- **`ContentList::detail_for(selection)`** is `detail_visible` for a list whose selection is the
+- **[`ContentList::detail_for(selection)`](https://daybrite.dev/api/day_pieces/struct.ContentList.html#method.detail_for)** is `detail_visible` for a list whose selection is the
   detail's subject: it takes a `Binding<Option<T>>` and reads `true` while it holds a value.
   Writing `Some` opens the detail; the back's `false` writes `None`, which clears the selection
-  too, so one signal serves the list (`List::selection`, [docs/list](list.md)), the detail
+  too, so one signal serves the list ([`List::selection`](https://daybrite.dev/api/day_pieces/struct.List.html#method.selection), [docs/list](list.md)), the detail
   and the gate. The `day new` starter uses it this way.
-- **`ContentList::detail_title`** names the detail layer's navigation bar: the pushed editor on a phone,
+- **[`ContentList::detail_title`](https://daybrite.dev/api/day_pieces/struct.ContentList.html#method.detail_title)** names the detail layer's navigation bar: the pushed editor on a phone,
   the detail page's bar wherever the toolkit titles one. Reactive like every title: a closure
   reading your own state retitles the live bar (`NavPatch::Title`) as that state changes, so
   the bar can carry the open item's name. Unset, the detail layer keeps its destination's
   title.
-- **`ContentList::only_for`** collapses the pane per destination (`NavPatch::ListVisible`): a
+- **[`ContentList::only_for`](https://daybrite.dev/api/day_pieces/struct.ContentList.html#method.only_for)** collapses the pane per destination (`NavPatch::ListVisible`): a
   settings page takes the whole detail area, and selecting a list-backed section brings the
   pane back.
 - A host with a content list joins the split's default-selection rule at every presentation:
   the pane needs a selection to scope itself to, so a collapsed host opens on the list rather
   than on bare sidebar rows.
 - The native resident pane (`Native`, and `Emulated` while expanded) is a merge barrier like a
-  chrome page: a `nav_stack` inside it keeps its own container, with the desktop back header above
+  chrome page: a [`nav_stack`](https://daybrite.dev/api/day_pieces/fn.nav_stack.html) inside it keeps its own container, with the desktop back header above
   its pages. The composed compact flow is the opposite: there the list is the root page of a
-  push stack (the tab's own navigation controller, or the enclosing host's), so a `nav_stack` inside
+  push stack (the tab's own navigation controller, or the enclosing host's), so a [`nav_stack`](https://daybrite.dev/api/day_pieces/fn.nav_stack.html) inside
   it merges, and a drill-down from the list (a category, then its stations) is real pushes with
   the native back, with the gated detail pushed on top of whatever the stack pushed.
 
-Keyboard: pair the list's content with `.focusable()` + `.focused(sig)` + `.on_key(…)`
+Keyboard: pair the list's content with [`.focusable()`](https://daybrite.dev/api/day_pieces/struct.DocumentTabs.html#method.focusable) + [`.focused(sig)`](https://daybrite.dev/api/day_pieces/struct.DocumentTabs.html#method.focused) + [`.on_key(…)`](https://daybrite.dev/api/day_pieces/struct.DocumentTabs.html#method.on_key)
 ([docs/focus](focus.md)) so the arrows walk the selection, and a `scroll_target` signal
 (`ScrollTarget::Id`) to keep the selected row in view.
 
@@ -1052,7 +1052,7 @@ Platform guidance: [Apple: navigation and search](https://developer.apple.com/de
   window is an [`AdwApplicationWindow`](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/class.ApplicationWindow.html) whose content is an [`AdwToolbarView`](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/class.ToolbarView.html) (an [`AdwHeaderBar`](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/class.HeaderBar.html)
   supplies the title, window controls, and drag; Day's content sits below it). Navigation:
   `Sidebar` → two nested [`GtkPaned`](https://docs.gtk.org/gtk4/class.Paned.html)s — sidebar | (list | detail) — with a user-draggable
-  divider on each side, the AppKit [`NSSplitView`](https://developer.apple.com/documentation/appkit/nssplitview) shape; `nav_stack` → [`AdwNavigationView`](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/class.NavigationView.html)
+  divider on each side, the AppKit [`NSSplitView`](https://developer.apple.com/documentation/appkit/nssplitview) shape; [`nav_stack`](https://daybrite.dev/api/day_pieces/fn.nav_stack.html) → [`AdwNavigationView`](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/class.NavigationView.html)
   (push/pop + back gesture; its `popped` signal writes native back into the path). A split
   pane's page (a [`GtkFixed`](https://docs.gtk.org/gtk4/class.Fixed.html)) sits in a filling `DayCell` — day-gtk's custom container, which
   asks GTK for no size and hands its child the whole allocation — so a page's Day-laid frame
@@ -1069,7 +1069,7 @@ Platform guidance: [Apple: navigation and search](https://developer.apple.com/de
   there is room again (24pt of slack keeps a resize on the threshold from flapping); the
   toolbar's sidebar toggle hides it independently, and a toggled-off sidebar stays off. The
   inner paned exists on every host, list or not — with no list page, or one collapsed by
-  `ContentList::only_for`, GTK gives the detail the whole inner allocation and draws no handle — so
+  [`ContentList::only_for`](https://daybrite.dev/api/day_pieces/struct.ContentList.html#method.only_for), GTK gives the detail the whole inner allocation and draws no handle — so
   the widget shape never changes under live pages. A stack page's [`GtkFixed`](https://docs.gtk.org/gtk4/class.Fixed.html) is wrapped in an
   [`AdwNavigationPage`](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/class.NavigationPage.html). Tabs use an [`AdwViewStack`](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/class.ViewStack.html) with a `.linked` toggle switcher; dialogs use
   [`AdwAlertDialog`](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/class.AlertDialog.html) ([docs/dialogs](dialogs.md)).
@@ -1094,7 +1094,7 @@ Platform guidance: [Apple: navigation and search](https://developer.apple.com/de
 > capture rather than an offscreen one.
 
 - **macOS [`NSSplitView`](https://developer.apple.com/documentation/appkit/nssplitview) / Qt [`QSplitter`](https://doc.qt.io/qt-6/qsplitter.html)** honor the resolved presentation: `Split` shows both panes; a
-  `nav_stack` collapses the empty sidebar and stacks every page (top visible) in the detail pane,
+  [`nav_stack`](https://daybrite.dev/api/day_pieces/fn.nav_stack.html) collapses the empty sidebar and stacks every page (top visible) in the detail pane,
   with a **back header** (chevron + centered title, hidden at the root) above the pages;
   desktop has no system back affordance, so a pushed page carries its own way out. The button
   emits the same `NavBack` event mobile back does, writing the pop into the path signal.
@@ -1131,20 +1131,20 @@ Platform guidance: [Apple: navigation and search](https://developer.apple.com/de
   predictive-back animation behind Developer options → "Predictive back animations"
   (`adb shell settings put global enable_back_animation 1`), and gesture navigation must be
   active; Android 15+ enables it by default.
-- **Mobile** presents the host as a native stack for both `Sidebar` (collapsed) and `nav_stack`. A
-  `nav_stack` nested inside such a host's page merges into it (one [`UINavigationController`](https://developer.apple.com/documentation/uikit/uinavigationcontroller) /
+- **Mobile** presents the host as a native stack for both `Sidebar` (collapsed) and [`nav_stack`](https://daybrite.dev/api/day_pieces/fn.nav_stack.html). A
+  [`nav_stack`](https://daybrite.dev/api/day_pieces/fn.nav_stack.html) nested inside such a host's page merges into it (one [`UINavigationController`](https://developer.apple.com/documentation/uikit/uinavigationcontroller) /
   `DayNavHost`, one back button) rather than nesting a second controller; see Composition. No
   toolkit change is involved: the shared host receives NAV_PAGE pushes/pops from both the outer
   surface and the inner stack identically to a single-surface stack.
 
 ## Progress over sidebar icons
 
-`nav(selection).icon_progress(move || active.get())` accepts a reactive closure returning
+[`nav`](https://daybrite.dev/api/day_pieces/fn.nav.html)`(selection)`[`.icon_progress`](https://daybrite.dev/api/day_pieces/trait.NavBuilder.html#tymethod.icon_progress)`(move || active`[`.get`](https://daybrite.dev/api/day_reactive/struct.Signal.html#method.get)`())` accepts a reactive closure returning
 `Vec<(K, Option<f64>)>`: active route keys with `None` for indeterminate activity or
 `Some(fraction)` for progress from zero to one. Omit a key when its work finishes. Invalid
 fractions become indeterminate and finite fractions clamp to the valid range.
 
-This binding is independent of `.items`: it emits `NavMenuPatch::IconProgress` without
+This binding is independent of [`.items`](https://daybrite.dev/api/day_pieces/trait.NavBuilder.html#tymethod.items): it emits `NavMenuPatch::IconProgress` without
 rebuilding the rows, loading their icons again, changing selection or requesting layout.
 Changes to the row set re-map route keys to current indexes, so filtering and reordering
 cannot move progress onto another item. A row revision also reapplies unchanged progress
@@ -1159,7 +1159,7 @@ geometry stay unchanged. Other toolkits currently ignore this optional decoratio
 
 ## Reordering sidebar destinations
 
-Use `.reorder_items(|key| is_movable(key), |moved, target| persist_move(moved, target))` to
+Use [`.reorder_items(|key| is_movable(key), |moved, target| persist_move(moved, target))`](https://daybrite.dev/api/day_pieces/trait.NavBuilder.html#tymethod.reorder_items) to
 make contiguous runs of destinations draggable. Static headers and ineligible rows form
 boundaries that no drop can cross. `target` names the row whose position the moved row takes,
 in the pre-removal order. Keep the eligibility callback pure and persist changes in the commit
@@ -1173,26 +1173,26 @@ remain fixed. Without the option, the existing native sidebar widget is unchange
 
 ## Collapsible sidebar sections
 
-Give each group a stable, unlocalized identity with `.section_id("owner:daybrite", title,
-content)` on a `Nav`, or `.section_id(id, title)` on a dynamic `NavItem`. Collapsible headings
-are one `Sections` value: `.sections(Sections::collapsible(collapsed))` takes the set of closed
+Give each group a stable, unlocalized identity with [`.section_id("owner:daybrite", title,
+content)`](https://daybrite.dev/api/day_pieces/trait.NavBuilder.html#tymethod.section_id) on a `Nav`, or [`.section_id(id, title)`](https://daybrite.dev/api/day_pieces/trait.NavBuilder.html#tymethod.section_id) on a dynamic `NavItem`. Collapsible headings
+are one `Sections` value: [`.sections`](https://daybrite.dev/api/day_pieces/trait.NavBuilder.html#tymethod.sections)`(`[`Sections::collapsible`](https://daybrite.dev/api/day_pieces/struct.Sections.html#method.collapsible)`(collapsed))` takes the set of closed
 groups as a `Signal<HashSet<String>>` or any other binding; absent IDs default to expanded.
 Retain IDs for temporarily filtered-out groups. Heading identity is independent of the title
-and first child; unkeyed `.section(title)` falls back to the first route and should not be used
+and first child; unkeyed [`.section(title)`](https://daybrite.dev/api/day_pieces/trait.NavBuilder.html#tymethod.section) falls back to the first route and should not be used
 for persistent dynamic groups. A collapsed group never removes its destinations from route
 resolution or changes the selected detail page.
 
-`Sections::collapsible(set).on_change(|id, expanded| ...)` runs after a user/script disclosure
+[`Sections::collapsible`](https://daybrite.dev/api/day_pieces/struct.Sections.html#method.collapsible)`(set)`[`.on_change`](https://daybrite.dev/api/day_pieces/struct.Sections.html#method.on_change)`(|id, expanded| ...)` runs after a user/script disclosure
 changes state, with no callback echo when the app restores or writes the signal. Apps can
 persist the signal in their preference store, scoped to an account where appropriate.
-`Sections::restored(key)` provides the same behavior through the installed `NavStore`, encoding
+[`Sections::restored(key)`](https://daybrite.dev/api/day_pieces/struct.Sections.html#method.restored) provides the same behavior through the installed `NavStore`, encoding
 sorted IDs as length-prefixed records; it tolerates malformed saved data and uses a scope-owned
-binding. `.on_change` chains onto either form.
+binding. [`.on_change`](https://daybrite.dev/api/day_pieces/struct.Sections.html#method.on_change) chains onto either form.
 Day-Hub saves groups per GitHub account; Day-Showcase saves stable group IDs in preferences.
 
 The sidebar uses a two-level tree. AppKit retains genuine floating source-list group headers
 and system disclosure controls; UIKit, GTK, Qt, WinUI and Android use their native tree/group
 controls. DOM and ArkUI use composed disclosure. Tabs and rails do not gain disclosure.
-When both options are supplied, collapsible sections take precedence over `reorder_items`;
+When both options are supplied, collapsible sections take precedence over [`reorder_items`](https://daybrite.dev/api/day_pieces/trait.NavBuilder.html#tymethod.reorder_items);
 reordering and collapsing in the same sidebar is not currently supported. Apps such as
 Day-News retain reordering until that combination is implemented.

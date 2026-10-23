@@ -41,9 +41,9 @@ can keep them beside its code. Within a crate, you can split the catalog by sour
 
 | Catalog | Build function | Include macro | Generated accessor |
 | --- | --- | --- | --- |
-| App resources | `day_build::prebuild_project()` | `day::resources!()` | `res::str::greeting(name)` |
-| Private crate catalog | `day_build::generate_locales()` | `day_fluent::locales!()` | `blockblast::res::str::game_title()` |
-| Private file catalog, such as `board.ftl` | `day_build::generate_locales()` | `day_fluent::locales!()` | `blockblast::res::board::str::moves(count)` |
+| App resources | [`day_build::prebuild_project()`](https://daybrite.dev/api/day_build/fn.prebuild_project.html) | `day::resources!()` | `res::str::greeting(name)` |
+| Private crate catalog | [`day_build::generate_locales()`](https://daybrite.dev/api/day_build/fn.generate_locales.html) | `day_fluent::locales!()` | `blockblast::res::str::game_title()` |
+| Private file catalog, such as `board.ftl` | [`day_build::generate_locales()`](https://daybrite.dev/api/day_build/fn.generate_locales.html) | `day_fluent::locales!()` | `blockblast::res::board::str::moves(count)` |
 
 The app resource generator keeps its existing behavior: files within a locale share the app's
 namespace. Private catalogs give each crate and named file a separate namespace. Two games can
@@ -82,7 +82,7 @@ Use snake_case keys because they become Rust function names. Fluent permits `unr
 but Day's generator requires `unread_count`.
 
 Pass the catalog through the `WindowOptions` used by your app's entry points. The generated
-`res::window_options()` already carries it, with the title from the `app_title` message and the
+`res::window_options()` already carries it, with the title from the [`app_title`](https://daybrite.dev/api/day_build/fn.app_title.html) message and the
 version from Cargo.toml:
 
 ```rust
@@ -96,7 +96,7 @@ A message with two or more variables takes one generated named-field struct
 cannot be swapped.
 
 Day installs this catalog after collecting the platform's language preferences and before
-computing the window title. Use the same options for `day::launch` and `day::day_start!`.
+computing the window title. Use the same options for [`day::launch`](https://daybrite.dev/api/day/fn.launch.html) and `day::day_start!`.
 Installing the catalog before launch misses those preferences; installing it inside the root
 builder is too late for the title.
 
@@ -147,10 +147,10 @@ last_saved = Saved { DATETIME($when, dateStyle: "long", timeStyle: "short") }
 
 `DATETIME()` accepts civil date/time strings or Unix seconds rendered as UTC. The
 [formatting reference](/docs/reference/localization#formatted-values-number-and-datetime)
-lists the supported options. Day also provides `format_decimal`, locale-aware sorting, and
+lists the supported options. Day also provides [`format_decimal`](https://daybrite.dev/api/day_fluent/fn.format_decimal.html), locale-aware sorting, and
 search matching for values outside messages.
 
-Use `.format()` when an API needs a `String`. It resolves the value at the time of the call.
+Use [`.format()`](https://daybrite.dev/api/day_fluent/struct.LocalizedText.html#method.format) when an API needs a `String`. It resolves the value at the time of the call.
 Put that call inside a reactive closure if the text must follow later changes.
 
 For a choice of labels, select generated values:
@@ -171,7 +171,7 @@ play_again = Play again
 resume = Resume
 ```
 
-The dynamic `tr(key)` API remains available for keys known only at runtime. It uses the global
+The dynamic [`tr(key)`](https://daybrite.dev/api/day_fluent/fn.tr.html) API remains available for keys known only at runtime. It uses the global
 app/core lookup and cannot check a key or its arguments at compile time.
 
 ## Give a crate a private catalog
@@ -279,7 +279,7 @@ Migrate one component at a time so the remaining app strings keep working:
 
 1. Move the component's messages into its `resource/locales/` directory for every language.
    Keep app identity, permission reasons, and platform shortcut labels at the app root.
-2. Add `generate_locales()` to its build script and `day_fluent::locales!()` to its crate root.
+2. Add [`generate_locales()`](https://daybrite.dev/api/day_build/fn.generate_locales.html) to its build script and `day_fluent::locales!()` to its crate root.
 3. Replace string-key calls with generated accessors, including calls from the parent app.
    Select accessor functions or localized values when a label depends on state.
 4. Update DayScript text assertions to use qualified keys. Element IDs and routes stay the same.
@@ -349,7 +349,7 @@ fails when findings remain.
 | Catalog generation | Parameter differences across translations; private catalog syntax errors, duplicate entries, and imported-key collisions |
 | `day lint` | Missing messages in existing locale directories, invalid formatting calls, and locale differences between app metadata surfaces |
 | Global app key lint | Unknown literal keys and apparently unused keys in the app catalog |
-| Private catalog lint | Catalog validity and per-file translation coverage in workspace crates using `generate_locales()` |
+| Private catalog lint | Catalog validity and per-file translation coverage in workspace crates using [`generate_locales()`](https://daybrite.dev/api/day_build/fn.generate_locales.html) |
 
 Private catalog lint does not report unused public accessors. Another crate may use them.
 It also does not require every dependency to support every app language. If your app promises
@@ -384,7 +384,7 @@ let selected = day::locale().get();
 ```
 
 Generated text bindings in the app and its dependencies update together. The app catalog
-still declares the languages available at launch through `WindowOptions::locales`.
+still declares the languages available at launch through [`WindowOptions::locales`](https://daybrite.dev/api/day_spec/struct.WindowOptions.html#method.locales).
 Day checks an explicit launch override, or the host's ordered language preferences, then
 uses the configured default. A regional preference such as `fr-CA` can use a `fr` catalog.
 When the user changes the system language (or, on Android 13 and later, the app's own
@@ -447,7 +447,7 @@ captures, and gallery metadata.
 
 ## Check message lifetime and build failures
 
-Use generated message values directly where a piece accepts `IntoText`; call `.format()` only
+Use generated message values directly where a piece accepts `IntoText`; call [`.format()`](https://daybrite.dev/api/day_fluent/struct.LocalizedText.html#method.format) only
 where an API needs a `String`. Formatting creates a snapshot. To follow locale changes, keep
 message inputs in state and format inside a tracked UI closure. A callback with a `Send` bound
 should send data through a `Setter`; do not format UI messages on its worker thread.
@@ -456,7 +456,7 @@ The Rust blocks on this page are setup excerpts and integration fragments. For a
 compiled catalog and app, use [the first-app lesson](/docs/tutorials/first-app); the
 [technical recipes](/docs/reference/examples/catalog#technical-recipes) also compile their exact
 catalog blocks. Undefined generated names are compiler errors, while invalid catalog/schema
-input can fail `prebuild_project`, whose return is `Result<(), String>`. Keep the error handling
+input can fail [`prebuild_project`](https://daybrite.dev/api/day_build/fn.prebuild_project.html), whose return is `Result<(), String>`. Keep the error handling
 in `build.rs` so generation failure stops the build.
 
 Source: [generation entry points](https://github.com/daybrite/day/blob/main/crates/day-build/src/lib.rs),

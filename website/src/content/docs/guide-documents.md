@@ -1,4 +1,5 @@
 ---
+navTitle: "Documents"
 title: Opening documents
 description: "Register file types, import files, and handle Finder, file-manager and installed web app activations."
 order: 34
@@ -55,19 +56,19 @@ Requests received before the root mounts are queued. Registration ends when its 
 is disposed.
 
 Use the same import function for the native file picker. A reusable command can expose it in
-the desktop File menu with `Shortcut::primary("o")`, and in a mobile toolbar. See
+the desktop File menu with [`Shortcut::primary("o")`](https://daybrite.dev/api/day_spec/struct.Shortcut.html#method.primary), and in a mobile toolbar. See
 [Reusable commands](/docs/how-to/guide-commands/).
 
 The app decides what an open request does. A reader can import into its private library,
-deduplicate by content hash, and call `day::open_window` with a stable book key on desktop.
+deduplicate by content hash, and call [`day::open_window`](https://daybrite.dev/api/day/fn.open_window.html) with a stable book key on desktop.
 On mobile, it can navigate to the reader in the current window. File registration does not
 create windows or overwrite documents automatically.
 
 ## Compile a bounded file reader
 
 `FileUrl` belongs to the facade prelude. This function returns bytes to an app-owned importer;
-it does not infer a file format or display raw error text. Use it from an `on_open_files`
-callback through `day::task`. The other Rust block above is an integration fragment.
+it does not infer a file format or display raw error text. Use it from an [`on_open_files`](https://daybrite.dev/api/day/fn.on_open_files.html)
+callback through [`day::task`](https://daybrite.dev/api/day/fn.task.html). The other Rust block above is an integration fragment.
 
 Complete module for `src/documents.rs` in the [technical recipe harness](/docs/reference/examples/catalog#technical-recipes).
 The harness compiles this exact block; it is not a standalone app. Add the catalog entries below

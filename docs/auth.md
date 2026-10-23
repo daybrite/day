@@ -1,4 +1,5 @@
 ---
+navTitle: "Authentication"
 title: "Sign-in and passkeys"
 description: "Connect a Day app to an account provider, receive native credentials, and request passkeys, with token ownership and platform requirements."
 ---
@@ -110,7 +111,7 @@ reports missing or different state as `AuthError::StateMismatch` and provider re
 `AuthError::Provider`.
 
 API excerpt; not a complete app. This helper retains the issuing client with its tokens. Call it
-from a UI action under [`day::task`](/docs/explanation/async); the app supplies the configured
+from a UI action under [`day::task`](https://daybrite.dev/api/day/fn.task.html); the app supplies the configured
 client and decides where to retain the returned session.
 
 ```rust
@@ -339,7 +340,7 @@ returned credential in that demo is not evidence of an authenticated account.
 | `Platform(reason)` | Explain that the native request failed and retain a supported alternative. |
 
 Start browser and credential calls on the UI thread. Their futures are `Send`; await them under
-[`day::task`](/docs/explanation/async) to resume on the UI thread before updating signals or
+[`day::task`](https://daybrite.dev/api/day/fn.task.html) to resume on the UI thread before updating signals or
 formatting UI messages. The native APIs may start work when called, before their future is polled.
 
 Use generated Fluent accessors for app-owned labels and error messages, and symbolic IDs for
@@ -360,7 +361,7 @@ account_sign_in_failed = Sign-in could not be completed. Try again.
 account_sign_in_cancelled = Sign-in cancelled.
 ```
 
-Map error variants to messages such as `res::str::account_sign_in_failed().format()` on the UI
+Map error variants to messages such as [`res::str::account_sign_in_failed().format()`](https://daybrite.dev/api/day_fluent/struct.LocalizedText.html#method.format) on the UI
 thread. `AuthError::to_string()` contains diagnostic English and provider details; it is not a
 localized user-message API. See [localization](/docs/reference/localization) and
 [symbolic element IDs](/docs/reference/accessibility). Keep tokens out of diagnostic reports.

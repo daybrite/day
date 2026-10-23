@@ -681,7 +681,7 @@ pub fn render_bindings(packages: &[(String, SwiftScan)]) -> String {
 }
 
 /// Render the Swift provider glue for one crate's local packages: an `@objc(DayView_Module_View)`
-/// [`DaySwiftUIProvider`] subclass per view, decoding the JSON params into the real initializer.
+/// `DaySwiftUIProvider` subclass per view, decoding the JSON params into the real initializer.
 /// The file joins the generated `DayPieces` module (where `DaySwiftUIProvider` also lives), so the
 /// only imports are SwiftUI and the scanned modules themselves.
 pub fn render_glue(packages: &[(String, SwiftScan)]) -> String {

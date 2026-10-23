@@ -1,4 +1,5 @@
 ---
+navTitle: "Search fields"
 title: "Search field"
 description: "The standalone native search field as an external piece."
 ---
@@ -45,16 +46,16 @@ search_field(query)
     .id(id!(search))
 ```
 
-`search_field(query)` takes a `Signal<String>` bound two-way: every native edit writes the text back
-to the signal, and setting the signal (e.g. a Clear button doing `query.set(String::new())`) patches the
-control. `.placeholder(impl IntoText)` sets the empty-state prompt; it accepts a constant,
+[`search_field(query)`](https://daybrite.dev/api/day_piece_searchfield/fn.search_field.html) takes a `Signal<String>` bound two-way: every native edit writes the text back
+to the signal, and setting the signal (e.g. a Clear button doing [`query.set(String::new())`](https://daybrite.dev/api/day_reactive/struct.Signal.html#method.set)) patches the
+control. [`.placeholder(impl IntoText)`](https://daybrite.dev/api/day_piece_searchfield/trait.SearchFieldBuilder.html#tymethod.placeholder) sets the empty-state prompt; it accepts a constant,
 `Signal<String>`, or closure, read once for the initial value (the placeholder is fixed at build).
-`SearchField` implements `Piece`, so `.id()`/`.a11y()`/`.frame()` chain via `Decorate`. Like day-core's
-`text_field` it is a **width-growing leaf** (`grow_w = true`, natural single-line height): a search
-field fills its row, so constrain it with `.frame(w, h)` if you need a fixed width.
+`SearchField` implements `Piece`, so [`.id()`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.id)/[`.a11y()`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.a11y)/[`.frame()`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.frame) chain via `Decorate`. Like day-core's
+[`text_field`](https://daybrite.dev/api/day_pieces/fn.text_field.html) it is a **width-growing leaf** (`grow_w = true`, natural single-line height): a search
+field fills its row, so constrain it with [`.frame(w, h)`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.frame) if you need a fixed width.
 
 The signal is a controlled input: a per-build **echo guard** remembers the last value that
-arrived from the native control so `bind_seeded` does not patch that same value straight back (which
+arrived from the native control so [`bind_seeded`](https://daybrite.dev/api/day_reactive/fn.bind_seeded.html) does not patch that same value straight back (which
 some toolkits would re-emit as a change, causing a feedback loop). The programmatic-sync side is additionally
 guarded per toolkit (see the table).
 

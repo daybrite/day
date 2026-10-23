@@ -1,4 +1,5 @@
 ---
+navTitle: "Sandbox"
 title: "macOS App Sandbox"
 description: "Configure signed sandboxed AppKit builds, file access, and persistent security-scoped bookmarks."
 ---
@@ -78,8 +79,8 @@ Native file drops can also carry a system access grant. Do not assume a custom s
 payload containing a path grants access to that path.
 
 A saved path is not a durable permission. To reopen a selected file after relaunch, store the
-opaque bytes from `FileUrl::bookmark(read_only)` in app-private preferences or a database.
-Resolve them with `FileUrl::resolve_bookmark`:
+opaque bytes from [`FileUrl::bookmark(read_only)`](https://daybrite.dev/api/day_pieces/struct.FileUrl.html#method.bookmark) in app-private preferences or a database.
+Resolve them with [`FileUrl::resolve_bookmark`](https://daybrite.dev/api/day_pieces/struct.FileUrl.html#method.resolve_bookmark):
 
 ```rust
 // While the user-selected file is accessible:

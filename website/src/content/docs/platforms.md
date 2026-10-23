@@ -1,4 +1,5 @@
 ---
+navTitle: "Platforms"
 title: Platform support
 description: "Compare platform support, CI coverage, packaging options, and known limitations."
 order: 33
@@ -142,7 +143,7 @@ checks; neither API presence nor an emulated capability proves desktop-equivalen
 Framework-level features that don't vary by platform but aren't done, kept here so there's one
 list:
 
-- **Animation**: partial. `with_animation(spec, || …)` ships, and five of the eight toolkits execute
+- **Animation**: partial. [`with_animation(spec, || …)`](https://daybrite.dev/api/day_core/fn.with_animation.html) ships, and five of the eight toolkits execute
   opacity, transform, and frame changes natively: AppKit, UIKit, Android, web, and ArkUI (where
   frames move instantly). On GTK, Qt, and XAML the changes apply at commit with no animation
   (`Cap::Animation` reports unsupported), because Day never ticks its own frames for native
@@ -154,9 +155,9 @@ list:
   `Cap::MultiWindow` to adapt chrome.
 - **Semantic color tokens**: custom colors have no automatic dark-mode variant
   ([styling](/docs/explanation/styling#color-backgrounds-shape)).
-- **Keyboard input:** `Decorate::on_key` exists and has a focused-event conformance case. Menu
+- **Keyboard input:** [`Decorate::on_key`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.on_key) exists and has a focused-event conformance case. Menu
   accelerators remain a separate surface; delivery depends on focus and the toolkit.
-- **Gestures:** `Decorate::on_pinch` exists with a conformance case. Do not infer every gesture
+- **Gestures:** [`Decorate::on_pinch`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.on_pinch) exists with a conformance case. Do not infer every gesture
   or target from it; inspect the decorator and toolkit implementation for the needed gesture.
 - **Forms**: no validation framework; roll your own with [signals](/docs/reference/glossary#signal) and memos.
 - **Hot reload**: not present; see [the tradeoffs page](/features#allow-for-the-development-workflow).

@@ -59,24 +59,24 @@ downloads.cancel(id)?;
 ```
 
 `Downloads` is a cheap handle: clones share one manager. Keep the `Watch` for as long as you
-want callbacks; dropping it stops them. `Downloads::with_client(dir, client)` runs every
+want callbacks; dropping it stops them. [`Downloads::with_client(dir, client)`](https://daybrite.dev/api/day_part_downloads/struct.Downloads.html#method.with_client) runs every
 download through your own [`Client`](http.md#the-client), so its cookies, challenge handler and
 pins apply.
 
 ## A download's states
 
-`Progress::state` is one of these, and `State::label()` gives the lowercase name the showcase
+`Progress::state` is one of these, and [`State::label()`](https://daybrite.dev/api/day_part_downloads/enum.State.html#method.label) gives the lowercase name the showcase
 displays and its dayscript asserts:
 
 | State | Meaning |
 |---|---|
 | `Queued` | waiting for a free slot |
 | `Running` | transferring |
-| `Paused` | stopped by `pause`; its partial file waits for `resume` |
+| `Paused` | stopped by [`pause`](https://daybrite.dev/api/day_part_downloads/struct.Downloads.html#method.pause); its partial file waits for [`resume`](https://daybrite.dev/api/day_part_downloads/struct.Downloads.html#method.resume) |
 | `Retrying` | waiting out a backoff after a transient failure |
 | `Verifying` | checking the finished file |
 | `Done` | verified and moved to its destination |
-| `Failed` | out of retries or failed a check; `Progress::error` says why, and `resume` tries again |
+| `Failed` | out of retries or failed a check; `Progress::error` says why, and [`resume`](https://daybrite.dev/api/day_part_downloads/struct.Downloads.html#method.resume) tries again |
 | `Cancelled` | stopped for good; its partial file is deleted |
 
 `Progress` also carries `received`, `total`, `bytes_per_second` (over the last three seconds),
@@ -94,22 +94,22 @@ over. A partial file with no validator also starts over, because nothing shows t
 has the same bytes.
 
 The journal, `downloads.journal`, records every download on one line and is replaced whole on each
-change. `Downloads::open` reads it back: running and retrying downloads return to the queue and
+change. [`Downloads::open`](https://daybrite.dev/api/day_part_downloads/struct.Downloads.html#method.open) reads it back: running and retrying downloads return to the queue and
 paused ones stay paused. The bytes already on disk are hashed on a worker thread before new bytes
 arrive, so the SHA-256 still covers the whole file.
 
 ## Checks, retries and limits
 
-- **Length.** `expect_len` sets the length the finished file must have. It also lets the manager
+- **Length.** [`expect_len`](https://daybrite.dev/api/day_part_downloads/struct.Download.html#method.expect_len) sets the length the finished file must have. It also lets the manager
   compare the bytes still needed with the volume's free space (`statvfs`, or
   [`GetDiskFreeSpaceExW`](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-getdiskfreespaceexw) on Windows) before a transfer starts, failing with `NoSpace`.
-- **SHA-256.** `expect_sha256` sets the digest, hashed as bytes arrive. A mismatch fails with
+- **SHA-256.** [`expect_sha256`](https://daybrite.dev/api/day_part_downloads/struct.Download.html#method.expect_sha256) sets the digest, hashed as bytes arrive. A mismatch fails with
   `Integrity` and deletes the partial file, so the next attempt downloads everything again.
 - **Retries.** A timeout, a refused or dropped connection, a DNS failure, `408`, `429` and `5xx`
-  retry up to `retries` times (default 5). The wait starts at `retry_delay` (default one second),
+  retry up to [`retries`](https://daybrite.dev/api/day_part_downloads/struct.Download.html#method.retries) times (default 5). The wait starts at [`retry_delay`](https://daybrite.dev/api/day_part_downloads/struct.Download.html#method.retry_delay) (default one second),
   doubles on each attempt up to a minute, and varies by a fifth either way; a `Retry-After` header
   sets it instead. Other statuses fail at once with `DownloadError::Http`.
-- **Limits.** `limits(total, per_host)` caps how many downloads run at once, three and two by
+- **Limits.** [`limits(total, per_host)`](https://daybrite.dev/api/day_part_downloads/struct.Downloads.html#method.limits) caps how many downloads run at once, three and two by
   default. Downloads handed to the OS do not count against them.
 
 Backoff waits on [day-async](/docs/explanation/async)'s timer, and bytes arrive on the client's transport, so the manager
@@ -117,8 +117,8 @@ owns no thread while downloads run.
 
 ## Handing a download to the OS
 
-`Download::in_background(true)` asks the OS to run the transfer where
-`Downloads::system_tier()` is true. The manager keeps the journal, the progress it reports and
+[`Download::in_background(true)`](https://daybrite.dev/api/day_part_downloads/struct.Download.html#method.in_background) asks the OS to run the transfer where
+[`Downloads::system_tier()`](https://daybrite.dev/api/day_part_downloads/struct.Downloads.html#method.system_tier) is true. The manager keeps the journal, the progress it reports and
 the checks it makes on the finished file; the OS keeps the connection and the bytes until the
 body is whole, then the manager verifies it and moves it into place. Elsewhere the download runs
 in the app, and `Progress::tier` says which tier ran it.
@@ -126,7 +126,7 @@ in the app, and `Progress::tier` says which tier ran it.
 | Platform | Service | Pause | Notes |
 |---|---|---|---|
 | macOS, iOS | a background [`URLSession`](https://developer.apple.com/documentation/foundation/urlsession), one per process, keyed to the bundle identifier | yes, from resume data | Each task's description names the manager directory and download, so a transfer that finishes while the app is away lands in place when the app next opens the manager. A binary with no bundle identifier has no system tier. |
-| Android | [`DownloadManager`](https://developer.android.com/reference/android/app/DownloadManager) | no: `pause` returns `DownloadError::Unsupported` and the transfer keeps running | The OS shows its own notification. The file lands in the app's external files directory and moves into the manager's directory when it is whole. |
+| Android | [`DownloadManager`](https://developer.android.com/reference/android/app/DownloadManager) | no: [`pause`](https://daybrite.dev/api/day_part_downloads/struct.Downloads.html#method.pause) returns `DownloadError::Unsupported` and the transfer keeps running | The OS shows its own notification. The file lands in the app's external files directory and moves into the manager's directory when it is whole. |
 | HarmonyOS | a background task of the request agent ([`request.agent`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-basic-services-kit/js-apis-request.md)) | yes | The file lands in the app's cache directory first. |
 | Windows | the [Background Intelligent Transfer Service](https://learn.microsoft.com/en-us/windows/win32/bits/background-intelligent-transfer-service-portal) | yes | Each download is a BITS job owned by the user, so it continues after the app quits. |
 | Linux | none | | Downloads run in the app. |
@@ -144,7 +144,7 @@ manager.
 
 ## The web
 
-A page has no files for the manager to own, so `Downloads::open` returns
+A page has no files for the manager to own, so [`Downloads::open`](https://daybrite.dev/api/day_part_downloads/struct.Downloads.html#method.open) returns
 `DownloadError::Unsupported` on wasm32. The rest of the API compiles there, which keeps shared
 code building for the web.
 
@@ -171,7 +171,7 @@ code building for the web.
 | `<id>.resume` | the Apple system tier, when a paused or failed transfer left resume data |
 | `<id>.part.bits` | the Windows system tier, while BITS completes a job |
 
-Put the directory under [day-part-fs](fs.md)'s `data_dir()`, which keeps it beside the app's other
+Put the directory under [day-part-fs](fs.md)'s [`data_dir()`](https://daybrite.dev/api/day_part_fs/fn.data_dir.html), which keeps it beside the app's other
 files and out of the user's documents.
 
 ## Platform guidance

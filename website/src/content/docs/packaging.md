@@ -1,4 +1,5 @@
 ---
+navTitle: "Packaging"
 title: Packaging & distribution
 description: "Build desktop installers and mobile app packages, configure signing, and inspect distribution status."
 order: 32

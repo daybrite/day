@@ -6,7 +6,7 @@ description: "searchable(Search): a declared search surface each platform presen
 # Search
 
 Let people filter a page or find a destination with a search field in the platform’s usual
-location. Bind the query to app state with `.searchable()`; the app decides which results to show.
+location. Bind the query to app state with [`.searchable()`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.searchable); the app decides which results to show.
 
 ```rust
 nav(section)
@@ -22,7 +22,7 @@ the window toolbar on a wide window, attached to the navigation list on a narrow
 moving it never moves the state. The app filters its own rows from its own signal either way, and
 never branches on where the field went.
 
-This is the same move SwiftUI made with `.searchable()`, for the same reason.
+This is the same move SwiftUI made with [`.searchable()`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.searchable), for the same reason.
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
 [example messages](snippet-catalog.md) and [catalog setup](/docs/how-to/localization).
@@ -31,16 +31,16 @@ The UI snippets use generated `res::str` accessors from an app's Fluent catalog;
 
 | spelling | what it does |
 |---|---|
-| `.searchable(Search::new(query))` | makes the surface searchable, bound two-way to `query` (a `Signal<String>` or any binding) |
-| `Search::prompt(text)` | the empty-state prompt; a localized string or closure follows the language and its signals |
-| `Search::placement(p)` | a placement **preference** (see below) |
-| `Search::reveal(SearchReveal)` | how the field comes and goes on a phone (see below) |
-| `Search::scopes(scope, titles)` | a one-of-N scope bar, bound to `scope` |
-| `Search::suggestions(f)` | completions for the current text |
+| [`.searchable`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.searchable)`(`[`Search::new`](https://daybrite.dev/api/day_pieces/struct.Search.html#method.new)`(query))` | makes the surface searchable, bound two-way to `query` (a `Signal<String>` or any binding) |
+| [`Search::prompt(text)`](https://daybrite.dev/api/day_pieces/struct.Search.html#method.prompt) | the empty-state prompt; a localized string or closure follows the language and its signals |
+| [`Search::placement(p)`](https://daybrite.dev/api/day_pieces/struct.Search.html#method.placement) | a placement **preference** (see below) |
+| [`Search::reveal(SearchReveal)`](https://daybrite.dev/api/day_pieces/struct.Search.html#method.reveal) | how the field comes and goes on a phone (see below) |
+| [`Search::scopes(scope, titles)`](https://daybrite.dev/api/day_pieces/struct.Search.html#method.scopes) | a one-of-N scope bar, bound to `scope` |
+| [`Search::suggestions(f)`](https://daybrite.dev/api/day_pieces/struct.Search.html#method.suggestions) | completions for the current text |
 
 ## Find commands
 
-Bind an application's localized Find command to `day::focus_search()` (usually Cmd-F on
+Bind an application's localized Find command to [`day::focus_search()`](https://daybrite.dev/api/day/fn.focus_search.html) (usually Cmd-F on
 macOS and Ctrl-F elsewhere). It resolves the focused window's searchable navigation surface,
 reveals/focuses the native field, and keeps its existing query. Desktop toolbars place search
 at the trailing edge in the Detail column. On AppKit the native search field sends its
@@ -77,7 +77,7 @@ for.
 > *does* have a toolbar. Until that lands, a narrow desktop window keeps its field in the toolbar
 > ([docs/navigation](navigation.md)).
 
-On iOS, a sidebar `.header()` prevents the search bar from hiding automatically because
+On iOS, a sidebar [`.header()`](https://daybrite.dev/api/day_pieces/trait.NavBuilder.html#tymethod.header) prevents the search bar from hiding automatically because
 the header sits outside the list’s scrolling view.
 
 ### Inline, per platform
@@ -90,7 +90,7 @@ Each platform keeps its own convention.
 | android-mdc | Material [`TextInputLayout`](https://developer.android.com/reference/com/google/android/material/textfield/TextInputLayout) over the nav list | pinned by default | opt-in: scroll/enter-always app bar, returns on downward scroll |
 | harmony-arkui | ArkUI `Search` atop the nav list | visible | always there |
 
-`Search::reveal(SearchReveal::Scrolls)` opts into scrolling chrome. Desktop toolbar search
+[`Search::reveal(SearchReveal::Scrolls)`](https://daybrite.dev/api/day_pieces/struct.Search.html#method.reveal) opts into scrolling chrome. Desktop toolbar search
 is unchanged whatever the reveal policy says. UIKit explicitly associates the root page's scroll view
 with its top edge, so a header or a pinned footer does not prevent native large-title/search
 collapse. This applies to both the compact stack and the iPad sidebar.
@@ -152,14 +152,14 @@ consequences:
 
 dayscript addresses the field by that id wherever the platform put it: `toolbar: { item:
 day::search, text: "…" }`. On the bar that is the item above; inline, where no item exists, day-core
-resolves the id to the host showing the field (`inline_search_host`) and delivers
+resolves the id to the host showing the field ([`inline_search_host`](https://daybrite.dev/api/day_core/fn.inline_search_host.html)) and delivers
 `Event::SearchChanged`, the event the native field emits, so one step types the same query on a
 desktop and on a phone. (A bare `toolbar: { item: day::search }` has nothing to press inline, and
 says so.)
 
 ## Scopes are not drawn yet
 
-`Search::scopes` is in the API and lowers correctly, but **no toolkit draws a scope bar yet**,
+[`Search::scopes`](https://daybrite.dev/api/day_pieces/struct.Search.html#method.scopes) is in the API and lowers correctly, but **no toolkit draws a scope bar yet**,
 because a scope bar has nowhere to live at the Toolbar placement: it belongs *below* the field, and
 Day's toolbar model is a flat list of items with no "below the bar" slot. The field currently sits
 inside an [`NSSearchToolbarItem`](https://developer.apple.com/documentation/appkit/nssearchtoolbaritem) / an [`AdwHeaderBar`](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/class.HeaderBar.html) entry / a [`QToolBar`](https://doc.qt.io/qt-6/qtoolbar.html) widget, none of which can
@@ -185,7 +185,7 @@ Neither claims to be the platform's scope bar.
 
 ## Suggestions complete the field
 
-On a navigation surface the list **is** the result set. So `Search::suggestions` offers
+On a navigation surface the list **is** the result set. So [`Search::suggestions`](https://daybrite.dev/api/day_pieces/struct.Search.html#method.suggestions) offers
 completions that fill the field; it does not open an overlay of results, which would cover the
 list it is narrowing.
 
@@ -209,14 +209,14 @@ for an app that wants to act on the choice itself.
 
 ## What is searchable
 
-A navigation surface (`Nav::searchable`), and a `nav_stack` page (`Decorate::searchable`, below).
+A navigation surface ([`Nav::searchable`](https://daybrite.dev/api/day_pieces/struct.Nav.html#method.searchable)), and a [`nav_stack`](https://daybrite.dev/api/day_pieces/fn.nav_stack.html) page ([`Decorate::searchable`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.searchable), below).
 Search on arbitrary content is out of scope, because every toolkit would need a placement answer for
 content that is not navigation chrome.
 
 ## Page search
 
 A page that lists something the user searches, such as a catalog or a mailbox, declares the field
-on itself, as it declares its `.toolbar(…)`:
+on itself, as it declares its [`.toolbar(…)`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.toolbar):
 
 ```rust
 results_page(feed)
@@ -247,19 +247,19 @@ The desktops and the web draw one bar per window, so the field rides it while it
 of its stack; Android keeps an open field through repaints of its bar and brings it back open when
 its page returns with a query in force.
 
-`Search::available` offers the field only while it holds, for a page that learns whether it can be
+[`Search::available`](https://daybrite.dev/api/day_pieces/struct.Search.html#method.available) offers the field only while it holds, for a page that learns whether it can be
 searched after it shows (a feed that loads first). A field withdrawn and offered again keeps its
 text. Scopes, reveal and placement belong to a surface's search and do not apply to a page's.
 
 ## Submitting
 
-`Search::on_submit` runs when the user presses the field's Return or Search key, with the text as
+[`Search::on_submit`](https://daybrite.dev/api/day_pieces/struct.Search.html#method.on_submit) runs when the user presses the field's Return or Search key, with the text as
 submitted; the query already holds it. It is the trigger for a search the server runs: a filter
 reads the query as it changes, but a catalog query should not run on every keystroke. A field on
 the bar carries it as `ToolbarValue::Submit` after the last `ToolbarValue::Text`; an inline surface
 field emits `Event::SearchSubmitted` (the inline fields of ios-uikit, android-mdc and
 harmony-arkui, on the keyboard's Search key). A field sends any text the app has not heard yet
-before it submits, so the query is current when `on_submit` runs.
+before it submits, so the query is current when [`on_submit`](https://daybrite.dev/api/day_pieces/struct.Search.html#method.on_submit) runs.
 
 dayscript submits with `toolbar: { item: day::search, text: "…", submit: true }`. The step paints
 the field with the text first, as `input:` does for a text field, so a screenshot shows what the

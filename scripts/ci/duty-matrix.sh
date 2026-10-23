@@ -59,7 +59,8 @@ lines = [
     "|---|---|" + "---|" * len(backends),
 ]
 for name, required in duties:
-    row = [f"`{name}`", "yes" if required else "·"]
+    anchor = "tymethod" if required else "method"
+    row = [f"[`{name}`](https://daybrite.dev/api/day_spec/trait.Toolkit.html#{anchor}.{name})", "yes" if required else "·"]
     pat = re.compile(r"\bfn " + re.escape(name) + r"\s*(<[^>]*>)?\s*\(\s*&(mut\s+)?self")
     for bname, _ in backends:
         row.append("✓" if pat.search(sources[bname]) else "·")

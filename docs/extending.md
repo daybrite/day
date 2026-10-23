@@ -10,7 +10,7 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 # Standalone pieces (front-end and backend, no core changes)
 
-A **piece** is a reusable Day widget. Day ships built-in pieces (`button`, `slider`, `list`, …), but
+A **piece** is a reusable Day widget. Day ships built-in pieces ([`button`](https://daybrite.dev/api/day_pieces/fn.button.html), [`slider`](https://daybrite.dev/api/day_pieces/fn.slider.html), [`list`](https://daybrite.dev/api/day_pieces/fn.list.html), …), but
 anyone can publish a piece as an independent crate that adds both its cross-platform front-end
 (Rust) and its per-toolkit native backend (Objective-C via objc2, C++ shims, Android Java, …),
 with no edits to any core Day crate. [`day-piece-searchfield`](/docs/reference/searchfield) is the reference implementation.
@@ -59,7 +59,7 @@ impl Piece for Gauge {
 }
 ```
 
-`impl Piece` gives you `.id()`/`.a11y()`/`.frame()` for free (blanket `Decorate`). Props are the full
+`impl Piece` gives you [`.id()`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.id)/[`.a11y()`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.a11y)/[`.frame()`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.frame) for free (blanket `Decorate`). Props are the full
 realize payload; a sparse `Patch` enum carries changes.
 
 Those modifiers return `Decorated<YourPiece>` rather than erasing, so a chain keeps your type. To
@@ -83,7 +83,7 @@ the rest (`&self` accessors, non-`pub` helpers) are left out. A generic piece na
 parameters in the attribute (`#[day::builder(GaugeBuilder<T>)]`). A hand-written `*Builder`
 trait, or a `map_inner` forward, is not accepted in a piece crate.
 
-Skip any method whose name `Decorate` already defines (`id`, `background`, `scale`, …): the
+Skip any method whose name `Decorate` already defines ([`id`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.id), [`background`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.background), [`scale`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.scale), …): the
 inherent method on `Decorated` wins resolution, so a forwarded twin would never be called.
 
 ## 2. Per-backend renderers: the `renderer!` macro
@@ -117,7 +117,7 @@ Do the same for `day_gtk::RENDERERS`, `day_qt::RENDERERS`, `day_uikit::RENDERERS
 that toolkit crate; the app enables `my-piece/<backend>` alongside `day/<backend>`.
 
 **Reporting events back.** A renderer calls `day_<backend>::emit(node, event)`. Beyond the fixed
-`Event` variants, a piece defines its own event with `Event::custom("my:tag", text)` (in-process); its
+`Event` variants, a piece defines its own event with [`Event::custom("my:tag", text)`](https://daybrite.dev/api/day_spec/enum.Event.html#method.custom) (in-process); its
 `cx.on` reads it. Across a native boundary (JNI/C-ABI) the tag can't be a `&'static str`, so it's empty
 and the payload rides in `num`/`text`: on Android the shim calls `DayBridge.nativeOnEvent(id, 12, num,
 text)` (kind 12 = the open Custom channel). `day-piece-webview` reports its URL this way.
@@ -149,7 +149,7 @@ assets = ["web"]        # directories, relative to the crate root
 
 `day build` stages each one into the app's bundle under the **crate name**, beside the app's own
 `resource/assets/`, on every target: `web/index.html` in `day-piece-lottie` becomes
-`day-piece-lottie/index.html`, which the piece then resolves by that name with `resource(…)`,
+`day-piece-lottie/index.html`, which the piece then resolves by that name with [`resource(…)`](https://daybrite.dev/api/day_core/fn.resource.html),
 `AssetDir`, or a web view's inline site. The namespace is the crate's and is not configurable, so
 two pieces cannot collide with each other and neither can collide with a name the app chose.
 
@@ -448,7 +448,7 @@ piece arms four animation frames in the page (enough to put the commit through t
 compositor's pipeline), lets any CSS transition run out, and polls for the result.
 
 The Rust-side counterpart, for a piece that presents frames through a Day canvas on any
-toolkit, is a capture hold: `day_spec::capture::register_hold(fn() -> bool)`, answering whether
+toolkit, is a capture hold: [`day_spec::capture::register_hold(fn() -> bool)`](https://daybrite.dev/api/day_spec/capture/fn.register_hold.html), answering whether
 every frame the host owes is on screen, which `screenshot` and `sample_pixel` wait on before the
 toolkit's checkpoint ([docs/window-image](window-image.md)).
 
@@ -572,7 +572,7 @@ violating dependency fails `cargo test`.
 
 A piece is not limited to leaves: it can be a **container** whose native view hosts a Day-built
 subtree. day-core mounts children **by handle, not by kind** (the tree walks to the nearest native
-ancestor and calls `Toolkit::insert(ancestor_handle, child_handle, index)` without consulting the
+ancestor and calls [`Toolkit::insert(ancestor_handle, child_handle, index)`](https://daybrite.dev/api/day_spec/trait.Toolkit.html#tymethod.insert) without consulting the
 ancestor's kind), so a piece-realized node is a valid insertion parent on every backend. The recipe
 (established by `pieces/day-piece-pullrefresh`, the reference container piece; see [docs/pullrefresh](pullrefresh.md)):
 
@@ -594,7 +594,7 @@ cx.under(node, |cx| { let _ = child.build(cx); });               // mount the Da
   `ViewGroup`, and on XAML a `Panel`, or the generic `insert` silently drops the child.
   (Native wrappers like Android's `SwipeRefreshLayout` are ViewGroups.)
 - Events still flow through the single sink (`Event::Custom` for piece-defined ones) and commands
-  through `with_tree(|t| t.patch(node, …))`, identical to leaf pieces.
+  through [`with_tree`](https://daybrite.dev/api/day_core/fn.with_tree.html)`(|t| t`[`.patch`](https://daybrite.dev/api/day_core/trait.TreeOps.html#tymethod.patch)`(node, …))`, identical to leaf pieces.
 
 ## External toolkits: registering a platform-toolkit pair (experimental)
 
@@ -726,13 +726,13 @@ Day apps with platform services. It shows the backend-contribution mechanism acc
 capabilities: it contributes Android Java (for `BatteryManager`, now through a
 [bridge](bridge.md) arm) but registers nothing into any `RENDERERS` slice, and selects its per-OS impl by
 `#[cfg(target_os)]` rather than a toolkit feature. Any Rust code can depend on it and call
-`day_part_battery::status()`.
+[`day_part_battery::status()`](https://daybrite.dev/api/day_part_battery/fn.status.html).
 
 ## Named piece operations
 
 A piece can expose operations without making Day depend on its crate or native backend.
-Register a handler with `day_core::register_piece_operation(kind, name, handler)` and call it
-through `day_core::piece_operation(node, name, input, done)`. Names should include a namespace,
+Register a handler with [`day_core::register_piece_operation(kind, name, handler)`](https://daybrite.dev/api/day_core/fn.register_piece_operation.html) and call it
+through [`day_core::piece_operation(node, name, input, done)`](https://daybrite.dev/api/day_core/fn.piece_operation.html). Names should include a namespace,
 such as `example.document.search`; the piece defines the textual input and result formats.
 
 The registry is keyed by both piece kind and operation name. Different pieces and different

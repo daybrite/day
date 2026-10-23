@@ -1,4 +1,5 @@
 ---
+navTitle: "Text"
 title: "Text & typography"
 description: "Labels, symbolic fonts, dynamic type, selection, and the text pipeline on every toolkit."
 ---
@@ -10,7 +11,7 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 # Text & typography
 
-`label(...)` renders native text. Its font is chosen from a **semantic (logical) style** that maps to
+[`label(...)`](https://daybrite.dev/api/day_pieces/fn.label.html) renders native text. Its font is chosen from a **semantic (logical) style** that maps to
 each platform's text styles, so a Day app matches the OS's typography and inherits its accessibility
 text scaling automatically.
 
@@ -52,18 +53,18 @@ Each maps to the platform's native text style where one exists, so sizes and wei
 | **Android** | `sp` sizes (mobile scale, aligned to iOS) | Yes, `sp` tracks Settings ▸ Display ▸ Font size |
 | **GTK** | Pango point sizes | Yes, Pango sizes track GNOME's text-scaling-factor |
 | **Qt** | QFont point sizes | Honors the system DPI/font (no separate large-text toggle) |
-| **Web** (`web-dom`) | rem-based ramp: the Apple text-style ratios with `Body` = 1, scaled by day.css's `--day-text-scale`: 0.8125 on a desktop pointer, so one Apple point is one CSS pixel and `Body` is 13px like AppKit; 1 on a touch pointer, where `html` is anchored to `-apple-system-body` and every step lands on the iOS ramp | Yes; 1rem is the browser's default-font-size preference (day.css pins `html` at `font-size: 100%`), so every style tracks it, and on iOS the anchor makes it track Dynamic Type; page zoom applies on top |
+| **Web** | rem-based ramp: the Apple text-style ratios with `Body` = 1, scaled by day.css's `--day-text-scale`: 0.8125 on a desktop pointer, so one Apple point is one CSS pixel and `Body` is 13px like AppKit; 1 on a touch pointer, where `html` is anchored to `-apple-system-body` and every step lands on the iOS ramp | Yes; 1rem is the browser's default-font-size preference (day.css pins `html` at `font-size: 100%`), so every style tracks it, and on iOS the anchor makes it track Dynamic Type; page zoom applies on top |
 
 ## Weight & style
 
-- `.weight(FontWeight::Semibold)`: `UltraLight, Thin, Light, Regular, Medium, Semibold, Bold, Heavy,
-  Black` (matching [`UIFont.Weight`](https://developer.apple.com/documentation/uikit/uifont)). `.bold()` is shorthand for `.weight(FontWeight::Bold)`.
-- `.italic()`: slants the text.
+- [`.weight(FontWeight::Semibold)`](https://daybrite.dev/api/day_pieces/trait.LabelBuilder.html#tymethod.weight): `UltraLight, Thin, Light, Regular, Medium, Semibold, Bold, Heavy,
+  Black` (matching [`UIFont.Weight`](https://developer.apple.com/documentation/uikit/uifont)). [`.bold()`](https://daybrite.dev/api/day_pieces/trait.LabelBuilder.html#tymethod.bold) is shorthand for [`.weight(FontWeight::Bold)`](https://daybrite.dev/api/day_pieces/trait.LabelBuilder.html#tymethod.weight).
+- [`.italic()`](https://daybrite.dev/api/day_pieces/trait.LabelBuilder.html#tymethod.italic): slants the text.
 - Canvas text and a drawing app's font menu are a different surface — the platform's font
   list, absolute sizes, measurement — covered in [docs/fonts](fonts.md).
 - A weight override keeps the style's accessibility-scaled size (on iOS the weighted font is wrapped in
   [`UIFontMetrics`](https://developer.apple.com/documentation/uikit/uifontmetrics) so it also scales with Dynamic Type).
-- `.monospace()`: the platform's fixed-pitch face, at the same semantic size.
+- [`.monospace()`](https://daybrite.dev/api/day_pieces/trait.LabelBuilder.html#tymethod.monospace): the platform's fixed-pitch face, at the same semantic size.
 
 To vary style *within* one label (a bold phrase, an inline `code` span, a colored word), see
 [text-runs](./text-runs.md). It stays one label, so it wraps, selects and is announced as one
@@ -71,10 +72,10 @@ paragraph.
 
 ## Color
 
-`.color(Color)` sets the text color; omit it to use the platform's default label color (which adapts to
-light/dark). Colors are given as `Color::hex(0xRRGGBB)` or `Color::rgba(r, g, b, a)`.
+[`.color(Color)`](https://daybrite.dev/api/day_pieces/trait.LabelBuilder.html#tymethod.color) sets the text color; omit it to use the platform's default label color (which adapts to
+light/dark). Colors are given as [`Color::hex(0xRRGGBB)`](https://daybrite.dev/api/day_geometry/struct.Color.html#method.hex) or [`Color::rgba(r, g, b, a)`](https://daybrite.dev/api/day_geometry/struct.Color.html#method.rgba).
 
-`.secondary()` asks for the platform's de-emphasized label color instead of naming one; it suits a
+[`.secondary()`](https://daybrite.dev/api/day_pieces/trait.LabelBuilder.html#tymethod.secondary) asks for the platform's de-emphasized label color instead of naming one; it suits a
 hint, a caption, or an empty state's "nothing selected" line:
 
 ```rust
@@ -84,14 +85,14 @@ label(res::str::nothing_selected()).secondary()
 It is semantic for the same reason `Font::Body` is: a literal grey chosen against a light background
 is close to invisible on a dark one, so only the platform can answer correctly in both. Each toolkit
 uses its own: `secondaryLabelColor` on macOS and iOS, `?android:attr/textColorSecondary`, GTK's
-`dim-label` style class, and on the web a mix of the inherited text color. An explicit `.color()`
+`dim-label` style class, and on the web a mix of the inherited text color. An explicit [`.color()`](https://daybrite.dev/api/day_pieces/trait.LabelBuilder.html#tymethod.color)
 still wins, and a toolkit with no such color renders the primary one, which is legible but not
 dimmed.
 
 ## Presets
 
 A style an app applies to many labels is named once as a `TextPreset` and applied with
-`.preset(&NAME)`:
+[`.preset(&NAME)`](https://daybrite.dev/api/day_pieces/trait.LabelBuilder.html#tymethod.preset):
 
 ```rust
 const CAPTION: TextPreset = TextPreset::new(Font::Caption).secondary();
@@ -101,20 +102,20 @@ label(res::str::last_updated()).preset(&CAPTION)
 label(res::str::sample_price(price)).preset(&PRICE)
 ```
 
-Every `TextPreset` builder is `const` (`font_scale`, `weight`, `bold`, `italic`, `tabular`,
-`monospace`, `secondary`, `single_line`, `color`), so a preset is a constant rather than a
-runtime value, and `.preset` applies the same steps the equivalent chain would. It replaces a
-repeated `label(t).font(Font::Caption).secondary()` without adding a style system: the preset
+Every `TextPreset` builder is `const` ([`font_scale`](https://daybrite.dev/api/day_pieces/struct.TextPreset.html#method.font_scale), [`weight`](https://daybrite.dev/api/day_pieces/struct.TextPreset.html#method.weight), [`bold`](https://daybrite.dev/api/day_pieces/struct.TextPreset.html#method.bold), [`italic`](https://daybrite.dev/api/day_pieces/struct.TextPreset.html#method.italic), [`tabular`](https://daybrite.dev/api/day_pieces/struct.TextPreset.html#method.tabular),
+[`monospace`](https://daybrite.dev/api/day_pieces/struct.TextPreset.html#method.monospace), [`secondary`](https://daybrite.dev/api/day_pieces/struct.TextPreset.html#method.secondary), [`single_line`](https://daybrite.dev/api/day_pieces/struct.TextPreset.html#method.single_line), [`color`](https://daybrite.dev/api/day_pieces/struct.TextPreset.html#method.color)), so a preset is a constant rather than a
+runtime value, and [`.preset`](https://daybrite.dev/api/day_pieces/trait.LabelBuilder.html#tymethod.preset) applies the same steps the equivalent chain would. It replaces a
+repeated [`label`](https://daybrite.dev/api/day_pieces/fn.label.html)`(t)`[`.font`](https://daybrite.dev/api/day_pieces/trait.LabelBuilder.html#tymethod.font)`(Font::Caption)`[`.secondary`](https://daybrite.dev/api/day_pieces/trait.LabelBuilder.html#tymethod.secondary)`()` without adding a style system: the preset
 is still semantic fonts and the platform's colors.
 
 ## Custom sizes and accessibility
 
 `Font::System(pt)` takes an explicit point size, but it is still scaled by the platform's
 accessibility text-size setting (iOS runs it through [`UIFontMetrics`](https://developer.apple.com/documentation/uikit/uifontmetrics), Android uses `sp`, GTK uses the
-text-scaling factor, web-dom expresses it as `pt/16` rem so it rides the browser's font-size
+text-scaling factor, Web expresses it as `pt/16` rem so it rides the browser's font-size
 preference), so a hard-coded size never turns into a fixed, unreadable pixel size.
 
-`Font::custom(res::fonts::family, pt)` (and the unchecked `Font::Custom`) scales the same way; a bundled font never opts out of accessibility
+[`Font::custom(res::fonts::family, pt)`](https://daybrite.dev/api/day_spec/enum.Font.html#method.custom) (and the unchecked `Font::Custom`) scales the same way; a bundled font never opts out of accessibility
 sizing.
 
 ## Links
@@ -124,21 +125,21 @@ link("Day", "https://daybrite.dev")
 link("Settings", "#settings").bold()
 ```
 
-`link(text, target)` renders tappable accent text. A target starting with `#` calls `navigate`
+[`link(text, target)`](https://daybrite.dev/api/day_pieces/fn.link.html) renders tappable accent text. A target starting with `#` calls [`navigate`](https://daybrite.dev/api/day_pieces/fn.navigate.html)
 with the rest of the target; all other targets open in the platform's default URL handler.
 URLs containing a fragment (`https://daybrite.dev/#docs`) still open externally. Route paths,
 query parameters, and percent escapes follow the [navigation](./navigation.md) rules. Unknown
 routes do nothing; `#` alone pops the innermost stack to its root.
 
-[Markdown links](./markdown.md#links) and `TextBuilder::link` use the same `open_link(target)`
-function by default. Unlike a standalone `link`, inline links require `Cap::TextLinks` for
+[Markdown links](./markdown.md#links) and [`TextBuilder::link`](https://daybrite.dev/api/day_pieces/struct.TextBuilder.html#method.link) use the same [`open_link(target)`](https://daybrite.dev/api/day_pieces/fn.open_link.html)
+function by default. Unlike a standalone [`link`](https://daybrite.dev/api/day_pieces/fn.link.html), inline links require `Cap::TextLinks` for
 activation; see the [toolkit support table](./text-runs.md#per-toolkit).
 
 ## Selectable text
 
 Text is **not** user-selectable by default on any toolkit: a label, a button's caption, and a
 table cell all match each platform's native behavior, where static text can't be selected. Opt a
-piece in with `.selectable()`:
+piece in with [`.selectable()`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.selectable):
 
 ```rust
 label(res::str::sample_order()).selectable() // the reader can select and copy it
@@ -147,7 +148,7 @@ label(res::str::sample_order()).selectable() // the reader can select and copy i
 It applies to the piece's own widget, so on a container it makes every label within selectable
 only where the platform affordance cascades (web's `user-select` inherits; the widget-flip
 toolkits reach the label the modifier is on). Put it on the label itself for portable behavior.
-The modifier routes to `Toolkit::set_selectable`:
+The modifier routes to [`Toolkit::set_selectable`](https://daybrite.dev/api/day_spec/trait.Toolkit.html#method.set_selectable):
 
 | Toolkit | Affordance |
 |---|---|
@@ -158,7 +159,7 @@ The modifier routes to `Toolkit::set_selectable`:
 | XAML | [`TextBlock.IsTextSelectionEnabled`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.xaml.controls.textblock) |
 | HarmonyOS | `Text` `NODE_TEXT_COPY_OPTION` (long-press → copy) |
 | Android | [`TextView.setTextIsSelectable`](https://developer.android.com/reference/android/widget/TextView) (long-press → copy) |
-| web-dom | `user-select: text` (the `#day-root` default is `none`) |
+| Web | `user-select: text` (the `#day-root` default is `none`) |
 
 UIKit is the one platform whose label class has no selection support to switch on: UIKit
 reserves selection for [`UITextInput`](https://developer.apple.com/documentation/uikit/uitextinput) views, and SwiftUI's selectable `Text` isn't a [`UILabel`](https://developer.apple.com/documentation/uikit/uilabel)
@@ -174,23 +175,23 @@ and it survives Day's text updates.
 
 The showcase's **Text** page is a live specimen of every style, weight, italic, color, custom size,
 the three bundled custom fonts, and links, with a **Selectable** toggle in the heading's corner
-that opts every text piece on the page in and out of `.selectable()`.
+that opts every text piece on the page in and out of [`.selectable()`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.selectable).
 
 ## Single-line labels
 
-`label(title).single_line()` keeps plain text on one line as its text changes, including
+[`label`](https://daybrite.dev/api/day_pieces/fn.label.html)`(title)`[`.single_line`](https://daybrite.dev/api/day_pieces/trait.LabelBuilder.html#tymethod.single_line)`()` keeps plain text on one line as its text changes, including
 recycled list rows. Constrain its width through the enclosing layout. The full text remains
 available to accessibility. UIKit, AppKit, Android, GTK, DOM, XAML and ArkUI request native
 trailing ellipsis; Qt disables wrapping and clips the excess. Styled link labels may use a
 text-view backing and do not guarantee this truncation behavior.
 
-Plain labels support `.max_lines(n)` with zero meaning unlimited; `.single_line()`
+Plain labels support [`.max_lines(n)`](https://daybrite.dev/api/day_pieces/trait.LabelBuilder.html#tymethod.max_lines) with zero meaning unlimited; [`.single_line()`](https://daybrite.dev/api/day_pieces/trait.LabelBuilder.html#tymethod.single_line)
 takes precedence. AppKit and UIKit enforce the limit and truncate the last line natively,
 including during measurement. Other toolkits and selectable/link-backed text retain their
 existing wrapping behavior. The limit is set at construction; a keyed subtree can rebuild
 when a display preference changes.
 
-Use `.font_scale(1.4)` on a plain label to enlarge its resolved native font by 40%, retaining
+Use [`.font_scale(1.4)`](https://daybrite.dev/api/day_pieces/trait.LabelBuilder.html#tymethod.font_scale) on a plain label to enlarge its resolved native font by 40%, retaining
 its semantic style and accessibility scaling. The factor is fixed at construction, and
 explicit styled runs keep their own font descriptors. Nonpositive or nonfinite factors
 use 1.0. This also works through label decorations.

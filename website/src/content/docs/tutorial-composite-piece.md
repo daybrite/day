@@ -1,4 +1,5 @@
 ---
+navTitle: "Composite piece"
 title: "Tutorial: A composite piece (no native code)"
 description: A step-by-step guide to building a reusable widget (a star rating) by composing Day's core primitives, with no platform-specific code. It works on every backend.
 order: 41
@@ -27,24 +28,26 @@ Day has two kinds of pieces:
 | Reference | [the native-piece tutorial](/contributing/tutorials/native-piece) · [`day-piece-searchfield`](/docs/reference/searchfield) | this tutorial · `day-piece-rating` |
 
 A native piece exists to introduce a native widget Day does not already have. A star rating is a
-row of small drawings that react to taps, and Day already gives you `row`, `canvas` (a native 2D
-surface on every platform), `Shape`, `Signal`, and `.on_tap`. Compose those and the existing leaves
+row of small drawings that react to taps, and Day already gives you [`row`](https://daybrite.dev/api/day_pieces/fn.row.html), [`canvas`](https://daybrite.dev/api/day_pieces/fn.canvas.html) (a native 2D
+surface on every platform), `Shape`, `Signal`, and [`.on_tap`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.on_tap). Compose those and the existing leaves
 do the platform work: the AppKit build draws the star with Core Graphics, the Android build with
-`android.graphics.Canvas`, and the GTK build with Cairo, all from the one `canvas` closure.
+`android.graphics.Canvas`, and the GTK build with Cairo, all from the one [`canvas`](https://daybrite.dev/api/day_pieces/fn.canvas.html) closure.
 
 Most widgets should be composite. Reach for a native piece only when you need a control the
 toolkits provide and Day does not yet wrap.
 
 The composition toolkit lives in the prelude:
 
-- `column` / `row` / `zstack`: stack children (vertical, horizontal, layered).
-- `.overlay(...)` / `.overlay_aligned(align, ...)` with `Alignment`: draw an annotation on top
+- [`column`](https://daybrite.dev/api/day_pieces/fn.column.html) / [`row`](https://daybrite.dev/api/day_pieces/fn.row.html) / [`zstack`](https://daybrite.dev/api/day_pieces/fn.zstack.html): stack children (vertical, horizontal, layered).
+- [`.overlay(...)`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.overlay) / [`.overlay_aligned(align, ...)`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.overlay_aligned) with `Alignment`: draw an annotation on top
   without changing layout size (badges, corner dots).
-- `.background(color)` / `.corner_radius(r)` / `.padding(...)` / `.frame(w, h)`: surface + inset.
-- `canvas(|d, size| …)` with `Shape`: a native drawing surface for anything custom.
-- the `Modifier` trait + `.modifier(m)`: a reusable, by-value view transform (a card, a chip).
-- `ButtonStyle` / `FilledButtonStyle` + `Button::style`: a pluggable button appearance.
-- `with_environment(...)` / `environment::<T>()`: pass ambient values down a subtree.
+- [`.background(color)`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.background) / [`.corner_radius(r)`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.corner_radius) / [`.padding(...)`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.padding) / [`.frame(w, h)`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.frame): surface + inset.
+- [`canvas(|d, size| …)`](https://daybrite.dev/api/day_pieces/fn.canvas.html) with `Shape`: a native drawing surface for anything custom.
+- the `Modifier` trait + [`.modifier(m)`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.modifier): a reusable, by-value view transform (a card, a chip).
+- [`.plain()`](https://daybrite.dev/api/day_pieces/trait.ButtonBuilder.html#tymethod.plain),
+  [`.bordered()`](https://daybrite.dev/api/day_pieces/trait.ButtonBuilder.html#tymethod.bordered), and
+  [`.prominent()`](https://daybrite.dev/api/day_pieces/trait.ButtonBuilder.html#tymethod.prominent): native button appearances.
+- [`with_environment(...)`](https://daybrite.dev/api/day_pieces/fn.with_environment.html) / [`environment::<T>()`](https://daybrite.dev/api/day_pieces/fn.environment.html): pass ambient values down a subtree.
 
 ## 2. Scaffold the crate
 
@@ -97,7 +100,7 @@ day-build = { git = "https://github.com/daybrite/day.git" }
 > [the native-piece tutorial](/contributing/tutorials/native-piece).
 
 Now `src/lib.rs`. Everything comes from the pieces prelude; `RNode` also comes from `day-core`,
-because it is the return type of `Piece::build`:
+because it is the return type of [`Piece::build`](https://daybrite.dev/api/day_core/trait.Piece.html#tymethod.build):
 
 ```rust
 use day_core::RNode;
@@ -106,14 +109,14 @@ use day_pieces::prelude::*;
 
 ## 3. Design the builder
 
-Day pieces follow a **config-struct + chainable-setter** pattern (the same shape as `slider(...)`,
-`button(...)`, or the `combo_box` piece). A free function creates the piece with defaults; methods
+Day pieces follow a **config-struct + chainable-setter** pattern (the same shape as [`slider(...)`](https://daybrite.dev/api/day_pieces/fn.slider.html),
+[`button(...)`](https://daybrite.dev/api/day_pieces/fn.button.html), or the `combo_box` piece). A free function creates the piece with defaults; methods
 return `Self` so calls chain. The two-way value is a `Signal` passed in by the caller: the control
 reads it to draw and writes it back on tap. This compact implementation uses `Signal<usize>`;
 the shipped piece accepts any `Binding<usize>` and reactive editability.
 
 Give the piece a [private catalog](/docs/how-to/localization#give-a-crate-a-private-catalog).
-In `build.rs`, call `day_build::generate_locales().expect("localization codegen");` from
+In `build.rs`, call [`day_build::generate_locales().expect("localization codegen");`](https://daybrite.dev/api/day_build/fn.generate_locales.html) from
 `main`, and add `day_fluent::locales!();` at the root of `src/lib.rs`. In
 `resource/locales/en-US/app.ftl`:
 
@@ -175,17 +178,17 @@ impl Rating {
 }
 ```
 
-The shipped crate also provides `.star_id(|n| id!(rating_star, n))`. It assigns each
-tappable star a typed ID using its 1-based position; `.id(id!(rating_row))` separately names
+The shipped crate also provides [`.star_id(|n| id!(rating_star, n))`](https://daybrite.dev/api/day_piece_rating/trait.RatingBuilder.html#tymethod.star_id). It assigns each
+tappable star a typed ID using its 1-based position; [`.id(id!(rating_row))`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.id) separately names
 the whole piece. A dayscript can then `tap: { id: 'rating_star:3' }`.
-The old `.id(prefix)` string-prefix setter is no longer supported. See
+The old [`.id(prefix)`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.id) string-prefix setter is no longer supported. See
 [element IDs](/contributing/backend-contracts/element-ids) for keyed families and canonical spellings.
 
 ## 4. Compose the body
 
-A piece becomes usable by implementing the `Piece` trait: a single `build` method that returns the
-node it created. Once `Rating` implements `Piece`, it automatically gains `.id(…)`, `.padding(…)`,
-`.frame(…)`, `.any()` and the rest, from the blanket `Decorate` impl.
+A piece becomes usable by implementing the `Piece` trait: a single [`build`](https://daybrite.dev/api/day_core/trait.Piece.html#tymethod.build) method that returns the
+node it created. Once `Rating` implements `Piece`, it automatically gains [`.id(…)`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.id), [`.padding(…)`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.padding),
+[`.frame(…)`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.frame), [`.any()`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.any) and the rest, from the blanket `Decorate` impl.
 
 ### The star, as a `Shape::Polygon`
 
@@ -209,11 +212,11 @@ fn star_points(size: Size, points: usize, outer: f64, inner: f64) -> Vec<Point> 
 }
 ```
 
-### One star = one reactive `canvas`
+### One star = one reactive [`canvas`](https://daybrite.dev/api/day_pieces/fn.canvas.html)
 
-Each star is a fixed-size `canvas` that draws the polygon: filled if its index is within the
-current value, outlined otherwise. The draw closure reads `value.get()`, a tracked read, so
-the canvas re-records exactly when the signal changes. When `editable`, an `.on_tap` writes this
+Each star is a fixed-size [`canvas`](https://daybrite.dev/api/day_pieces/fn.canvas.html) that draws the polygon: filled if its index is within the
+current value, outlined otherwise. The draw closure reads [`value.get()`](https://daybrite.dev/api/day_reactive/struct.Signal.html#method.get), a tracked read, so
+the canvas re-records exactly when the signal changes. When `editable`, an [`.on_tap`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.on_tap) writes this
 star's 1-based position back into the signal.
 
 ```rust
@@ -264,10 +267,10 @@ fn star(
 }
 ```
 
-### The body: a `row` of stars
+### The body: a [`row`](https://daybrite.dev/api/day_pieces/fn.row.html) of stars
 
-`build` lays the stars in a `row`. Because the count is dynamic, collect them into a `Vec` (a
-`Vec` of pieces is a child sequence like a tuple) and hand that to `row`:
+[`build`](https://daybrite.dev/api/day_core/trait.Piece.html#tymethod.build) lays the stars in a [`row`](https://daybrite.dev/api/day_pieces/fn.row.html). Because the count is dynamic, collect them into a `Vec` (a
+`Vec` of pieces is a child sequence like a tuple) and hand that to [`row`](https://daybrite.dev/api/day_pieces/fn.row.html):
 
 ```rust
 impl Piece for Rating {
@@ -292,9 +295,9 @@ impl Piece for Rating {
 ```
 
 That completes the piece. The row and its `max` canvases are built once. Tapping the third star
-calls `value.set(3)`; only the star canvases that read `value` re-record (the first three fill, the
-last two outline), and `build` never runs again. This is Day's build-once reactive model; the
-tracked read in the `canvas` closure is the only binding.
+calls [`value.set(3)`](https://daybrite.dev/api/day_reactive/struct.Signal.html#method.set); only the star canvases that read `value` re-record (the first three fill, the
+last two outline), and [`build`](https://daybrite.dev/api/day_core/trait.Piece.html#tymethod.build) never runs again. This is Day's build-once reactive model; the
+tracked read in the [`canvas`](https://daybrite.dev/api/day_pieces/fn.canvas.html) closure is the only binding.
 
 ## 5. Use it in an app
 
@@ -332,13 +335,13 @@ fn review_form() -> impl Piece {
 ```
 
 Run `day launch -t macos-appkit`, then `-t android-mdc`, then `-t linux-gtk`. The same rating
-renders natively on each, drawn by that platform's 2D API from the one `canvas` closure.
+renders natively on each, drawn by that platform's 2D API from the one [`canvas`](https://daybrite.dev/api/day_pieces/fn.canvas.html) closure.
 
 ## 6. Going further
 
 The same approach covers most of a design system:
 
-- **A card** is a `Modifier`, a reusable transform you apply with `.modifier(m)`:
+- **A card** is a `Modifier`, a reusable transform you apply with [`.modifier(m)`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.modifier):
 
   ```rust
   pub struct Card { pub tint: Color }
@@ -351,17 +354,19 @@ The same approach covers most of a design system:
   ```
 
   For a one-off you do not even need the type; a plain closure is a `Modifier` via the blanket impl:
-  `my_content.modifier(|c: AnyPiece| c.padding(16.0).corner_radius(12.0))`. The shipped
+  `my_content`[`.modifier`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.modifier)`(|c: AnyPiece| c`[`.padding`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.padding)`(16.0)`[`.corner_radius`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.corner_radius)`(12.0))`. The shipped
   `day-piece-rating` crate includes a ready-made `Card` of exactly this shape.
 
-- **A badge** is `.overlay_aligned(Alignment::TopTrailing, dot)`, an annotation layered on top of an
+- **A badge** is [`.overlay_aligned(Alignment::TopTrailing, dot)`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.overlay_aligned), an annotation layered on top of an
   avatar or icon without disturbing its layout size. `day-piece-rating` ships one as
-  `badge(count, over)`.
+  [`badge(count, over)`](https://daybrite.dev/api/day_piece_rating/fn.badge.html).
 
-- **A chip** is a labeled `.background(...).corner_radius(...)` capsule; a **pill button** is a
-  `ButtonStyle` (`FilledButtonStyle` is the shipped example) applied with `Button::style`.
+- **A chip** is a labeled [`.background`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.background)`(...)`[`.corner_radius`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.corner_radius)`(...)` capsule. For a **native button**, choose
+  [`.plain()`](https://daybrite.dev/api/day_pieces/trait.ButtonBuilder.html#tymethod.plain),
+  [`.bordered()`](https://daybrite.dev/api/day_pieces/trait.ButtonBuilder.html#tymethod.bordered), or
+  [`.prominent()`](https://daybrite.dev/api/day_pieces/trait.ButtonBuilder.html#tymethod.prominent).
 
-- **Themed subtrees** flow through `with_environment(value, || …)` and are read back with
-  `environment::<T>()`, so a value set once reaches every descendant without being passed through
+- **Themed subtrees** flow through [`with_environment(value, || …)`](https://daybrite.dev/api/day_pieces/fn.with_environment.html) and are read back with
+  [`environment::<T>()`](https://daybrite.dev/api/day_pieces/fn.environment.html), so a value set once reaches every descendant without being passed through
   each builder.
 

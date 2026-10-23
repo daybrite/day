@@ -1,4 +1,5 @@
 ---
+navTitle: "Extensions"
 title: The extension model
 description: "How new widgets and capabilities plug into Day as ordinary crates: composite pieces, native pieces, parts, and the registration machinery."
 order: 40
@@ -37,7 +38,7 @@ rating(stars).max(5).editable(true)
 ```
 
 Most reusable UI in a Day app is this tier: cards, badges, form rows, charts drawn with
-`canvas`. The shipped [`day-piece-rating`](/contributing/tutorials/composite-piece) and [`day-piece-settings`](/docs/reference/settings) crates are composite pieces,
+[`canvas`](https://daybrite.dev/api/day_pieces/fn.canvas.html). The shipped [`day-piece-rating`](/contributing/tutorials/composite-piece) and [`day-piece-settings`](/docs/reference/settings) crates are composite pieces,
 and the [composite piece tutorial](/contributing/tutorials/composite-piece) provides a complete example.
 
 ## Tier 1: a native leaf widget per toolkit

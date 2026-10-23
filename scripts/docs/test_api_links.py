@@ -37,7 +37,9 @@ class GuideApiLinks(unittest.TestCase):
             put('index.html', '<h1>Synthetic home</h1>')
             put('docs/explanation/overview/index.html', '<h1>Synthetic overview</h1>')
             put('docs/reference/api/index.html', ''.join(
-                f'<a href="/api/{c}/index.html">Crate</a>' for c in crates))
+                f'<a href="{origin}/api/{c}/index.html">Crate</a>'
+                for i, c in enumerate(crates)
+                for origin in ['https://daybrite.dev' if i % 2 else '']))
             put('api/day_part_haptics/fn.is_supported.html', nav + '<div id="contract"></div>')
             put('api/day_part_haptics/alias.html',
                 '<meta http-equiv="refresh" content="0; url=fn.is_supported.html">')

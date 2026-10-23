@@ -29,7 +29,7 @@ or dependency entry in `Day.toml` are needed.
 | Platforms / toolkits | Availability |
 | --- | --- |
 | macOS, iOS, Android, Windows, Linux (GTK / Qt), HarmonyOS | Battery information where hardware and OS reporting are available. |
-| Web | Unavailable; `status()` returns `None`. |
+| Web | Unavailable; [`status()`](https://daybrite.dev/api/day_part_battery/fn.status.html) returns `None`. |
 
 ## Authoring
 
@@ -39,9 +39,9 @@ if let Some(b) = day_part_battery::status() {
 }
 ```
 
-[`status() -> Option<BatteryStatus>`](/api/day_part_battery/fn.status.html) returns `None` where there's no battery API (or no battery).
-[`BatteryStatus { level: Option<f32>, state: BatteryState }`](/api/day_part_battery/struct.BatteryStatus.html); `level` is `0.0..=1.0` ([`percent()`](/api/day_part_battery/struct.BatteryStatus.html#method.percent) gives
-`0..=100`); [`BatteryState`](/api/day_part_battery/enum.BatteryState.html) is `Charging | Discharging | Full | NotCharging | Unknown`.
+[`status() -> Option<BatteryStatus>`](https://daybrite.dev/api/day_part_battery/fn.status.html) returns `None` where there's no battery API (or no battery).
+[`BatteryStatus { level: Option<f32>, state: BatteryState }`](https://daybrite.dev/api/day_part_battery/struct.BatteryStatus.html); `level` is `0.0..=1.0` ([`percent()`](https://daybrite.dev/api/day_part_battery/struct.BatteryStatus.html#method.percent) gives
+`0..=100`); [`BatteryState`](https://daybrite.dev/api/day_part_battery/enum.BatteryState.html) is `Charging | Discharging | Full | NotCharging | Unknown`.
 
 There are no cargo features; platform selection is purely `#[cfg(target_os)]`, because a battery is
 an OS concern rather than a toolkit one. `parts/day-part-battery/examples/battery.rs` is a plain
@@ -58,7 +58,7 @@ an OS concern rather than a toolkit one. `parts/day-part-battery/examples/batter
 | HarmonyOS | native [`OH_BatteryInfo_GetCapacity`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-basic-services-kit/capi-oh-batteryinfo.md) / [`GetPluggedType`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-basic-services-kit/capi-oh-batteryinfo.md) (`libohbattery_info.so`) | raw FFI (BasicServicesKit) |
 | Android | [`BatteryManager`](https://developer.android.com/reference/android/os/BatteryManager) via the inline Java arm in `src/android.rs` | `day-android` + [`day-bridge`](/contributing/backend-contracts/bridge) ([bridge](bridge.md)) |
 
-iOS reads on the main thread ([`UIDevice`](https://developer.apple.com/documentation/uikit/uidevice) is `MainThreadOnly`); off it, `status()` returns `None`. The
+iOS reads on the main thread ([`UIDevice`](https://developer.apple.com/documentation/uikit/uidevice) is `MainThreadOnly`); off it, [`status()`](https://daybrite.dev/api/day_part_battery/fn.status.html) returns `None`. The
 simulator has no battery, so you get `level: None, state: Unknown` (the API path still runs).
 
 HarmonyOS is `target_os = "linux"` but sandboxes `/sys` away, so it's gated on `target_env = "ohos"`
@@ -72,7 +72,7 @@ Device & sensors page shows a live readout ([docs/harmonyos](harmonyos.md)).
 This is the first headless external crate: it has no UI Piece and registers nothing into any
 toolkit's `RENDERERS` slice. It demonstrates that the standalone-piece toolkit-contribution
 mechanism (see [extending](extending.md)) already accommodates headless capability crates:
-[`day-part-battery`](/api/day_part_battery/index.html) contributes an Android implementation exactly like the UI pieces, but registers
+[`day-part-battery`](https://daybrite.dev/api/day_part_battery/index.html) contributes an Android implementation exactly like the UI pieces, but registers
 no renderer; the staging is independent of rendering. On Android the crate rides on the Day runtime
 (it uses day-android's cached JVM + `DayBridge.ctx`); on every other platform it is fully
 day-independent.

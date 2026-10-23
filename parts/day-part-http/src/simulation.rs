@@ -96,7 +96,7 @@ pub struct Conditions {
     pub latency: Duration,
     /// Payload bytes/sec, each direction per transfer. None means unlimited.
     pub bytes_per_second: Option<u64>,
-    /// Probability [0,1] of failing a request/WS send. Seed and per-key ordinal determine it.
+    /// Probability in `[0, 1]` of failing a request/WS send. Seed and per-key ordinal determine it.
     pub failure_rate: f64,
     pub seed: u64,
     pub paused: bool,

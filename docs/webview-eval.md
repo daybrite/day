@@ -1,4 +1,5 @@
 ---
+navTitle: "Web view scripting"
 title: "Web view JavaScript evaluation"
 description: "Run JavaScript in an embedded page and await its JSON result."
 ---

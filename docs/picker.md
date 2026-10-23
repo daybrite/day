@@ -1,4 +1,5 @@
 ---
+navTitle: "Pickers"
 title: "Picker"
 description: "The built-in picker piece: native segmented controls, dropdowns, and wheels, chosen per platform."
 ---
@@ -11,7 +12,7 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 # Picker
 
 Let people choose one value from a defined set, using a segmented control, dropdown, or wheel.
-`picker` binds the selected value to app state and is available through `day::prelude::*`.
+[`picker`](https://daybrite.dev/api/day_pieces/fn.picker.html) binds the selected value to app state and is available through `day::prelude::*`.
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
 [example messages](snippet-catalog.md) and [catalog setup](/docs/how-to/localization).
@@ -50,15 +51,15 @@ picker(color, colors).menu()                                         // dropdown
 picker(plan, plans).inline()                                         // vertical radio group
 ```
 
-`picker(selected, options)` is bound two-way to a value of any `T: Clone + PartialEq` (an enum,
+[`picker(selected, options)`](https://daybrite.dev/api/day_pieces/fn.picker.html) is bound two-way to a value of any `T: Clone + PartialEq` (an enum,
 a `String`, a `usize`): `selected` is a `Signal<T>`, a [day-model](/docs/explanation/model) `Field`, or any other
 `Binding<T>`, and `options` is an array or `Vec` of `(value, title)` pairs, the titles taking
 the same sources as a label. The mapping between values and the native control's indexes lives
-in the picker, once; there is no index to keep in step with an enum. Default style is `.menu()`;
-`.segmented()` / `.inline()` / `.style(PickerStyle)` switch it. `Picker` implements `Piece`, so
-`.id()`/`.a11y()`/`.frame()` chain via `Decorate`.
+in the picker, once; there is no index to keep in step with an enum. Default style is [`.menu()`](https://daybrite.dev/api/day_pieces/trait.PickerBuilder.html#tymethod.menu);
+[`.segmented()`](https://daybrite.dev/api/day_pieces/trait.PickerBuilder.html#tymethod.segmented) / [`.inline()`](https://daybrite.dev/api/day_pieces/trait.PickerBuilder.html#tymethod.inline) / [`.style(PickerStyle)`](https://daybrite.dev/api/day_pieces/trait.PickerBuilder.html#tymethod.style) switch it. `Picker` implements `Piece`, so
+[`.id()`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.id)/[`.a11y()`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.a11y)/[`.frame()`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.frame) chain via `Decorate`.
 
-`picker_optional(selected, options)` binds an `Option<T>`: `None` is "nothing chosen" (no
+[`picker_optional(selected, options)`](https://daybrite.dev/api/day_pieces/fn.picker_optional.html) binds an `Option<T>`: `None` is "nothing chosen" (no
 selection where the toolkit can show none), and a user's choice writes `Some(value)`.
 
 ### Selection rules
@@ -72,7 +73,7 @@ value.
 
 ### Menu groups
 
-`.separators_before([6])` inserts a native menu divider before option 6 on AppKit/UIKit.
+[`.separators_before([6])`](https://daybrite.dev/api/day_pieces/trait.PickerBuilder.html#tymethod.separators_before) inserts a native menu divider before option 6 on AppKit/UIKit.
 The boundary consumes no selection index, and duplicate option labels remain independent
 choices (for example, recommended fonts repeated in a complete font catalog). Boundaries
 are fixed at build time, survive option patches, and are ignored when out of range or zero.
@@ -125,6 +126,6 @@ echo-guarded per toolkit so it never loops.
 
 - Per-option a11y labels.
 
-(`.enabled(e)`, constant or reactive, shipped 2026-10: `PickerProps::enabled` at realize and
+([`.enabled(e)`](https://daybrite.dev/api/day_pieces/trait.PickerBuilder.html#tymethod.enabled), constant or reactive, shipped 2026-10: `PickerProps::enabled` at realize and
 `PickerPatch::Enabled` on change, disabling every style on all eight toolkits, the composite
 segmented and inline styles child by child.)

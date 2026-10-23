@@ -65,7 +65,7 @@ nothing derived from `realize` can.
 
 ## Capabilities
 
-What each backend answers for `Cap` (`capability()`): `N` native, `E` emulated, `–`
+What each backend answers for `Cap` ([`capability()`](https://daybrite.dev/api/day_spec/trait.Toolkit.html#method.capability)): `N` native, `E` emulated, `–`
 unsupported, `?` decided at runtime (day-dom answers `NavSplit` from the viewport width;
 day-qt answers `WindowTabbing` natively on macOS alone).
 An app branches on this rather than on the target name.

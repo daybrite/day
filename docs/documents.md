@@ -1,4 +1,5 @@
 ---
+navTitle: "Documents"
 title: "Document types and file activation"
 description: "Declare supported files once, receive OS open events, and import through the native picker."
 ---
@@ -97,13 +98,13 @@ let open = Command::new(id!(open_document), res::str::open_document(), move || {
 .shortcut(Shortcut::primary("o"));
 ```
 
-Put `open.menu_item()` in a `MenuBarRole::File` submenu and `open.toolbar_item()` in mobile
+Put [`open.menu_item()`](https://daybrite.dev/api/day_pieces/struct.Command.html#method.menu_item) in a `MenuBarRole::File` submenu and [`open.toolbar_item()`](https://daybrite.dev/api/day_pieces/struct.Command.html#method.toolbar_item) in mobile
 navigation chrome. [Commands](./commands.md), [file pickers](./files.md), and
 [windows](./windows.md) document those APIs.
 
 ## File access and lifetime
 
-`FileUrl::read_limited(limit).await` reads on a native worker and returns `InvalidData` when the
+[`FileUrl::read_limited(limit).await`](https://daybrite.dev/api/day_pieces/struct.FileUrl.html#method.read_limited) reads on a native worker and returns `InvalidData` when the
 limit is exceeded. It holds and releases Apple security-scoped access around the read. Web
 files have already been read asynchronously into the browser's virtual file store.
 
@@ -130,7 +131,7 @@ Platform guidance: [Apple: file management](https://developer.apple.com/design/h
 | Windows XAML | MSIX file associations with the type's display name and the desktop open verb; NSIS per-user ProgIDs named after the type, in Open With, and the extension's default for `rank = "owner"` | Explicit command-line activation. Another launch may create another process. MSIX never sets a default (Windows asks the user); the NSIS installer does for owned types and restores the previous default on uninstall. |
 | Windows GTK / Qt | Generated `build/day/file-types/<target>/register.reg` | Import the file on the Windows development host to register that build. It names the current executable path. These toolkits remain build-only in Day's distribution packer; a custom installer must deploy the toolkit and equivalent registry entries. |
 | HarmonyOS ArkUI | EntryAbility `viewData` skills with file/MIME URIs and `FileOpen` | Cold and warm Wants, then async copy using the granted URI. |
-| Web DOM | Web manifest `file_handlers` | Feature-detected `launchQueue` consumer. Requires an installed PWA, a supporting browser, and user approval. Ordinary browser tabs and unsupported browsers retain the file picker. |
+| Web | Web manifest `file_handlers` | Feature-detected `launchQueue` consumer. Requires an installed PWA, a supporting browser, and user approval. Ordinary browser tabs and unsupported browsers retain the file picker. |
 
 macOS GTK/Qt development bundles reference local resource roots and installed toolkit libraries.
 They are for local Finder/Dock testing, not redistribution. AppKit's normal signed bundle is

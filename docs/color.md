@@ -1,4 +1,5 @@
 ---
+navTitle: "Colors"
 title: "Color and Paint"
 description: "Day's current color currency and the values a native color picker can return."
 ---
@@ -21,11 +22,11 @@ follow the app’s theme.
 pub struct Color { pub r: f64, pub g: f64, pub b: f64, pub a: f64 }   // sRGB, 0.0–1.0, Copy
 ```
 
-Constructors cover the models an app authors in (`rgb` / `rgba` / `hex(0xRRGGBB)` / `hsl` /
-`hsla` / `hsv` / `hsva`), and all of them land in the same four sRGB components. `to_hsl` and
-`to_hsv` decompose back; `lerp_hsl` blends along the short hue arc, where a straight line through
-RGB would pass through gray. `with_alpha`, `to_hex_string` and `parse` were added with the color
-picker: `parse` reads `#rgb` / `#rgba` / `#rrggbb` / `#rrggbbaa` and the space-separated
+Constructors cover the models an app authors in ([`rgb`](https://daybrite.dev/api/day_geometry/struct.Color.html#method.rgb) / [`rgba`](https://daybrite.dev/api/day_geometry/struct.Color.html#method.rgba) / [`hex(0xRRGGBB)`](https://daybrite.dev/api/day_geometry/struct.Color.html#method.hex) / [`hsl`](https://daybrite.dev/api/day_geometry/struct.Color.html#method.hsl) /
+[`hsla`](https://daybrite.dev/api/day_geometry/struct.Color.html#method.hsla) / [`hsv`](https://daybrite.dev/api/day_geometry/struct.Color.html#method.hsv) / [`hsva`](https://daybrite.dev/api/day_geometry/struct.Color.html#method.hsva)), and all of them land in the same four sRGB components. [`to_hsl`](https://daybrite.dev/api/day_geometry/struct.Color.html#method.to_hsl) and
+[`to_hsv`](https://daybrite.dev/api/day_geometry/struct.Color.html#method.to_hsv) decompose back; [`lerp_hsl`](https://daybrite.dev/api/day_geometry/struct.Color.html#method.lerp_hsl) blends along the short hue arc, where a straight line through
+RGB would pass through gray. [`with_alpha`](https://daybrite.dev/api/day_geometry/struct.Color.html#method.with_alpha), [`to_hex_string`](https://daybrite.dev/api/day_geometry/struct.Color.html#method.to_hex_string) and [`parse`](https://daybrite.dev/api/day_geometry/struct.Color.html#method.parse) were added with the color
+picker: [`parse`](https://daybrite.dev/api/day_geometry/struct.Color.html#method.parse) reads `#rgb` / `#rgba` / `#rrggbb` / `#rrggbbaa` and the space-separated
 component form that `Display` writes, which is what a native pick crosses a JNI / C-ABI / JS
 boundary as.
 
@@ -44,25 +45,25 @@ an ArkUI gradient, a CSS gradient): all eight canvas toolkits draw them.
 
 The two are not interchangeable, and `Paint` is accepted in far fewer places than `Color`.
 
-**`Paint` is accepted by exactly two functions**, both on the canvas: `Draw::fill` and
-`Draw::stroke_styled`.
+**`Paint` is accepted by exactly two functions**, both on the canvas: [`Draw::fill`](https://daybrite.dev/api/day_pieces/struct.Draw.html#method.fill) and
+[`Draw::stroke_styled`](https://daybrite.dev/api/day_pieces/struct.Draw.html#method.stroke_styled).
 
 **Everything else takes a bare `Color`:**
 
 | surface | API |
 |---|---|
-| a piece's background fill | `Decorate::background` |
-| a cover's edge-to-edge ground | `Cover::background` |
-| a vector glyph's tint | `Vector::tint` |
-| a button's fill | `Button::tint` |
-| a label's text color | `Label::color`, `TextBuilder::colored` |
+| a piece's background fill | [`Decorate::background`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.background) |
+| a cover's edge-to-edge ground | [`Cover::background`](https://daybrite.dev/api/day_pieces/struct.Cover.html#method.background) |
+| a vector glyph's tint | [`Vector::tint`](https://daybrite.dev/api/day_pieces/struct.Vector.html#method.tint) |
+| a button's fill | [`Button::tint`](https://daybrite.dev/api/day_pieces/struct.Button.html#method.tint) |
+| a label's text color | [`Label::color`](https://daybrite.dev/api/day_pieces/struct.Label.html#method.color), [`TextBuilder::colored`](https://daybrite.dev/api/day_pieces/struct.TextBuilder.html#method.colored) |
 | canvas text | `TextStyle::color` |
-| a plain canvas stroke | `Draw::stroke` |
-| a standalone shape piece | `ShapePiece::fill` / `::stroke` |
-| a nav row's icon and badge | `NavItem::icon_tint` / `::badge_tint` |
+| a plain canvas stroke | [`Draw::stroke`](https://daybrite.dev/api/day_pieces/struct.Draw.html#method.stroke) |
+| a standalone shape piece | [`ShapePiece::fill`](https://daybrite.dev/api/day_pieces/struct.ShapePiece.html#method.fill) / `::stroke` |
+| a nav row's icon and badge | [`NavItem::icon_tint`](https://daybrite.dev/api/day_pieces/struct.NavItem.html#method.icon_tint) / `::badge_tint` |
 
 So a gradient is expressible on a canvas and nowhere else. An app that wants a gradient card
-draws one on a canvas and lays its content over it in a `zstack`, which works but gives up the
+draws one on a canvas and lays its content over it in a [`zstack`](https://daybrite.dev/api/day_pieces/fn.zstack.html), which works but gives up the
 native container, its corner radius, and its clipping.
 
 Semantic colors are a separate question. There is no `theme::` token module, because default

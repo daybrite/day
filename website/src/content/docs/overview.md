@@ -23,8 +23,8 @@ The UI snippets use generated `res::str` accessors from an app's Fluent catalog;
 
 ## What an interface looks like
 
-Day calls a control or a group of controls a **piece**. Functions such as `label`, `button`,
-and `column` create pieces; builder methods configure them. A function returning `impl Piece`
+Day calls a control or a group of controls a **piece**. Functions such as [`label`](https://daybrite.dev/api/day_pieces/fn.label.html), [`button`](https://daybrite.dev/api/day_pieces/fn.button.html),
+and [`column`](https://daybrite.dev/api/day_pieces/fn.column.html) create pieces; builder methods configure them. A function returning `impl Piece`
 can become a reusable part of your interface.
 
 ```rust

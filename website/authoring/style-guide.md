@@ -68,8 +68,9 @@ that reference to its relevant page. For example, write
 Use the guide for a capability or crate reference; use Rustdoc for an exact function, type,
 method, or variant. Keep explicit links to source files when discussing their implementation.
 
-Use root-relative site destinations such as `/docs/reference/battery` and
-`/api/day_part_haptics/fn.is_supported.html`, without the `https://daybrite.dev` prefix. Preserve
+Use root-relative destinations for guides, such as `/docs/reference/battery`. Use absolute
+Rustdoc links, such as `https://daybrite.dev/api/day_part_haptics/fn.is_supported.html`, so local
+previews open the published API documentation. Preserve
 query strings and heading fragments. External projects with no Day guide may link to their
 repository or documentation; do not invent a local destination. Do not link a page's own name
 back to itself, or insert Markdown links into code fences, commands, resource names, or filenames.
@@ -87,8 +88,10 @@ Use **toolkit**, not **backend**, for Day's UI implementations: “Per-toolkit n
 and “Toolkit notes.” Keep actual API identifiers, feature names, source paths, and URLs unchanged.
 “Backend” remains appropriate for a server, storage provider, or other non-UI implementation.
 
-In platform tables, headings, and notes, use the standard target names (AppKit, UIKit, GTK, Qt,
-Android, WinUI, ArkUI, or DOM). The Markdown renderer adds the site's platform icons
+In platform tables, headings, and notes, use the human-readable names (AppKit, UIKit, GTK, Qt,
+Android, WinUI, ArkUI, or Web). Keep `web-dom` when listing full target IDs alongside names such
+as `macos-appkit` or `android-mdc`, and in commands, configuration, paths, and URLs.
+The Markdown renderer adds the site's platform icons
 and light/dark tint colors throughout headings, table cells, bold labels, and inline target IDs,
 including lowercase feature labels and names inside links or mixed Markdown. It also marks the
 first mention of each target in each paragraph of a platform-specific section (for example,
@@ -146,7 +149,13 @@ that Day supports every feature of that API. Preserve Day's support limits along
   determine public URLs. Product and contributor guides also use this collection.
 - Assign every public reference page to one task group in
   [reference-navigation.json](../src/data/reference-navigation.json). The sidebar and reference
-  index share this ordering; adding an uncategorized page fails the architecture check.
+  index share these groups; adding an uncategorized page fails the architecture check.
+  Use a short `navTitle` in front matter when the sidebar needs less detail than the page title.
+  Use plurals for categories of components or objects, such as Buttons, Pickers, and Text areas.
+  Keep concepts, activities, and technology names in their natural form, such as Progress,
+  Scrolling, and SwiftUI. Apply this convention consistently within each group.
+  Navigation entries sort alphabetically by their sidebar label within each group. App and
+  contributor tutorials retain their lesson sequence through `order` instead.
 - Existing internal docs remain canonical in `docs/`, with one H1 and no required front matter.
   Every Markdown page, including nested design and history records, needs a matching symlink in
   `website/src/content/internal/` and a route catalog entry. `published: false` keeps a source

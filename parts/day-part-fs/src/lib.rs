@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MPL-2.0
 
 //! day-part-fs: app-local file storage with one API on every target (docs/fs.md). No UI; any
-//! Rust code can depend on this crate and call [`read`]/[`write`]/[`list`]/[`remove`].
+//! Rust code can depend on this crate and call [`read`]/[`write()`]/[`list`]/[`remove`].
 //!
 //! ```no_run
 //! day_part_fs::write("notes/today.txt", b"rain later")?;
@@ -123,7 +123,7 @@ pub fn read_async(path: &str, on_done: impl FnOnce(BytesResult) + Send + 'static
     imp::read_async(path.to_string(), Box::new(on_done));
 }
 
-/// [`write`] without blocking.
+/// [`write()`] without blocking.
 pub fn write_async(path: &str, bytes: Vec<u8>, on_done: impl FnOnce(UnitResult) + Send + 'static) {
     if let Err(e) = check_path(path) {
         on_done(Err(e));

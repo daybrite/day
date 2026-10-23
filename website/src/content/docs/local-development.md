@@ -1,4 +1,5 @@
 ---
+navTitle: "Local development"
 title: Developing Day and an app together
 description: Build an app against a local day checkout with day patch, and the workflow for changing a framework crate and the app that demonstrates it in the same sitting.
 order: 35

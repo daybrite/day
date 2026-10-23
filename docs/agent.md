@@ -1,4 +1,5 @@
 ---
+navTitle: "Agent tools"
 title: "Agentic development"
 description: "How AI agents build, launch, drive, and screenshot a running Day app: the session registry, the MCP tools, and the crash post-mortem loop."
 ---

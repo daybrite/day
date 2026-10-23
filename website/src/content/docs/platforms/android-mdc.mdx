@@ -132,8 +132,8 @@ project. A custom host that does not apply Day's plugin must configure merging i
 
 - Immersive top chrome is an opt-in. A `dev.daybrite.day.EDGE_TO_EDGE` `<meta-data>` entry in
   the app manifest makes the status bar transparent and floats the nav bar over full-bleed pages;
-  nav host items marked [`.immersive()`](/docs/how-to/navigation) keep the floating scrim bar, other pages
-  get an opaque `colorPrimary` bar. Content pads itself by `day::safe_area()`
+  nav host items marked [`.immersive()`](https://daybrite.dev/api/day_pieces/struct.NavItem.html#method.immersive) keep the floating scrim bar, other pages
+  get an opaque `colorPrimary` bar. Content pads itself by [`day::safe_area()`](https://daybrite.dev/api/day/fn.safe_area.html)
   ([Layout](/docs/explanation/layout)). Without the opt-in, content renders below the bars.
 - Accessibility annotations are partial; see [the current limits](/docs/how-to/accessibility#current-limits).
 - Process death is a cold start unless your app persists its own state. Day does not restore a
@@ -155,37 +155,37 @@ one each piece uses.
 
 | Day piece | Android class |
 |---|---|
-| `column` / `row` / `nav_stack` / `section` | a `ViewGroup` subclass that lays children out at absolute frames |
-| `label` | [`TextView`](https://developer.android.com/reference/android/widget/TextView) |
-| `button` | [`MaterialButton`](https://developer.android.com/reference/com/google/android/material/button/MaterialButton) |
-| `toggle` | [`MaterialSwitch`](https://developer.android.com/reference/com/google/android/material/materialswitch/MaterialSwitch) |
-| `slider` | [`Slider`](https://developer.android.com/reference/com/google/android/material/slider/Slider) |
-| `text_field` | [`TextInputLayout`](https://developer.android.com/reference/com/google/android/material/textfield/TextInputLayout) wrapping [`TextInputEditText`](https://developer.android.com/reference/com/google/android/material/textfield/TextInputEditText) |
-| `secure_field` | the same field with a password input type |
-| `text_area` | [`EditText`](https://developer.android.com/reference/android/widget/EditText) (framework) |
-| `picker().menu()` | [`Spinner`](https://developer.android.com/reference/android/widget/Spinner) |
-| `picker().segmented()` | a row of framework [`Button`](https://developer.android.com/reference/android/widget/Button)s |
-| `picker().inline()` | [`RadioGroup`](https://developer.android.com/reference/android/widget/RadioGroup) |
-| `progress(f)` | [`LinearProgressIndicator`](https://developer.android.com/reference/com/google/android/material/progressindicator/LinearProgressIndicator) |
-| `spinner()` | Material `LoadingIndicator` (M3 Expressive) |
-| `divider` | [`MaterialDivider`](https://developer.android.com/reference/com/google/android/material/divider/MaterialDivider) |
-| `scroll` | [`ScrollView`](https://developer.android.com/reference/android/widget/ScrollView) / [`HorizontalScrollView`](https://developer.android.com/reference/android/widget/HorizontalScrollView) |
-| `list` | [`RecyclerView`](https://developer.android.com/reference/androidx/recyclerview/widget/RecyclerView) with a [`RecyclerView.Adapter`](https://developer.android.com/reference/androidx/recyclerview/widget/RecyclerView) (recycled cells; drag reorder via [`ItemTouchHelper`](https://developer.android.com/reference/androidx/recyclerview/widget/ItemTouchHelper)) |
-| `nav` | [`MaterialToolbar`](https://developer.android.com/reference/com/google/android/material/appbar/MaterialToolbar) over a fragment-driven `FrameLayout` |
+| [`column`](https://daybrite.dev/api/day_pieces/fn.column.html) / [`row`](https://daybrite.dev/api/day_pieces/fn.row.html) / [`nav_stack`](https://daybrite.dev/api/day_pieces/fn.nav_stack.html) / [`section`](https://daybrite.dev/api/day_pieces/fn.section.html) | a `ViewGroup` subclass that lays children out at absolute frames |
+| [`label`](https://daybrite.dev/api/day_pieces/fn.label.html) | [`TextView`](https://developer.android.com/reference/android/widget/TextView) |
+| [`button`](https://daybrite.dev/api/day_pieces/fn.button.html) | [`MaterialButton`](https://developer.android.com/reference/com/google/android/material/button/MaterialButton) |
+| [`toggle`](https://daybrite.dev/api/day_pieces/fn.toggle.html) | [`MaterialSwitch`](https://developer.android.com/reference/com/google/android/material/materialswitch/MaterialSwitch) |
+| [`slider`](https://daybrite.dev/api/day_pieces/fn.slider.html) | [`Slider`](https://developer.android.com/reference/com/google/android/material/slider/Slider) |
+| [`text_field`](https://daybrite.dev/api/day_pieces/fn.text_field.html) | [`TextInputLayout`](https://developer.android.com/reference/com/google/android/material/textfield/TextInputLayout) wrapping [`TextInputEditText`](https://developer.android.com/reference/com/google/android/material/textfield/TextInputEditText) |
+| [`secure_field`](https://daybrite.dev/api/day_pieces/fn.secure_field.html) | the same field with a password input type |
+| [`text_area`](https://daybrite.dev/api/day_pieces/fn.text_area.html) | [`EditText`](https://developer.android.com/reference/android/widget/EditText) (framework) |
+| [`picker`](https://daybrite.dev/api/day_pieces/fn.picker.html)`()`[`.menu`](https://daybrite.dev/api/day_pieces/trait.PickerBuilder.html#tymethod.menu)`()` | [`Spinner`](https://developer.android.com/reference/android/widget/Spinner) |
+| [`picker`](https://daybrite.dev/api/day_pieces/fn.picker.html)`()`[`.segmented`](https://daybrite.dev/api/day_pieces/trait.PickerBuilder.html#tymethod.segmented)`()` | a row of framework [`Button`](https://developer.android.com/reference/android/widget/Button)s |
+| [`picker`](https://daybrite.dev/api/day_pieces/fn.picker.html)`()`[`.inline`](https://daybrite.dev/api/day_pieces/trait.PickerBuilder.html#tymethod.inline)`()` | [`RadioGroup`](https://developer.android.com/reference/android/widget/RadioGroup) |
+| [`progress(f)`](https://daybrite.dev/api/day_pieces/fn.progress.html) | [`LinearProgressIndicator`](https://developer.android.com/reference/com/google/android/material/progressindicator/LinearProgressIndicator) |
+| [`spinner()`](https://daybrite.dev/api/day_pieces/fn.spinner.html) | Material `LoadingIndicator` (M3 Expressive) |
+| [`divider`](https://daybrite.dev/api/day_pieces/fn.divider.html) | [`MaterialDivider`](https://developer.android.com/reference/com/google/android/material/divider/MaterialDivider) |
+| [`scroll`](https://daybrite.dev/api/day_pieces/fn.scroll.html) | [`ScrollView`](https://developer.android.com/reference/android/widget/ScrollView) / [`HorizontalScrollView`](https://developer.android.com/reference/android/widget/HorizontalScrollView) |
+| [`list`](https://daybrite.dev/api/day_pieces/fn.list.html) | [`RecyclerView`](https://developer.android.com/reference/androidx/recyclerview/widget/RecyclerView) with a [`RecyclerView.Adapter`](https://developer.android.com/reference/androidx/recyclerview/widget/RecyclerView) (recycled cells; drag reorder via [`ItemTouchHelper`](https://developer.android.com/reference/androidx/recyclerview/widget/ItemTouchHelper)) |
+| [`nav`](https://daybrite.dev/api/day_pieces/fn.nav.html) | [`MaterialToolbar`](https://developer.android.com/reference/com/google/android/material/appbar/MaterialToolbar) over a fragment-driven `FrameLayout` |
 | `nav_menu` | scrolling [`TextView`](https://developer.android.com/reference/android/widget/TextView) rows |
 | `tabs` | [`BottomNavigationView`](https://developer.android.com/reference/com/google/android/material/bottomnavigation/BottomNavigationView) |
-| `cover()` | a full-screen `FrameLayout` shell |
-| `image` | [`ImageView`](https://developer.android.com/reference/android/widget/ImageView) |
-| `vector` | [`ImageView`](https://developer.android.com/reference/android/widget/ImageView) loading a [`VectorDrawable`](https://developer.android.com/reference/android/graphics/drawable/VectorDrawable) staged into `res/drawable/` (art outside the VectorDrawable subset ships the raster instead, with a lint heads-up) |
-| `canvas` | a [`View`](https://developer.android.com/reference/android/view/View) subclass replaying the display list onto [`Canvas`](https://developer.android.com/reference/android/graphics/Canvas) |
+| [`cover()`](https://daybrite.dev/api/day_pieces/fn.cover.html) | a full-screen `FrameLayout` shell |
+| [`image`](https://daybrite.dev/api/day_pieces/fn.image.html) | [`ImageView`](https://developer.android.com/reference/android/widget/ImageView) |
+| [`vector`](https://daybrite.dev/api/day_pieces/fn.vector.html) | [`ImageView`](https://developer.android.com/reference/android/widget/ImageView) loading a [`VectorDrawable`](https://developer.android.com/reference/android/graphics/drawable/VectorDrawable) staged into `res/drawable/` (art outside the VectorDrawable subset ships the raster instead, with a lint heads-up) |
+| [`canvas`](https://daybrite.dev/api/day_pieces/fn.canvas.html) | a [`View`](https://developer.android.com/reference/android/view/View) subclass replaying the display list onto [`Canvas`](https://developer.android.com/reference/android/graphics/Canvas) |
 | dialogs / alerts / prompts | [`MaterialAlertDialogBuilder`](https://developer.android.com/reference/com/google/android/material/dialog/MaterialAlertDialogBuilder) |
 | file dialogs | Storage Access Framework intents |
 | context menus | [`PopupMenu`](https://developer.android.com/reference/android/widget/PopupMenu) |
-| *external* `activity()` | [`ProgressBar`](https://developer.android.com/reference/android/widget/ProgressBar) (framework, circular) |
+| *external* [`activity()`](https://daybrite.dev/api/day_piece_activity/fn.activity.html) | [`ProgressBar`](https://developer.android.com/reference/android/widget/ProgressBar) (framework, circular) |
 | *external* `combobox()` | [`AutoCompleteTextView`](https://developer.android.com/reference/android/widget/AutoCompleteTextView) |
-| *external* `search_field()` | [`EditText`](https://developer.android.com/reference/android/widget/EditText) with `IME_ACTION_SEARCH` |
-| *external* `date_picker()` | [`MaterialDatePicker`](https://developer.android.com/reference/com/google/android/material/datepicker/MaterialDatePicker), or inline [`DatePicker`](https://developer.android.com/reference/android/widget/DatePicker) |
-| *external* `time_picker()` | [`MaterialTimePicker`](https://developer.android.com/reference/com/google/android/material/timepicker/MaterialTimePicker), or inline [`TimePicker`](https://developer.android.com/reference/android/widget/TimePicker) |
+| *external* [`search_field()`](https://daybrite.dev/api/day_piece_searchfield/fn.search_field.html) | [`EditText`](https://developer.android.com/reference/android/widget/EditText) with `IME_ACTION_SEARCH` |
+| *external* [`date_picker()`](https://daybrite.dev/api/day_piece_datetime/fn.date_picker.html) | [`MaterialDatePicker`](https://developer.android.com/reference/com/google/android/material/datepicker/MaterialDatePicker), or inline [`DatePicker`](https://developer.android.com/reference/android/widget/DatePicker) |
+| *external* [`time_picker()`](https://daybrite.dev/api/day_piece_datetime/fn.time_picker.html) | [`MaterialTimePicker`](https://developer.android.com/reference/com/google/android/material/timepicker/MaterialTimePicker), or inline [`TimePicker`](https://developer.android.com/reference/android/widget/TimePicker) |
 | *external* `pull_refresh()` | [`SwipeRefreshLayout`](https://developer.android.com/reference/androidx/swiperefreshlayout/widget/SwipeRefreshLayout) |
 | *external* `webview()` | [`WebView`](https://developer.android.com/reference/android/webkit/WebView) |
 | *external* `media()` | [`VideoView`](https://developer.android.com/reference/android/widget/VideoView) |

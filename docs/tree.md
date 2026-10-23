@@ -1,4 +1,5 @@
 ---
+navTitle: "Trees"
 title: "Tree"
 description: "Display hierarchical data with stable row IDs, expansion, and selection."
 ---
@@ -25,9 +26,9 @@ where
     P: Piece;
 ```
 
-Use `branches(items_fn, key_of, parent_of)` for plain data, or a model store's tree adapter with
+Use [`branches(items_fn, key_of, parent_of)`](https://daybrite.dev/api/day_pieces/fn.branches.html) for plain data, or a model store's tree adapter with
 the `model` feature. A source key must be stable; slots are recycled values, not permanent row
-identity. `branches` preserves sibling input order and treats an absent parent key as a root.
+identity. [`branches`](https://daybrite.dev/api/day_pieces/fn.branches.html) preserves sibling input order and treats an absent parent key as a root.
 The row builder runs on the UI thread and returns a Piece; render changing slot values through
 tracked reads. Use generated accessors for app-owned row labels and keep user data separate.
 
@@ -76,20 +77,20 @@ of the row's title so renaming or translating a title does not change its test i
 
 | Builder | Default and behavior |
 | --- | --- |
-| `row_height` | `RowHeight::Automatic`; `Uniform(h)` supplies fixed row sizing |
-| `indent` | Unset: toolkit default indentation |
-| `section_headers()` | Off; when enabled, root branches are nonselectable headings and children must be leaves |
-| `expanded(binding)` | Optional app-owned `HashSet<Key>`; user disclosure writes it; app writes update the tree |
-| `on_expansion(f)` | Reports user/script changes, not programmatic expansion writes |
-| `expandable(f)` | Defaults to having children now; override for an empty branch that can accept children |
-| `selected(f)` / `on_selection(f)` | Optional selection source and callback; connect both for two-way selection |
-| `row_id(f)` | Optional stable element ID derived from the current key; reevaluated during recycling |
-| `row_context_menu(f)` | Optional menu built when summoned for the current key |
+| [`row_height`](https://daybrite.dev/api/day_pieces/trait.TreeBuilder.html#tymethod.row_height) | `RowHeight::Automatic`; `Uniform(h)` supplies fixed row sizing |
+| [`indent`](https://daybrite.dev/api/day_pieces/trait.TreeBuilder.html#tymethod.indent) | Unset: toolkit default indentation |
+| [`section_headers()`](https://daybrite.dev/api/day_pieces/trait.TreeBuilder.html#tymethod.section_headers) | Off; when enabled, root branches are nonselectable headings and children must be leaves |
+| [`expanded(binding)`](https://daybrite.dev/api/day_pieces/trait.TreeBuilder.html#tymethod.expanded) | Optional app-owned `HashSet<Key>`; user disclosure writes it; app writes update the tree |
+| [`on_expansion(f)`](https://daybrite.dev/api/day_pieces/trait.TreeBuilder.html#tymethod.on_expansion) | Reports user/script changes, not programmatic expansion writes |
+| [`expandable(f)`](https://daybrite.dev/api/day_pieces/trait.TreeBuilder.html#tymethod.expandable) | Defaults to having children now; override for an empty branch that can accept children |
+| [`selected(f)`](https://daybrite.dev/api/day_pieces/trait.TreeBuilder.html#tymethod.selected) / [`on_selection(f)`](https://daybrite.dev/api/day_pieces/trait.TreeBuilder.html#tymethod.on_selection) | Optional selection source and callback; connect both for two-way selection |
+| [`row_id(f)`](https://daybrite.dev/api/day_pieces/trait.TreeBuilder.html#tymethod.row_id) | Optional stable element ID derived from the current key; reevaluated during recycling |
+| [`row_context_menu(f)`](https://daybrite.dev/api/day_pieces/trait.TreeBuilder.html#tymethod.row_context_menu) | Optional menu built when summoned for the current key |
 
 Multi-selection and movement are off by default. The
-[TreePiece API](/api/day_pieces/struct.TreePiece.html) lists move guards,
+[TreePiece API](https://daybrite.dev/api/day_pieces/struct.TreePiece.html) lists move guards,
 reveal, and type-ahead options.
-`tree` does not return a construction `Result`; malformed source data is not thereby validated.
+[`tree`](https://daybrite.dev/api/day_pieces/fn.tree.html) does not return a construction `Result`; malformed source data is not thereby validated.
 
 ## Platform rendering
 
@@ -105,7 +106,7 @@ reveal, and type-ahead options.
 
 The piece uses a native tree when `Cap::Tree` is `Native`. Otherwise it flattens expanded
 branches into list rows while retaining the same expansion and selection API. A two-level
-`section_headers()` tree can use `Cap::TreeSections`; multi-selection uses the full-tree path.
+[`section_headers()`](https://daybrite.dev/api/day_pieces/trait.TreeBuilder.html#tymethod.section_headers) tree can use `Cap::TreeSections`; multi-selection uses the full-tree path.
 
 Use [lists](list.md) for flat rows and [navigation](navigation.md) for destinations.
 

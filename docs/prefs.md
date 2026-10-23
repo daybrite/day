@@ -1,4 +1,5 @@
 ---
+navTitle: "Preferences"
 title: "Preferences storage"
 description: "Persistent key-value preferences via day-part-prefs, stored in each platform's native store."
 ---
@@ -11,7 +12,7 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 # Persistent preferences
 
 `day::prefs` stores small string values between launches, such as a selected theme or volume.
-It is provided by [`day-part-prefs`](/api/day_part_prefs/index.html) and re-exported by `day` through the default-enabled `prefs`
+It is provided by [`day-part-prefs`](https://daybrite.dev/api/day_part_prefs/index.html) and re-exported by `day` through the default-enabled `prefs`
 feature. Apps using the facade do not need a separate dependency.
 
 ## Add to your app
@@ -32,10 +33,10 @@ or dependency entry in `Day.toml` are needed.
 | --- | --- |
 | macOS, iOS, Android, Windows, Linux (GTK / Qt), HarmonyOS, Web | Small string values; native stores or files on native targets, localStorage on Web. This is not encrypted secret storage. |
 
-Use [`bind`](/api/day_part_prefs/fn.bind.html) to restore a signal’s saved value and persist later changes. For files, use
+Use [`bind`](https://daybrite.dev/api/day_part_prefs/fn.bind.html) to restore a signal’s saved value and persist later changes. For files, use
 [app-local file storage](fs.md). Neither API is an encrypted store for passwords or tokens.
 
-A direct [`day-part-prefs`](/api/day_part_prefs/index.html) dependency remains available. The `day::prefs` and `day_part_prefs`
+A direct [`day-part-prefs`](https://daybrite.dev/api/day_part_prefs/index.html) dependency remains available. The `day::prefs` and `day_part_prefs`
 paths expose the same API. Disabling the facade’s default features removes its preferences
 dependency; enable any other default features your app still needs explicitly.
 
@@ -50,13 +51,13 @@ day::prefs::remove("greeting");                      // delete it
 
 | Function | Behavior |
 |---|---|
-| [`set(key, value) -> bool`](/api/day_part_prefs/fn.set.html) | Persist `value` under `key`, overwriting. `true` when the write committed. |
-| [`get(key) -> Option<String>`](/api/day_part_prefs/fn.get.html) | The stored string, or `None` if absent. A stored `""` is `Some("")`. |
-| [`remove(key) -> bool`](/api/day_part_prefs/fn.remove.html) | Delete the value; `true` only if it existed and was removed. |
-| [`contains(key) -> bool`](/api/day_part_prefs/fn.contains.html) | Whether a value is currently stored under `key`. |
-| [`bind(key, signal)`](/api/day_part_prefs/fn.bind.html) | Two-way-bind a `Signal<T>` to a stored value: seed from the store now, persist every later change. `T` round-trips through `FromStr`/`ToString`. Call it right after creating the signal; the write-back stops with the creating scope. |
-| `bind_json(key, store)` | (`day::prefs`, with the `model` feature.) Keep a keyed [day-model](/docs/explanation/model) store (`Store<Keyed<T>>`, `T: Serialize + DeserializeOwned`) under `key` as one JSON array: seed it from the saved rows now, then save every later change, a field edit as well as an insert, removal or move. An unreadable value leaves the store as it is and logs a warning. Suits a small list; larger documents belong in [day-persistence](persistence.md). |
-| [`install_nav_store()`](/api/day_part_prefs/fn.install_nav_store.html) | Install this store as day-core's navigation-persistence sink, so a `nav`/`nav_stack` marked `.restore(key)` remembers its state across launches (and an Android process death). `day::launch` calls it when the app has installed no store of its own, so an app calls it only when it boots without the facade. Nav keys are namespaced under `day.nav.`. See [navigation](navigation.md). |
+| [`set(key, value) -> bool`](https://daybrite.dev/api/day_part_prefs/fn.set.html) | Persist `value` under `key`, overwriting. `true` when the write committed. |
+| [`get(key) -> Option<String>`](https://daybrite.dev/api/day_part_prefs/fn.get.html) | The stored string, or `None` if absent. A stored `""` is `Some("")`. |
+| [`remove(key) -> bool`](https://daybrite.dev/api/day_part_prefs/fn.remove.html) | Delete the value; `true` only if it existed and was removed. |
+| [`contains(key) -> bool`](https://daybrite.dev/api/day_part_prefs/fn.contains.html) | Whether a value is currently stored under `key`. |
+| [`bind(key, signal)`](https://daybrite.dev/api/day_part_prefs/fn.bind.html) | Two-way-bind a `Signal<T>` to a stored value: seed from the store now, persist every later change. `T` round-trips through `FromStr`/`ToString`. Call it right after creating the signal; the write-back stops with the creating scope. |
+| [`bind_json(key, store)`](https://daybrite.dev/api/day/prefs/fn.bind_json.html) | (`day::prefs`, with the `model` feature.) Keep a keyed [day-model](/docs/explanation/model) store (`Store<Keyed<T>>`, `T: Serialize + DeserializeOwned`) under `key` as one JSON array: seed it from the saved rows now, then save every later change, a field edit as well as an insert, removal or move. An unreadable value leaves the store as it is and logs a warning. Suits a small list; larger documents belong in [day-persistence](persistence.md). |
+| [`install_nav_store()`](https://daybrite.dev/api/day_part_prefs/fn.install_nav_store.html) | Install this store as day-core's navigation-persistence sink, so a [`nav`](https://daybrite.dev/api/day_pieces/fn.nav.html)/[`nav_stack`](https://daybrite.dev/api/day_pieces/fn.nav_stack.html) marked [`.restore(key)`](https://daybrite.dev/api/day_pieces/trait.NavBuilder.html#tymethod.restore) remembers its state across launches (and an Android process death). [`day::launch`](https://daybrite.dev/api/day/fn.launch.html) calls it when the app has installed no store of its own, so an app calls it only when it boots without the facade. Nav keys are namespaced under `day.nav.`. See [navigation](navigation.md). |
 
 Values persist across launches. Platform selection is purely `#[cfg(target_os)]` (plus
 `#[cfg(target_arch = "wasm32")]` for the web), since persistence depends on the OS, not on which
@@ -92,11 +93,11 @@ Platform guidance: [Apple: settings](https://developer.apple.com/design/human-in
   (no [`NSApplication`](https://developer.apple.com/documentation/appkit/nsapplication)/[`UIApplication`](https://developer.apple.com/documentation/uikit/uiapplication), run loop, or window), so the crate works in `day-qt` binaries
   and plain `cargo test` processes as well as under `day-appkit`/`day-uikit`. `setObject:forKey:` is
   the only `unsafe` objc2 call (the value must be a property-list type, and we always pass a real
-  [`NSString`](https://developer.apple.com/documentation/foundation/nsstring)); writes are immediately readable and flushed to disk by the system. `set` always
+  [`NSString`](https://developer.apple.com/documentation/foundation/nsstring)); writes are immediately readable and flushed to disk by the system. [`set`](https://daybrite.dev/api/day_part_prefs/fn.set.html) always
   returns `true`.
 - **Android**: an app-private [`SharedPreferences`](https://developer.android.com/reference/android/content/SharedPreferences) file named `day_part_prefs`, opened with
   `Context.MODE_PRIVATE` from `day-android`'s cached `Context` (`DayBridge.ctx`). Writes use
-  `Editor.commit()` (synchronous), so `set`/`remove` return the true commit result. No manifest
+  `Editor.commit()` (synchronous), so [`set`](https://daybrite.dev/api/day_part_prefs/fn.set.html)/[`remove`](https://daybrite.dev/api/day_part_prefs/fn.remove.html) return the true commit result. No manifest
   permission is required; [`SharedPreferences`](https://developer.android.com/reference/android/content/SharedPreferences) is private storage. Like the UI pieces, the crate
   stages its own Java shim through `[package.metadata.day.android]` and rides the Day runtime (it
   needs the app's JVM + `Context`).
@@ -112,16 +113,16 @@ Platform guidance: [Apple: settings](https://developer.apple.com/design/human-in
   raw `=` on a line is unambiguously the separator and a value may contain anything. Writes are
   best-effort atomic (write a sibling temp file, then rename over the target); a process-wide mutex
   serializes load-modify-save cycles. Every read tolerates a missing, unreadable, or corrupt file
-  by treating the store as empty, so a partial write or a hand-edit can never panic a caller. `set`
+  by treating the store as empty, so a partial write or a hand-edit can never panic a caller. [`set`](https://daybrite.dev/api/day_part_prefs/fn.set.html)
   returns `false` only when the store file could not be written (e.g. a read-only home). It depends
   on `std` only.
-- **Web (web-dom)**: `localStorage`, reached through the day-dom host shim's `day_dom_pref_*`
+- **Web**: `localStorage`, reached through the day-dom host shim's `day_dom_pref_*`
   imports under a `day.pref.` key namespace. Values survive reloads and browser restarts,
   scoped per origin. `localStorage` can throw (private browsing, storage pressure); failures
   report as uncommitted/absent, matching the contract everywhere else. The showcase's Controls
   page binds its state through this store, so a reload keeps the counter ([docs/web](web.md)). On
   wasm outside a day-dom host page the imports are unresolved and instantiation fails.
-- **Any other platform**: a no-op store: `set`/`remove`/`contains` return `false`, `get` returns
+- **Any other platform**: a no-op store: [`set`](https://daybrite.dev/api/day_part_prefs/fn.set.html)/[`remove`](https://daybrite.dev/api/day_part_prefs/fn.remove.html)/[`contains`](https://daybrite.dev/api/day_part_prefs/fn.contains.html) return `false`, [`get`](https://daybrite.dev/api/day_part_prefs/fn.get.html) returns
   `None`.
 
 ## What it shows about the extension system
@@ -145,7 +146,7 @@ persistence by hand on macOS, unbundled binaries store under the process-name de
 
 `bind<T>` requires `FromStr + ToString + Clone + 'static`. Invalid saved text leaves the initial
 signal value unchanged. It persists later watched changes, not the initial default. Its callback
-ignores `set`'s boolean result; use explicit writes when the UI must report a failure. Keep UI
+ignores [`set`](https://daybrite.dev/api/day_part_prefs/fn.set.html)'s boolean result; use explicit writes when the UI must report a failure. Keep UI
 messages in generated accessors and treat stored strings as data.
 
 The example values above are synthetic fixtures, not UI translations. Compile-designated code

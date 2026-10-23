@@ -8,8 +8,8 @@
 #
 # The crate list lives in website/src/data/api-crates.json (the same file the /docs/reference/api bridge page
 # reads), so the reference and the page never drift. Every crate documents portably, with no native
-# toolkit and no cross-compiler: the core crates need no features and the `day` umbrella uses its
-# headless `mock` backend, so this runs on a stock Linux CI runner. A small "back to Day docs" pill
+# toolkit and no cross-compiler: optional `model` integrations are included and the `day` umbrella
+# uses its headless `mock` backend, so this runs on a stock Linux CI runner. A small "back to Day docs" pill
 # is injected into every rustdoc page via rustdoc's stable --html-in-header / --html-after-content.
 set -euo pipefail
 
@@ -70,7 +70,7 @@ while IFS= read -r crate_dir; do
   mkdir -p "target/doc/$crate_dir"
 done < <(jq -r '.groups[].crates[].pkg | gsub("-"; "_")' "$manifest")
 
-# Crates with no `features` doc together in one pass; each `features` crate (only `day`) docs on its own
+# Crates with no `features` doc together in one pass; each feature-enabled crate docs on its own
 # so cargo resolves the right single-backend feature set.
 pflags=(); n=0
 while IFS= read -r p; do

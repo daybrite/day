@@ -1,4 +1,5 @@
 ---
+navTitle: "Scrolling"
 title: "Programmatic scrolling"
 description: "scroll_to and scroll position: driving native scroll views from Rust, and what each toolkit can promise."
 ---
@@ -10,10 +11,10 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 # Programmatic scrolling
 
-Scroll to an item, an edge, or an offset in response to an app action. The `scroll` piece
+Scroll to an item, an edge, or an offset in response to an app action. The [`scroll`](https://daybrite.dev/api/day_pieces/fn.scroll.html) piece
 keeps native gestures and scrolling behavior while letting code reveal content programmatically.
 
-The `scroll` piece stays gesture-first: the native widget owns the viewport, physics, and
+The [`scroll`](https://daybrite.dev/api/day_pieces/fn.scroll.html) piece stays gesture-first: the native widget owns the viewport, physics, and
 indicators. This document covers driving it from code and from dayscript.
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
@@ -35,9 +36,9 @@ button(res::str::item_100()).action(move || {
 ```
 
 `ScrollTarget::Id` still takes a string: convert the typed ID at this boundary. The target row
-must declare the matching `.id(id!(row, 100_u64))` (or `.id_of` for a recycled row).
+must declare the matching [`.id(id!(row, 100_u64))`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.id) (or [`.id_of`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.id_of) for a recycled row).
 
-`.scroll_target(sig)` takes a `Signal<Option<ScrollTarget>>`: each `Some(target)` written to it
+[`.scroll_target(sig)`](https://daybrite.dev/api/day_pieces/trait.ScrollBuilder.html#tymethod.scroll_target) takes a `Signal<Option<ScrollTarget>>`: each `Some(target)` written to it
 scrolls there (animated), then the signal resets to `None`, so the same target can be sent
 twice in a row. `ScrollTarget` is:
 
@@ -48,14 +49,14 @@ twice in a row. `ScrollTarget` is:
 | `Offset(Point)` | pin the viewport origin to a content-space point (clamped to range) |
 | `Id(String)` | reveal the element with that dayscript id inside its nearest enclosing scroll |
 
-Lower-level, `day_core::scroll_to(node, target)` drives any scroll node directly, and
-`TreeOps::scroll_reveal(node, animated)` scrolls an element's nearest scroll ancestor so the
+Lower-level, [`day_core::scroll_to(node, target)`](https://daybrite.dev/api/day_core/fn.scroll_to.html) drives any scroll node directly, and
+[`TreeOps::scroll_reveal(node, animated)`](https://daybrite.dev/api/day_core/trait.TreeOps.html#tymethod.scroll_reveal) scrolls an element's nearest scroll ancestor so the
 element is visible, the same call keyboard avoidance uses ([docs/focus](focus.md)). Reveals are minimal:
 content already in view doesn't move.
 
 The showcase's List page is the live reference (`Day-Showcase/src/pages/list.rs`): its scroll
-buttons drive the recycling list's row rail (`.scroll_to_row`/`.scroll_to_end`, [docs/list](list.md));
-`scroll_target` on a plain `scroll` piece works the same way with a `ScrollTarget`.
+buttons drive the recycling list's row rail ([`.scroll_to_row`](https://daybrite.dev/api/day_pieces/trait.ListBuilder.html#tymethod.scroll_to_row)/[`.scroll_to_end`](https://daybrite.dev/api/day_pieces/trait.ListBuilder.html#tymethod.scroll_to_end), [docs/list](list.md));
+[`scroll_target`](https://daybrite.dev/api/day_pieces/trait.ScrollBuilder.html#tymethod.scroll_target) on a plain [`scroll`](https://daybrite.dev/api/day_pieces/fn.scroll.html) piece works the same way with a `ScrollTarget`.
 
 ## dayscript
 
@@ -67,7 +68,7 @@ buttons drive the recycling list's row rail (`.scroll_to_row`/`.scroll_to_end`, 
 
 The step is unanimated so the next step sees the settled position. `assert_visible` remains a
 presence check (realized + nonzero frame; DESIGN Appendix C); it does not test whether an
-element is inside the viewport, so pair `scroll_to` with screenshots when the test is about
+element is inside the viewport, so pair [`scroll_to`](https://daybrite.dev/api/day_core/fn.scroll_to.html) with screenshots when the test is about
 what's on screen.
 
 ## How a target becomes a scroll
@@ -99,7 +100,7 @@ vertical content out at the scroll view's full width. Qt's Fusion style instead 
 that takes its width out of the viewport while the content overflows. Content laid out at the full
 width would then sit partly under the bar and scroll sideways by the bar's width.
 
-The `Toolkit::scroll_bar_inset` duty reports how much room that bar takes: its width for a
+The [`Toolkit::scroll_bar_inset`](https://daybrite.dev/api/day_spec/trait.Toolkit.html#method.scroll_bar_inset) duty reports how much room that bar takes: its width for a
 vertical scroll, its height for a horizontal one. When the content overflows, `ScrollLayout`
 lays it out again that much narrower, so it fits beside the bar. Content that fits keeps the
 full width, because no bar appears. The default is 0, which is right for every overlay-bar toolkit.

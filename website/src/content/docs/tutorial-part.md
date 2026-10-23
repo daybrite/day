@@ -1,4 +1,5 @@
 ---
+navTitle: "Platform part"
 title: "Tutorial: A part with native platform code"
 description: Build a headless capability crate (a battery monitor) with a shared Rust API and per-platform native implementations (Rust FFI, Android Java, and more), selected by cfg. Includes how to contribute a Java shim and iOS framework to the app build, and how a bridge generates that same glue.
 order: 43
@@ -14,14 +15,14 @@ A part exposes an operating-system capability through a shared Rust API, without
 This tutorial uses the battery monitor in
 [`day-part-battery`](https://github.com/daybrite/day/tree/main/parts/day-part-battery) to show how
 native implementations are selected at compile time and included in the app build.
-The public entry point is `day_part_battery::status()`.
+The public entry point is [`day_part_battery::status()`](https://daybrite.dev/api/day_part_battery/fn.status.html).
 
 ## 1. What a part is (and when to build one)
 
 A **part** is a *headless capability crate*. It has:
 
 - **No UI:** it has no renderer, so it never depends on a toolkit.
-- **A flat cross-platform API:** one or two free functions like `status() -> Option<BatteryStatus>`.
+- **A flat cross-platform API:** one or two free functions like [`status() -> Option<BatteryStatus>`](https://daybrite.dev/api/day_part_battery/fn.status.html).
 - **Per-OS native implementations**, selected at compile time by `#[cfg(target_os = "…")]` rather
   than a Cargo feature, because a battery is an OS concern rather than a toolkit one.
 
@@ -115,13 +116,13 @@ pub fn status() -> Option<BatteryStatus> {
 }
 ```
 
-The public `status()` is a one-liner that forwards to `imp::status()`. `imp` is a different module
+The public [`status()`](https://daybrite.dev/api/day_part_battery/fn.status.html) is a one-liner that forwards to `imp::status()`. `imp` is a different module
 on every platform, and that indirection does the dispatch.
 
 ### The cfg/path dispatch (and the mandatory fallback)
 
 Below the API, `lib.rs` binds `imp` to exactly one file per target with `#[cfg]` + `#[path]`. Each
-file exposes the same private `fn status() -> Option<BatteryStatus>`:
+file exposes the same private [`fn status() -> Option<BatteryStatus>`](https://daybrite.dev/api/day_part_battery/fn.status.html):
 
 ```rust
 #[cfg(target_os = "macos")]
@@ -167,7 +168,7 @@ mod imp {
 
 - **HarmonyOS is `target_os = "linux"`** but sandboxes `/sys` away, so it is disambiguated with
   `target_env = "ohos"`: one arm for desktop Linux, one for OpenHarmony.
-- **The catch-all `#[cfg(not(any(...)))]` fallback is not optional.** Without it, `status()` would
+- **The catch-all `#[cfg(not(any(...)))]` fallback is not optional.** Without it, [`status()`](https://daybrite.dev/api/day_part_battery/fn.status.html) would
   fail to compile on any target you did not enumerate (a WASM build, a BSD, a bare `cargo check` on
   an exotic host). The fallback module returns `None` so the crate compiles everywhere and reports
   "no battery API here." The fallback makes the API's `Option` promise hold on every target.
@@ -520,10 +521,10 @@ fn main() {
 That is
 [`parts/day-part-battery/examples/battery.rs`](https://github.com/daybrite/day/blob/main/parts/day-part-battery/examples/battery.rs)
 unchanged: a `main` with no Day dependency, which `cargo run -p day-part-battery --example battery`
-runs. Inside a Day app you would bind the reading into a `Signal` and drive a `label` or a `canvas`
+runs. Inside a Day app you would bind the reading into a `Signal` and drive a [`label`](https://daybrite.dev/api/day_pieces/fn.label.html) or a [`canvas`](https://daybrite.dev/api/day_pieces/fn.canvas.html)
 gauge with it, but the part itself knows nothing about UI.
 
-On a target with no battery API (or a device with no battery, or the iOS simulator), `status()`
+On a target with no battery API (or a device with no battery, or the iOS simulator), [`status()`](https://daybrite.dev/api/day_part_battery/fn.status.html)
 returns `None`, and the fallback module from step 2 keeps the crate compiling everywhere. A test in
 the crate checks this:
 
@@ -545,7 +546,7 @@ of thing an LLM drafts well.
 
 The recommended workflow:
 
-1. **Write the Rust `imp` signature first.** `fn status() -> Option<BatteryStatus>` is the contract
+1. **Write the Rust `imp` signature first.** [`fn status() -> Option<BatteryStatus>`](https://daybrite.dev/api/day_part_battery/fn.status.html) is the contract
    every platform must satisfy. Decide the wire format up front (the packed-`long` trick the Android
    shim uses is a good pattern: it keeps the JNI/FFI boundary to a single primitive).
 2. **Ask an LLM to draft the native side** from a one-line description of the platform API: "a Java

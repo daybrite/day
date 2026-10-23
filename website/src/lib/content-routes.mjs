@@ -44,12 +44,12 @@ export const hubs = [
 
 export const fixedRoutes = ['/', '/gallery', '/showcase', '/privacy', '/examples', '/docs/reference/api'];
 export const groups = [
-  { name: 'Tutorials', route: '/docs/tutorials', audience: 'app developer' },
+  { name: 'Tutorials', route: '/docs/tutorials', audience: 'app developer', sequential: true },
   { name: 'How-to guides', route: '/docs/how-to', audience: 'app developer' },
   { name: 'Reference', route: '/docs/reference', audience: 'app developer' },
   { name: 'Explanation', route: '/docs/explanation', audience: 'app developer' },
   { name: 'Framework development', route: '/contributing', audience: 'contributor', direct: true },
-  { name: 'Contributor tutorials', route: '/contributing/tutorials', audience: 'contributor' },
+  { name: 'Contributor tutorials', route: '/contributing/tutorials', audience: 'contributor', sequential: true },
   { name: 'Backend contracts', route: '/contributing/backend-contracts', audience: 'contributor' },
   { name: 'Documentation', route: '/contributing/documentation', audience: 'contributor' },
   { name: 'History', route: '/contributing/history', audience: 'contributor' },
@@ -60,7 +60,10 @@ export function belongsTo(page, group) {
     (!group.direct || !page.route.slice(group.route.length + 1).includes('/'));
 }
 
-/** One explicit placement per reference page, shared by the sidebar and reference index. */
+const byNavigationTitle = (a, b) => (a.navTitle ?? a.title ?? a.route)
+  .localeCompare(b.navTitle ?? b.title ?? b.route, 'en', { sensitivity: 'base' });
+
+/** One placement per reference page; sort each group by its visible sidebar labels. */
 export function referenceNavigation(pages) {
   const byRoute = new Map(pages.filter(isPublished).map((p) => [p.route, p]));
   const assigned = new Set();
@@ -71,7 +74,7 @@ export function referenceNavigation(pages) {
       if (assigned.has(route)) throw new Error(`Duplicate reference placement: ${route}`);
       assigned.add(route);
       return byRoute.has(route) ? [byRoute.get(route)] : [];
-    }),
+    }).sort(byNavigationTitle),
   }));
   for (const page of byRoute.values()) {
     if (page.route.startsWith('/docs/reference/') && !assigned.has(page.route)) {
@@ -88,7 +91,7 @@ export function navigation(pages, audience) {
     return {
       ...group, sections,
       pages: sections.length ? sections.flatMap((s) => s.pages) :
-        members.sort((a, b) => a.order - b.order || a.title.localeCompare(b.title)),
+        members.sort((a, b) => (group.sequential ? a.order - b.order : 0) || byNavigationTitle(a, b)),
     };
   });
 }

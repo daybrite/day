@@ -82,9 +82,9 @@ fn summary_page(count: Signal<i64>) -> impl Piece {
 }
 ```
 
-`nav(section)` binds navigation to the selected route key. The strings `counter` and `summary`
+[`nav(section)`](https://daybrite.dev/api/day_pieces/fn.nav.html) binds navigation to the selected route key. The strings `counter` and `summary`
 are protocol identifiers, not visible labels; the Fluent accessors supply the labels.
-`.item` associates each key with a page-building closure. `NavStyle::Sidebar` selects a sidebar
+[`.item`](https://daybrite.dev/api/day_pieces/trait.NavBuilder.html#tymethod.item) associates each key with a page-building closure. `NavStyle::Sidebar` selects a sidebar
 presentation on this desktop target.
 
 Create `count` in `root`, above the page builders. Sidebar pages can be disposed when you switch
@@ -103,8 +103,8 @@ should show zero. Quit the app.
 
 ## Troubleshooting
 
-If switching pages resets the count, ensure `Signal::new(0i64)` appears only in `root`, not in a
-page function. If a section is blank, compare the initial selection with the `.item` keys.
+If switching pages resets the count, ensure [`Signal::new(0i64)`](https://daybrite.dev/api/day_reactive/struct.Signal.html#method.new) appears only in `root`, not in a
+page function. If a section is blank, compare the initial selection with the [`.item`](https://daybrite.dev/api/day_pieces/trait.NavBuilder.html#tymethod.item) keys.
 Both keys and the selection must use the same spelling.
 
 ## Next step

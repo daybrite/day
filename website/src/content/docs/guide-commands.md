@@ -1,11 +1,12 @@
 ---
+navTitle: "Commands"
 title: Reusable commands
 description: "Share an operation, its title, and availability across buttons, menus, and toolbars."
 order: 33
 section: How-to guides
 ---
 
-Define a `Command::new(id, label, action)` when several controls perform the same operation.
+Define a [`Command::new(id, label, action)`](https://daybrite.dev/api/day_pieces/struct.Command.html#method.new) when several controls perform the same operation.
 It is cloneable, and its modifiers configure availability, optional checked state, icon, and
 keyboard shortcut.
 A menu item that is still visible after the operation becomes unavailable cannot bypass the
@@ -39,7 +40,7 @@ let content = star
 ```
 
 Use localized resources in application titles, just as for a normal button. Add
-`.enabled(move || ...)` for availability, and call `.invoke()` from a custom gesture or another
+[`.enabled(move || ...)`](https://daybrite.dev/api/day_pieces/struct.Command.html#method.enabled) for availability, and call [`.invoke()`](https://daybrite.dev/api/day_pieces/struct.Command.html#method.invoke) from a custom gesture or another
 caller. It returns whether the handler ran; it does not report the result of asynchronous work.
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
@@ -79,7 +80,7 @@ recipe_increment = Add one
 
 ## Choose the owning scope and target
 
-Clones share behavior and reactive sources. `Command::new` captures the owning reactive scope,
+Clones share behavior and reactive sources. [`Command::new`](https://daybrite.dev/api/day_pieces/struct.Command.html#method.new) captures the owning reactive scope,
 so build the command in the scope that owns the operation; it stops accepting invocations after
 that scope is disposed. Captured signals must still outlive their use. Command factory functions
 return `Command`. Capture a window's scene
@@ -96,9 +97,9 @@ star.toolbar_item().id(id!(star_toolbar));
 
 ## Keep the presentations reactive
 
-Buttons bind automatically. Use a derived `.toolbar(move || ...)` for changing titles. The app
+Buttons bind automatically. Use a derived [`.toolbar(move || ...)`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.toolbar) for changing titles. The app
 menu is live (a command's menu item re-lowers it when the title or availability changes), and a
-`.context_menu(move || ...)` closure builds the menu on summon. A fixed `context_menu(vec![..])`
+[`.context_menu(move || ...)`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.context_menu) closure builds the menu on summon. A fixed [`context_menu(vec![..])`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.context_menu)
 remains a snapshot; its handler still rechecks availability. Toolbar check and enabled state bind live even in fixed
 lists. The application handler owns check changes; native toggle activation does not write a
 second mirror signal.
@@ -108,7 +109,7 @@ second mirror signal.
 The adapters retain each toolkit's native controls and existing menu/toolbar behavior. They do
 not expose a Qt `QAction` or Windows `ICommand`, introduce a new command palette, or register
 OS-wide shortcuts. Shortcuts take effect through installed menu items, not a standalone button.
-Continue using `menu_role` for native Copy/Paste/Undo and responder-chain targeting.
+Continue using [`menu_role`](https://daybrite.dev/api/day_pieces/fn.menu_role.html) for native Copy/Paste/Undo and responder-chain targeting.
 
 - AppKit, GTK, Qt, and XAML retain their native menu and toolbar presentation; primary modifiers
   are Command on Apple and Ctrl elsewhere. GTK uses header-bar controls; XAML placement remains

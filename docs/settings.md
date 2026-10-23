@@ -1,4 +1,5 @@
 ---
+navTitle: "Settings"
 title: "Settings and About"
 description: "day-piece-settings: typed persisted prefs, a semantic declaration of groups and rows, and the Settings and About surfaces every toolkit presents its own way."
 ---
@@ -57,7 +58,7 @@ let prefs = Preferences::new()
     .install();
 ```
 
-`install()` registers the Preferences window and its Settings…/Preferences menu item on the
+[`install()`](https://daybrite.dev/api/day_piece_settings/struct.Preferences.html#method.install) registers the Preferences window and its Settings…/Preferences menu item on the
 desktops, the About window and its About menu item, the `settings/<group>` string routes, and
 collects the groups other crates contribute. On the platforms without a menu bar the app puts
 the surface in its navigation:
@@ -70,10 +71,10 @@ nav(section)
     ))
 ```
 
-`prefs.nav_item(key)` is an `Option<NavItem>` carrying the settings page: `Some` exactly when
+[`prefs.nav_item(key)`](https://daybrite.dev/api/day_piece_settings/struct.Prefs.html#method.nav_item) is an `Option<NavItem>` carrying the settings page: `Some` exactly when
 the platform gives no app menu (the phones, `Cap::AppMenu` unsupported), `None` elsewhere, and
 an `Option` is valid nav content, so the same source compiles everywhere and the section appears
-only where it should. `.map(|i| i.icon(..))` decorates it like any other item. `day_piece_settings::open()` opens the window on desktop and selects the
+only where it should. [`.map(|i| i.icon(..))`](https://daybrite.dev/api/day_piece_settings/struct.About.html#method.icon) decorates it like any other item. [`day_piece_settings::open()`](https://daybrite.dev/api/day_piece_settings/fn.open.html) opens the window on desktop and selects the
 section on a phone (a welcome page's "Settings" link).
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
@@ -101,11 +102,11 @@ SNAP.reset();                                        // default again; the key l
 
 | | |
 |---|---|
-| `Pref::new(key, default)` | `const fn`; `default` is a function so the static needs no `Sync` value. The signal is created on the UI thread on first use, seeded from the store, and lives for the process. `Pref` is `Copy`. |
-| `.env("DAY_THEME")` | The env-wins rule: while the variable is set the stored value yields to the default for this run, so `day launch --env` runs and CI variant loops stay deterministic. Writes still persist. |
+| [`Pref::new(key, default)`](https://daybrite.dev/api/day_piece_settings/struct.Pref.html#method.new) | `const fn`; `default` is a function so the static needs no `Sync` value. The signal is created on the UI thread on first use, seeded from the store, and lives for the process. `Pref` is `Copy`. |
+| [`.env("DAY_THEME")`](https://daybrite.dev/api/day_piece_settings/struct.Pref.html#method.env) | The env-wins rule: while the variable is set the stored value yields to the default for this run, so `day launch --env` runs and CI variant loops stay deterministic. Writes still persist. |
 | `PrefValue` | `encode`/`decode` through one string. Implemented for `bool`, `i32`, `i64`, `u32`, `u64`, `f64`, `String`; `pref_enum!` implements it for an enum under short stable tags and gives it `ALL`. |
-| `persistence_failures()` | A `Signal<Vec<String>>` of the keys whose last store write the store refused (also logged). The in-memory value stays what the user chose for this run and will not survive a relaunch, which is what an app watching the signal can say. A key leaves the list when its own next write lands. `reset` removes through the same checked path, so a refused removal is reported even when the value already sat at its default. |
-| `get`, `get_untracked`, `set`, `reset`, `is_default`, `watch`, `signal`, `key` | The runtime API. A pref is a signal, so reading one inside another signal's `update` closure re-enters the reactive runtime and panics ("RefCell already borrowed"): read it before the `update`. Every write to the signal persists, whichever path wrote it (`set`, a control bound to `signal()`, the app). The store holds only non-default values: a value equal to the default removes the key, so `reset` and "set to the default" agree, and a changed default on upgrade reaches every user who never chose otherwise. |
+| [`persistence_failures()`](https://daybrite.dev/api/day_piece_settings/fn.persistence_failures.html) | A `Signal<Vec<String>>` of the keys whose last store write the store refused (also logged). The in-memory value stays what the user chose for this run and will not survive a relaunch, which is what an app watching the signal can say. A key leaves the list when its own next write lands. [`reset`](https://daybrite.dev/api/day_piece_settings/struct.Pref.html#method.reset) removes through the same checked path, so a refused removal is reported even when the value already sat at its default. |
+| [`get`](https://daybrite.dev/api/day_piece_settings/struct.Pref.html#method.get), [`get_untracked`](https://daybrite.dev/api/day_piece_settings/struct.Pref.html#method.get_untracked), [`set`](https://daybrite.dev/api/day_piece_settings/struct.Pref.html#method.set), [`reset`](https://daybrite.dev/api/day_piece_settings/struct.Pref.html#method.reset), [`is_default`](https://daybrite.dev/api/day_piece_settings/struct.Pref.html#method.is_default), [`watch`](https://daybrite.dev/api/day_piece_settings/struct.Pref.html#method.watch), [`signal`](https://daybrite.dev/api/day_piece_settings/struct.Pref.html#method.signal), [`key`](https://daybrite.dev/api/day_piece_settings/struct.Pref.html#method.key) | The runtime API. A pref is a signal, so reading one inside another signal's `update` closure re-enters the reactive runtime and panics ("RefCell already borrowed"): read it before the `update`. Every write to the signal persists, whichever path wrote it ([`set`](https://daybrite.dev/api/day_piece_settings/struct.Pref.html#method.set), a control bound to [`signal()`](https://daybrite.dev/api/day_piece_settings/struct.Pref.html#method.signal), the app). The store holds only non-default values: a value equal to the default removes the key, so [`reset`](https://daybrite.dev/api/day_piece_settings/struct.Pref.html#method.reset) and "set to the default" agree, and a changed default on upgrade reaches every user who never chose otherwise. |
 
 ### Where values live
 
@@ -121,8 +122,8 @@ pub trait Store: 'static {
 
 The default is `NativeStore`, which is [day-part-prefs](prefs.md): [`NSUserDefaults`](https://developer.apple.com/documentation/foundation/nsuserdefaults) on macOS
 and iOS, [`SharedPreferences`](https://developer.android.com/reference/android/content/SharedPreferences) on Android, a per-app file under the user's config directory on
-Linux, Windows and HarmonyOS, `localStorage` on the web. `install_store(..)` before
-`Preferences::install` replaces it (a `MemoryStore` for tests and deterministic script runs, or
+Linux, Windows and HarmonyOS, `localStorage` on the web. [`install_store(..)`](https://daybrite.dev/api/day_piece_settings/fn.install_store.html) before
+[`Preferences::install`](https://daybrite.dev/api/day_piece_settings/struct.Preferences.html#method.install) replaces it (a `MemoryStore` for tests and deterministic script runs, or
 the app's own database). There is no second storage layer and no sync: the platform store
 already is the right place, and a value that is one JSON document stays one key.
 
@@ -130,41 +131,41 @@ already is the right place, and a value that is one JSON document stays one key.
 
 | | |
 |---|---|
-| `Group::new(id, title)` | `id` is the route segment and the element id (`prefs_group:<id>`), so it must not equal a key of the app's own navigation (an `account` group beside an `account` section is reached by the section); `title` is any text source. `.icon(res::vectors::x)` or `.icon(Symbol::Settings)`, `.subtitle(..)` (the mobile root list's second line), `.section(..)`, `.row(..)` (appends to a trailing untitled section), `.custom(build)` (a bespoke piece that is the whole page), `.order(n)`, `.available(|| bool)`, `.requires(Cap)`. |
-| `Section::new()` | `.title(..)`, `.footer(..)`, `.row(..)`, `.rows(..)`. One card. |
-| `rows::toggle(&pref, title)` | On/off. |
-| `rows::choice(&pref, title, [(value, label), …])` | One of N: a menu, or `.segmented()` for a few short labels. Two-way: a write to the pref from elsewhere (a menu command) moves the control. |
-| `rows::slider(&pref, title, lo..=hi)` | `.step(n)`, `.value_text(fn)` (the value label carries `<id>-value`). |
-| `rows::stepper(&pref, title, lo..=hi)` | A small integer. `.step(n)`. The composed control's buttons carry `<id>-decrement` / `<id>-increment` and the value label `<id>`. |
-| `rows::text(&pref, title)` | `.placeholder(..)`, `.secure()`. Every edit persists. |
-| `rows::action(title, on)` | A command: the button carries the title, and a `.caption` stands alone beside it as the explanatory line. `.destructive()`, `.confirm(message)` (an alert first) with `.confirm_label(..)` for its button, `.busy(signal)`. |
-| `rows::link(title, url)` | Opens the URL. |
-| `rows::navigate(title, build)` | Pushes a sub-page (a chevron row); a sub-window on desktop. |
-| `rows::info(title, value)` | Read-only. `.copyable()`. |
-| `rows::note(text)` | A footnote inside the card. |
-| `rows::custom(build)` | Any piece as a row. |
+| [`Group::new(id, title)`](https://daybrite.dev/api/day_piece_settings/struct.Group.html#method.new) | `id` is the route segment and the element id (`prefs_group:<id>`), so it must not equal a key of the app's own navigation (an `account` group beside an `account` section is reached by the section); `title` is any text source. [`.icon(res::vectors::x)`](https://daybrite.dev/api/day_piece_settings/struct.Group.html#method.icon) or [`.icon(Symbol::Settings)`](https://daybrite.dev/api/day_piece_settings/struct.Group.html#method.icon), [`.subtitle(..)`](https://daybrite.dev/api/day_piece_settings/struct.Group.html#method.subtitle) (the mobile root list's second line), [`.section(..)`](https://daybrite.dev/api/day_piece_settings/struct.Group.html#method.section), [`.row(..)`](https://daybrite.dev/api/day_piece_settings/struct.Group.html#method.row) (appends to a trailing untitled section), [`.custom(build)`](https://daybrite.dev/api/day_piece_settings/struct.Group.html#method.custom) (a bespoke piece that is the whole page), [`.order(n)`](https://daybrite.dev/api/day_piece_settings/struct.Group.html#method.order), `.available(|| bool)`, `.requires(Cap)`. |
+| [`Section::new()`](https://daybrite.dev/api/day_piece_settings/struct.Section.html#method.new) | [`.title(..)`](https://daybrite.dev/api/day_piece_settings/struct.Section.html#method.title), [`.footer(..)`](https://daybrite.dev/api/day_piece_settings/struct.Section.html#method.footer), [`.row(..)`](https://daybrite.dev/api/day_piece_settings/struct.Group.html#method.row), [`.rows(..)`](https://daybrite.dev/api/day_piece_settings/struct.Section.html#method.rows). One card. |
+| [`rows::toggle(&pref, title)`](https://daybrite.dev/api/day_piece_settings/rows/fn.toggle.html) | On/off. |
+| [`rows::choice(&pref, title, [(value, label), …])`](https://daybrite.dev/api/day_piece_settings/rows/fn.choice.html) | One of N: a menu, or [`.segmented()`](https://daybrite.dev/api/day_piece_settings/struct.Row.html#method.segmented) for a few short labels. Two-way: a write to the pref from elsewhere (a menu command) moves the control. |
+| [`rows::slider(&pref, title, lo..=hi)`](https://daybrite.dev/api/day_piece_settings/rows/fn.slider.html) | [`.step(n)`](https://daybrite.dev/api/day_piece_settings/struct.Row.html#method.step), [`.value_text(fn)`](https://daybrite.dev/api/day_piece_settings/struct.Row.html#method.value_text) (the value label carries `<id>-value`). |
+| [`rows::stepper(&pref, title, lo..=hi)`](https://daybrite.dev/api/day_piece_settings/rows/fn.stepper.html) | A small integer. [`.step(n)`](https://daybrite.dev/api/day_piece_settings/struct.Row.html#method.step). The composed control's buttons carry `<id>-decrement` / `<id>-increment` and the value label `<id>`. |
+| [`rows::text(&pref, title)`](https://daybrite.dev/api/day_piece_settings/rows/fn.text.html) | [`.placeholder(..)`](https://daybrite.dev/api/day_piece_settings/struct.Row.html#method.placeholder), [`.secure()`](https://daybrite.dev/api/day_piece_settings/struct.Row.html#method.secure). Every edit persists. |
+| [`rows::action(title, on)`](https://daybrite.dev/api/day_piece_settings/rows/fn.action.html) | A command: the button carries the title, and a [`.caption`](https://daybrite.dev/api/day_piece_settings/struct.Row.html#method.caption) stands alone beside it as the explanatory line. [`.destructive()`](https://daybrite.dev/api/day_piece_settings/struct.Row.html#method.destructive), [`.confirm(message)`](https://daybrite.dev/api/day_piece_settings/struct.Row.html#method.confirm) (an alert first) with [`.confirm_label(..)`](https://daybrite.dev/api/day_piece_settings/struct.Row.html#method.confirm_label) for its button, [`.busy(signal)`](https://daybrite.dev/api/day_piece_settings/struct.Row.html#method.busy). |
+| [`rows::link(title, url)`](https://daybrite.dev/api/day_piece_settings/rows/fn.link.html) | Opens the URL. |
+| [`rows::navigate(title, build)`](https://daybrite.dev/api/day_piece_settings/rows/fn.navigate.html) | Pushes a sub-page (a chevron row); a sub-window on desktop. |
+| [`rows::info(title, value)`](https://daybrite.dev/api/day_piece_settings/rows/fn.info.html) | Read-only. [`.copyable()`](https://daybrite.dev/api/day_piece_settings/struct.Row.html#method.copyable). |
+| [`rows::note(text)`](https://daybrite.dev/api/day_piece_settings/rows/fn.note.html) | A footnote inside the card. |
+| [`rows::custom(build)`](https://daybrite.dev/api/day_piece_settings/rows/fn.custom.html) | Any piece as a row. |
 
-Every row takes `.caption(..)` (a secondary line), `.id(day::id!(name))` (default `pref:<key>` for a pref
-row), `.enabled(on)` and `.busy(on)` (a `bool`, a signal or a closure), and `.available(|| bool)`
-/ `.requires(Cap)`.
+Every row takes [`.caption(..)`](https://daybrite.dev/api/day_piece_settings/struct.Row.html#method.caption) (a secondary line), [`.id(day::id!(name))`](https://daybrite.dev/api/day_piece_settings/struct.Row.html#method.id) (default `pref:<key>` for a pref
+row), [`.enabled(on)`](https://daybrite.dev/api/day_piece_settings/struct.Row.html#method.enabled) and [`.busy(on)`](https://daybrite.dev/api/day_piece_settings/struct.Row.html#method.busy) (a `bool`, a signal or a closure), and [`.available(|| bool)`](https://daybrite.dev/api/day_piece_settings/struct.Row.html#method.available)
+/ [`.requires(Cap)`](https://daybrite.dev/api/day_piece_settings/struct.Row.html#method.requires).
 A long caption wraps inside the title column rather than widening it; prose that belongs to
-the whole card goes in `Section::footer`. A color value has no row of its own yet: wrap
-[`day-piece-colorpicker`](/docs/reference/colorpicker) in `rows::custom` over a hex `Pref<String>`. Rows never name a
-toolkit; a different control on one platform is a `rows::custom` with `PerTarget` inside.
+the whole card goes in [`Section::footer`](https://daybrite.dev/api/day_piece_settings/struct.Section.html#method.footer). A color value has no row of its own yet: wrap
+[`day-piece-colorpicker`](/docs/reference/colorpicker) in [`rows::custom`](https://daybrite.dev/api/day_piece_settings/rows/fn.custom.html) over a hex `Pref<String>`. Rows never name a
+toolkit; a different control on one platform is a [`rows::custom`](https://daybrite.dev/api/day_piece_settings/rows/fn.custom.html) with `PerTarget` inside.
 
 The row constructors live in the `rows` module and are used qualified, because several share a
-name with a piece in the prelude (`toggle`, `slider`, `link`, `navigate`).
+name with a piece in the prelude ([`toggle`](https://daybrite.dev/api/day_pieces/fn.toggle.html), [`slider`](https://daybrite.dev/api/day_pieces/fn.slider.html), [`link`](https://daybrite.dev/api/day_pieces/fn.link.html), [`navigate`](https://daybrite.dev/api/day_pieces/fn.navigate.html)).
 
 ### The General group
 
-`general_group(res::locales::ALL)` is the group every app starts with: Appearance (Light /
+[`general_group(res::locales::ALL)`](https://daybrite.dev/api/day_piece_settings/fn.general_group.html) is the group every app starts with: Appearance (Light /
 Dark / System, id `theme_picker`, present only where the toolkit honors a runtime override,
 `Cap::Appearance`) and Language (System plus every bundled locale under its own name, id
 `language_picker`). The prefs behind them are `APPEARANCE` (`day.appearance`) and `LANGUAGE`
 (`day.locale`); a View menu or a toolbar that also sets the theme writes the same pref, so the
-two can never disagree. `wire_general()` applies the stored values at boot and keeps applying
-changes; the group calls it, and an app using the rows alone (`appearance_row()`,
-`language_row(..)`) gets it the same way. `DAY_THEME` and `DAY_LOCALE` win at boot.
+two can never disagree. [`wire_general()`](https://daybrite.dev/api/day_piece_settings/fn.wire_general.html) applies the stored values at boot and keeps applying
+changes; the group calls it, and an app using the rows alone ([`appearance_row()`](https://daybrite.dev/api/day_piece_settings/fn.appearance_row.html),
+[`language_row(..)`](https://daybrite.dev/api/day_piece_settings/fn.language_row.html)) gets it the same way. `DAY_THEME` and `DAY_LOCALE` win at boot.
 
 ### Appearance on Android
 
@@ -181,19 +182,19 @@ Two things make the recreation read as a theme change rather than a relaunch:
   composited frame) before `recreate()`, the next activity lays the capture over its window
   from its first frame, and once the re-mounted tree has built, restored its route and laid
   out, the capture fades over the new content in 250 ms. A user who removed animations
-  (`reduce_motion`, [accessibility](accessibility.md)) gets the cut instead. One capture
+  ([`reduce_motion`](https://daybrite.dev/api/day_core/fn.reduce_motion.html), [accessibility](accessibility.md)) gets the cut instead. One capture
   exists at a time, released when the overlay comes down or the activity finishes; a tree
   that never settles drops it after a few seconds rather than keeping the old frame on
   screen.
 - **The same place, not the first tab.** The recreation re-runs the app's `root()`: the tree
-  is re-mounted, root-scope state (`Signal::global`, `Ambient::app()`, every `Pref`) survives,
-  but every signal `root()` creates starts over. A nav surface with `.restore(key)` reads its
+  is re-mounted, root-scope state ([`Signal::global`](https://daybrite.dev/api/day_reactive/struct.Signal.html#method.global), [`Ambient::app()`](https://daybrite.dev/api/day_core/trait.Ambient.html#method.app), every `Pref`) survives,
+  but every signal `root()` creates starts over. A nav surface with [`.restore(key)`](https://daybrite.dev/api/day_pieces/trait.NavBuilder.html#tymethod.restore) reads its
   own place back ([navigation](navigation.md)); for everything else day-android saves the full
-  `current_route()` into the activity's instance state (`DayBridge.navState`, under the
-  reserved key `day.route`) just before the teardown and `navigate`s to it one turn after the
+  [`current_route()`](https://daybrite.dev/api/day_pieces/fn.current_route.html) into the activity's instance state (`DayBridge.navState`, under the
+  reserved key `day.route`) just before the teardown and [`navigate`](https://daybrite.dev/api/day_pieces/fn.navigate.html)s to it one turn after the
   first build, so an app comes back on the section and the pushed page it was on (Settings ▸
   Reading, say). A launch deep link still pending wins over the saved route, as it wins over
-  `.restore`, and the saved route is consumed either way. The route restore and the fade are
+  [`.restore`](https://daybrite.dev/api/day_pieces/trait.NavBuilder.html#tymethod.restore), and the saved route is consumed either way. The route restore and the fade are
   ordered: the overlay comes down after the restored page is laid out.
 
 A scripted run sees the whole switch as one step: `ui_idle` reports busy from the moment the
@@ -225,42 +226,42 @@ Where windows open as covers (`Cap::MultiWindow` unsupported: the web, phones), 
 on a wide screen and a cover on a narrow one, with its title and a Done button (`about_done`),
 like Settings there.
 
-`from_manifest()` reads the identity `day build`/`day launch` export (`DAY_APP_ID`,
+[`from_manifest()`](https://daybrite.dev/api/day_piece_settings/struct.About.html#method.from_manifest) reads the identity `day build`/`day launch` export (`DAY_APP_ID`,
 `DAY_APP_VERSION`, `DAY_APP_BUILD`, `DAY_APP_TITLE`), falling back to the launch window's app
-name and `WindowOptions::version`. The core catalog carries the labels (`day_about_version`,
+name and [`WindowOptions::version`](https://daybrite.dev/api/day_spec/struct.WindowOptions.html#method.version). The core catalog carries the labels (`day_about_version`,
 `day_about_website`, `day_about_source`, `day_about_privacy`, `day_about_licenses`,
 `day_about_acknowledgements`) in seven languages.
 
 Presentation: a Day window (`WindowKind::About`, singleton key `day.about`, fixed, centered,
 out of the macOS Window menu) on macOS, Qt and Windows, a cover on the web; libadwaita's [`AdwAboutDialog`](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/class.AboutDialog.html)
-on GTK when the About has no `custom` piece (with one, the composed page in an [`AdwDialog`](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/class.Dialog.html) over
+on GTK when the About has no [`custom`](https://daybrite.dev/api/day_piece_settings/struct.About.html#method.custom) piece (with one, the composed page in an [`AdwDialog`](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/class.Dialog.html) over
 the app window); on the phones and HarmonyOS, the header card at the top of the settings root
 page, which opens the About page. The menu item is `MenuRole::About`:
 the macOS App menu's "About <App>", Help ▸ About elsewhere, in both the default bar and an
-installed `app_menu`. `day::open_about()` opens it from anywhere.
+installed [`app_menu`](https://daybrite.dev/api/day_pieces/fn.app_menu.html). [`day::open_about()`](https://daybrite.dev/api/day/fn.open_about.html) opens it from anywhere.
 
 ## Presentation
 
 | Platform | Shell | Rows | Entry |
 |---|---|---|---|
 | macOS (appkit) | A fixed-width panel with an [`NSToolbar`](https://developer.apple.com/documentation/appkit/nstoolbar) in preference style: one selectable icon+label item per group, the window fitting each page. One group: the page alone. | Composed: title leading, control trailing, in the grouped card (`SurfaceRole::SectionCard`). | App menu Settings… ⌘, |
-| GNOME (gtk) | libadwaita's [`AdwPreferencesDialog`](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/class.PreferencesDialog.html), presented over the app window (a floating sheet in a wide window, a bottom sheet in a narrow one; Escape closes; on macOS always a window of its own, see [docs/windows](windows.md)): one [`AdwPreferencesPage`](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/class.PreferencesPage.html) per group with its icon and title, the dialog's own view switcher and search once there are two or more; each page a column of [`AdwPreferencesGroup`](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/class.PreferencesGroup.html)s (title and description from the section's title and footer) holding `.boxed-list` rows. The dialog fits the tallest page (up to the declared height); a taller page scrolls inside its own page. A navigate row pushes its page into the dialog as an [`AdwNavigationPage`](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/class.NavigationPage.html) with a back button. | [`AdwActionRow`](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/class.ActionRow.html) with the Day control mounted as its suffix; a custom row an [`AdwPreferencesRow`](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/class.PreferencesRow.html) holding the piece at the row's width; a note a caption under the group's list. About is [`AdwAboutDialog`](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/class.AboutDialog.html); an About with a `custom` piece is the composed page in an [`AdwDialog`](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/class.Dialog.html) over the window. | Preferences Ctrl+, |
+| GNOME (gtk) | libadwaita's [`AdwPreferencesDialog`](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/class.PreferencesDialog.html), presented over the app window (a floating sheet in a wide window, a bottom sheet in a narrow one; Escape closes; on macOS always a window of its own, see [docs/windows](windows.md)): one [`AdwPreferencesPage`](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/class.PreferencesPage.html) per group with its icon and title, the dialog's own view switcher and search once there are two or more; each page a column of [`AdwPreferencesGroup`](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/class.PreferencesGroup.html)s (title and description from the section's title and footer) holding `.boxed-list` rows. The dialog fits the tallest page (up to the declared height); a taller page scrolls inside its own page. A navigate row pushes its page into the dialog as an [`AdwNavigationPage`](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/class.NavigationPage.html) with a back button. | [`AdwActionRow`](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/class.ActionRow.html) with the Day control mounted as its suffix; a custom row an [`AdwPreferencesRow`](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/class.PreferencesRow.html) holding the piece at the row's width; a note a caption under the group's list. About is [`AdwAboutDialog`](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/class.AboutDialog.html); an About with a [`custom`](https://daybrite.dev/api/day_piece_settings/struct.About.html#method.custom) piece is the composed page in an [`AdwDialog`](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/class.Dialog.html) over the window. | Preferences Ctrl+, |
 | Windows (winui) | The composed sidebar ([`NavigationView`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.xaml.controls.navigationview)) + page window. | A settings-card row: card fill and stroke, header and description, the control at the trailing edge. Narrow cards move the control below the text instead of squeezing the header. | File ▸ Settings Ctrl+, |
 | KDE (qt) | The preferences dialog KDE's `KConfigDialog`/`KPageDialog` are made of: a fixed-width [`QListWidget`](https://doc.qt.io/qt-6/qlistwidget.html) of icon+label page entries (two or more groups) beside a [`QStackedWidget`](https://doc.qt.io/qt-6/qstackedwidget.html) of pages under a title header; each page a column of [`QGroupBox`](https://doc.qt.io/qt-6/qgroupbox.html)es (one per section, titled with it; an untitled section is a bare form) holding a [`QFormLayout`](https://doc.qt.io/qt-6/qformlayout.html) of right-aligned labels, the footer a dim line under the rows. The window fits the tallest page (up to the declared height); a taller page scrolls inside its own page. One group: the page alone. | A form row with the Day control as the field, in a cell sized by Day; a custom row a cell spanning the form at its width; an action or navigate row a [`QPushButton`](https://doc.qt.io/qt-6/qpushbutton.html) (red for a destructive one, an arrow for a navigate row) with its caption under it; a link row a link label; a note a dim line. | Preferences Ctrl+, |
-| iOS, Android, HarmonyOS | The navigation presentation: a root page (About header, then the groups as chevron rows; one group: its rows inline) in a `nav_stack` that pushes one page per group. On iOS the pages are a [`UITableView`](https://developer.apple.com/documentation/uikit/uitableview) in the inset grouped style: configured [`UITableViewCell`](https://developer.apple.com/documentation/uikit/uitableviewcell)s with the system disclosure chevron, header and footer text, selection highlight on touch, and the Day control as the cell's accessory (a slider under its title, a custom row as the whole cell). On Android the pages are the Material 3 preference screen: full-bleed rows with category headers and footnotes, a ripple on every tappable row, the About header a large list item. On HarmonyOS they are a `List` of `ListItemGroup` cards. | Inset-grouped / Material preference / list-item rows with the Day control trailing (a slider under its title on Android). | The app's nav item; `open()` presents a cover with a Done button where no item is mounted. |
-| Web (dom) | The navigation presentation, presented as a modal sheet over the frosted page (a full-window cover on a narrow window) whose header carries the stack title, the back button once a page is pushed, and the Done button, with Escape closing it too, opened from the toolbar's app-menu button (web-dom emulates the app menu: `Cap::AppMenu` is `Emulated`, so Settings…, About and every app command live behind the ⋯ button, and `navigate("settings/<group>")` routes to the cover). | Composed. | The ⋯ app-menu button, with no shortcut (the browser keeps ⌘, / Ctrl+comma); no nav item (`in_nav()` is false). |
+| iOS, Android, HarmonyOS | The navigation presentation: a root page (About header, then the groups as chevron rows; one group: its rows inline) in a [`nav_stack`](https://daybrite.dev/api/day_pieces/fn.nav_stack.html) that pushes one page per group. On iOS the pages are a [`UITableView`](https://developer.apple.com/documentation/uikit/uitableview) in the inset grouped style: configured [`UITableViewCell`](https://developer.apple.com/documentation/uikit/uitableviewcell)s with the system disclosure chevron, header and footer text, selection highlight on touch, and the Day control as the cell's accessory (a slider under its title, a custom row as the whole cell). On Android the pages are the Material 3 preference screen: full-bleed rows with category headers and footnotes, a ripple on every tappable row, the About header a large list item. On HarmonyOS they are a `List` of `ListItemGroup` cards. | Inset-grouped / Material preference / list-item rows with the Day control trailing (a slider under its title on Android). | The app's nav item; [`open()`](https://daybrite.dev/api/day_piece_settings/fn.open.html) presents a cover with a Done button where no item is mounted. |
+| Web | The navigation presentation, presented as a modal sheet over the frosted page (a full-window cover on a narrow window) whose header carries the stack title, the back button once a page is pushed, and the Done button, with Escape closing it too, opened from the toolbar's app-menu button (Web emulates the app menu: `Cap::AppMenu` is `Emulated`, so Settings…, About and every app command live behind the ⋯ button, and [`navigate("settings/<group>")`](https://daybrite.dev/api/day_piece_settings/rows/fn.navigate.html) routes to the cover). | Composed. | The ⋯ app-menu button, with no shortcut (the browser keeps ⌘, / Ctrl+comma); no nav item ([`in_nav()`](https://daybrite.dev/api/day_piece_settings/struct.Prefs.html#method.in_nav) is false). |
 
-HarmonyOS group pages place their native card list inside a Day `scroll`. The inner list
+HarmonyOS group pages place their native card list inside a Day [`scroll`](https://daybrite.dev/api/day_pieces/fn.scroll.html). The inner list
 measures its full content and disables its own scrolling, leaving one viewport for gestures
-and dayscript `scroll_to` to reveal controls in custom groups. `group_body` remains a
+and dayscript [`scroll_to`](https://daybrite.dev/api/day_core/fn.scroll_to.html) to reveal controls in custom groups. [`group_body`](https://daybrite.dev/api/day_piece_settings/struct.Prefs.html#method.group_body) remains a
 content-sized list for a caller-owned scroll. The settings root keeps its native list viewport.
 Day-Skies' `scripts/weather.yaml` exercises revealing and removing a custom city row.
 
 A desktop page measures its content so the window fits it (`size_to_fit`), and does not
-scroll: a tall `Group::custom` needs a `window_size` ceiling that holds it, and a dayscript
-`scroll_to` on such a page is gated off the desktop toolkits.
+scroll: a tall [`Group::custom`](https://daybrite.dev/api/day_piece_settings/struct.Group.html#method.custom) needs a [`window_size`](https://daybrite.dev/api/day_piece_settings/struct.Preferences.html#method.window_size) ceiling that holds it, and a dayscript
+[`scroll_to`](https://daybrite.dev/api/day_core/fn.scroll_to.html) on such a page is gated off the desktop toolkits.
 
-`Preferences::presentation(Presentation::Navigation)` pins the mobile shape anywhere (an app
+[`Preferences::presentation(Presentation::Navigation)`](https://daybrite.dev/api/day_piece_settings/struct.Preferences.html#method.presentation) pins the mobile shape anywhere (an app
 that keeps settings as an in-app route on desktop too); `Presentation::Window` the desktop one.
 The default follows `Cap::MultiWindow` and `Cap::AppMenu`.
 
@@ -271,18 +272,18 @@ and KDE (`day_settings` / `day_preferences`), read from the running toolkit.
 
 | | |
 |---|---|
-| `prefs.open()` / `day_piece_settings::open()` | The window on desktop; the nav item when mounted, else a cover, on mobile. |
-| `prefs.open_at("weather")` | Opens on a group (`"weather/host"` names a row, reserved for native rows that can reveal one). |
-| `navigate("settings/weather")` | The string route (a walkthrough with more than one group names the group: on a phone the root page lists groups, so `settings` alone shows no row control): on mobile through the app's nav item and the stack (`settings` is the conventional item key, `NAV_KEY`); on desktop a route controller `install()` registers opens the window on the group. Deep links and dayscript `navigate:` use it. |
-| `prefs.page()` / `day_piece_settings::page()` | The navigation presentation as a piece: the nav item's destination, or any place the app embeds settings. The free function serves code that holds no `Prefs` (an app struct that must stay `Copy`). |
-| `prefs.group_page("reading")` / `day_piece_settings::group_page_of("reading")` | One group's page alone (an in-reader sheet); `prefs.group_body(..)` is the same without the scroll, for a sheet that stacks several groups in one `scroll` of its own (on the phones the native page sizes itself to its rows). |
-| `prefs.about_page()` | The composed About page. |
-| `navigate("about")` / `navigate("settings/about")` | The About window on desktop; on a phone the About page is a stack destination under the settings section, so the route is `settings/about` (or a tap on `settings_about`). |
-| `day::open_about()`, `day::register_about(action)`, `day::register_about_window(options, build)` | The day-core layer underneath. |
+| [`prefs.open()`](https://daybrite.dev/api/day_piece_settings/fn.open.html) / [`day_piece_settings::open()`](https://daybrite.dev/api/day_piece_settings/fn.open.html) | The window on desktop; the nav item when mounted, else a cover, on mobile. |
+| [`prefs.open_at("weather")`](https://daybrite.dev/api/day_piece_settings/fn.open_at.html) | Opens on a group (`"weather/host"` names a row, reserved for native rows that can reveal one). |
+| [`navigate("settings/weather")`](https://daybrite.dev/api/day_piece_settings/rows/fn.navigate.html) | The string route (a walkthrough with more than one group names the group: on a phone the root page lists groups, so `settings` alone shows no row control): on mobile through the app's nav item and the stack (`settings` is the conventional item key, `NAV_KEY`); on desktop a route controller [`install()`](https://daybrite.dev/api/day_piece_settings/struct.Preferences.html#method.install) registers opens the window on the group. Deep links and dayscript `navigate:` use it. |
+| [`prefs.page()`](https://daybrite.dev/api/day_piece_settings/fn.page.html) / [`day_piece_settings::page()`](https://daybrite.dev/api/day_piece_settings/fn.page.html) | The navigation presentation as a piece: the nav item's destination, or any place the app embeds settings. The free function serves code that holds no `Prefs` (an app struct that must stay `Copy`). |
+| [`prefs.group_page("reading")`](https://daybrite.dev/api/day_piece_settings/struct.Prefs.html#method.group_page) / [`day_piece_settings::group_page_of("reading")`](https://daybrite.dev/api/day_piece_settings/fn.group_page_of.html) | One group's page alone (an in-reader sheet); [`prefs.group_body(..)`](https://daybrite.dev/api/day_piece_settings/struct.Prefs.html#method.group_body) is the same without the scroll, for a sheet that stacks several groups in one [`scroll`](https://daybrite.dev/api/day_pieces/fn.scroll.html) of its own (on the phones the native page sizes itself to its rows). |
+| [`prefs.about_page()`](https://daybrite.dev/api/day_piece_settings/struct.Prefs.html#method.about_page) | The composed About page. |
+| [`navigate("about")`](https://daybrite.dev/api/day_piece_settings/rows/fn.navigate.html) / [`navigate("settings/about")`](https://daybrite.dev/api/day_piece_settings/rows/fn.navigate.html) | The About window on desktop; on a phone the About page is a stack destination under the settings section, so the route is `settings/about` (or a tap on `settings_about`). |
+| [`day::open_about()`](https://daybrite.dev/api/day/fn.open_about.html), [`day::register_about(action)`](https://daybrite.dev/api/day/fn.register_about.html), [`day::register_about_window(options, build)`](https://daybrite.dev/api/day/fn.register_about_window.html) | The day-core layer underneath. |
 
 Element ids: `settings_root`, `settings_stack`, `settings_about` (the header card),
 `prefs_group:<id>` (a group's root-list row and its page), `pref:<key>` (a pref row's control),
-`theme_picker`, `language_picker`, `about_page`, `about_name`, `about_version`,
+`theme_picker`, `language_picker`, [`about_page`](https://daybrite.dev/api/day_piece_settings/struct.Prefs.html#method.about_page), `about_name`, `about_version`,
 `about_tagline`, `about_link:<n>` (links in declaration order), `about_privacy`, `about_copyright`, and
 `settings_done`, the cover's Done bar button (a toolbar item: dayscript reaches it with
 `toolbar: { item: settings_done }`, not `tap`).
@@ -310,14 +311,14 @@ day_piece_settings::provider! {
 
 `provider!` registers the static in the link-time `PROVIDERS` slice (linkme) on native targets;
 on wasm, where linkme has no implementation, and anywhere explicit order matters,
-`register_provider(&UPDATES)` or `Preferences::new().provider(&UPDATES)` names it.
-`.providers(Providers::None)` and `.without_provider("updates")` opt out. A provider's
+[`register_provider(&UPDATES)`](https://daybrite.dev/api/day_piece_settings/fn.register_provider.html) or [`Preferences::new`](https://daybrite.dev/api/day_piece_settings/struct.Preferences.html#method.new)`()`[`.provider`](https://daybrite.dev/api/day_piece_settings/struct.Preferences.html#method.provider)`(&UPDATES)` names it.
+[`.providers(Providers::None)`](https://daybrite.dev/api/day_piece_settings/struct.Preferences.html#method.providers) and [`.without_provider("updates")`](https://daybrite.dev/api/day_piece_settings/struct.Preferences.html#method.without_provider) opt out. A provider's
 strings live in its own private catalog ([localization](localization.md)); shared vocabulary
 (`day_settings_updates`, `day_check_for_updates`) is in the core catalog.
 
 The self-updater is the first provider: its Updates group (check automatically, frequency,
 download automatically, last checked, Check Now) and its Check for Updates… command, which
-`day::register_check_for_updates` places under About in the macOS App menu and in Help
+[`day::register_check_for_updates`](https://daybrite.dev/api/day/fn.register_check_for_updates.html) places under About in the macOS App menu and in Help
 elsewhere (`MenuRole::CheckForUpdates`).
 
 ## Automating settings

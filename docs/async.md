@@ -1,4 +1,5 @@
 ---
+navTitle: "Async"
 title: "Async without a runtime"
 description: "day::task futures on the main thread with no tokio: spawn_blocking for work that blocks, sleep on the toolkit's timer, and how a thread's results return to the UI through Setter and on_main."
 ---
@@ -10,13 +11,13 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 # Async tasks and background work
 
-Use `day::task` to await work without blocking the interface. Its futures run on Day’s main
+Use [`day::task`](https://daybrite.dev/api/day/fn.task.html) to await work without blocking the interface. Its futures run on Day’s main
 loop, so they can read and write signals before and after an `.await`. Day provides this
 executor itself; apps do not need Tokio to use it.
 
-Use `day::spawn_blocking` for CPU-heavy or blocking work: it runs the job on a pool thread and
+Use [`day::spawn_blocking`](https://daybrite.dev/api/day/fn.spawn_blocking.html) for CPU-heavy or blocking work: it runs the job on a pool thread and
 resolves back in the task, where the result goes into a signal like any other value. A worker
-thread of your own returns its results through `Setter` or `on_main`, because signals cannot
+thread of your own returns its results through `Setter` or [`on_main`](https://daybrite.dev/api/day_reactive/fn.on_main.html), because signals cannot
 move between threads.
 
 For app examples, see [HTTP requests](/docs/how-to/guide-http) and
@@ -26,7 +27,7 @@ cancellation, and the rules for implementing asynchronous parts.
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
 [example messages](snippet-catalog.md) and [catalog setup](/docs/how-to/localization).
 
-## `day::task` and `TaskHandle`
+## [`day::task`](https://daybrite.dev/api/day/fn.task.html) and `TaskHandle`
 
 ```rust
 button(res::str::save()).action(move || {
@@ -41,11 +42,11 @@ button(res::str::save()).action(move || {
 });
 ```
 
-`task(fut)` polls the future once before returning and hands back a `TaskHandle` (`Copy`,
-`!Send`, freely discardable). `handle.abort()` removes and drops the task's future; dropping
+[`task(fut)`](https://daybrite.dev/api/day_core/fn.task.html) polls the future once before returning and hands back a `TaskHandle` (`Copy`,
+`!Send`, freely discardable). [`handle.abort()`](https://daybrite.dev/api/day_core/struct.TaskHandle.html#method.abort) removes and drops the task's future; dropping
 the future invokes its cleanup. For `fetch_future`, that requests cancellation where the
 platform supports it; other implementations finish in the background and discard the result.
-See the [HTTP cancellation contract](http.md). Aborting a finished task is a no-op; `is_finished()` reports
+See the [HTTP cancellation contract](http.md). Aborting a finished task is a no-op; [`is_finished()`](https://daybrite.dev/api/day_core/struct.TaskHandle.html#method.is_finished) reports
 completed-or-aborted. Task ids are never reused, so stale handles are harmless.
 
 A task is not owned by the scope that starts it. Leaving a page does not abort its tasks.
@@ -59,7 +60,7 @@ polling, and late wakes are ignored. This does not wait for detached worker thre
 already accepted database writes; the owning service's shutdown must drain those writes.
 OS process kills without a lifecycle notification cannot run this cleanup.
 
-## `spawn_blocking`
+## [`spawn_blocking`](https://daybrite.dev/api/day_async/fn.spawn_blocking.html)
 
 ```rust
 day::task(async move {
@@ -72,8 +73,8 @@ day::task(async move {
 });
 ```
 
-`spawn_blocking(job)` takes a `Send` closure and returns a future for its value. The job runs on
-Day's blocking pool: process-wide, started by the first job, at most `day::blocking_limit()`
+[`spawn_blocking(job)`](https://daybrite.dev/api/day_async/fn.spawn_blocking.html) takes a `Send` closure and returns a future for its value. The job runs on
+Day's blocking pool: process-wide, started by the first job, at most [`day::blocking_limit()`](https://daybrite.dev/api/day/fn.blocking_limit.html)
 threads (the machine's parallelism, between four and thirty-two), idle threads leaving after a
 few seconds. Jobs beyond the limit queue in order. The future resolves to
 `Err(BlockingError::Panicked)` when the job panicked and `Err(BlockingError::Closed)` when no
@@ -81,23 +82,23 @@ pool thread could ever run it.
 
 Dropping the future before the job starts cancels it: the job never runs, which is what a
 timeout racing a slow read wants. Dropping it while the job runs lets the job finish and
-discards the value, since a blocking call cannot be interrupted. `Blocking::detach` keeps the
+discards the value, since a blocking call cannot be interrupted. [`Blocking::detach`](https://daybrite.dev/api/day_core/struct.Blocking.html#method.detach) keeps the
 job without the value, for work whose effect is its own completion callback.
 
 Use it for a file read, a parse, a hash, a database open, or a `block_on` into a runtime some
 dependency insists on. It is not a replacement for `DatabaseWorker`, which keeps one
 connection with ordered writes and reactive reads ([docs/persistence](persistence.md)), nor
 for work that reports progress partway: that wants a channel, not polling. A part that
-exposes a future should await `spawn_blocking` rather than start a thread, so its test's
-`block_on` and an app's `day::task` get the same behavior.
+exposes a future should await [`spawn_blocking`](https://daybrite.dev/api/day_async/fn.spawn_blocking.html) rather than start a thread, so its test's
+`block_on` and an app's [`day::task`](https://daybrite.dev/api/day/fn.task.html) get the same behavior.
 
 On the web there is no thread, so the job runs inline at the future's first poll. Keep web jobs
 short, or branch on `cfg!(target_arch = "wasm32")`. The mock toolkit runs jobs inline as well,
-because its posts run on the test thread (`day_async::set_blocking_inline`).
+because its posts run on the test thread ([`day_async::set_blocking_inline`](https://daybrite.dev/api/day_async/fn.set_blocking_inline.html)).
 
-## `sleep`
+## [`sleep`](https://daybrite.dev/api/day_core/fn.sleep.html)
 
-`day::sleep(ms)` resolves after at least `ms` milliseconds, on the UI thread. It is the
+[`day::sleep(ms)`](https://daybrite.dev/api/day/fn.sleep.html) resolves after at least `ms` milliseconds, on the UI thread. It is the
 toolkit's own timer, not a parked thread: `dispatch_after` on Apple, `Handler.postDelayed` on
 Android, `g_timeout_add` on GTK, `QTimer::singleShot` on Qt, a Win32 `SetTimer` on XAML, and
 `setTimeout` on ArkUI and the web. A loop that ticks every second, a debounce, or a timeout raced
@@ -124,21 +125,21 @@ load(stations, |s| station_list(s.get()))                  // the three states a
 stations.refetch();                                         // force, even if region is unchanged
 ```
 
-`load(state, ready)` shows the three states as three subtrees: the ready arm, and optional
-`.loading(build)` and `.failed(|err| build)` arms (a state without an arm builds nothing).
+[`load(state, ready)`](https://daybrite.dev/api/day_pieces/fn.load.html) shows the three states as three subtrees: the ready arm, and optional
+[`.loading(build)`](https://daybrite.dev/api/day_pieces/struct.LoadPiece.html#method.loading) and [`.failed(|err| build)`](https://daybrite.dev/api/day_pieces/struct.LoadPiece.html#method.failed) arms (a state without an arm builds nothing).
 `state` is a `Resource<T>`, a `Signal<Load<T>>` or a closure returning a `Load<T>`. Arms rebuild
-only when the variant changes; the ready arm is handed a `Loaded<T>`, whose `get()` is a tracked
+only when the variant changes; the ready arm is handed a `Loaded<T>`, whose [`get()`](https://daybrite.dev/api/day_pieces/struct.Loaded.html#method.get) is a tracked
 read that follows `Ready(a)` to `Ready(b)` in place, so a refetch updates the list without
 rebuilding it. Whether a refetch passes through `Loading` is the `Resource`'s policy (below); an
 app that wants its stale content shown during a refresh keeps the last value in its own state
 and the ready arm reads it.
 
 - `Load<T>` is `Loading | Ready(T) | Failed(Arc<dyn Error + Send + Sync>)`, `Clone`, with
-  `ready()/is_loading()/is_ready()/error()` accessors. `Resource` is a `Copy` handle:
-  `signal()`, `get()`, `with()`, `loading()`, `ready()` (all tracked), `refetch()`.
+  [`ready`](https://daybrite.dev/api/day_reactive/enum.Load.html#method.ready)`()/`[`is_loading`](https://daybrite.dev/api/day_reactive/enum.Load.html#method.is_loading)`()/`[`is_ready`](https://daybrite.dev/api/day_reactive/enum.Load.html#method.is_ready)`()/`[`error`](https://daybrite.dev/api/day_reactive/enum.Load.html#method.error)`()` accessors. `Resource` is a `Copy` handle:
+  [`signal()`](https://daybrite.dev/api/day_reactive/struct.Resource.html#method.signal), [`get()`](https://daybrite.dev/api/day_reactive/struct.Resource.html#method.get), [`with()`](https://daybrite.dev/api/day_reactive/struct.Resource.html#method.with), [`loading()`](https://daybrite.dev/api/day_reactive/struct.Resource.html#method.loading), [`ready()`](https://daybrite.dev/api/day_reactive/struct.Resource.html#method.ready) (all tracked), [`refetch()`](https://daybrite.dev/api/day_reactive/struct.Resource.html#method.refetch).
 - **Latest wins.** A source change supersedes the in-flight fetch: its task is aborted (the
   drop requests cancellation where supported) and a completion that slips through writes
-  nothing. `refetch()` always fetches; a rerun with an unchanged source value fetches nothing.
+  nothing. [`refetch()`](https://daybrite.dev/api/day_reactive/struct.Resource.html#method.refetch) always fetches; a rerun with an unchanged source value fetches nothing.
 - **Scope cleanup cancels the fetch.** When the owning scope is disposed, its task is
   aborted. A late write to the disposed signal has no effect.
 - The fetcher runs on the main-loop executor, so it may read and write signals after its
@@ -156,58 +157,58 @@ its previous in-flight task on re-tap).
 These rules keep UI state on the main thread and let parts work without depending on a
 particular executor:
 
-1. **Piece builders and event handlers are synchronous.** No `async fn` in `Piece::build`, actions,
-   or event handlers. `day::task(async { … })` is the one explicit bridge from a sync action
+1. **Piece builders and event handlers are synchronous.** No `async fn` in [`Piece::build`](https://daybrite.dev/api/day_core/trait.Piece.html#tymethod.build), actions,
+   or event handlers. [`day::task(async { … })`](https://daybrite.dev/api/day/fn.task.html) is the one explicit bridge from a sync action
    into a sequential flow.
-2. **`day::task` is the only executor for signal-touching futures.** Its futures run on the UI
+2. **[`day::task`](https://daybrite.dev/api/day/fn.task.html) is the only executor for signal-touching futures.** Its futures run on the UI
    thread, so after an `.await` they read and write signals directly, without a `Setter` or
    marshaling. Futures that never touch signals may run anywhere.
-   **Blocking work inside such a future goes through `day::spawn_blocking`**, never a
+   **Blocking work inside such a future goes through [`day::spawn_blocking`](https://daybrite.dev/api/day/fn.spawn_blocking.html)**, never a
    `std::thread::spawn` plus a oneshot of your own, and never inline: a parse or a file read in
-   a `day::task` body stalls the interface for its whole duration.
-3. **Parts expose a callback and a future, never a runtime-bound API.** `fetch_async(req, cb)`
-   plus `fetch_future(req)`; both must work in a plain-`main` binary and under `cargo test`
-   (so a part never calls `on_main` itself, per [docs/http](http.md)'s contract).
+   a [`day::task`](https://daybrite.dev/api/day/fn.task.html) body stalls the interface for its whole duration.
+3. **Parts expose a callback and a future, never a runtime-bound API.** [`fetch_async(req, cb)`](https://daybrite.dev/api/day_part_http/fn.fetch_async.html)
+   plus [`fetch_future(req)`](https://daybrite.dev/api/day_part_http/fn.fetch_future.html); both must work in a plain-`main` binary and under `cargo test`
+   (so a part never calls [`on_main`](https://daybrite.dev/api/day_reactive/fn.on_main.html) itself, per [docs/http](http.md)'s contract).
 4. **Keep other async runtimes in app-specific crates.** A dependency that demands tokio
    (matrix-rust-sdk) gets a headless core crate owning that runtime on background threads;
-   results cross back only through `Setter`/`on_main`, and `!Send` handles never leave the
+   results cross back only through `Setter`/[`on_main`](https://daybrite.dev/api/day_reactive/fn.on_main.html), and `!Send` handles never leave the
    main thread. The Day-Matrix app's `matrix-core` crate (a standalone Day app) is the
    reference; its bridge rule is documented at the top of its lib.rs. No `day-*` crate
    depends on an async runtime.
-5. **Return to the UI thread through `Setter` or `on_main`**. Completion
+5. **Return to the UI thread through `Setter` or [`on_main`](https://daybrite.dev/api/day_reactive/fn.on_main.html)**. Completion
    callbacks that run on background threads (e.g. `fetch_async`) deliver through them;
-   futures on `day::task` don't need them.
+   futures on [`day::task`](https://daybrite.dev/api/day/fn.task.html) don't need them.
 
 ## Under the hood
 
 - The executor (`crates/day-core/src/present.rs`) stores boxed futures in a thread-local map;
-  waking posts a re-poll through `day_reactive::on_main`. It is std-only, ~100 lines.
-- [day-reactive](/docs/explanation/state) reaches the executor through an installed hook (`install_spawner`, the
+  waking posts a re-poll through [`day_reactive::on_main`](https://daybrite.dev/api/day_reactive/fn.on_main.html). It is std-only, ~100 lines.
+- [day-reactive](/docs/explanation/state) reaches the executor through an installed hook ([`install_spawner`](https://daybrite.dev/api/day_reactive/fn.install_spawner.html), the
   poster/scheduler pattern) because day-core depends on [day-reactive](/docs/explanation/state), not the reverse.
-  `day_core::launch_with` wires it on every backend (including mock). The spawner returns an
+  [`day_core::launch_with`](https://daybrite.dev/api/day_core/fn.launch_with.html) wires it on every backend (including mock). The spawner returns an
   abort closure that must be a no-op after completion: the spawner polls eagerly, so a
   synchronously-ready fetcher finishes before `Resource` can store the abort.
 - `FetchFuture` ([docs/http](http.md)) is oneshot plumbing over `fetch_async`'s completion callback;
   its `Drop` runs the platform cancel. It has no executor dependency; any executor can await
   it, including a test's `block_on`.
-- `day-async` (2026-09) holds that plumbing once, std-only: `oneshot()` — a `Deliver<T>` any
+- `day-async` (2026-09) holds that plumbing once, std-only: [`oneshot()`](https://daybrite.dev/api/day_async/fn.oneshot.html) — a `Deliver<T>` any
   thread may send from and a `Oneshot<T>` any executor can await, resolving to `Dropped` rather
   than pending forever when the sender goes away — and `TokenRegistry<T>`, the
   register-before-call, remove-by-token map behind every platform completion that crosses an
   FFI boundary as a number. The bridge's callback tier ([docs/bridge](bridge.md) "Callbacks")
   is its first user; the parts' hand-rolled copies migrate onto it.
-- `day-async` also owns the process's one timer thread: `schedule(delay, job)` runs a job after a
-  delay and `unschedule(id)` forgets it, so a part's time limits and backoff wait there instead of
+- `day-async` also owns the process's one timer thread: [`schedule(delay, job)`](https://daybrite.dev/api/day_async/fn.schedule.html) runs a job after a
+  delay and [`unschedule(id)`](https://daybrite.dev/api/day_async/fn.unschedule.html) forgets it, so a part's time limits and backoff wait there instead of
   parking a thread each. [day-part-http](/docs/reference/http)'s total-time limits and question timeouts, and
   [day-part-downloads](/docs/reference/downloads)' retry backoff, use it. The web has no threads, so a timer never fires there.
-  It stays separate from `day::sleep`'s native timer because a part must work in a plain binary
+  It stays separate from [`day::sleep`](https://daybrite.dev/api/day/fn.sleep.html)'s native timer because a part must work in a plain binary
   and under `cargo test`, where no backend has installed a timer door.
-- `day-async` holds the blocking pool behind `spawn_blocking` (2026-10): a `VecDeque` of jobs, a
-  `Condvar`, and threads that start on demand up to `blocking_limit()` and exit after two idle
-  seconds. A job is the user's closure under `catch_unwind`, delivering through a `oneshot`; a
+- `day-async` holds the blocking pool behind [`spawn_blocking`](https://daybrite.dev/api/day_async/fn.spawn_blocking.html) (2026-10): a `VecDeque` of jobs, a
+  `Condvar`, and threads that start on demand up to [`blocking_limit()`](https://daybrite.dev/api/day_async/fn.blocking_limit.html) and exit after two idle
+  seconds. A job is the user's closure under `catch_unwind`, delivering through a [`oneshot`](https://daybrite.dev/api/day_async/fn.oneshot.html); a
   cancelled flag, set by the future's `Drop`, skips a job that has not started. [day-part-fs](/docs/reference/fs)'s
-  async operations run on it, detached. `blocking_threads()` reports the live count.
-- `day::sleep` rides `Platform::post_delayed`, which every backend implements with the loop's
+  async operations run on it, detached. [`blocking_threads()`](https://daybrite.dev/api/day_async/fn.blocking_threads.html) reports the live count.
+- [`day::sleep`](https://daybrite.dev/api/day/fn.sleep.html) rides [`Platform::post_delayed`](https://daybrite.dev/api/day_spec/trait.Platform.html#method.post_delayed), which every backend implements with the loop's
   own timer; the trait default (a thread that sleeps and posts) logs once when a backend without
   one falls back to it. The conformance app's headless cases `sleep-*`,
   `an-aborted-task-never-wakes-from-its-sleep` and `*-blocking-*` run on every toolkit in CI
@@ -218,13 +219,13 @@ particular executor:
 ## Test hooks
 
 - **day-core executor tests**: install an inline poster once
-  (`day_reactive::install_main_poster(|f| f())`) and every wake re-polls synchronously on the
+  ([`day_reactive::install_main_poster(|f| f())`](https://daybrite.dev/api/day_reactive/fn.install_main_poster.html)) and every wake re-polls synchronously on the
   test thread (`present.rs`'s `task_tests`).
-- **[day-reactive](/docs/explanation/state) Resource tests**: `install_spawner` a miniature executor (poll-once at spawn +
+- **[day-reactive](/docs/explanation/state) Resource tests**: [`install_spawner`](https://daybrite.dev/api/day_reactive/fn.install_spawner.html) a miniature executor (poll-once at spawn +
   an explicit `pump()`), and resolve hand-rolled manual futures (`resource_tests`).
 - **[day-part-http](/docs/reference/http) future tests**: a ~25-line park/unpark `block_on` (tests/http.rs). The
   completion's wake from the delegate queue is exactly the cross-thread path production uses.
-- Missing installs fail loudly: `on_main` and the spawner panic with "backend not started"
+- Missing installs fail loudly: [`on_main`](https://daybrite.dev/api/day_reactive/fn.on_main.html) and the spawner panic with "backend not started"
   rather than dropping work.
 
 ## Reading and checking these examples
@@ -234,10 +235,10 @@ are not standalone apps. Use the [compiled HTTP recipe](/docs/how-to/guide-http)
 for complete imports, catalog keys, and the validation harness. `request_failed` is defined in
 that recipe's catalog; other generated messages come from [the snippet catalog](snippet-catalog.md).
 
-`on_main` takes a `Send + 'static` closure and requires an installed main poster. It cannot
-capture a `Signal`; pass data through a `Setter` instead. `day::task` accepts a non-`Send`
+[`on_main`](https://daybrite.dev/api/day_reactive/fn.on_main.html) takes a `Send + 'static` closure and requires an installed main poster. It cannot
+capture a `Signal`; pass data through a `Setter` instead. [`day::task`](https://daybrite.dev/api/day/fn.task.html) accepts a non-`Send`
 `Future<Output = ()>` and eagerly polls it once. Keep CPU or blocking IO work out of that poll.
-Dropping a task handle does not abort its task; call `abort` or use a scope-owned `Resource`.
+Dropping a task handle does not abort its task; call [`abort`](https://daybrite.dev/api/day_core/struct.TaskHandle.html#method.abort) or use a scope-owned `Resource`.
 
 See [executor and shutdown](../crates/day-core/src/present.rs),
 [Resource and Setter](../crates/day-reactive/src/lib.rs), and

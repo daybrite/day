@@ -1,4 +1,5 @@
 ---
+navTitle: "Projects"
 title: Project structure & builds
 description: The anatomy of a conventional Day app, how each target is built, and how resources are packaged for runtime access.
 order: 31
@@ -324,7 +325,7 @@ opening `index.html` directly.
 ## How resources are packaged
 
 `resource/images/` and `resource/assets/` are looked up by name at runtime through the generated
-typed constants (`image(res::images::logo)`, `resource(res::assets::stations_json)`; a typo is a
+typed constants ([`image(res::images::logo)`](https://daybrite.dev/api/day_pieces/fn.image.html), [`resource(res::assets::stations_json)`](https://daybrite.dev/api/day_core/fn.resource.html); a typo is a
 compile error). Before each platform build Day stages the files, unchanged, into that target's
 native resource store, so the platform's machinery does the optimizing, and the runtime read is
 native (and zero-copy wherever the store exposes a stable pointer):
@@ -352,7 +353,7 @@ native (and zero-copy wherever the store exposes a stable pointer):
  native by-name lookup         zero-copy &[u8] view, random access
 ```
 
-At runtime, `resource()` returns a `Resource` backed directly by that store:
+At runtime, [`resource()`](https://daybrite.dev/api/day_core/fn.resource.html) returns a `Resource` backed directly by that store:
 
 ```rust
 let res = day::resource(res::assets::stations_json).expect("bundled");

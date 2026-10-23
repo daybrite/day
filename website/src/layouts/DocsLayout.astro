@@ -82,9 +82,11 @@ const home = audience === 'contributor' ? '/contributing' : '/docs';
     display: grid;
     grid-template-columns: 232px minmax(0, 1fr);
     gap: 48px;
-    padding-block: 44px 72px;
+    padding-block: 44px 16px;
     align-items: start;
   }
+  /* The docs grid supplies its footer spacing, including the sticky sidebar's lower edge. */
+  :global(main:has(> .docs) + .footer) { margin-top: 0; }
   .sidebar {
     position: sticky;
     top: 82px;

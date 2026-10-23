@@ -43,7 +43,7 @@ button(res::str::save()).action(move || {
 ```
 
 For OS file associations, Finder/Dock drops, and cold/warm document delivery, see
-[Document types and file activation](./documents.md). Use `FileUrl::read_limited(limit).await`
+[Document types and file activation](./documents.md). Use [`FileUrl::read_limited(limit).await`](https://daybrite.dev/api/day_pieces/struct.FileUrl.html#method.read_limited)
 for bounded reads that do not block the native UI thread.
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
@@ -67,20 +67,20 @@ with accessors:
 
 | method | result |
 |---|---|
-| `as_str()` | the raw locator |
-| `local_path() -> Option<PathBuf>` | `Some` for filesystem paths (and `file://`), `None` for `content://` |
-| `file_name() -> Option<String>` | the last path component, for display |
-| `read() / read_to_string()` | the bytes / UTF-8 text (local paths; `content://` errors) |
+| [`as_str()`](https://daybrite.dev/api/day_pieces/struct.FileUrl.html#method.as_str) | the raw locator |
+| [`local_path() -> Option<PathBuf>`](https://daybrite.dev/api/day_pieces/struct.FileUrl.html#method.local_path) | `Some` for filesystem paths (and `file://`), `None` for `content://` |
+| [`file_name() -> Option<String>`](https://daybrite.dev/api/day_pieces/struct.FileUrl.html#method.file_name) | the last path component, for display |
+| [`read`](https://daybrite.dev/api/day_pieces/struct.FileUrl.html#method.read)` () /  `[`read_to_string`](https://daybrite.dev/api/day_pieces/struct.FileUrl.html#method.read_to_string)`()` | the bytes / UTF-8 text (local paths; `content://` errors) |
 
 **Opened files are always readable.** Where a platform doesn't hand back a usable path, the
 toolkit materializes one first: Android copies the picked document into the app cache, and iOS
-imports it into the app sandbox. So `open_file().await?.read_to_string()` works on every
+imports it into the app sandbox. So [`open_file`](https://daybrite.dev/api/day_pieces/fn.open_file.html)`().await?`[`.read_to_string`](https://daybrite.dev/api/day_pieces/struct.FileUrl.html#method.read_to_string)`()` works on every
 target.
 
 ## The builders (`day-pieces`, in the prelude)
 
-- `open_file()` → `OpenFile`: `.title(..)`, `.filter(name, &["ext", …])`, `.await → Option<FileUrl>`.
-- `save_file(data)` → `SaveFile`: `.title(..)`, `.suggested_name(..)`, `.filter(..)`,
+- [`open_file()`](https://daybrite.dev/api/day_pieces/fn.open_file.html) → `OpenFile`: [`.title(..)`](https://daybrite.dev/api/day_pieces/struct.OpenFile.html#method.title), [`.filter(name, &["ext", …])`](https://daybrite.dev/api/day_pieces/struct.OpenFile.html#method.filter), `.await → Option<FileUrl>`.
+- [`save_file(data)`](https://daybrite.dev/api/day_pieces/fn.save_file.html) → `SaveFile`: [`.title(..)`](https://daybrite.dev/api/day_pieces/struct.OpenFile.html#method.title), [`.suggested_name(..)`](https://daybrite.dev/api/day_pieces/struct.SaveFile.html#method.suggested_name), [`.filter(..)`](https://daybrite.dev/api/day_pieces/struct.OpenFile.html#method.filter),
   `.await → Option<FileUrl>`. The bytes are staged to an app-writable temp file that the toolkit
   hands to the native save UI; the pieces layer delivers them to a chosen local destination and
   cleans up.
@@ -107,9 +107,9 @@ JS thread); the host drives `DocumentViewPicker` and answers via a registered `o
 callback, wired in the framework's ArkTS host page (`toolkits/day-arkui/platform/harmony/ets/Index.ets`,
 staged into every app's hvigor project by `day build` — [docs/harmonyos](harmonyos.md)).
 
-A browser has no filesystem, so on web-dom the bytes ride a per-page store instead of paths:
-an opened file's content lands under a virtual `/day-web/<name>` path that `FileUrl::read`
-resolves, and a save's staged bytes leave as a download named by `suggested_name`. The app uses
+A browser has no filesystem, so on Web the bytes ride a per-page store instead of paths:
+an opened file's content lands under a virtual `/day-web/<name>` path that [`FileUrl::read`](https://daybrite.dev/api/day_pieces/struct.FileUrl.html#method.read)
+resolves, and a save's staged bytes leave as a download named by [`suggested_name`](https://daybrite.dev/api/day_pieces/struct.SaveFile.html#method.suggested_name). The app uses
 the same builders and the same `FileUrl` surface on web as on every other target.
 
 All toolkits present the picker non-blocking (sheet / `open()` / delegate / Activity result),
@@ -117,13 +117,13 @@ so the main loop keeps running and dayscript stays live while a picker is up.
 
 ## Plumbing
 
-Files go through the existing `present` path ([docs/dialogs](dialogs.md)) and add no `Toolkit` methods:
+Files go through the existing [`present`](https://daybrite.dev/api/day_core/fn.present.html) path ([docs/dialogs](dialogs.md)) and add no `Toolkit` methods:
 
 - `day_spec::present::PresentSpec::{OpenFile, SaveFile}` + `FileFilter { name, extensions }`.
 - `PresentResult::Files(Vec<String>)`: the chosen locators, crossing the C ABI (Qt shim /
   Android JNI) as tag `3` with the paths joined by the unit separator.
 - `Cap::FileDialogs` advertises native support.
-- `day_spec::present::app_temp_dir()`: the app-writable staging dir; Android sets it to
+- [`day_spec::present::app_temp_dir()`](https://daybrite.dev/api/day_spec/present/fn.app_temp_dir.html): the app-writable staging dir; Android sets it to
   `getCacheDir()` (the OS temp dir isn't app-writable there).
 
 ## dayscript
@@ -150,7 +150,7 @@ pickers, initialized with the host HWND through [`IInitializeWithWindow`](https:
 [desktop picker interop contract](https://devblogs.microsoft.com/oldnewthing/20190412-00/?p=102413)).
 Open filters become `.ext` entries, with `*` when no filters are supplied; save filters
 retain their names. The WinRT API does not expose a custom dialog title.
-The selected local path becomes a `FileUrl`, so `read()` returns the original bytes.
+The selected local path becomes a `FileUrl`, so [`read()`](https://daybrite.dev/api/day_pieces/struct.FileUrl.html#method.read) returns the original bytes.
 
 Registration precedes native setup. Missing owners, activation/filter/initialization
 failures, canceled operations, and errors retrieving the result or path resolve as
@@ -166,6 +166,6 @@ it does not select a file through the real Windows picker UI.
 ## macOS sandboxing
 
 See [macOS App Sandbox](sandbox.md) for Day.toml configuration and persistent file access.
-`FileUrl::bookmark(read_only)` returns opaque bookmark bytes;
-`FileUrl::resolve_bookmark(bytes)` returns a `FileAccess` guard. Keep it alive through I/O and
+[`FileUrl::bookmark(read_only)`](https://daybrite.dev/api/day_pieces/struct.FileUrl.html#method.bookmark) returns opaque bookmark bytes;
+[`FileUrl::resolve_bookmark(bytes)`](https://daybrite.dev/api/day_pieces/struct.FileUrl.html#method.resolve_bookmark) returns a `FileAccess` guard. Keep it alive through I/O and
 renew stale bookmarks while the guard is held. A saved path alone does not preserve permission.

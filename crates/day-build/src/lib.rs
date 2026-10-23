@@ -663,7 +663,7 @@ fn ftl_files(dir: &Path) -> Vec<PathBuf> {
 /// "is this key referenced?" has to know that, or a key used through its generated function looks
 /// unused and the reference looks like a key that does not exist.
 ///
-/// The flattening is injective by construction: [`plan_strings`] fails the build when two keys
+/// The flattening is injective by construction: the string planner fails the build when two keys
 /// generate the same name.
 pub fn res_str_ident(key: &str) -> String {
     key.replace('.', "_")

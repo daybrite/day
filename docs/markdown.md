@@ -1,4 +1,5 @@
 ---
+navTitle: "Markdown"
 title: "Markdown labels"
 description: "label(…).markdown(): inline Markdown rendered through each platform's attributed text."
 ---
@@ -8,7 +9,7 @@ description: "label(…).markdown(): inline Markdown rendered through each platf
 
 # Markdown
 
-Add emphasis, links, and inline code to labels with Markdown. The `.markdown()` modifier
+Add emphasis, links, and inline code to labels with Markdown. The [`.markdown()`](https://daybrite.dev/api/day_pieces/trait.LabelBuilder.html#tymethod.markdown) modifier
 turns the label’s text into styled runs and updates them when that text changes.
 
 ```rust
@@ -17,7 +18,7 @@ label(res::str::release_note()).markdown()          // a translated string
 label(move || draft.get()).markdown()         // live, as the user types
 ```
 
-`.markdown()` reads a label's text as inline markdown: the markers are stripped and what they
+[`.markdown()`](https://daybrite.dev/api/day_pieces/trait.LabelBuilder.html#tymethod.markdown) reads a label's text as inline markdown: the markers are stripped and what they
 marked becomes [styled runs](./text-runs.md) in the one label.
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
@@ -52,7 +53,7 @@ Anything unrecognized is text. An unclosed `**`, a stray `_` inside a word, or a
 string in a live editor from flickering between readings on every keystroke.
 
 **Block constructs are not parsed.** Headings, lists, quotes, tables and paragraph breaks are
-layout, and layout in Day is `column`, `form`, `list`. A label is one paragraph; this is the
+layout, and layout in Day is [`column`](https://daybrite.dev/api/day_pieces/fn.column.html), [`form`](https://daybrite.dev/api/day_pieces/fn.form.html), [`list`](https://daybrite.dev/api/day_pieces/fn.list.html). A label is one paragraph; this is the
 markup that fits inside one.
 
 ## Links
@@ -65,18 +66,18 @@ label(res::str::terms_blurb()).markdown().on_link(|url| route(url)) // or handle
 label(res::str::navigation_links()).markdown()
 ```
 
-Without `.on_link()`, a target beginning with `#` navigates to the route after the hash:
-`#settings` calls `navigate("settings")`. This uses the existing [navigation](./navigation.md)
+Without [`.on_link()`](https://daybrite.dev/api/day_pieces/trait.LabelBuilder.html#tymethod.on_link), a target beginning with `#` navigates to the route after the hash:
+`#settings` calls [`navigate("settings")`](https://daybrite.dev/api/day_pieces/fn.navigate.html). This uses the existing [navigation](./navigation.md)
 rules, including paths and query parameters (`#mail/inbox?filter=unread`), percent escapes,
 and the empty route (`#`, which pops the innermost stack to its root). Unknown routes are
 ignored; they never open externally. Other targets open in the platform's default handler,
 including URLs with a fragment such as `https://daybrite.dev/#docs`.
 
-The [`link`](./text.md) piece and `TextBuilder::link` use the same behavior. A custom
-`.on_link()` receives the original target and overrides both navigation and external opening.
-Call `open_link(target)` from the handler to use the default for targets you do not handle.
+The [`link`](./text.md) piece and [`TextBuilder::link`](https://daybrite.dev/api/day_pieces/struct.TextBuilder.html#method.link) use the same behavior. A custom
+[`.on_link()`](https://daybrite.dev/api/day_pieces/trait.LabelBuilder.html#tymethod.on_link) receives the original target and overrides both navigation and external opening.
+Call [`open_link(target)`](https://daybrite.dev/api/day_pieces/fn.open_link.html) from the handler to use the default for targets you do not handle.
 The route must belong to a registered navigation surface; a separate Settings window, for
-example, needs an app handler that calls `day::open_preferences()`.
+example, needs an app handler that calls [`day::open_preferences()`](https://daybrite.dev/api/day/fn.open_preferences.html).
 
 Activation is `Cap::TextLinks`, which is narrower than run rendering. Where it is missing the
 link still draws; the tap does nothing. See [text-runs](./text-runs.md#per-toolkit) for the
@@ -84,5 +85,5 @@ per-toolkit table.
 
 ## Escaping user text
 
-`.markdown()` on a string a user supplied means their asterisks become emphasis. When the text is
+[`.markdown()`](https://daybrite.dev/api/day_pieces/trait.LabelBuilder.html#tymethod.markdown) on a string a user supplied means their asterisks become emphasis. When the text is
 data rather than markup, leave the modifier off — a plain label never interprets anything.

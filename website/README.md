@@ -41,8 +41,10 @@ The existing Markdown/MDX guides remain in `src/content/docs/`. Repository docum
 `docs/` and use matching symlinks in `src/content/internal/`. Design records remain unpublished;
 their source files and symlinks stay in place. Contributor standards publish through `src/content/repository/`.
 Edit the canonical source, never a copied website version. Keep titles and descriptions in
-front matter; the route catalog owns publication. Reference topics and their order live in
+front matter; the route catalog owns publication. Reference groups live in
 [`reference-navigation.json`](src/data/reference-navigation.json), shared by the sidebar and index.
+Pages within each group sort alphabetically by `navTitle`, falling back to `title`. Tutorial
+groups retain their lesson sequence using `order`. Short sidebar labels leave full page titles intact.
 
 For a new repository document, add its symlink, catalog entry, and topic placement in
 [`content-routes.json`](src/data/content-routes.json). Run `npm run docs:architecture`,

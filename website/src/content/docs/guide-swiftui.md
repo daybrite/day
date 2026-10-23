@@ -1,4 +1,5 @@
 ---
+navTitle: "SwiftUI"
 title: Embed SwiftUI views
 description: "Ship a SwiftPM package inside your app and call its SwiftUI views from Rust as generated, typed constructors — on macOS and iOS."
 order: 27
@@ -91,7 +92,7 @@ pub mod swiftui {
 }
 ```
 
-Your `build.rs` (the scaffold's `day_build::prebuild_project()`) scans the package and writes one
+Your `build.rs` (the scaffold's [`day_build::prebuild_project()`](https://daybrite.dev/api/day_build/fn.prebuild_project.html)) scans the package and writes one
 constructor per exported view; `day build` compiles the package into the app and generates the
 hosting glue. On iOS the package joins the generated `DayPieces` SwiftPM package the Xcode scaffold
 already links; on macOS the same package is referenced by the `platform/macos/` Xcode host project
@@ -128,16 +129,16 @@ fn climate_card(temp: Signal<f64>) -> AnyPiece {
 - Arguments are reactive. Each parameter takes a constant, a `Signal`, or a closure. When a reactive
   argument changes, Day re-invokes the view's initializer with the new values, and SwiftUI
   reconciles it like any parent-driven update, so `@State` inside the view survives.
-- Gate with `support()`. `day_piece_swiftui::support()` is `Native` only on `macos-appkit` and
+- Gate with [`support()`](https://daybrite.dev/api/day_piece_swiftui/fn.support.html). [`day_piece_swiftui::support()`](https://daybrite.dev/api/day_piece_swiftui/fn.support.html) is `Native` only on `macos-appkit` and
   `ios-uikit`. A `#[cfg(target_os = "macos")]` is the wrong gate: it is also true on `macos-gtk` and
   `macos-qt`, where there is no AppKit view tree to host into.
 
-The hosted view fills the space it's offered, like `image` or `canvas`; constrain it with
-`.frame(w, h)` when it shouldn't.
+The hosted view fills the space it's offered, like [`image`](https://daybrite.dev/api/day_pieces/fn.image.html) or [`canvas`](https://daybrite.dev/api/day_pieces/fn.canvas.html); constrain it with
+[`.frame(w, h)`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.frame) when it shouldn't.
 
 ## Keeping state across navigation
 
-Leaving the view's branch (a tab switch, a `when()` going false, a page navigation) disposes
+Leaving the view's branch (a tab switch, a [`when()`](https://daybrite.dev/api/day_pieces/fn.when.html) going false, a page navigation) disposes
 the hosting view and the `@State` it owns. When the view should hold its state instead, give it
 a key:
 
@@ -182,7 +183,7 @@ same mechanism.
 ## Pitfalls
 
 - Strings inside the Swift package don't go through Fluent. Pass them in as arguments
-  (`res::str::…().format()` closures on the Rust side), so the hosted view follows the app's locale,
+  ([`res::str::…().format()`](https://daybrite.dev/api/day_fluent/struct.LocalizedText.html#method.format) closures on the Rust side), so the hosted view follows the app's locale,
   including right-to-left layout, which the hosting view inherits.
 - Declare the floor you need. SwiftUI APIs like `Grid` need iOS 16 / macOS 13; declare `platform`
   and `day build` raises the deployment target for you. Xcode ⌘R builds don't see the override;

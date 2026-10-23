@@ -1,10 +1,14 @@
+---
+navTitle: "Application handlers"
+---
+
 # System application handlers
 
 Find which installed apps can open a URL or file, or identify the user’s default browser,
 without launching another app.
 
-Use `day::application_handlers(&HandlerQuery)` to read current OS associations, and
-`day::default_browser()` for the OS-selected HTTPS browser. `HandlerQuery` accepts an
+Use [`day::application_handlers(&HandlerQuery)`](https://daybrite.dev/api/day/fn.application_handlers.html) to read current OS associations, and
+[`day::default_browser()`](https://daybrite.dev/api/day/fn.default_browser.html) for the OS-selected HTTPS browser. `HandlerQuery` accepts an
 absolute URL (including `file:`), a scheme without `:`, a MIME type, or a file extension
 without a leading dot. Discovery performs no network requests and opens nothing.
 
@@ -21,14 +25,14 @@ then handle `NotFound`/`LaunchFailed` when the application is moved or removed. 
 when presenting a chooser; do not cache the system default indefinitely. Choosing an app
 for an open request does not change any system-wide associations.
 
-Call discovery on the UI thread and await opening inside `day::task`. The native completion
+Call discovery on the UI thread and await opening inside [`day::task`](https://daybrite.dev/api/day/fn.task.html). The native completion
 may arrive from an OS queue; core uses a oneshot to resume the caller on its executor. No
 native callback touches UI signals. Opening success reports OS acceptance, not page loading.
 The target browser decides whether to use a tab or window; Day does not start duplicate
 browser instances or require Apple Events automation permission.
 
 AppKit implements every query kind with NSWorkspace and UniformTypeIdentifiers. UIKit and
-other toolkits currently return `ApplicationError::Unsupported`; continue to use `open_url`
+other toolkits currently return `ApplicationError::Unsupported`; continue to use [`open_url`](https://daybrite.dev/api/day_core/fn.open_url.html)
 for their default handler. No fake browser name or fixed installed-app list is returned.
 Malformed queries return `InvalidInput`, and a valid unregistered content type can return
 an empty result. Native discovery, malformed queries, stale application IDs, and list focus

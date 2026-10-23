@@ -1,4 +1,5 @@
 ---
+navTitle: "Focus"
 title: "Focus backend contract"
 description: "Focus backend contract: retained contributor discussion and its implementation boundaries."
 ---
@@ -19,9 +20,9 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 | layer | what shipped |
 |---|---|
-| day-spec | `Event::FocusChanged(bool)` became real. New defaulted duty: `fn focus(&mut self, h: &Handle, node: NodeId, focused: bool) {}` — the `scroll_to`/`enable_gesture` shape. |
-| day-core | `TreeOps::focus_node` (clones the handle, calls the duty), `NodeProbe.focused` (mirrored from `FocusChanged` for dayscript), gain-before-loss pairing in the pump, `enqueue_events` batch enqueue. |
-| day-pieces | `Decorate::focused(…)` with `IntoFocusBinding` markers for `Signal<bool>` and `(Signal<Option<K>>, K)`; the echo cell; `on_submit(f)` on `text_field`. |
+| day-spec | `Event::FocusChanged(bool)` became real. New defaulted duty: [`fn focus(&mut self, h: &Handle, node: NodeId, focused: bool) {}`](https://daybrite.dev/api/day_spec/trait.Toolkit.html#method.focus) — the [`scroll_to`](https://daybrite.dev/api/day_core/fn.scroll_to.html)/`enable_gesture` shape. |
+| day-core | [`TreeOps::focus_node`](https://daybrite.dev/api/day_core/trait.TreeOps.html#tymethod.focus_node) (clones the handle, calls the duty), `NodeProbe.focused` (mirrored from `FocusChanged` for dayscript), gain-before-loss pairing in the pump, [`enqueue_events`](https://daybrite.dev/api/day_core/fn.enqueue_events.html) batch enqueue. |
+| day-pieces | [`Decorate::focused(…)`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.focused) with `IntoFocusBinding` markers for `Signal<bool>` and `(Signal<Option<K>>, K)`; the echo cell; [`on_submit(f)`](https://daybrite.dev/api/day_pieces/trait.TextFieldBuilder.html#tymethod.on_submit) on [`text_field`](https://daybrite.dev/api/day_pieces/fn.text_field.html). |
 | day-mock | `focus #N true/false` op log + `MockWidget.focused` — the F1 test contract. The mock duty does **not** synthesize `FocusChanged` back; tests emit events explicitly. |
 | day-script | `focus: { id, focused? }` drives the real duty (keyboards and end-editing flows engage) and `assert_focused: { id, focused? }` reads `NodeProbe.focused` (retryable — focus lands a turn after the request). |
 
@@ -52,15 +53,15 @@ has lost its native surface, leaving the Windows IME message filter registered a
 disposed input. Clearing focus while the subtree is attached lets GTK unregister that filter;
 removing an unrelated subtree preserves the current focus.
 
-**An element is its wrappers too.** An id, `.focusable()` or `.on_key` often sits on a layout
-wrapper (`.frame(..)`, `.padding(..)`) above the native view. Focusing it descends to the view,
+**An element is its wrappers too.** An id, [`.focusable()`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.focusable) or [`.on_key`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.on_key) often sits on a layout
+wrapper ([`.frame(..)`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.frame), [`.padding(..)`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.padding)) above the native view. Focusing it descends to the view,
 a focus change or key the toolkit reports on the view reaches the wrapper's handlers and probe,
-and `.on_key` marks the view as well, so a backend claims the key for it.
+and [`.on_key`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.on_key) marks the view as well, so a backend claims the key for it.
 
-**A `canvas` is focusable on every toolkit**, and observes both ways. It is the
+**A [`canvas`](https://daybrite.dev/api/day_pieces/fn.canvas.html) is focusable on every toolkit**, and observes both ways. It is the
 one built-in piece with no native control underneath, so nothing would otherwise make it the
 focused element, and without that, keys could never reach what an app draws.
-`Decorate::on_key` is built on this ([docs/menus](../menus.md)): keys follow focus, so a canvas
+[`Decorate::on_key`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.on_key) is built on this ([docs/menus](../menus.md)): keys follow focus, so a canvas
 that has it hears the arrows and a text field that takes it gets them back.
 
 | backend | focusable | takes focus on press |
@@ -69,13 +70,13 @@ that has it hears the arrows and a text field that takes it gets them back.
 | UIKit | `canBecomeFirstResponder` | `touchesBegan:`, likewise |
 | GTK 4 | `set_focusable` | a `GestureClick` that calls `grab_focus` |
 | Qt 6 | `Qt::StrongFocus` | the focus policy itself (click or tab) |
-| web-dom | a `tabindex` | a `pointerdown` listener |
+| Web | a `tabindex` | a `pointerdown` listener |
 | XAML | `Control::IsTabStop` on a `ContentControl` host wrapped around the `Canvas` — in system XAML `IsTabStop` and `Focus` are Control members and a Panel is not a Control; WinUI 3 moved both up to `UIElement`, but the WinUI build keeps the same host | `PointerPressed` on the host, which the press reaches by bubbling out of the Canvas; the Panel also takes a transparent `Background`, because an unpainted one is not hit-testable |
 | ArkUI | a focusable Stack containing a custom drawing surface and a transparent focus button; the scope's focus request reaches that button ([docs/harmonyos](../harmonyos.md)) | ArkUI's own focus handling |
-| Android | `setFocusableInTouchMode`, without which `requestFocus` refuses it during touch input | `dispatchTouchEvent`, before the gesture listener, and only for a canvas the app hung `.on_key` on: in touch mode a focus move can dismiss a raised soft keyboard |
+| Android | `setFocusableInTouchMode`, without which `requestFocus` refuses it during touch input | `dispatchTouchEvent`, before the gesture listener, and only for a canvas the app hung [`.on_key`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.on_key) on: in touch mode a focus move can dismiss a raised soft keyboard |
 
 Each reports `FocusChanged` both ways (`becomeFirstResponder`/`resignFirstResponder`,
-`focus`/`blur`, `GotFocus`/`LostFocus`, `NODE_ON_FOCUS`/`NODE_ON_BLUR`, `onFocusChanged`), so `.focused(signal)`
+`focus`/`blur`, `GotFocus`/`LostFocus`, `NODE_ON_FOCUS`/`NODE_ON_BLUR`, `onFocusChanged`), so [`.focused(signal)`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.focused)
 binds two-way and `assert_focused` can see it.
 
 ArkUI's drawing surface and focus button are siblings. A button with custom content becomes
@@ -107,7 +108,7 @@ owners because HTML editing need not expose a native EditText.
 
 UIKit uses `endEditing(false)` on departing page/cover controllers, removed subtrees and hidden
 document pages. The call stays scoped to the outgoing surface and respects refusal to resign.
-Native focus events continue to update `.focused(...)` bindings. No app opt-in is required.
+Native focus events continue to update [`.focused(...)`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.focused) bindings. No app opt-in is required.
 
 Do not dismiss on every button tap, every reactive rebuild, or every Return key: formatting
 buttons, validation errors, multiline editors and Next-field chaining need to keep editing.
@@ -158,7 +159,7 @@ visible area and the focused field is scrolled back into view:
   through the `resized()` NAPI export, and Day relayouts into it.
 
 Desktop backends have no soft keyboard, so nothing engages. Avoidance needs no per-app opt-in;
-every Day app gets it. The related programmatic primitive is `TreeOps::scroll_reveal`
+every Day app gets it. The related programmatic primitive is [`TreeOps::scroll_reveal`](https://daybrite.dev/api/day_core/trait.TreeOps.html#tymethod.scroll_reveal)
 ([docs/scroll](../scroll.md)), which scrolls any element's nearest scroll ancestor into view.
 
 ## Verification scope

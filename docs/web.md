@@ -1,4 +1,5 @@
 ---
+navTitle: "Web"
 title: "Web backend"
 description: "The web-dom backend: Rust compiled to WebAssembly driving real DOM elements, the shim, and the launch server."
 ---
@@ -10,7 +11,7 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 # Web: the web-dom backend
 
-Day's ninth backend renders in a browser. The DOM is the toolkit: a Day `button` is a real
+Day's ninth backend renders in a browser. The DOM is the toolkit: a Day [`button`](https://daybrite.dev/api/day_pieces/fn.button.html) is a real
 `<button>`, a slider is `<input type="range">`, and a dialog is `<dialog>`, all semantic HTML
 plus ARIA. The backend is `toolkits/day-dom`, the target name is
 `web-dom`, and the feature is `dom`. Status: **experimental**
@@ -77,7 +78,7 @@ The browser owns geometry in two places:
   are absolutely placed inside a sized content `<div>`, the browser scrolls it natively.
 - **Nav and tab panes** are CSS-framed (flex split view, stacked pages); each pane reports its
   size back through a ResizeObserver as `Event::FrameChanged`, the DayNavPage contract
-  ([docs/navigation](navigation.md)). Split-vs-stack for a `nav(Sidebar)` is decided once at launch from
+  ([docs/navigation](navigation.md)). Split-vs-stack for a [`nav(Sidebar)`](https://daybrite.dev/api/day_pieces/fn.nav.html) is decided once at launch from
   the initial viewport width (`SPLIT_MODE`, ≥ 700 px) and never re-evaluated on resize; a
   window widened past the threshold stays a stack until reload.
 
@@ -153,18 +154,18 @@ reports that it could not start.
 [day-sqlite-worker](persistence.md#the-web) is the reference: its module supplies the
 `day_sql_*` imports and starts the SQL worker.
 
-## The main loop, timers, and `day::sleep`
+## The main loop, timers, and [`day::sleep`](https://daybrite.dev/api/day/fn.sleep.html)
 
 The browser owns the loop; wasm has one thread, and `std::thread`, `Instant`, `SystemTime`,
 and the process environment are all absent. Three substitutions make Day code run unchanged:
 
-- `Platform::post` queues a microtask; `Toolkit::request_frame` uses cancellable `requestAnimationFrame`
+- [`Platform::post`](https://daybrite.dev/api/day_spec/trait.Platform.html#tymethod.post) queues a microtask; [`Toolkit::request_frame`](https://daybrite.dev/api/day_spec/trait.Toolkit.html#method.request_frame) uses cancellable `requestAnimationFrame`
   (animation clocks tick per frame, and CSS transitions carry opacity/transform/color).
-- `Platform::post_delayed(ms, f)` (new with this backend; every native toolkit now has its own
-  timer behind it too) is `setTimeout` here. It backs **`day::sleep(ms)`**, the awaitable timer
-  for `day::task` flows. Use it instead of `std::thread::sleep` for fake-work delays and it
+- [`Platform::post_delayed(ms, f)`](https://daybrite.dev/api/day_spec/trait.Platform.html#method.post_delayed) (new with this backend; every native toolkit now has its own
+  timer behind it too) is `setTimeout` here. It backs **[`day::sleep(ms)`](https://daybrite.dev/api/day/fn.sleep.html)**, the awaitable timer
+  for [`day::task`](https://daybrite.dev/api/day/fn.task.html) flows. Use it instead of `std::thread::sleep` for fake-work delays and it
   works on every backend ([docs/async](async.md)).
-- `day::spawn_blocking(job)` has no thread to use, so the job runs inline at the future's first
+- [`day::spawn_blocking(job)`](https://daybrite.dev/api/day/fn.spawn_blocking.html) has no thread to use, so the job runs inline at the future's first
   poll. Keep web jobs short, or branch on `cfg!(target_arch = "wasm32")` and use the platform's
   own async API ([docs/async](async.md)).
 - The launch locale reaches localization through `set_launch_locale` (the `?locale=` query
@@ -180,7 +181,7 @@ with back bar, tabs, the emulated recycling list with multi-selection, alert/con
 dialogs (`<dialog>`), fonts bundled via `FontFace` with a generated `fonts.json`, localization
 including RTL mirroring, dark mode, lifecycle (`DidBecomeActive`/`WillResignActive` from page
 visibility), routes in the URL (below), [day-part-prefs](/docs/reference/prefs) backed by `localStorage`
-([docs/prefs](prefs.md), so app state bound through `day::prefs::bind` survives a reload), and
+([docs/prefs](prefs.md), so app state bound through [`day::prefs::bind`](https://daybrite.dev/api/day/prefs/fn.bind.html) survives a reload), and
 [day-part-http](/docs/reference/http) backed by the browser's `fetch()` ([docs/http](http.md)): `fetch_async` and
 `fetch_future` work in full, with drop-cancel through an `AbortController`; the blocking
 entry points return `Unsupported` (one thread, no blocking waits). [day-persistence](/docs/reference/persistence) file
@@ -193,8 +194,8 @@ and the open/save file pickers are the browser's own file input and download
 The app's route and the URL hash stay in step, both ways ([docs/navigation](navigation.md)):
 
 - **Loading `…/#controls`** opens on that section: the host page hands the hash to
-  `set_launch_deeplink`, the web spelling of `DAY_DEEPLINK`.
-- **Navigating in the app** updates the hash through the `Toolkit::set_route` duty: one
+  [`set_launch_deeplink`](https://daybrite.dev/api/day_core/fn.set_launch_deeplink.html), the web spelling of `DAY_DEEPLINK`.
+- **Navigating in the app** updates the hash through the [`Toolkit::set_route`](https://daybrite.dev/api/day_spec/trait.Toolkit.html#method.set_route) duty: one
   history entry per step, so browser back/forward walk the app's navigation. The launch
   reflection replaces the current entry instead of pushing one.
 - **A hash change the app didn't write** (back/forward, a hand-edited URL) arrives as
@@ -202,7 +203,7 @@ The app's route and the URL hash stay in step, both ways ([docs/navigation](navi
   sides of the boundary.
 
 Routes are the same strings every platform speaks: `day::routes!` keys and `/`-separated
-paths (`#mail/inbox/msg-42` works like `navigate("mail/inbox/msg-42")`).
+paths (`#mail/inbox/msg-42` works like [`navigate("mail/inbox/msg-42")`](https://daybrite.dev/api/day_pieces/fn.navigate.html)).
 
 ## dayscript on the web
 
@@ -247,7 +248,7 @@ the captures in the website gallery's "Web DOM" column.
 
 Known gaps, in rough order of interest:
 
-- **Bundled data assets** — `resource()` returns `None` (no synchronous file reads in a
+- **Bundled data assets** — [`resource()`](https://daybrite.dev/api/day_core/fn.resource.html) returns `None` (no synchronous file reads in a
   browser). Images and fonts work; raw asset bytes need an embedding mode that does not exist
   yet.
 - **Menus are composed** — no DOM equivalent of a native menu bar exists, so the app menu is a
@@ -275,13 +276,13 @@ Known gaps, in rough order of interest:
 - **[day-piece-break](/docs/reference/break)** — no signal handlers on wasm; init succeeds and every API degrades to its
   documented stub.
 - **Window control** — the page can set `document.title` and go fullscreen through the
-  Fullscreen API (`WindowHandle::state()`, [docs/windows](windows.md)), which browsers allow
-  only from a click or key press; a request outside one settles back to `Normal`. `day::monitors()`
+  Fullscreen API ([`WindowHandle::state()`](https://daybrite.dev/api/day_core/windows/struct.WindowHandle.html#method.state), [docs/windows](windows.md)), which browsers allow
+  only from a click or key press; a request outside one settles back to `Normal`. [`day::monitors()`](https://daybrite.dev/api/day/fn.monitors.html)
   reports `window.screen`, and a window's appearance override is the page's. Size, position,
   stacking, content protection and multi-window do not apply.
 - **Window chrome** — in an installed Chromium app with the window-controls overlay switched on,
   `WindowChrome::Overlay` runs the page under the title bar (the inset comes from
-  `navigator.windowControlsOverlay`) and `.window_drag_region()` marks `app-region: drag`
+  `navigator.windowControlsOverlay`) and [`.window_drag_region()`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.window_drag_region) marks `app-region: drag`
   ([docs/window-chrome](window-chrome.md)). Elsewhere both are inert.
 
 ## Home screen and offline
@@ -399,9 +400,9 @@ build test; it just does not publish the result. To see a local build, `day buil
 in a showcase checkout and serve `build/day/cargo/web-dom/*/dist/`, or `day launch -t web-dom`.
 
 Query parameters the host page reads: `theme=light|dark` (else the OS preference),
-`locale=<bcp47>` (else the browser languages), and any app key looked up through `day::env`.
+`locale=<bcp47>` (else the browser languages), and any app key looked up through [`day::env`](https://daybrite.dev/api/day/fn.env.html).
 A browser sandbox has no process environment, so `day launch --env K=V` forwards each pair
-as `?K=V` (percent-encoded) and `day::env("K")` reads it back through the shim. The shim's
+as `?K=V` (percent-encoded) and [`day::env("K")`](https://daybrite.dev/api/day/fn.env.html) reads it back through the shim. The shim's
 page-fact keys (`vw`, `vh`, `dpr`, `dark`, `locales`, `route`, `tz`, `tzoffset`) and the reserved
 `theme`, `locale`, and `dayscript` names shadow same-named app keys; avoid those as env names.
 `tz` carries the browser's IANA zone for zone-aware apps such as Day-Time, and `tzoffset` the

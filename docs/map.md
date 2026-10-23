@@ -1,4 +1,5 @@
 ---
+navTitle: "Maps"
 title: "Map view"
 description: "Embed a MapKit map on macOS or iOS, set its region, and add a marker."
 ---
@@ -52,17 +53,17 @@ map()
     .id(id!(map))
 ```
 
-`map()` starts at `(0, 0)` with the default span (a few city blocks). Set a fixed region at build
-with `.center((lat, lon))` + `.span(degrees)` and drop a pin with `.marker(lat, lon)`. `.center`
+[`map()`](https://daybrite.dev/api/day_piece_map/fn.map.html) starts at `(0, 0)` with the default span (a few city blocks). Set a fixed region at build
+with [`.center((lat, lon))`](https://daybrite.dev/api/day_piece_map/trait.MapBuilder.html#tymethod.center) + [`.span(degrees)`](https://daybrite.dev/api/day_piece_map/trait.MapBuilder.html#tymethod.span) and drop a pin with [`.marker(lat, lon)`](https://daybrite.dev/api/day_piece_map/trait.MapBuilder.html#tymethod.marker). [`.center`](https://daybrite.dev/api/day_piece_map/trait.MapBuilder.html#tymethod.center)
 takes a constant or a reactive source: a `Signal<(f64, f64)>` or a `Fn() -> (f64, f64)` recenters
 the map live (a `Center` patch to the native view) whenever it changes, so a preset row or a
-location feed drives it; a constant seeds once and never patches. A later `.center` replaces an
-earlier one. `Map` implements `Piece`, so `.id()` / `.a11y()` / `.frame()`
-chain via `Decorate`. It's a growing leaf (`Flex { grow_w, grow_h }` + `day_pieces::fill_measure`),
-so put it in a `.frame(w, h)` (or last in a `column`) and it fills the space it's offered.
+location feed drives it; a constant seeds once and never patches. A later [`.center`](https://daybrite.dev/api/day_piece_map/trait.MapBuilder.html#tymethod.center) replaces an
+earlier one. `Map` implements `Piece`, so [`.id()`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.id) / [`.a11y()`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.a11y) / [`.frame()`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.frame)
+chain via `Decorate`. It's a growing leaf (`Flex { grow_w, grow_h }` + [`day_pieces::fill_measure`](https://daybrite.dev/api/day_pieces/render/fn.fill_measure.html)),
+so put it in a [`.frame(w, h)`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.frame) (or last in a [`column`](https://daybrite.dev/api/day_pieces/fn.column.html)) and it fills the space it's offered.
 
 The span is a coarse zoom knob (a [`MKCoordinateSpan`](https://developer.apple.com/documentation/mapkit/mkcoordinatespan) latitude/longitude delta). v1 keeps a single
-marker and no delegate callbacks (tap/region-change readback); the `Event::custom` channel is
+marker and no delegate callbacks (tap/region-change readback); the [`Event::custom`](https://daybrite.dev/api/day_spec/enum.Event.html#method.custom) channel is
 where those would be added later.
 
 ## Per-toolkit native realization
@@ -102,7 +103,7 @@ Platform guidance: [Apple: maps](https://developer.apple.com/design/human-interf
 
 `day-piece-map` is the counterpart to [day-piece-lottie](https://github.com/daybrite/day-piece-lottie): a piece whose demo page is `#[cfg]`-gated
 to the platforms it supports (`macos` + `ios`). The front-end compiles everywhere (it depends only
-on core day crates), but the `map` page and the crate's toolkit features are enabled only for the
+on core day crates), but the [`map`](https://daybrite.dev/api/day_piece_map/fn.map.html) page and the crate's toolkit features are enabled only for the
 Apple toolkits; every other toolkit renders the placeholder leaf for the `day.piece.map` kind.
 It also exercises the iOS framework-contribution mechanism (added for the webview/media work,
 [docs/extending](extending.md)): `[package.metadata.day.ios] frameworks = ["MapKit", "CoreLocation"]` links the

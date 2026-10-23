@@ -696,7 +696,7 @@ mod imp {
 // ---------------------------------------------------------------------------
 
 /// Android permission ids beyond the portable set.
-#[cfg(target_os = "android")]
+#[cfg(any(doc, target_os = "android"))]
 pub mod android {
     use super::Permission;
 
@@ -718,7 +718,7 @@ pub mod android {
 }
 
 /// HarmonyOS permission names beyond the portable set.
-#[cfg(all(target_os = "linux", target_env = "ohos"))]
+#[cfg(any(doc, all(target_os = "linux", target_env = "ohos")))]
 pub mod ohos {
     use super::Permission;
 
@@ -739,7 +739,7 @@ pub mod ohos {
 ///
 /// Apple has no permission *strings* (each of these is a per-framework authorization API), so
 /// these ids are this crate's namespace, recognized by its Apple implementation.
-#[cfg(any(target_os = "macos", target_os = "ios"))]
+#[cfg(any(doc, target_os = "macos", target_os = "ios"))]
 pub mod apple {
     use super::Permission;
 
@@ -754,7 +754,7 @@ pub mod apple {
 
 /// Browser Permissions-API names beyond the portable set. The string is passed straight to
 /// `navigator.permissions.query`.
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(doc, target_arch = "wasm32"))]
 pub mod web {
     use super::Permission;
 

@@ -1,7 +1,11 @@
+---
+navTitle: "Sharing"
+---
+
 # Native URL sharing
 
-Call `day::share_url(url, title)` directly from a user action after checking
-`day::share_support()`. It presents the toolkit's native chooser and returns whether
+Call [`day::share_url(url, title)`](https://daybrite.dev/api/day/fn.share_url.html) directly from a user action after checking
+[`day::share_support()`](https://daybrite.dev/api/day/fn.share_support.html). It presents the toolkit's native chooser and returns whether
 presentation started. It does not send the URL automatically, report completion or treat
 cancellation as an error. Sharing targets and permissions belong to the operating system.
 
@@ -11,7 +15,7 @@ cancellation as an error. Sharing targets and permissions belong to the operatin
 | iOS UIKit | UIActivityViewController, with an iPad popover anchor |
 | Android | ACTION_SEND system chooser |
 | Windows XAML / WinUI / GTK / Qt | DataTransferManager desktop share UI |
-| web-dom | Web Share, when supported and called during user activation |
+| Web | Web Share, when supported and called during user activation |
 | Linux GTK / Qt; OpenHarmony ArkUI; mock | Unsupported |
 
 The WebView demo uses a button labeled Copy Link on unsupported platforms, backed by

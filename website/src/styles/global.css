@@ -468,6 +468,15 @@ a.tier-badge:hover {
   * { transition: none !important; }
 }
 
+/* Rust API links identify signatures and contracts, distinct from overview links. */
+.doc-body a.api-link {
+  text-decoration-style: dashed;
+  text-decoration-color: currentColor;
+  text-underline-offset: 3px;
+}
+.doc-body a.api-link:hover,
+.doc-body a.api-link:focus-visible { text-decoration-style: solid; }
+
 /* Glossary terms in docs prose (plugins/glossary-links.mjs): a light dotted underline marks a
    word the glossary defines, and DocsLayout's script opens the popover below on hover or focus.
    The link itself goes to the glossary entry, so with scripts off (or on a touch screen, where

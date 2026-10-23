@@ -1,4 +1,5 @@
 ---
+navTitle: "Dialogs"
 title: "Dialogs & modals"
 description: "Imperative presentation via present(): alerts, confirmations, sheets, and how dismissal returns a value."
 ---
@@ -29,7 +30,7 @@ button(res::str::delete()).action(move || {
 });
 ```
 
-The request and its answer live in one closure. `day::task` is the one
+The request and its answer live in one closure. [`day::task`](https://daybrite.dev/api/day/fn.task.html) is the one
 explicit opt-in ("this action starts an async flow").
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
@@ -37,7 +38,7 @@ The UI snippets use generated `res::str` accessors from an app's Fluent catalog;
 
 ## Layers
 
-**Layer 0: the primitive (plumbing).** Mirrors the `nav` controller pattern: an
+**Layer 0: the primitive (plumbing).** Mirrors the [`nav`](https://daybrite.dev/api/day_pieces/fn.nav.html) controller pattern: an
 imperative call routes a request through the tree to the toolkit, and the answer flows
 back through the enqueue-only `Event` sink.
 
@@ -47,18 +48,18 @@ back through the enqueue-only `Event` sink.
 - `PresentResult`: `Button(i64)` / `Text(String)` / `Dismissed`. Tagged so it crosses
   the C ABI (Qt/Android) as a flat payload (tag + index + string), the same style as
   canvas `encode_ops`.
-- `Toolkit::present(req: u64, spec: &PresentSpec)` and `dismiss(req)` (default no-ops);
+- [`Toolkit::present(req: u64, spec: &PresentSpec)`](https://daybrite.dev/api/day_spec/trait.Toolkit.html#method.present) and `dismiss(req)` (default no-ops);
   `Event::PresentResult { req, result }`; `Cap::Dialogs`.
-- `day-core` keeps a thread-local `PENDING: HashMap<u64, …>`. `present(spec)` mints a
-  `req`, presents through `with_tree(|t| t.present(req, spec))`, and parks a waker. When
-  the toolkit answers, `pump_events` routes `Event::PresentResult` to `resolve(req,
+- `day-core` keeps a thread-local `PENDING: HashMap<u64, …>`. [`present(spec)`](https://daybrite.dev/api/day_core/fn.present.html) mints a
+  `req`, presents through [`with_tree`](https://daybrite.dev/api/day_core/fn.with_tree.html)`(|t| t`[`.present`](https://daybrite.dev/api/day_core/trait.TreeOps.html#tymethod.present)`(req, spec))`, and parks a waker. When
+  the toolkit answers, [`pump_events`](https://daybrite.dev/api/day_core/fn.pump_events.html) routes `Event::PresentResult` to `resolve(req,
   result)`, which wakes the future. Native modals dismiss themselves; a *programmatic*
   resolve (dayscript) also calls `dismiss(req)`.
 
-**Layer 1: async (the surface).** A tiny single-threaded executor (`day::task`, ~60
+**Layer 1: async (the surface).** A tiny single-threaded executor ([`day::task`](https://daybrite.dev/api/day/fn.task.html), ~60
 lines, `std`-only): tasks are `Pin<Box<dyn Future>>` in a thread-local map, polled on the
 main loop; the presentation future registers its `Waker` and is re-polled through the
-existing `Platform::post`/`on_main`. Futures are `!Send`, since there is one UI
+existing [`Platform::post`](https://daybrite.dev/api/day_spec/trait.Platform.html#tymethod.post)/[`on_main`](https://daybrite.dev/api/day_reactive/fn.on_main.html). Futures are `!Send`, since there is one UI
 thread, and there is no async-runtime dependency.
 
 ## API (`day-pieces::present`, re-exported in the prelude)

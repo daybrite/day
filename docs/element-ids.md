@@ -44,8 +44,8 @@ scalar locators; no tagged object schema is required:
 - assert_text: { id: camera_state, key: camera_running }
 ```
 
-Retain `.id_of` for recycled rows. A one-time `.id` would keep identifying the old item after
-rebinding. A tree's `.row_id` also takes a closure returning ElementId; its canonical string
+Retain [`.id_of`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.id_of) for recycled rows. A one-time [`.id`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.id) would keep identifying the old item after
+rebinding. A tree's [`.row_id`](https://daybrite.dev/api/day_pieces/trait.TreeBuilder.html#tymethod.row_id) also takes a closure returning ElementId; its canonical string
 is used in `expand.row` and `tree_move.row/parent` references.
 
 Composite controls declare their distinct targets explicitly:
@@ -59,7 +59,7 @@ legend(entries).entry_id(|key| id!(series_legend, key))
 
 Framework-owned settings children use declared families such as `pref:<preference-key>`,
 `pref_increment:<encoded-control-id>`, `prefs_group:<group-key>` and `about_link:<index>`.
-Document strips accept `.strip_id(id!(documents))`; library-owned tab, close and new buttons
+Document strips accept [`.strip_id(id!(documents))`](https://daybrite.dev/api/day_pieces/struct.DocumentTabs.html#method.strip_id); library-owned tab, close and new buttons
 use `document_tab`, `document_close`, and `document_new` families with encoded host/row keys.
 These changes break old recordings. Route/model/preference keys remain their own data and
 are not mechanically renamed just because they resemble an element ID.
@@ -86,8 +86,8 @@ Rust controls cfg/features, so offline lint does not reproduce Cargo's target ev
 `day lint` tokenizes macro calls to provide advisory shape-conflict diagnostics; it does not
 expand custom macros or evaluate cfg. The runtime catalog is authoritative for scripts.
 
-The full canonical locator remains the tree/accessibility/DOM identifier. `.id` still names
-the semantic piece node independent of wrapper order; `.wrapper_id` explicitly names the
+The full canonical locator remains the tree/accessibility/DOM identifier. [`.id`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.id) still names
+the semantic piece node independent of wrapper order; [`.wrapper_id`](https://daybrite.dev/api/day_pieces/struct.DocumentTabs.html#method.wrapper_id) explicitly names the
 current wrapper. IDs do not replace localized accessibility labels.
 
 ## Reports and gates

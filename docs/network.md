@@ -1,4 +1,5 @@
 ---
+navTitle: "Network"
 title: "Network connectivity"
 description: "Reachability and connection-type signals via day-part-network."
 ---
@@ -30,7 +31,7 @@ or dependency entry in `Day.toml` are needed.
 | Platforms / toolkits | Availability |
 | --- | --- |
 | macOS, iOS, Android, Windows, Linux (GTK / Qt), HarmonyOS | Connectivity information; available detail varies by OS. |
-| Web | Unavailable; `status()` returns `None`. |
+| Web | Unavailable; [`status()`](https://daybrite.dev/api/day_part_network/fn.status.html) returns `None`. |
 
 ## Authoring
 
@@ -40,9 +41,9 @@ if let Some(n) = day_part_network::status() {
 }
 ```
 
-[`status() -> Option<NetworkStatus>`](/api/day_part_network/fn.status.html) returns `None` where there's no connectivity API (or the reading
+[`status() -> Option<NetworkStatus>`](https://daybrite.dev/api/day_part_network/fn.status.html) returns `None` where there's no connectivity API (or the reading
 failed), which is distinct from a successful reading that says offline (`Some` with `online: false`).
-[`NetworkStatus { online: bool, kind: NetworkKind, expensive: Option<bool> }`](/api/day_part_network/struct.NetworkStatus.html); [`NetworkKind`](/api/day_part_network/enum.NetworkKind.html) is
+[`NetworkStatus { online: bool, kind: NetworkKind, expensive: Option<bool> }`](https://daybrite.dev/api/day_part_network/struct.NetworkStatus.html); [`NetworkKind`](https://daybrite.dev/api/day_part_network/enum.NetworkKind.html) is
 `Wifi | Cellular | Ethernet | Other | None`.
 
 There are no crate features; platform selection is purely `#[cfg(target_os)]`, because connectivity is
@@ -79,7 +80,7 @@ Every field is best-effort; the platforms report different amounts of detail:
 - **HarmonyOS**: `online` = a default network is activated; `kind` from the bearer type, `expensive`
   from `NETCONN_NET_CAPABILITY_NOT_METERED`. The app must declare `ohos.permission.GET_NETWORK_INFO`
   in its `module.json5` (`requestPermissions`; normal permission, no prompt) or the calls fail with
-  201 and `status()` returns `None`.
+  201 and [`status()`](https://daybrite.dev/api/day_part_network/fn.status.html) returns `None`.
 - **Linux**: no daemon-independent connectivity API is guaranteed (NetworkManager is optional), so
   the crate scans `/sys/class/net`: `online` = a non-loopback interface has operstate `up`
   (link-level, not validated internet); `kind` from the kernel's predictable name prefixes (`wl*`
@@ -88,7 +89,7 @@ Every field is best-effort; the platforms report different amounts of detail:
 - **Windows**: [`GetNetworkConnectivityHint`](https://learn.microsoft.com/en-us/windows/win32/api/netioapi/nf-netioapi-getnetworkconnectivityhint) (Windows 10 2004+, blind like the rest of the xaml
   toolkit) gives a connectivity level (`online` = internet or constrained-internet access) and a cost
   (`expensive`) but no transport, so `kind` is `Other` when online. The symbol is resolved at runtime
-  via `LoadLibrary`/`GetProcAddress`, so apps still start on older Windows; `status()`
+  via `LoadLibrary`/`GetProcAddress`, so apps still start on older Windows; [`status()`](https://daybrite.dev/api/day_part_network/fn.status.html)
   returns `None` there.
 
 A snapshot is a point-in-time poll; a change-notification rail ([`SCNetworkReachability`](https://developer.apple.com/documentation/systemconfiguration/scnetworkreachability) callbacks,

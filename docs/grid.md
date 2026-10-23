@@ -1,4 +1,5 @@
 ---
+navTitle: "Grids"
 title: "Grid"
 description: "The grid piece's design and implementation: fixed and adaptive tracks, spans, and native measurement."
 ---
@@ -11,7 +12,7 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 # Grid
 
 Arrange content in rows with shared column widths, without assigning a fixed width to every
-cell. Use `grid` and `grid_row` for tables of values, forecasts, or aligned controls; cells can
+cell. Use [`grid`](https://daybrite.dev/api/day_pieces/fn.grid.html) and [`grid_row`](https://daybrite.dev/api/day_pieces/fn.grid_row.html) for tables of values, forecasts, or aligned controls; cells can
 span columns and choose their alignment.
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
@@ -19,8 +20,8 @@ The UI snippets use generated `res::str` accessors from an app's Fluent catalog;
 
 ## 1. Goal
 
-A grid replaces the hand-tuned-width idiom. Before grids, a table-shaped layout was a `column` of `row`s with
-`.width(104.0)`-style constants keeping columns aligned across rows, and `spacer().width(40.0)`
+A grid replaces the hand-tuned-width idiom. Before grids, a table-shaped layout was a [`column`](https://daybrite.dev/api/day_pieces/fn.column.html) of [`row`](https://daybrite.dev/api/day_pieces/fn.row.html)s with
+[`.width(104.0)`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.width)-style constants keeping columns aligned across rows, and [`spacer`](https://daybrite.dev/api/day_pieces/fn.spacer.html)`()`[`.width`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.width)`(40.0)`
 placeholders holding empty cells open. A grid derives the columns from the cells:
 
 ```rust
@@ -45,8 +46,8 @@ grid((
 .column_spacing(8.0)
 ```
 
-Each column is as wide as its widest cell; the `grow_w` bar column takes whatever is left; the
-`spacer()` is an inert empty cell that still occupies its column. The rows need no width
+Each column is as wide as its widest cell; the [`grow_w`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.grow_w) bar column takes whatever is left; the
+[`spacer()`](https://daybrite.dev/api/day_pieces/fn.spacer.html) is an inert empty cell that still occupies its column. The rows need no width
 constants or placeholders.
 
 ## 2. API
@@ -70,39 +71,39 @@ fn grid_span(self, n: usize) -> Decorated<Self>;     // span n ≥ 1 columns
 fn grid_align(self, a: Alignment) -> Decorated<Self>;// per-cell alignment override
 ```
 
-SwiftUI mapping: `grid` ↔ `Grid(alignment:horizontalSpacing:verticalSpacing:)`, `grid_row` ↔
-`GridRow(alignment:)`, `.grid_span` ↔ `gridCellColumns(_:)`, `.grid_align` ↔ a 9-way
-`gridCellAnchor(_:)`. Alignment precedence per axis: cell `.grid_align` > row `.align`
-(vertical only) > the grid's `.align`.
+SwiftUI mapping: [`grid`](https://daybrite.dev/api/day_pieces/fn.grid.html) ↔ `Grid(alignment:horizontalSpacing:verticalSpacing:)`, [`grid_row`](https://daybrite.dev/api/day_pieces/fn.grid_row.html) ↔
+`GridRow(alignment:)`, [`.grid_span`](https://daybrite.dev/api/day_pieces/struct.Decorated.html#method.grid_span) ↔ `gridCellColumns(_:)`, [`.grid_align`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.grid_align) ↔ a 9-way
+`gridCellAnchor(_:)`. Alignment precedence per axis: cell [`.grid_align`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.grid_align) > row [`.align`](https://daybrite.dev/api/day_pieces/trait.GridBuilder.html#tymethod.align)
+(vertical only) > the grid's [`.align`](https://daybrite.dev/api/day_pieces/trait.GridBuilder.html#tymethod.align).
 
 Semantics:
 
 - **Columns infer from rows.** A row's cells occupy columns left to right (spans advance the
   cursor); the grid's column count is the max over rows.
-- **Column width = the max ideal width of its span-1 cells.** A `grow_w` cell makes its column
+- **Column width = the max ideal width of its span-1 cells.** A [`grow_w`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.grow_w) cell makes its column
   **flexible**: rigid columns keep their ideals and the flexible ones split the leftover width
-  evenly (the `StackLayout` share rule). Unconstrained (e.g. inside `scroll(..).horizontal()`),
+  evenly (the `StackLayout` share rule). Unconstrained (e.g. inside [`scroll`](https://daybrite.dev/api/day_pieces/fn.scroll.html)`(..)`[`.horizontal`](https://daybrite.dev/api/day_pieces/trait.ScrollBuilder.html#tymethod.horizontal)`()`),
   a flexible column falls back to its own ideal.
-- **A spanning cell** (`.grid_span(n)`) is measured once; if it needs more than its spanned
+- **A spanning cell** ([`.grid_span(n)`](https://daybrite.dev/api/day_pieces/struct.Decorated.html#method.grid_span)) is measured once; if it needs more than its spanned
   columns provide, the deficit distributes in one shot: onto the spanned flexible columns if
   any, else evenly across the spanned columns.
 - **A bare (non-row) child is a full-width cell** spanning every column, SwiftUI's rule.
   Dividers and section-spanning cards need no modifier.
-- **`spacer()` in a row is an inert empty cell**: it occupies its column, contributes no width,
+- **[`spacer()`](https://daybrite.dev/api/day_pieces/fn.spacer.html) in a row is an inert empty cell**: it occupies its column, contributes no width,
   and is never placed. This diverges from stacks (where a spacer pushes content apart)
   because a grid has explicit gutters, so push-apart spacers have no meaning here.
-- **`when`/`each` groups expand inline** at both levels: at grid level they produce rows, inside
+- **[`when`](https://daybrite.dev/api/day_pieces/fn.when.html)/[`each`](https://daybrite.dev/api/day_pieces/fn.each.html) groups expand inline** at both levels: at grid level they produce rows, inside
   a row they produce cells (the `StackLayout::flatten` recursion), so reactive row sets reflow
   and renegotiate columns for free.
 - **Row heights** are the max cell height *at the final column widths* (text height-for-width is
-  correct); a `grow_h` cell makes its row stretch under a height proposal. Nested grids are
+  correct); a [`grow_h`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.grow_h) cell makes its row stretch under a height proposal. Nested grids are
   ordinary cells.
 - **RTL mirrors columns** transparently: geometry is computed LTR and every placement mirrors
   around the grid's width in the engine's `place_child`, like every other layout.
 
 ## 6. Restrictions
 
-- Don't decorate a `grid_row`: rows are transparent carriers with no frame; `.background` etc.
+- Don't decorate a [`grid_row`](https://daybrite.dev/api/day_pieces/fn.grid_row.html): rows are transparent carriers with no frame; [`.background`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.background) etc.
   on a row is unsupported (decorate the cells or the grid). Consequently dayscript `node_frame`
   on a row id returns nothing. (A row-band placement variant was considered and rejected for the
   hidden geometry coupling it adds; revisit if row striping becomes a real need.)

@@ -59,6 +59,15 @@ the OS container, and old unsandboxed data requires explicit migration/import. E
 policy and malformed-bookmark regression tests live in `day-cli::sandbox` and
 `day-pieces::file_access`; Showcase demonstrates reopening a persisted bookmark.
 
+### Foldable support proposal
+
+The [foldable support plan](docs/foldable-support-plan.md) proposes window and local layout
+geometry, division and occlusion regions, adaptive pane placement, durable window restoration,
+and optional hinge/display sessions for iPhone Duo, Android, and future HarmonyOS support.
+It includes the current implementation audit, native API mappings, migration work, and
+acceptance criteria. These additions are proposed, not implemented; the shipped contracts
+remain in the subsystem references below.
+
 ### Subsystem index
 
 The normative reference for each shipped subsystem is its `docs/` file; the section here gives
@@ -2900,7 +2909,7 @@ to update and are ignored; the selected destination's navigation host owns its t
 >   preserving the default fallback. See `nav_can_hide_the_selected_row_without_disposing_its_detail`.
 >   `item(…).section(title)` open a group header over the content's first row, so a data-driven,
 >   search-filtered sidebar (the showcase's eight groups) keeps its grouping through the derive;
->   flat-list backends ignore it. Qt, web-dom, Windows and HarmonyOS draw them too since
+>   flat-list backends ignore it. Qt, Web, Windows and HarmonyOS draw them too since
 >   2026-09-14 — a flagless `QListWidgetItem`, a heading element between the rows, a
 >   `NavigationViewItemHeader` in the pane, a title node above the group's rows. The tab and rail
 >   presentations are still flat. The AppKit outline used the row's NSString as its item
@@ -3103,13 +3112,13 @@ made native nav containers possible without a scaffold migration.
 > miss every time, and a content key hits. Purely additive: `0` means "no key" and a decoder
 > that ignores the slot behaves exactly as before. Every backend now takes it: android keeps an
 > `android.graphics.Path`, qt a `QPainterPath` / `QPolygonF` (copy-on-write, so a hit hands back
-> a cheap copy), web-dom a `Path2D`, arkui an `OH_Drawing_Path` whose OWNERSHIP moves into the
+> a cheap copy), Web a `Path2D`, arkui an `OH_Drawing_Path` whose OWNERSHIP moves into the
 > cache — the per-draw `OH_Drawing_PathDestroy` now runs only for the uncached case — and xaml
 > the parsed `PathGeometry`, plus the bounding box of a clip payload, that backend clipping to
 > rectangles. A stamped template is parsed once rather than once per stamped position, since the
 > replay loop re-enters the same record and now hits the cache.
 >
-> What is verified where: android, qt, gtk and web-dom were RUN, drawing correctly. The arkui arm
+> What is verified where: android, qt, gtk and Web were RUN, drawing correctly. The arkui arm
 > compiles for the OHOS target but was not run — no runtime here, and this machine's hvigor cannot
 > assemble a HAP. The xaml arm is written BLIND; nothing here can build it. Both stand on CI. GTK also stopped re-encoding the whole display list
 > on every expose — it encodes once in `replay` — and the web shim keeps its `Path2D`s, its
@@ -3557,10 +3566,10 @@ See [docs/harmonyos.md](docs/harmonyos.md) and the CLI's log-reader lifecycle te
 > a standalone `day script` command and JUnit XML output were not built. Screenshots land in
 > `build/day/screenshots/<target>/<locale-or-variant>/<name>.png` (`--variant` names themed
 > sets, e.g. `--variant dark --env DAY_THEME=dark`); JSON results ride the global
-> `--format json` NDJSON stream. A scripted run captures the desktop toolkits and web-dom at a
+> `--format json` NDJSON stream. A scripted run captures the desktop toolkits and Web at a
 > stated pixel size — Day.toml `[screenshots]`, 2560×1600 at 2× by default, a 1280×800-point
 > window and a size the Mac App Store accepts — carried to the app as `DAY_WINDOW` +
-> `DAY_CAPTURE_SCALE`; GTK and Qt render their snapshot at that scale, web-dom takes it as the
+> `DAY_CAPTURE_SCALE`; GTK and Qt render their snapshot at that scale, Web takes it as the
 > driver's viewport, and macos-appkit, whose capture is the window server's pixels, opens on a
 > HiDPI virtual display `day launch` creates when no attached display has the scale (website
 > docs "dayscript", "Capture size").
@@ -5930,7 +5939,10 @@ need core edits.
 Repository documents in `docs/` publish through symlinks in `website/src/content/internal/`.
 The content route catalog places app tutorials, how-to guides, reference, and explanations under
 `/docs/`, and framework development, contracts, design, and history under `/contributing/`.
-The website sidebar and page indexes derive from that catalog. Architecture checks validate
+The website sidebar and page indexes derive from that catalog. Optional `navTitle` front matter
+provides concise sidebar labels while retaining full page titles. Entries within each navigation
+group sort by those labels; app and contributor tutorials retain their explicit lesson order.
+Architecture checks validate
 canonical source paths and the public documentation URLs embedded in CLI help and app templates.
 Markdown lint discovers canonical pages automatically. Writing rules live in `STYLE_GUIDE.md`;
 documentation-specific conventions and templates live in `website/authoring/`.
@@ -6161,13 +6173,26 @@ The `daybrite/actions` companion repository provides reusable workflows for exte
    then validate the combined artifact. CI uses the separate `build:site` step before its
    explicit API build. Reference guides link API names to generated item pages and anchors;
    the API link checker validates those incoming links as well as links within Rustdoc.
+   The manifest includes the portable pieces, parts, model, build, and toolchain crates used by
+   those guides; the umbrella documents `mock,model` so optional model integration APIs are
+   available too; `day-pieces` also documents its `model` feature so its row and tree adapters
+   exist at the links emitted by the umbrella. External `Uuid` documentation stays with its
+   defining crate rather than being inlined into the Day bundle. Permission-name modules use `cfg(doc)` alongside their target gates to expose
+   all documented platform constants without changing runtime availability.
+   Explicit Markdown item links identify their actual receiver type and use absolute
+   `https://daybrite.dev/api/` URLs so local previews open the published reference. A presentation
+   plugin adds a dashed underline without extra label text. A separate AST-based coverage check runs after Rustdoc
+   and rejects unlinked callable references against the generated names, with exact, reasoned
+   exceptions for native/private/generated APIs, fields and retained proposals. It excludes
+   fenced code and does not infer destinations from shared method names. Bare names still need
+   editorial review; destination and fragment validation remains the rendered checker's job.
    Rustdoc runs with a locked dependency graph and warnings denied. The builder creates each
    published crate's output directory before documentation starts and serializes rustdoc, so
    cross-crate links resolve locally even when Cargo documents a consumer first. Its item-link check follows
    aliases and checks fragment destinations separately from the website link checker. Links to
    private helpers remain prose, public links use resolvable paths, and re-exported standard-library
    links point to the hosted Rust documentation. This artifact sequence
-   which makes it the does-rustdoc-still-build check on crate changes too; the separate `api-docs`
+   makes it the does-rustdoc-still-build check on crate changes too; the separate `api-docs`
    job it replaced is gone. The `screenshots-<combo>` artifacts the platform legs upload stay, as
    each run's evidence of what its walkthrough rendered.
 
@@ -7360,7 +7385,7 @@ pub fn battery() -> BatteryHandle;             // BatteryHandle { pub level: Sig
 > shims where the toolkit needs one. Navigation events ride `Event::Custom`; the
 > `evaluate_js(…).await`-over-dayffi design was not needed.
 > `JsHandle::eval` returns JSON through request-keyed custom events. Linux GTK now uses
-> WebKitGTK's evaluation callback; web-dom evaluates only same-origin frames and reports
+> WebKitGTK's evaluation callback; Web evaluates only same-origin frames and reports
 > cross-origin access errors. macOS GTK hosts a WKWebView aligned to a GTK allocation
 > anchor and detaches it on unmap. Its GTK capture controller forwards scroll events
 > to native WKWebView hit targets, bridging GTK’s Cocoa event interception while
@@ -7853,7 +7878,7 @@ scope for source, policy, and receipt callbacks, preserving per-window ambient s
 the guard, and a guard cannot select an operation absent from the native allowed mask.
 
 AppKit uses native dragging sessions/pasteboard items, GTK uses content providers and
-asynchronous drop streams, Qt uses QDrag/QMimeData, and web-dom uses native HTML events.
+asynchronous drop streams, Qt uses QDrag/QMimeData, and Web uses native HTML events.
 UIKit uses UIDragInteraction/UIDropInteraction and NSItemProvider byte loads; Android uses
 startDragAndDrop with read-only ContentProvider URI grants; ArkUI uses native drag events and
 UDMF records. XAML uses DataPackage streams and native drag deferrals (Windows validation
@@ -7908,7 +7933,7 @@ file-ID resolution and escaped Unicode filenames.
 ### Container horizontal navigation pans
 
 `on_pan` on non-canvas containers now observes horizontal wheel movement through descendant
-controls on AppKit, GTK, Qt and Web DOM. Android containers also receive horizontal pointer-wheel input via
+controls on AppKit, GTK, Qt and Web. Android containers also receive horizontal pointer-wheel input via
 `dispatchGenericMotionEvent`; touch-only swipes remain separate from this pointer API. Vertical wheel scrolling keeps its native behavior.
 AppKit uses a hit-tested local scroll monitor; GTK uses a capture-phase scroll controller; Qt
 filters wheel events for the host subtree, preferring the nearest pan host; DOM uses the nearest
@@ -8209,7 +8234,7 @@ references on dismissal or handle release. UIKit uses FormSheet for modal sheets
 `Cap::CoverSheet` = Native; everywhere else the `cover` piece composes the sheet (2026-10): on a
 window wider than compact, a clear cover holding a dimmed fill and a card in the window's own
 color (`SurfaceRole::Window`), centered at AppKit's sheet proportions; on a compact window, the
-full-window cover as before. The fill is `SurfaceRole::Scrim`, which web-dom draws as a light
+full-window cover as before. The fill is `SurfaceRole::Scrim`, which Web draws as a light
 frost; there the sheet's toolbar strip is the card's header and Escape closes it ([docs/cover.md](docs/cover.md)).
 This hint does not change Cap::Cover.
 AppKit scripted snapshots capture the active attached sheet, including the offscreen fallback.

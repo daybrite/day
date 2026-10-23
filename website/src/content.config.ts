@@ -15,7 +15,7 @@ const docs = defineCollection({
     // browser tab, the docs index card and the prev/next pager all keep `title`.
     navTitle: z.string().optional(),
     description: z.string(),
-    // Sidebar order (ascending). Frontmatter is the single source of truth for doc ordering.
+    // Sequence within tutorials; other navigation groups sort by their sidebar labels.
     order: z.number().default(99),
     // Retained editorial category; content-routes.mjs owns sidebar grouping and placement.
     section: z.string().default('Docs'),
@@ -28,6 +28,7 @@ const internal = defineCollection({
   loader: glob({ pattern: '**/*.md', base: './src/content/internal' }),
   schema: z.object({
     title: z.string().optional(),
+    navTitle: z.string().optional(),
     description: z.string().optional(),
     order: z.number().optional(),
   }),

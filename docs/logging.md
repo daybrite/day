@@ -23,7 +23,7 @@ debug!("hit test at {x},{y} -> {hit:?}");
 trace!("frame {n}");
 ```
 
-There is nothing to initialize. `day::launch` installs a logger before the first line can be
+There is nothing to initialize. [`day::launch`](https://daybrite.dev/api/day/fn.launch.html) installs a logger before the first line can be
 emitted, so the framework's own diagnostics and yours land in the same place, in the same format.
 
 ## Why not `println!`
@@ -55,7 +55,7 @@ process, turning a clean exit into a spurious crash. Day's logger never panics o
 | macOS, Linux, Windows | the process's stderr — your terminal |
 | iOS | stderr, which is the Xcode console |
 | Android | stderr, which day-android redirects into **logcat** (stdout at INFO, stderr at ERROR) |
-| **web-dom** | the browser's **JavaScript console** |
+| **Web** | the browser's **JavaScript console** |
 
 On the web each level maps to the matching console method (`error!` to `console.error`, `warn!`
 to `console.warn`, `info!` to `console.info`, `debug!` and `trace!` to `console.debug`), so
@@ -130,12 +130,12 @@ DAY_LOG=debug day launch -t macos-appkit
 
 The web has no process environment, so the launch server forwards it as a query parameter on the
 page URL; `day launch -t web-dom --env DAY_LOG=debug` is the same thing. An app can also move the
-level at runtime with `day::set_log_level(log::LevelFilter::Trace)`.
+level at runtime with [`day::set_log_level(log::LevelFilter::Trace)`](https://daybrite.dev/api/day/fn.set_log_level.html).
 
 ## Using a different logger
 
 Day's logger is only a default. `log` allows exactly one logger per process and the first
-registration wins, so **install yours before `day::launch`** and Day steps aside:
+registration wins, so **install yours before [`day::launch`](https://daybrite.dev/api/day/fn.launch.html)** and Day steps aside:
 
 ```rust
 fn main() {
@@ -185,14 +185,14 @@ logger is no longer installed.
 
 Day does not adopt `env_logger` as its default, because it writes ANSI text to stderr on every
 target. On Android that means every line lands in logcat at `ERROR`, because day-android maps
-fd 2 to that level; on web-dom it means the lines are discarded, since std's stdio on wasm
+fd 2 to that level; on Web it means the lines are discarded, since std's stdio on wasm
 accepts bytes and drops them; on iOS it means escape codes in the Xcode console. Day's default
 exists to route per platform. `env_logger` fits an app that targets desktops; the other six
 targets need the per-platform routing.
 
 ## Writing a logger
 
-The trait is `log::Log`. Day's web-dom implementation shows the shape:
+The trait is `log::Log`. Day's Web implementation shows the shape:
 
 ```rust
 pub fn console_sink(level: log::Level, line: &str) {
@@ -201,12 +201,12 @@ pub fn console_sink(level: log::Level, line: &str) {
 ```
 
 A toolkit that needs its own destination installs a **sink**, a `fn(log::Level, &str)` that
-receives the already-formatted line, through `day_core::set_log_sink` instead of replacing the
-logger. That keeps the format and the level filtering in one place. The facade wires web-dom's in
+receives the already-formatted line, through [`day_core::set_log_sink`](https://daybrite.dev/api/day_core/fn.set_log_sink.html) instead of replacing the
+logger. That keeps the format and the level filtering in one place. The facade wires Web's in
 `day::web::start`.
 
 Day does not ship `console_log` or `wasm-logger` for the browser: each requires `web-sys` (and
-`wasm-logger` requires `wasm-bindgen`), while the web-dom toolkit's shim is numeric ids across
+`wasm-logger` requires `wasm-bindgen`), while the Web toolkit's shim is numeric ids across
 `extern "C"`, built without a bundler ([docs/web](web.md)). Routing a formatted line to
 `console.*` is one call, so the dependency would add a toolchain for no gain.
 

@@ -1,4 +1,5 @@
 ---
+navTitle: "Media"
 title: "Media playback"
 description: "The external day-piece-media crate for native audio and video playback."
 ---

@@ -2,12 +2,11 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: CC-BY-SA-4.0
 import DocsLayout from '../../../layouts/DocsLayout.astro';
-import { url } from '../../../lib/site';
 import api from '../../../data/api-crates.json';
 
 // The bridge page into the generated Rust API reference. The crate list comes from the same
 // api-crates.json that CI's scripts/build-api-docs.sh documents, so this page and the rustdoc bundle
-// stay in lockstep. Each crate links into /api/<crate>/ (rustdoc uses underscores for '-'). The bundle
+// stay in lockstep. Each crate links to the published API (rustdoc uses underscores for '-'). The bundle
 // itself is produced by `cargo doc` into dist/api in CI and normal local production builds.
 // `npm run api:dev` also makes it available to the development server.
 const groups = api.groups;
@@ -28,7 +27,7 @@ const docDir = (pkg: string) => pkg.replace(/-/g, '_');
       <p class="group-blurb">{g.blurb}</p>
       <div class="api-cards">
         {g.crates.map((c) => (
-          <a class="api-card" href={url(`api/${docDir(c.pkg)}/index.html`)}>
+          <a class="api-card" href={`https://daybrite.dev/api/${docDir(c.pkg)}/index.html`}>
             <code>{c.pkg}</code>
             <span>{c.blurb}</span>
           </a>

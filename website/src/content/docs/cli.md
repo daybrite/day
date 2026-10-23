@@ -1,4 +1,5 @@
 ---
+navTitle: "CLI"
 title: CLI & projects
 description: The Day command-line tool, the conventional project layout, Day.toml, and dayscript.
 order: 30
@@ -723,8 +724,8 @@ app on iOS, an unknown target in `Day.toml` is not read. Coverage gaps and store
 **warnings**. Both kinds fail `--strict`, so the split changes what you read rather than what CI
 does.
 
-One rule that would pass that test stays a warning anyway. `unknown-key` (a `tr("…")` with no
-message, which renders the key itself on screen) is found by scanning for the literal after `tr("`,
+One rule that would pass that test stays a warning anyway. `unknown-key` (a [`tr("…")`](https://daybrite.dev/api/day/fn.tr.html) with no
+message, which renders the key itself on screen) is found by scanning for the literal after [`tr("`](https://daybrite.dev/api/day/fn.tr.html),
 and that two-character name turns up inside other identifiers, where what follows it is not always a
 key.
 
@@ -782,8 +783,8 @@ the per-target build pipelines, and how [resources](/docs/reference/glossary#res
 ## dayscript
 
 **dayscript** is a YAML language that drives and asserts a *running* app over a socket, using the
-same script on every platform. Pieces are addressed by the same stable `.id` you give them in Rust,
-and routes are the same keys your `nav`/`nav_stack` use. It has its own guide: [Testing with
+same script on every platform. Pieces are addressed by the same stable [`.id`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.id) you give them in Rust,
+and routes are the same keys your [`nav`](https://daybrite.dev/api/day_pieces/fn.nav.html)/[`nav_stack`](https://daybrite.dev/api/day_pieces/fn.nav_stack.html) use. It has its own guide: [Testing with
 dayscript](/docs/how-to/dayscript).
 
 ## Tests in the app
@@ -792,7 +793,7 @@ dayscript](/docs/how-to/dayscript).
 it: pages driven on the real toolkit, and headless logic in the app's own environment. One line
 per test, the evidence and captures beside the run's screenshots. A test is named after its
 function (`button_press` runs as `button-press`), a GUI case's page shows alone in the app's
-`day::test_host`, and a case that panics or passes its time limit (`--case-timeout`, 30 s by
+[`day::test_host`](https://daybrite.dev/api/day/fn.test_host.html), and a case that panics or passes its time limit (`--case-timeout`, 30 s by
 default) fails without stopping the run. The guide is
 [Tests in the app](/contributing/backend-contracts/testing).
 

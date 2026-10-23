@@ -592,7 +592,10 @@ pub mod prelude {
     #[cfg(feature = "model")]
     pub use ::day_model;
     #[cfg(feature = "model")]
-    pub use ::day_model::{Elem, Field, Key, Keyed, ModelId, Source, Store, Uuid};
+    #[doc(no_inline)]
+    pub use ::day_model::Uuid;
+    #[cfg(feature = "model")]
+    pub use ::day_model::{Elem, Field, Key, Keyed, ModelId, Source, Store};
     #[cfg(feature = "model")]
     pub use day_macros::Observable;
     pub use day_spec::Point;

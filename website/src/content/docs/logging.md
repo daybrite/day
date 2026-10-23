@@ -22,7 +22,7 @@ error!("the database is unreadable: {e}");
 debug!("hit test at {x},{y} -> {hit:?}");
 ```
 
-`day::launch` installs the logger before building your UI. App and framework messages then
+[`day::launch`](https://daybrite.dev/api/day/fn.launch.html) installs the logger before building your UI. App and framework messages then
 use the same logging infrastructure.
 
 ## Don't use `println!`
@@ -91,7 +91,7 @@ day launch -t web-dom --env DAY_LOG=debug     # the web has no environment; this
 ## Use a different logger
 
 You can replace Day's logger. `log` allows one logger per process and the first one wins, so
-install yours before `day::launch`:
+install yours before [`day::launch`](https://daybrite.dev/api/day/fn.launch.html):
 
 ```rust
 fn main() {

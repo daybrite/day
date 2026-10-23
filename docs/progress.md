@@ -1,4 +1,5 @@
 ---
+navTitle: "Progress"
 title: "Progress indicators"
 description: "progress and spinner: determinate and indeterminate, native on every toolkit."
 ---
@@ -21,9 +22,9 @@ progress(move || downloaded.get() / total.get())
 spinner()
 ```
 
-Both are plain leaf pieces that work without `day::task` or a state machine. A determinate
+Both are plain leaf pieces that work without [`day::task`](https://daybrite.dev/api/day/fn.task.html) or a state machine. A determinate
 bar is reactive by construction: pass a `Signal<f64>`, a closure, or a constant and it
-tracks the value with the same one-patch-per-change guarantee as `slider`.
+tracks the value with the same one-patch-per-change guarantee as [`slider`](https://daybrite.dev/api/day_pieces/fn.slider.html).
 
 ```rust
 let volume = Signal::new(40.0);
@@ -41,16 +42,16 @@ The UI snippets use generated `res::str` accessors from an app's Fluent catalog;
 
 `crates/day-pieces`:
 
-- `spinner() -> Progress`: indeterminate.
-- `progress(fraction: impl IntoFraction<M>) -> Progress`: determinate. `IntoFraction`
+- [`spinner() -> Progress`](https://daybrite.dev/api/day_pieces/fn.spinner.html): indeterminate.
+- [`progress(fraction: impl IntoFraction<M>) -> Progress`](https://daybrite.dev/api/day_pieces/fn.progress.html): determinate. `IntoFraction`
   mirrors `IntoText`: it is implemented for `f64` (constant), `Signal<f64>`, and any
   `Fn() -> f64`, each under a disjoint marker so the three call forms stay coherent.
 - Out-of-range fractions are clamped to `0.0..=1.0` before they ever reach a toolkit,
   so a toolkit never has to defend against `1.7` or `-0.2`.
-- A determinate bar takes `grow_w` (it fills the available width like a slider); a spinner
+- A determinate bar takes [`grow_w`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.grow_w) (it fills the available width like a slider); a spinner
   keeps its fixed intrinsic size.
 
-A constant `progress(0.5)` installs no binding. There is nothing to update after build,
+A constant [`progress(0.5)`](https://daybrite.dev/api/day_pieces/fn.progress.html) installs no binding. There is nothing to update after build,
 so it emits zero runtime patches (asserted in the e2e tests).
 
 ## The wire (spec)
@@ -64,7 +65,7 @@ so it emits zero runtime patches (asserted in the e2e tests).
 - `props::ProgressPatch::Value(Option<f64>)`: the one sparse patch. A determinate bar only
   ever sends `Some`; a spinner sends nothing after realize.
 
-`Toolkit::realize`/`update`/`measure` dispatch on `kinds::PROGRESS` like any other leaf;
+[`Toolkit::realize`](https://daybrite.dev/api/day_spec/trait.Toolkit.html#tymethod.realize)/`update`/`measure` dispatch on `kinds::PROGRESS` like any other leaf;
 no new trait method was needed.
 
 ## Native mapping
@@ -88,7 +89,7 @@ Notes:
   [`QProgressBar`](https://doc.qt.io/qt-6/qprogressbar.html) (`min == max == 0`), so Day uses that rather than emulating a ring. It is a
   horizontal busy bar rather than a circular spinner, the one cross-platform divergence.
 - The determinate fraction crosses the C ABI (Qt/Android/XAML) as an integer tick in
-  `0..1000`, the same encoding `slider` uses, so there is no float-ABI concern.
+  `0..1000`, the same encoding [`slider`](https://daybrite.dev/api/day_pieces/fn.slider.html) uses, so there is no float-ABI concern.
 
 ## Sizing
 

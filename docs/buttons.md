@@ -20,14 +20,14 @@ button(res::str::about()).image(res::vectors::app_mark).action(about)
 button(res::str::send()).enabled(move || !busy.get()).action(send)
 ```
 
-Use `.action(...)` for button activation, including after decorations such as `.padding(...)`.
-The generic `.on_tap(...)` decorator installs a separate gesture recognizer; it is not an alias
+Use [`.action(...)`](https://daybrite.dev/api/day_pieces/trait.ButtonBuilder.html#tymethod.action) for button activation, including after decorations such as [`.padding(...)`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.padding).
+The generic [`.on_tap(...)`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.on_tap) decorator installs a separate gesture recognizer; it is not an alias
 for the native button action. On AppKit that recognizer delays primary mouse events and can
 delay or suppress the pressed highlight. UIKit also installs a separate tap recognizer.
-Keeping activation on `.action(...)` preserves the control's normal pointer, keyboard,
+Keeping activation on [`.action(...)`](https://daybrite.dev/api/day_pieces/trait.ButtonBuilder.html#tymethod.action) preserves the control's normal pointer, keyboard,
 accessibility, and disabled behavior across toolkits.
 Day logs a runtime warning when a tap recognizer is attached to a native button, including
-through layout decorators. This also covers `.on_tap_at(...)`. Existing callbacks continue
+through layout decorators. This also covers [`.on_tap_at(...)`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.on_tap_at). Existing callbacks continue
 to work, so the diagnostic does not silently change gesture semantics.
 
 For an operation shared across surfaces, use a [reusable `Command`](commands.md) to define its
@@ -38,13 +38,13 @@ The UI snippets use generated `res::str` accessors from an app's Fluent catalog;
 
 ## Icons and labels
 
-`.icon(symbol)` adds a platform symbol beside the title. It accepts a `Symbol`, signal, or
-closure. `.image(name)` uses a bundled image or vector; pass a generated `res::images` or
-`res::vectors` constant. The last `.icon()` or `.image()` call determines the image.
+[`.icon(symbol)`](https://daybrite.dev/api/day_pieces/trait.ButtonBuilder.html#tymethod.icon) adds a platform symbol beside the title. It accepts a `Symbol`, signal, or
+closure. [`.image(name)`](https://daybrite.dev/api/day_pieces/trait.ButtonBuilder.html#tymethod.image) uses a bundled image or vector; pass a generated `res::images` or
+`res::vectors` constant. The last [`.icon()`](https://daybrite.dev/api/day_pieces/trait.ButtonBuilder.html#tymethod.icon) or [`.image()`](https://daybrite.dev/api/day_pieces/trait.ButtonBuilder.html#tymethod.image) call determines the image.
 Use a small template glyph with a transparent background, as you would for a toolbar icon.
 Resource staging uses the existing [image and vector pipeline](vectors.md).
 
-`.icon_only()` hides the visible title when an icon is available. Keep a meaningful title:
+[`.icon_only()`](https://daybrite.dev/api/day_pieces/trait.ButtonBuilder.html#tymethod.icon_only) hides the visible title when an icon is available. Keep a meaningful title:
 it remains the accessible name and, on desktop and web, the automatic tooltip. Buttons
 with a visible title do not receive an automatic tooltip. With no icon, the title stays
 visible. Native loaders that cannot resolve an icon also fall back to the title; web image
@@ -72,21 +72,21 @@ button(move || {
 ```
 
 These updates preserve the button instance. The icon builders also work after decorations,
-for example `button(res::str::play()).padding(4.0).icon(Symbol::Play)`.
+for example [`button`](https://daybrite.dev/api/day_pieces/fn.button.html)`(res::str::play())`[`.padding`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.padding)`(4.0)`[`.icon`](https://daybrite.dev/api/day_pieces/trait.ButtonBuilder.html#tymethod.icon)`(Symbol::Play)`.
 
 ## Styles
 
 | Modifier | Behavior |
 | --- | --- |
 | *(none)* | The platform's ordinary button |
-| `.bordered()` | A contained button where the stock style is borderless, notably UIKit |
-| `.prominent()` | The platform's primary or default-action treatment |
-| `.tint(color)` | A filled button with a contrasting foreground |
-| `.compact()` | Removes extra minimum width and horizontal padding on Android and web |
-| `.enabled(value)` | Enables or disables interaction; accepts reactive values |
-| `.selected(value)` | Marks the button as the current choice among its peers; accepts reactive values |
+| [`.bordered()`](https://daybrite.dev/api/day_pieces/trait.ButtonBuilder.html#tymethod.bordered) | A contained button where the stock style is borderless, notably UIKit |
+| [`.prominent()`](https://daybrite.dev/api/day_pieces/trait.ButtonBuilder.html#tymethod.prominent) | The platform's primary or default-action treatment |
+| [`.tint(color)`](https://daybrite.dev/api/day_pieces/trait.ButtonBuilder.html#tymethod.tint) | A filled button with a contrasting foreground |
+| [`.compact()`](https://daybrite.dev/api/day_pieces/trait.ButtonBuilder.html#tymethod.compact) | Removes extra minimum width and horizontal padding on Android and web |
+| [`.enabled(value)`](https://daybrite.dev/api/day_pieces/trait.ButtonBuilder.html#tymethod.enabled) | Enables or disables interaction; accepts reactive values |
+| [`.selected(value)`](https://daybrite.dev/api/day_pieces/trait.ButtonBuilder.html#tymethod.selected) | Marks the button as the current choice among its peers; accepts reactive values |
 
-`.tint()` takes precedence over the other styles and can follow a signal. Day chooses black
+[`.tint()`](https://daybrite.dev/api/day_pieces/trait.ButtonBuilder.html#tymethod.tint) takes precedence over the other styles and can follow a signal. Day chooses black
 or white foreground according to which has the higher WCAG contrast ratio against the fill.
 Disabled buttons reject actions even when a dayscript injects a press.
 
@@ -98,7 +98,7 @@ button(res::str::record())
 
 ## Selected state
 
-`.selected(value)` marks a button as the current choice among its peers: a document tab, one
+[`.selected(value)`](https://daybrite.dev/api/day_pieces/trait.ButtonBuilder.html#tymethod.selected) marks a button as the current choice among its peers: a document tab, one
 view of a switcher. The platform draws its own checked or selected look and tells assistive
 technology the button is selected, while the button stays enabled, focusable and activatable.
 A disabled stand-in would do neither. A press never toggles the state natively: the app's
@@ -119,7 +119,7 @@ button(res::str::drafts())
 | Qt | A checkable [`QPushButton`](https://doc.qt.io/qt-6/qpushbutton.html) in its checked state |
 | XAML | The theme's accent fill on the [`Button`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.xaml.controls.button); automation carries no selected state |
 | ArkUI | The prominent fill over the button's own style; the bound NDK has no selected state attribute |
-| web-dom | `aria-pressed` and the `selected` class, drawn as the accent fill |
+| Web | `aria-pressed` and the `selected` class, drawn as the accent fill |
 
 `read_native` reports the state as `checked`, so a conformance case asserts it with
 `assert_on` and `assert_native` ([docs/testing](testing.md)). The composed document strip uses it for the
@@ -138,13 +138,13 @@ Platform guidance: [Apple: buttons](https://developer.apple.com/design/human-int
 | Qt | [`QPushButton`](https://doc.qt.io/qt-6/qpushbutton.html) with a [`QIcon`](https://doc.qt.io/qt-6/qicon.html); theme icons, standard icons, Day outlines, or bundled files |
 | XAML | [`Button`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.xaml.controls.button) content containing an icon and optional text; symbol glyphs, vector paths, or bundled images |
 | ArkUI | A native button containing an image and optional text; Day symbol outlines or packaged SVG/PNG assets |
-| web-dom | A native `<button>` with a CSS image mask using the current text color |
+| Web | A native `<button>` with a CSS image mask using the current text color |
 
 The button owns interaction in every case; the icon is content, not a separate action.
 Symbols may look different between platforms. Bundled template images use the existing
 [toolbar icon loaders](toolbars.md), including their platform-specific tint behavior.
 
-AppKit's `.prominent()` establishes the Return-key default action. GTK uses
+AppKit's [`.prominent()`](https://daybrite.dev/api/day_pieces/trait.ButtonBuilder.html#tymethod.prominent) establishes the Return-key default action. GTK uses
 `suggested-action`, UIKit uses its bordered-prominent configuration, and XAML requests
 `AccentButtonStyle` where available. Qt asks the current style to draw a default button;
 Android retains its stock filled treatment. ArkUI uses a transparent background for automatic
@@ -159,12 +159,12 @@ colors.
 
 ## Toolkit contract
 
-`.plain()` requests a borderless native action button for toolbar commands and list
+[`.plain()`](https://daybrite.dev/api/day_pieces/trait.ButtonBuilder.html#tymethod.plain) requests a borderless native action button for toolbar commands and list
 accessories. AppKit removes the [NSButton](https://developer.apple.com/documentation/appkit/nsbutton) bezel; UIKit uses its system button; Android
 uses Material's theme-resolved text-button colors with compact horizontal insets;
 GTK applies `flat`. Native press, focus, accessibility and disabled behavior remain.
 Qt, XAML and web currently use their automatic style as a fallback; ArkUI's automatic
-style is already transparent. `.plain()` and `.compact()` are mutually exclusive style
+style is already transparent. [`.plain()`](https://daybrite.dev/api/day_pieces/trait.ButtonBuilder.html#tymethod.plain) and [`.compact()`](https://daybrite.dev/api/day_pieces/trait.ButtonBuilder.html#tymethod.compact) are mutually exclusive style
 requests: the last one wins. Android plain already includes compact horizontal sizing.
 Switching away from a tinted or plain style restores the original Material foreground
 and icon state colors as well as its background.
@@ -172,7 +172,7 @@ and icon state colors as well as its background.
 `ButtonProps` seeds the title, optional `Icon`, `icon_only`, enabled state, and style. Plain
 buttons continue to send `ButtonPatch::Title`. Icon buttons send `ButtonPatch::Content`,
 which updates their title and icon together and invalidates their measured size. The
-reactive binding uses `bind_seeded`, avoiding a duplicate update immediately after creation.
+reactive binding uses [`bind_seeded`](https://daybrite.dev/api/day_reactive/fn.bind_seeded.html), avoiding a duplicate update immediately after creation.
 
 `Enabled` and `Style` patches remain independent of content. A toolkit must preserve the
 icon and accessible title when a style changes. UIKit retains content in a side table because

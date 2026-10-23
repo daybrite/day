@@ -1,4 +1,5 @@
 ---
+navTitle: "Flavors"
 title: Build flavors
 description: Ship one source tree as several apps — a paid build, a white-label build, a demo — with Day-<name>.toml and day build --flavor.
 order: 32

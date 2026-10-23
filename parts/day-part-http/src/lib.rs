@@ -4,6 +4,8 @@
 //! day-part-http: headless cross-platform HTTP(S), by default through native networking
 //! stack (docs/http.md). No UI; any Rust code can depend on this crate.
 //!
+//! [signal-setter]: https://daybrite.dev/api/day_reactive/struct.Signal.html#method.setter
+//!
 //! ```no_run
 //! let resp = day_part_http::fetch(&day_part_http::Request::get("https://example.com"))?;
 //! println!("{} {} bytes", resp.status, resp.body.len());
@@ -30,7 +32,8 @@
 //! thread. [`fetch_async`]'s completion runs on the transport's own thread (URLSession's delegate
 //! queue, OkHttp's reader pool, the libcurl driver, WinHTTP's callbacks, the HarmonyOS JS thread,
 //! or the browser's only thread); deliver results into the UI by capturing
-//! a [`day_reactive::Signal::setter`]-style setter in the callback; setters hop to the UI thread
+//! a [`day_reactive::Signal::setter`](https://daybrite.dev/api/day_reactive/struct.Signal.html#method.setter)-style
+//! setter in the callback; setters hop to the UI thread
 //! themselves and silently no-op after disposal, so late completions are harmless (DESIGN §4.5):
 //!
 //! ```ignore

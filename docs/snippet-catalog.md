@@ -1,4 +1,5 @@
 ---
+navTitle: "Examples"
 title: "Fluent catalog for documentation examples"
 description: "Message definitions and setup for the generated string accessors used in Day's UI examples."
 ---
@@ -10,7 +11,7 @@ not built-in Day strings**. Add the entries you need to
 `resource/locales/en-US/app.ftl` (or your app's default locale), retaining your existing
 messages. Define the same keys and arguments in the other locales you ship.
 
-The scaffold's `build.rs` calls `day_build::prebuild_project()` and its library declares
+The scaffold's `build.rs` calls [`day_build::prebuild_project()`](https://daybrite.dev/api/day_build/fn.prebuild_project.html) and its library declares
 `day::resources!();`. In a child module, import `crate::res`; a separate binary imports
 `your_app::res` from its library. Start the app with `res::window_options()` so the catalog
 and saved language are available before the UI is built.
@@ -21,12 +22,12 @@ See [Localization](/docs/how-to/localization) for the complete setup.
 > but app-owned labels, hints, errors, and units should come from the Fluent catalog.
 > Pass `Signal<i64>`, `Signal<f64>`, or `Signal<String>` directly to an accessor.
 > For a memo, a projected field, or another numeric type, read and convert inside a reactive
-> label closure: `label(move || res::str::rating_value(stars.get() as i64).format())`.
+> label closure: [`label`](https://daybrite.dev/api/day_pieces/fn.label.html)`(move || res::str::rating_value(stars`[`.get`](https://daybrite.dev/api/day_reactive/struct.Signal.html#method.get)`() as i64)`[`.format`](https://daybrite.dev/api/day_fluent/struct.LocalizedText.html#method.format)`())`.
 > Multi-argument messages use generated named-field structs.
 
 `id!(save_button)` declares a stable `ElementId` independently of the catalog. It names a
 control for automation, while `res::str::save()` supplies its translated title.
-Recycled rows use `.id_of(move || id!(item_row, slot.key()))`.
+Recycled rows use [`.id_of`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.id_of)`(move || id!(item_row, slot`[`.key`](https://daybrite.dev/api/day_pieces/struct.ItemSlot.html#method.key)`()))`.
 See [element IDs](element-ids.md) and [accessibility](accessibility.md).
 
 File paths, route keys, protocol strings, and user-authored content are data, not catalog

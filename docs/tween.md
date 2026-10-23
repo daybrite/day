@@ -10,7 +10,7 @@ description: "Interpolation, timing and frame-driven transitions for canvas anim
 
 Animate values over time to move, resize, or recolor content drawn on a canvas. `day::tween`
 provides interpolation, timing curves, and frame-driven values that redraw as they change.
-For native widget animation, use `with_animation` instead.
+For native widget animation, use [`with_animation`](https://daybrite.dev/api/day_core/fn.with_animation.html) instead.
 
 ```rust,ignore
 use day::tween::{Lerp, Tweened};
@@ -25,7 +25,7 @@ The UI snippets use generated `res::str` accessors from an app's Fluent catalog;
 
 ## Lerp
 
-`Lerp` is how a value moves between two states: `a.lerp(&b, t)` is `a` at `t = 0` and `b` at
+`Lerp` is how a value moves between two states: [`a.lerp(&b, t)`](https://daybrite.dev/api/day_core/tween/fn.lerp.html) is `a` at `t = 0` and `b` at
 `t = 1`. It is implemented for `f64`, `f32`, `Point`, `Size`, `Rect`, `Color`, tuples of two and
 three, arrays and `Vec`s (element-wise over the common prefix, the target's tail taken as is), and
 `Option` (interpolated when both are present, switched at the midpoint otherwise). `t` may leave
@@ -33,48 +33,48 @@ three, arrays and `Vec`s (element-wise over the common prefix, the target's tail
 
 Colors blend in OKLab, alpha linearly. The midpoint of blue and yellow is a clean mid-lightness
 color rather than sRGB's dim gray, and a sequential scale's in-between colors read as in-between
-values. The endpoints are returned exactly. `mix_oklab(a, b, t)` is the same blend as a function.
+values. The endpoints are returned exactly. [`mix_oklab(a, b, t)`](https://daybrite.dev/api/day_core/tween/fn.mix_oklab.html) is the same blend as a function.
 
 ## Timing
 
-`Timing::new(spec).sample(elapsed)` turns an `AnimSpec` into progress: the delay holds the start,
+[`Timing::new`](https://daybrite.dev/api/day_core/tween/struct.Timing.html#method.new)`(spec)`[`.sample`](https://daybrite.dev/api/day_core/tween/struct.Timing.html#method.sample)`(elapsed)` turns an `AnimSpec` into progress: the delay holds the start,
 easing curves run for `duration_ms`, a spring runs its analytic step response and ends at
-`duration_ms` (which `AnimSpec::spring` sets to its response, the same duration every native
+`duration_ms` (which [`AnimSpec::spring`](https://daybrite.dev/api/day_spec/struct.AnimSpec.html#method.spring) sets to its response, the same duration every native
 toolkit gives a spring), and `repeat` and `autoreverse` cycle it. Each `Sample` says whether it is
 the last one; the last one is the exact end value, so nothing is left a spring's residue away from
-its target. `total()` is the run's length, or `None` for a spec that repeats forever.
+its target. [`total()`](https://daybrite.dev/api/day_core/tween/struct.Timing.html#method.total) is the run's length, or `None` for a spec that repeats forever.
 
-`stagger(spec, index, count, spread_ms)` delays item `index` of `count` so the first starts on
+[`stagger(spec, index, count, spread_ms)`](https://daybrite.dev/api/day_core/tween/fn.stagger.html) delays item `index` of `count` so the first starts on
 time and the last `spread_ms` later: bars rising left to right, points arriving along a line.
 
 ## animate
 
-`animate(clock, timing, step)` calls `step(sample)` once per display frame of a
+[`animate(clock, timing, step)`](https://daybrite.dev/api/day_core/tween/fn.animate.html) calls `step(sample)` once per display frame of a
 [`FrameClock`](frames.md) until the timing is done, then stops, and the window requests no more
 frames on its behalf. Elapsed time is measured from the first frame delivered rather than from the
 call, so a transition started while the app is busy begins on screen instead of part-way through.
-It returns the `FrameHandle`: keep it, or call `in_scope()`, since dropping it cancels the
+It returns the `FrameHandle`: keep it, or call [`in_scope()`](https://daybrite.dev/api/day_core/frame/struct.FrameHandle.html#method.in_scope), since dropping it cancels the
 transition where it stands.
 
 ## Tweened
 
-`Tweened<T: Lerp>` is a reactive value that glides to each new target. `get()` is tracked, so a
+`Tweened<T: Lerp>` is a reactive value that glides to each new target. [`get()`](https://daybrite.dev/api/day_core/tween/struct.Tweened.html#method.get) is tracked, so a
 canvas reading it re-records on every frame of its transition and at no other time.
-`animate_to(target, spec)` starts from the value on screen, so retargeting mid-flight bends the
-motion rather than snapping it; `set(value)` jumps. `Tweened::new` animates on the current page's
-window; `Tweened::on(clock, ..)` names one.
+[`animate_to(target, spec)`](https://daybrite.dev/api/day_core/tween/struct.Tweened.html#method.animate_to) starts from the value on screen, so retargeting mid-flight bends the
+motion rather than snapping it; [`set(value)`](https://daybrite.dev/api/day_core/tween/struct.Tweened.html#method.set) jumps. [`Tweened::new`](https://daybrite.dev/api/day_core/tween/struct.Tweened.html#method.new) animates on the current page's
+window; [`Tweened::on(clock, ..)`](https://daybrite.dev/api/day_core/tween/struct.Tweened.html#method.on) names one.
 
 Under reduced motion ([accessibility](accessibility.md): the user's system setting, or a
-run that forced it with `--fast` / `DAY_REDUCE_MOTION=1`) `animate_to` sets its target at once
-and `animate` finishes a finite tween on its first frame, even one already in flight when the
+run that forced it with `--fast` / `DAY_REDUCE_MOTION=1`) [`animate_to`](https://daybrite.dev/api/day_core/tween/struct.Tweened.html#method.animate_to) sets its target at once
+and [`animate`](https://daybrite.dev/api/day_core/tween/fn.animate.html) finishes a finite tween on its first frame, even one already in flight when the
 setting flipped. An endless tween (`repeat: u32::MAX`) keeps running: a spinner is the one sign
 that work is going on. Motion an app drives from `day::frame` directly is the app's own; read
-`day::reduce_motion()` there and settle it.
+[`day::reduce_motion()`](https://daybrite.dev/api/day/fn.reduce_motion.html) there and settle it.
 
 ## Pairs
 
 When what changed is a collection (the bars of a chart, the cards on a table, the tiles of a
-board), the first question is which item became which. `Pairs::by_key(from, to, key, absent)`
+board), the first question is which item became which. [`Pairs::by_key(from, to, key, absent)`](https://daybrite.dev/api/day_core/tween/struct.Pairs.html#method.by_key)
 answers it once per change:
 
 ```rust,ignore
@@ -97,9 +97,9 @@ let bars = pairs.at(progress);
   neighbor, faded) and it is the caller's to choose.
 - The result is in `to`'s order, then the leaving items in `from`'s order.
 
-`at(t)` interpolates every item with its `Lerp`. `at_with(t, f)` hands each `Pair` and `t` to a
-closure, for items whose in-between needs more context than their two ends. `at_each(progress, f)`
-gives each item its own `t`, for sequences that do not move in lockstep. `settled()` is the
+[`at(t)`](https://daybrite.dev/api/day_core/tween/struct.Pairs.html#method.at) interpolates every item with its `Lerp`. [`at_with(t, f)`](https://daybrite.dev/api/day_core/tween/struct.Pairs.html#method.at_with) hands each `Pair` and `t` to a
+closure, for items whose in-between needs more context than their two ends. [`at_each(progress, f)`](https://daybrite.dev/api/day_core/tween/struct.Pairs.html#method.at_each)
+gives each item its own `t`, for sequences that do not move in lockstep. [`settled()`](https://daybrite.dev/api/day_core/tween/struct.Pairs.html#method.settled) is the
 arriving state without the leaving items: what to draw once the transition is over.
 
 When the caller's own rules already know what moved where (a sliding-tile game knows which two
@@ -110,11 +110,11 @@ tiles merged into which cell, which no key match could say), it collects its `Pa
 
 A chart, a graph or a map changes many values at once, and what they mean decides how they should
 move. day-piece-charts is the worked example: its `animate.rs` pairs marks and axis ticks across
-two resolved charts with `Pairs::by_key`, keyed by what they encode, interpolates values in data space while the scales' domains move,
+two resolved charts with [`Pairs::by_key`](https://daybrite.dev/api/day_core/tween/struct.Pairs.html#method.by_key), keyed by what they encode, interpolates values in data space while the scales' domains move,
 re-stacks stacked marks every frame, and gives entering and leaving marks a meaning (a bar grows
 from its baseline, a line's new samples unfold along the old line). It drives the whole blend
-with one `animate` call per change and reads `current_anim()` so that a change made inside
-`with_animation` animates with the caller's spec, the same contract native widgets keep.
+with one [`animate`](https://daybrite.dev/api/day_core/tween/fn.animate.html) call per change and reads [`current_anim()`](https://daybrite.dev/api/day_core/fn.current_anim.html) so that a change made inside
+[`with_animation`](https://daybrite.dev/api/day_core/fn.with_animation.html) animates with the caller's spec, the same contract native widgets keep.
 
 Tests live in `day-core/src/tween.rs`: timing across delay, repeat, autoreverse and springs,
 staggering, interpolation and OKLab endpoints, a `Tweened` driven by a manual frame source

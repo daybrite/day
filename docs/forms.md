@@ -10,7 +10,7 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 # Forms
 
-Group related inputs into sections with aligned labels. `form`, `section`, and `labeled`
+Group related inputs into sections with aligned labels. [`form`](https://daybrite.dev/api/day_pieces/fn.form.html), [`section`](https://daybrite.dev/api/day_pieces/fn.section.html), and [`labeled`](https://daybrite.dev/api/day_pieces/fn.labeled.html)
 provide a shared layout for preferences, account details, and other forms, while the controls
 keep their native behavior.
 
@@ -33,25 +33,25 @@ form((
 ))
 ```
 
-- `form(sections)` — a vertical run (spacing 16) that provides the shared label column to every
-  `labeled` row underneath it, via the scoped environment ([docs/environment](environment.md)).
-- `section(children).title(t)` — one grouped card: an optional footnote-style header above a
+- [`form(sections)`](https://daybrite.dev/api/day_pieces/fn.form.html) — a vertical run (spacing 16) that provides the shared label column to every
+  [`labeled`](https://daybrite.dev/api/day_pieces/fn.labeled.html) row underneath it, via the scoped environment ([docs/environment](environment.md)).
+- [`section`](https://daybrite.dev/api/day_pieces/fn.section.html)`(children)`[`.title`](https://daybrite.dev/api/day_pieces/trait.FormSectionBuilder.html#tymethod.title)`(t)` — one grouped card: an optional footnote-style header above a
   rounded card (radius 10, content padded 14, spacing 10). Children are arbitrary pieces;
-  `labeled` rows are just the ones that participate in alignment. A `section` also works
-  standalone, outside any `form`.
-- `labeled(text, control)` — one form row: the label sits right-aligned in the form-wide column,
+  [`labeled`](https://daybrite.dev/api/day_pieces/fn.labeled.html) rows are just the ones that participate in alignment. A [`section`](https://daybrite.dev/api/day_pieces/fn.section.html) also works
+  standalone, outside any [`form`](https://daybrite.dev/api/day_pieces/fn.form.html).
+- [`labeled(text, control)`](https://daybrite.dev/api/day_pieces/fn.labeled.html) — one form row: the label sits right-aligned in the form-wide column,
   on the same text baseline as the control ([docs/baseline](baseline.md); centered instead when either side
   has no baseline, e.g. a toggle, or on a toolkit that reports none); the control starts at the
-  column edge + 12. A control marked `.grow()`
-  (text fields, sliders, or a `row(( … ))` wrapper) stretches to the row's remaining width;
-  others hug their natural size. Outside a `form`, the column is just that row's own label width.
+  column edge + 12. A control marked [`.grow()`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.grow)
+  (text fields, sliders, or a [`row(( … ))`](https://daybrite.dev/api/day_pieces/fn.row.html) wrapper) stretches to the row's remaining width;
+  others hug their natural size. Outside a [`form`](https://daybrite.dev/api/day_pieces/fn.form.html), the column is just that row's own label width.
   A control whose natural width does not fit beside the column — a two-button stepper in a
   280-point inspector — goes UNDER the label instead, leading-aligned with the control across
   the whole row (the settings-list idiom), rather than clipping at the row's edge. A
   stretching control shrinks rather than overflows, so give one that needs room a
-  `.min_width(pt)`: a slider beside a color well then stacks instead of vanishing.
+  [`.min_width(pt)`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.min_width): a slider beside a color well then stacks instead of vanishing.
   The label also becomes the control's accessible name (a live text follows its source), unless
-  the control names itself with `.a11y(|a| a.label(..))`, so a form needs no repeated label.
+  the control names itself with [`.a11y`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.a11y)`(|a| a`[`.label`](https://daybrite.dev/api/day_pieces/struct.A11yBuilder.html#method.label)`(..))`, so a form needs no repeated label.
 
 ## The section-card surface
 
@@ -64,7 +64,7 @@ theming with no app code:
 |---|---|
 | AppKit | [`NSColor.quaternarySystemFillColor`](https://developer.apple.com/documentation/appkit/nscolor), resolved per-draw in `drawRect:` (stays live across appearance changes) |
 | UIKit | `tertiarySystemFillColor` + layer corner radius |
-| GTK | libadwaita's `.card` style class |
+| GTK | libadwaita's [`.card`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.card) style class |
 | Qt | translucent neutral fill via a scoped stylesheet + `WA_StyledBackground` (no grouped-card palette role exists; a 12% gray adapts to any palette) |
 | Android | `?attr/colorSurfaceContainer` (Material 3; falls back to `colorSurfaceVariant`) in a rounded `GradientDrawable` |
 | XAML | `CardBackgroundFillColorDefaultBrush` theme resource |
@@ -72,7 +72,7 @@ theming with no app code:
 
 ## Layout: how alignment works
 
-`form` plants a shared `Rc<Cell<f64>>` column width in the environment; each `LabeledLayout`
+[`form`](https://daybrite.dev/api/day_pieces/fn.form.html) plants a shared `Rc<Cell<f64>>` column width in the environment; each `LabeledLayout`
 registers its label's unconstrained width during **measure** and reads back the running max in
 **place**. A row that stacks registers nothing: its label sits above its control, not in the
 column, so a long label on a narrow screen (a French settings row on a phone) leaves the other
@@ -88,8 +88,8 @@ it. When either side reports no baseline the row centers both, as before.
 
 ## Follow-ups
 
-- `labeled` caption/footer affordances (secondary line under the control, iOS-settings style).
-- Optional per-`section` label column (opt out of form-wide alignment for asymmetric sections).
+- [`labeled`](https://daybrite.dev/api/day_pieces/fn.labeled.html) caption/footer affordances (secondary line under the control, iOS-settings style).
+- Optional per-[`section`](https://daybrite.dev/api/day_pieces/fn.section.html) label column (opt out of form-wide alignment for asymmetric sections).
 
 ## Platform guidance
 

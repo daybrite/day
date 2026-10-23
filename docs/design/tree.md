@@ -22,14 +22,14 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 > probes, native backends (AppKit `NSOutlineView`, GTK
 > `GtkListView`+`GtkTreeListModel`+`GtkTreeExpander`, UIKit's list-layout
 > `UICollectionView`, Qt `QTreeWidget`, and WinUI/system-XAML `TreeView`), and
-> the composed tree (web-dom, Android arbitrary-depth trees and ArkUI) are implemented.
+> the composed tree (Web, Android arbitrary-depth trees and ArkUI) are implemented.
 > Android's two-level section mode uses `ExpandableListView`. The original mock e2e
 > suite and Day Sketch's layer panel: one `dayscript/tree.yaml` passes verbatim on
 > macos-appkit, macos-gtk, ios-uikit, web-dom, macos-qt, android-mdc and harmony-arkui
 > (89/89), and the leading pane rides the `.edge(PaneEdge::Leading)` inspector on all
 > seven. The Showcase's `Section::Tree` demo + `day-tweak-tree-style` shipped as M5's
 > other half: its own `dayscript/tree.yaml` (53 steps) passes verbatim on the same seven
-> targets, with per-row context menus checked by real browser right-clicks on web-dom.
+> targets, with per-row context menus checked by real browser right-clicks on Web.
 > The October native XAML adapter still requires Windows CI validation; it cannot be compiled
 > or run on this development Mac. The historical walkthrough results above predate the
 > Qt/XAML adapter change. M3's as-built notes:
@@ -117,7 +117,7 @@ Nothing about that is specific to Day Sketch. It is what every tree does.
 
 This table distinguishes platform capabilities from Day's implemented adapters. Native
 controls existing in a toolkit does not mean Day currently uses them. Android's general tree,
-ArkUI and web-dom use the composed tree; Qt and XAML now use native tree controls. See the
+ArkUI and Web use the composed tree; Qt and XAML now use native tree controls. See the
 [section disclosure research](#native-collapsible-sections-research-2026-10) for the narrower
 two-level grouping used by navigation sidebars.
 
@@ -135,7 +135,7 @@ a worse fit than a flat list that hosts child views.
 | **Qt** | `QTreeView` / `QTreeWidget` | delegates for painted rows; index widgets for hosted content, with ownership and scaling costs | **native** `QTreeWidget`; Day cells are independent viewport children so model rebuilds cannot delete their anchors |
 | **Android** | `ExpandableListView` for two levels, not arbitrary-depth trees | group/child adapter views | **composed** for arbitrary depth; **native** `ExpandableListView` for `TreeSections` |
 | **ArkUI** | ArkTS `TreeView` + `TreeController` (API 10+) | documented title/icon fields; `NodeParam.container` is a context-menu builder, **not a row-content slot** | **composed today**; native adapter needs further API investigation |
-| **web-dom** | `details` / `summary` disclosure; no complete tree-view element | arbitrary DOM descendants | **composed today**; native disclosure can serve sections, but does not provide full tree keyboard semantics |
+| **Web** | `details` / `summary` disclosure; no complete tree-view element | arbitrary DOM descendants | **composed today**; native disclosure can serve sections, but does not provide full tree keyboard semantics |
 | **mock** | simulated | yes | drives the tests, as it does for `list` |
 
 `TreeSource` is hierarchical, so native adapters can drive it directly while the shared
@@ -144,7 +144,7 @@ not evidence that a toolkit lacks native disclosure controls.
 
 An "emulated" verdict here means the tree *semantics* are Day's; it does not mean no native
 widget. Android's arbitrary-depth tree rides the native `RecyclerView` the `list` piece
-uses, ArkUI hosts native row nodes, and web-dom's rows are real DOM.
+uses, ArkUI hosts native row nodes, and Web's rows are real DOM.
 That matters for [customization](#deep-customization-per-toolkit): there is always something
 real to tweak.
 
@@ -175,7 +175,7 @@ APIs provide these candidates:
 | WinUI | Hierarchical `NavigationViewItem` for sidebars; `TreeView` for general hierarchy; `Expander` for a header/content disclosure | `IsExpanded`, `Expanding` / `Collapsed`; `SelectsOnInvoked=false` prevents parent navigation selection |
 | Android | `ExpandableListView` with a group/child adapter | `expandGroup` / `collapseGroup` / `isGroupExpanded`, group expand/collapse listeners |
 | GTK 4 | `GtkTreeListModel` + `GtkTreeExpander` inside `GtkListView` | `GtkTreeListRow.expanded` property and change notification |
-| web-dom | `details` containing `summary` and section content | `open` property and `toggle` event |
+| Web | `details` containing `summary` and section content | `open` property and `toggle` event |
 | ArkUI | ArkTS `TreeView` has built-in disclosure; `ListItemGroup` has group headers | Reviewed public TreeView API does not document expansion setters or expansion-change callbacks; do not promise restorable native sections yet |
 
 Sources: [Qt QTreeView](https://doc.qt.io/qt-6/qtreeview.html),
@@ -464,7 +464,7 @@ backends render: a walk from the root that descends only into open rows, produci
 and wrap each row in an indent plus a disclosure control built from ordinary Day pieces.
 
 That is one implementation of expansion, indentation, keyboard handling and drop targeting,
-shared by Qt, Android and web-dom, exercised by the mock backend's tests. A bug fixed in the
+shared by Qt, Android and Web, exercised by the mock backend's tests. A bug fixed in the
 flattener is fixed on three platforms. The flattener is written kind-agnostic
 (rows-with-depth over any token tree), because it is the seed of the shared composed tier
 described in [Stepping back](#stepping-back-what-the-tree-stresses-in-days-architecture).
@@ -587,7 +587,7 @@ mapping is *reported* rather than guessed. This lands with the tree and retrofit
 content exists, with the cell's own handle and the row's token, depth, expansion and selection
 state. It runs on every bind, so it stays correct for recycled cells.
 
-**web-dom joins the tweak system.** The tweaks table stops at seven toolkits; the browser is
+**Web joins the tweak system.** The tweaks table stops at seven toolkits; the browser is
 missing. The emulated tree makes that a real gap, and CSS is the web's native customization
 language, so day-dom gains a minimal accessor and two helpers over new shim calls:
 
@@ -798,7 +798,7 @@ needs more than `NodeParam` offers replaces the ArkTS component wholesale throug
 extension mechanism (`[package.metadata.day.ohos]`, [docs/extending.md](../extending.md)), the
 platform's extension point.
 
-#### The emulated targets: Qt, Android, web-dom
+#### The emulated targets: Qt, Android, Web
 
 The tree logic is Day's here, which moves customization into the app's own code: the
 disclosure, the indent and the row chrome are ordinary Day pieces, so the *row builder and the
@@ -845,7 +845,7 @@ tree(src, row)
     })
 ```
 
-**web-dom.** The emitted structure carries stable hooks (`day-tree` on the host,
+**Web.** The emitted structure carries stable hooks (`day-tree` on the host,
 `day-tree-row` with `data-depth` per row, and the full ARIA tree attributes), so a stylesheet
 in `resource/assets` restyles everything CSS can reach, and the new `with_element` accessor
 covers the dynamic remainder:
@@ -869,7 +869,7 @@ tree(src, row).dom(|el| {
 Anything reusable becomes a crate, as the tweaks doc prescribes. `.tree_style(SourceList |
 Plain | Inset)` maps to `NSTableViewStyle` on AppKit, the sidebar list configuration on UIKit
 (a build-time hint, per the note above), `.navigation-sidebar` on GTK, `TreeViewItem` template
-resources on XAML, a stylesheet on Qt, a class on web-dom, and a documented no-op on Android
+resources on XAML, a stylesheet on Qt, a class on Web, and a documented no-op on Android
 and ArkUI.
 
 ## Selection
@@ -989,7 +989,7 @@ drag-reparent on macOS; `a11y_audit` reports tree rows with disclosure levels; a
 source-list tweak from [the AppKit example](#appkit--nsoutlineview-in-an-nsscrollview)
 compiles and visibly changes the rendering.
 
-### M2 — the shared emulation, on web-dom and Qt (SHIPPED 2026-08 — see the as-built notes)
+### M2 — the shared emulation, on Web and Qt (SHIPPED 2026-08 — see the as-built notes)
 
 Both already emulate `list`, so they are the cheapest check that one flattener serves three
 backends. Rows come from the flattener; each row's Day subtree gets an indent and a disclosure
@@ -1000,7 +1000,7 @@ in each backend. `TreePiece::build` branches on `capability(Cap::Tree)`: `Native
 attach path above, anything else takes `build_composed`, which flattens the connection's
 visible rows (a DFS descending only into expanded rows, tracked against the shape read and
 the expansion signal) onto the existing [`list`] piece. So the composed tree costs a backend
-nothing: web-dom and the qt toolkit answer `Cap::Tree` `Emulated`, and the same code would
+nothing: Web and the qt toolkit answer `Cap::Tree` `Emulated`, and the same code would
 render on any backend with the list machinery. Per row:
 
 - **Indent** is a layout (`TreeIndent`) reading the row's depth from a `Cell` the rebind
@@ -1022,7 +1022,7 @@ render on any backend with the list machinery. Per row:
 
 Pool cleanup: an emulated list that shrank hides pooled cells in place, so
 `ListSource::recycle` now clears a hidden cell's element ids (`list_recycle_cell`, the
-list twin of the tree's recycle rule); web-dom and qt call it as they hide. Qt also honors
+list twin of the tree's recycle rule); Web and qt call it as they hide. Qt also honors
 `.edge(PaneEdge::Leading)` now (the splitter's panel pane goes first); the layers pane was
 the first leading inspector a qt target ever showed.
 
@@ -1136,7 +1136,7 @@ steps are `only_on: [uikit, mdc]`). Verified on the emulator: tree.yaml 89/89 an
 moving the selection tree→canvas, and a chevron tap collapsing and re-expanding (dayscript
 injects events, so only real taps exercise the recognizers; the inner chevron listener wins
 over the cell's click, so a disclosure tap does not re-target the selection, whereas on
-web-dom the click bubbles to the cell and does). Still open on Android: the
+Web the click bubbles to the cell and does). Still open on Android: the
 `ItemTouchHelper` drag half (`Cap::TreeMove` stays `Unsupported`), the
 `AccessibilityNodeInfo` expand/collapse actions, and row context menus (no
 `set_context_menu_fn` wiring; a long-press summon would need the composed presenter's
@@ -1196,7 +1196,7 @@ time, `.id` after `.height` tagging the wrapper so `expand:`/`tree_move:` steps 
 is gone: `.id` names the tree's own node wherever it sits in the chain.) Verified locally:
 tree.yaml 53/53 on macos-appkit, macos-gtk, macos-qt, web-dom, android-mdc, ios-uikit and
 harmony-arkui; the walkthrough.yaml tree block in the appkit full run (705/705); real
-right-click context menus, a real Duplicate commit and real chevron disclosure on web-dom
+right-click context menus, a real Duplicate commit and real chevron disclosure on Web
 via a headless browser; light + dark screenshot review (ArkUI shows the pooled-rebind
 label defect noted under M4).
 
@@ -1261,7 +1261,7 @@ agrees with the tree. That leaves two contracts in the codebase. This plan does 
 `list`, but the mismatch is a known debt, and new collection kinds should address rows by
 token.
 
-**The emulations are converging on one composed tier.** web-dom and Qt each carry their own
+**The emulations are converging on one composed tier.** Web and Qt each carry their own
 emulated list; the flattener here is kind-agnostic so it can become shared substrate rather
 than a third copy. The composed colorpicker and stepper show the wider pattern: for complex
 kinds, one Rust reference implementation as the guaranteed floor, native upgrades where a

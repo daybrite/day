@@ -45,17 +45,17 @@ canvas(move |d, size| draw_gauge(d, size, value.get()))
 image(res::images::hero_banner).a11y(|a| a.decorative())
 ```
 
-`.id` names the piece's own node wherever it sits in the chain. Put `.a11y` before `.frame()`
-and `.padding()` on canvas and leaf [pieces](/docs/reference/glossary#piece): those modifiers wrap the
-piece in a layout-only node, and `.a11y` annotates the node built so far, so an annotation
+[`.id`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.id) names the piece's own node wherever it sits in the chain. Put [`.a11y`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.a11y) before [`.frame()`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.frame)
+and [`.padding()`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.padding) on canvas and leaf [pieces](/docs/reference/glossary#piece): those modifiers wrap the
+piece in a layout-only node, and [`.a11y`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.a11y) annotates the node built so far, so an annotation
 placed after them lands on the wrapper instead of the native widget.
 
-The builder covers `label`, `hint`, `value`, `role`, `hidden`, and `decorative`. The three
+The builder covers [`label`](https://daybrite.dev/api/day_pieces/struct.A11yBuilder.html#method.label), [`hint`](https://daybrite.dev/api/day_pieces/struct.A11yBuilder.html#method.hint), [`value`](https://daybrite.dev/api/day_pieces/struct.A11yBuilder.html#method.value), [`role`](https://daybrite.dev/api/day_pieces/struct.A11yBuilder.html#method.role), [`hidden`](https://daybrite.dev/api/day_pieces/struct.A11yBuilder.html#method.hidden), and [`decorative`](https://daybrite.dev/api/day_pieces/struct.A11yBuilder.html#method.decorative). The three
 strings take the same sources as a label (generated `res::str` messages, strings, signals, or closures) and are
-live: a localized label follows a [locale](/docs/reference/glossary#locale) switch, and a `value` closure
+live: a localized label follows a [locale](/docs/reference/glossary#locale) switch, and a [`value`](https://daybrite.dev/api/day_pieces/struct.A11yBuilder.html#method.value) closure
 re-sends whenever what it reads changes. Native controls report their roles on
-their own, but no built-in invents a *label* for you; a `toggle` has no title parameter, so a
-titled switch is `labeled(res::str::subscribe(), toggle(subscribed))`. Your annotations merge onto the
+their own, but no built-in invents a *label* for you; a [`toggle`](https://daybrite.dev/api/day_pieces/fn.toggle.html) has no title parameter, so a
+titled switch is [`labeled`](https://daybrite.dev/api/day_pieces/fn.labeled.html)` (res::str::subscribe(),  `[`toggle`](https://daybrite.dev/api/day_pieces/fn.toggle.html)`(subscribed))`. Your annotations merge onto the
 node's defaults.
 
 Hold yourself to these rules (`day lint` has no a11y rules yet; a missing-label warning for
@@ -66,7 +66,7 @@ interactive pieces is a listed follow-up):
 
 ## Identifiers
 
-`.id(id!(save_button))` sets a stable identifier used by three consumers: [dayscript](/docs/how-to/dayscript)
+[`.id(id!(save_button))`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.id) sets a stable identifier used by three consumers: [dayscript](/docs/how-to/dayscript)
 element targeting, external automation tools, and Day's diagnostics. For external tools the
 platform mapping is uneven:
 
@@ -113,7 +113,7 @@ See [audit logic](https://github.com/daybrite/day/blob/main/crates/day-script/sr
 - **Qt uses `QAccessible` to expose native accessibility information.** Validate the OS bridge
   and the controls your app uses; an implementation hook is not proof of assistive-technology
   usability on every host.
-- **Reactive values:** `A11yBuilder::value` accepts the same reactive text sources as labels.
+- **Reactive values:** [`A11yBuilder::value`](https://daybrite.dev/api/day_pieces/struct.A11yBuilder.html#method.value) accepts the same reactive text sources as labels.
   Core binds changing values to accessibility patches, including custom pieces. Native exposure
   still depends on backend support and must be checked with read-back or a screen reader.
 - **Focus order** follows layout order; explicit focus groups and custom sort priority aren't

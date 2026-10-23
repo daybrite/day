@@ -22,7 +22,7 @@ reference](/docs/reference/break).
 
 ## 1. Initialize reporting before launch
 
-Add the crate and call `init` as early as possible: before `day::launch`, so a crash during
+Add the crate and call `init` as early as possible: before [`day::launch`](https://daybrite.dev/api/day/fn.launch.html), so a crash during
 startup is still recorded:
 
 ```toml
@@ -128,7 +128,7 @@ a failure.
 
 - Arm first. The hook can't record a crash that happens before `init` runs, and `init`
   also reconciles the previous session, so call it at the top of the app entry, before
-  `day::launch`.
+  [`day::launch`](https://daybrite.dev/api/day/fn.launch.html).
 - Release backtraces carry symbols, not lines. The release profile ships no debug info by
   default. For `file:line` in release reports, add `[profile.release] debug =
   "line-tables-only"` in your own workspace; [day-piece-break](/docs/reference/break) doesn't change the global profile. For

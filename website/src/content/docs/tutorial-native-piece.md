@@ -1,4 +1,5 @@
 ---
+navTitle: "Native piece"
 title: "Tutorial: A native piece (per-toolkit)"
 description: "Build a piece backed by a native control on each platform: a front-end in Rust plus per-toolkit backends (objc2 for AppKit/UIKit, gtk-rs, a Qt C++ shim, an Android Java factory, XAML), registered without touching any core Day crate."
 order: 42
@@ -26,7 +27,7 @@ The deciding question is whether you are wrapping a native control or arranging 
 
 | You are… | Tier | What you write |
 |---|---|---|
-| Arranging existing Pieces into a reusable unit | **Composite piece** | A `Piece` whose `build` returns `column((...))`, in plain Rust with no backend. |
+| Arranging existing Pieces into a reusable unit | **Composite piece** | A `Piece` whose [`build`](https://daybrite.dev/api/day_core/trait.Piece.html#tymethod.build) returns [`column((...))`](https://daybrite.dev/api/day_pieces/fn.column.html), in plain Rust with no backend. |
 | Wrapping one native widget per platform | **Native piece** (this tutorial) | A front-end plus a backend per toolkit. |
 | Adding a headless capability (battery, clipboard) | **Part** | A `day-part-*` crate selected by `#[cfg(target_os)]`; it registers no renderer. |
 
@@ -34,7 +35,7 @@ A native piece is warranted when the thing you want does not exist as a composit
 text input, native scrolling physics, a system popover, camera/map/media surfaces, or platform
 accessibility semantics you cannot compose. The search field qualifies: `NSSearchField`,
 `UISearchTextField`, `GtkSearchEntry`, and the rest each bring a magnifier, a clear button, and IME
-behavior that a hand-rolled `text_field` would not.
+behavior that a hand-rolled [`text_field`](https://daybrite.dev/api/day_pieces/fn.text_field.html) would not.
 
 You will implement `make`/`update`/`measure` once per toolkit, and each one speaks that
 toolkit's native API. The rest of this tutorial is about making that as mechanical as
@@ -65,7 +66,7 @@ together.
 One crate carries both halves of the piece:
 
 - **The front-end**: cross-platform Rust. A builder function, a config struct, and an
-  `impl Piece` whose `build` emits a *native leaf* of a well-known `KIND` string and wires up
+  `impl Piece` whose [`build`](https://daybrite.dev/api/day_core/trait.Piece.html#tymethod.build) emits a *native leaf* of a well-known `KIND` string and wires up
   reactivity. This is the only code an app author ever calls.
 - **A backend per toolkit**: one file each (`lib-appkit.rs`, `lib-gtk.rs`, `lib-qt.rs`,
   `lib-uikit.rs`, `lib-android.rs`, `lib-xaml.rs`), compiled only for its feature+target, that
@@ -167,12 +168,12 @@ impl SearchField {
 ```
 
 This is the ordinary Day builder idiom: a free function returns a config struct, chained `.method()`
-calls fill it in. Because `SearchField` will `impl Piece`, it also gets `.id()`, `.a11y()`, and
-`.frame()` from the blanket `Decorate` impl.
+calls fill it in. Because `SearchField` will `impl Piece`, it also gets [`.id()`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.id), [`.a11y()`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.a11y), and
+[`.frame()`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.frame) from the blanket `Decorate` impl.
 
 ### `impl Piece`: emit the leaf, bind reactivity, handle events
 
-In `build`, the front-end emits the native leaf, binds the signal *into* the control, and routes
+In [`build`](https://daybrite.dev/api/day_core/trait.Piece.html#tymethod.build), the front-end emits the native leaf, binds the signal *into* the control, and routes
 native events *out of* it.
 
 ```rust
@@ -220,17 +221,17 @@ impl Piece for SearchField {
 
 A closer look at each step:
 
-- **`cx.leaf(KIND, &props, flex)`** creates a native-leaf node of `KIND`. `Flex { grow_w: true, .. }`
+- **[`cx.leaf(KIND, &props, flex)`](https://daybrite.dev/api/day_core/struct.BuildCx.html#method.leaf)** creates a native-leaf node of `KIND`. `Flex { grow_w: true, .. }`
   makes it a width-growing leaf (it fills its row, keeps its natural single-line height), the same
-  shape as the built-in `text_field`.
-- **`bind_seeded(seed, read, apply)`** is the reactive setter. It applies `apply` once with the seed,
+  shape as the built-in [`text_field`](https://daybrite.dev/api/day_pieces/fn.text_field.html).
+- **[`bind_seeded(seed, read, apply)`](https://daybrite.dev/api/day_reactive/fn.bind_seeded.html)** is the reactive setter. It applies `apply` once with the seed,
   then re-runs it whenever the read closure's signal changes, emitting a sparse `Patch`. Only this
   binding re-runs; there is no view re-execution.
 - **The echo guard** is the one subtlety of any *two-way* (controlled) input. The user types → the
-  native widget fires `Event::TextChanged` → `cx.on` writes the signal → `bind_seeded` sees the signal
+  native widget fires `Event::TextChanged` → `cx.on` writes the signal → [`bind_seeded`](https://daybrite.dev/api/day_reactive/fn.bind_seeded.html) sees the signal
   change and would immediately patch the control with the value it *just produced*, which some
   toolkits re-emit as another change → a feedback loop. The `guard` cell remembers the last value that
-  arrived *from* native so `bind_seeded` skips patching that one value straight back. (One-way pieces
+  arrived *from* native so [`bind_seeded`](https://daybrite.dev/api/day_reactive/fn.bind_seeded.html) skips patching that one value straight back. (One-way pieces
   do not need this.)
 
 That completes the front-end; the remaining code is native, one backend per toolkit.
@@ -470,8 +471,8 @@ will likely not verify it locally.
 
 The same shim serves both Windows targets. For `windows-winui`, the piece's `winui` feature
 implies `xaml` and turns on both `day-xaml/winui` and `day-xaml-sys/winui`; `build.rs` adds
-`day_toolchain::winappsdk::shim_includes(&cppwinrt)` to the include path and defines `DAY_WINUI`
-when `day_toolchain::winappsdk::shim_is_winui()`, and the shim switches its includes and
+[`day_toolchain::winappsdk::shim_includes(&cppwinrt)`](https://daybrite.dev/api/day_toolchain/winappsdk/fn.shim_includes.html) to the include path and defines `DAY_WINUI`
+when [`day_toolchain::winappsdk::shim_is_winui()`](https://daybrite.dev/api/day_toolchain/winappsdk/fn.shim_is_winui.html), and the shim switches its includes and
 namespace (`Microsoft.UI.Xaml` rather than `Windows.UI.Xaml`) on `DAY_WINUI`. The Rust half is the
 `xaml` half, unchanged.
 
@@ -601,7 +602,7 @@ Fix the contract first, then delegate each backend body:
    the sparse `Patch` enum. These are small, and getting them right up front means every backend has
    the same fixed contract to satisfy.
 2. **Write the front-end and validate it against the `mock` backend.** The front-end is
-   platform-independent; with `day-piece-searchfield/mock` you can exercise `build`, the `bind_seeded`
+   platform-independent; with `day-piece-searchfield/mock` you can exercise [`build`](https://daybrite.dev/api/day_core/trait.Piece.html#tymethod.build), the [`bind_seeded`](https://daybrite.dev/api/day_reactive/fn.bind_seeded.html)
    binding, the echo guard, and the `cx.on` event routing with no device and no native toolkit at
    all. The typed `renderer!` macro and the mock feature let you get the Rust side completely right
    before you touch Objective-C.

@@ -113,11 +113,27 @@ create their own result directory and require no prior validation session. Revie
 layout, search, keyboard focus, themes, and navigation when shared templates change.
 
 Link API names in prose and function tables directly to their generated item page, for example
-[`is_supported()`](/api/day_part_haptics/fn.is_supported.html). Use root-relative `/api/` links
+[`is_supported()`](https://daybrite.dev/api/day_part_haptics/fn.is_supported.html). Use absolute `https://daybrite.dev/api/` links so local previews open published Rustdoc
 and link methods and variants to their specific anchors. Link references to other capabilities
 to their internal guides, following the [cross-reference rules](style-guide.md#link-related-documentation). Keep code fences
 copyable Rust, with the corresponding API links in the explanation beside the example. Verify
-the destination in the combined build rather than guessing a Rustdoc path.
+the destination in the combined build rather than guessing a Rustdoc path. Check the receiver's
+actual type: identical method names such as `on_submit` and `header` can have different owners.
+The site marks item links with a dashed underline; keep ordinary
+Markdown links in the source rather than adding presentation markup.
+
+After assembling Rustdoc, `npm run docs:api-references` (from `website/`) checks every published
+Markdown and MDX source for unlinked calls, dot-methods, and qualified method references whose
+names occur in the bundle. CI and `build:api` run it automatically. It reports missing links;
+it never guesses an owner or inserts a link. Bare words without callable syntax still need
+editorial review because they can also name fields, CSS values, commands, or concepts.
+
+Generated application accessors have no framework item page. Other reviewed non-API references
+(native calls, fields, private helpers, historical proposals, and separately hosted crates) are
+listed by exact source and code text in `api-reference-exceptions.json`, with reasons. The check
+rejects stale and duplicate exceptions. Resolve a real public API reference rather than adding
+an exception for it. `scripts/docs/check-api-links.py` remains the destination check: it validates
+the final file and exact fragment, including Rustdoc re-export redirects.
 
 ## Hand off a change
 

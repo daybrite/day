@@ -25,6 +25,14 @@
     "status": "design record; verify implementation status before use",
     "published": false
   },
+  "internal/foldable-support-plan": {
+    "route": "/contributing/design/foldable-support-plan",
+    "source": "docs/foldable-support-plan.md",
+    "type": "explanation",
+    "audience": "contributor",
+    "status": "research and implementation proposal; APIs are not implemented",
+    "published": false
+  },
   "internal/android-jni": {
     "route": "/contributing/backend-contracts/android-jni",
     "source": "docs/android-jni.md",

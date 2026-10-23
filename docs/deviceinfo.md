@@ -40,7 +40,7 @@ println!("{} — {} {}{}", d.model, d.system_name, d.system_version,
     if d.is_simulator { " (simulator)" } else { "" });
 ```
 
-[`get() -> DeviceInfo`](/api/day_part_deviceinfo/fn.get.html) never panics and never returns an error: every platform yields something, and
+[`get() -> DeviceInfo`](https://daybrite.dev/api/day_part_deviceinfo/fn.get.html) never panics and never returns an error: every platform yields something, and
 fields a platform cannot report fall back to `"Unknown"` (or, for `system_name`, the OS family name). It
 is a point-in-time snapshot; device identity does not change at runtime, so there is no notification rail.
 

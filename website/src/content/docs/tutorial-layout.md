@@ -57,12 +57,12 @@ pub fn root() -> impl Piece {
 }
 ```
 
-`row` arranges its children horizontally; `column` arranges them vertically. Both take a tuple
-of Pieces. `.spacing` separates siblings; `.padding` leaves room around the container's content.
-`.grow()` asks the outer container to take available space. Labels wrap by default, so the hint
+[`row`](https://daybrite.dev/api/day_pieces/fn.row.html) arranges its children horizontally; [`column`](https://daybrite.dev/api/day_pieces/fn.column.html) arranges them vertically. Both take a tuple
+of Pieces. [`.spacing`](https://daybrite.dev/api/day_pieces/trait.ColumnBuilder.html#tymethod.spacing) separates siblings; [`.padding`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.padding) leaves room around the container's content.
+[`.grow()`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.grow) asks the outer container to take available space. Labels wrap by default, so the hint
 can use multiple lines when space is narrow. `Space::M` and `Space::L` are spacing tokens, not pixel literals.
 
-The reset callback uses `set(0)` to replace the value. Both actions share the signal you created
+The reset callback uses [`set(0)`](https://daybrite.dev/api/day_reactive/struct.Signal.html#method.set) to replace the value. Both actions share the signal you created
 above the layout.
 
 ## 3. Resize and reset
@@ -77,7 +77,7 @@ window's minimum size as well as its initial size. Quit before the next edit.
 
 ## Troubleshooting
 
-If the buttons stack vertically, check that they are inside `row((...))`. If the hint is clipped,
+If the buttons stack vertically, check that they are inside [`row((...))`](https://daybrite.dev/api/day_pieces/fn.row.html). If the hint is clipped,
 check the available space and the manifest's minimum dimensions. Check longer translations at the minimum window size, too.
 
 ## Next step

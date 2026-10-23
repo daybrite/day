@@ -10,12 +10,12 @@
 //! same exe start whether the bootstrapper sits next to it (a packaged app) or in this cache (a
 //! development build).
 //!
-//! Resolution: `DAY_WINAPPSDK` (a directory already laid out as [`WinAppSdk`] describes, for an
+//! Resolution: `DAY_WINAPPSDK` (a directory already laid out as [`crate::winappsdk::WinAppSdk`] describes, for an
 //! offline machine), else the per-user cache (`DAY_WINAPPSDK_CACHE`, default
 //! `%LOCALAPPDATA%\day\winappsdk`), filled on first use from nuget.org with the in-box `curl` and
 //! `tar`, the way day-piece-webview fetches its SDK. Pinned versions, so a build is reproducible;
 //! the runtime they select is the 2.x framework package (`Microsoft.WindowsAppRuntime.2`) at
-//! [`RUNTIME_VERSION`] or newer.
+//! [`crate::winappsdk::RUNTIME_VERSION`] or newer.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;

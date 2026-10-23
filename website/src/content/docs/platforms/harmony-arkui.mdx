@@ -55,14 +55,14 @@ so edit its source files rather than the disposable project under `build/`.
 
 The widget vocabulary is implemented; platform integration is partial:
 
-- `present()` handles file open/save; alerts and prompts are ignored. If your UI depends on a
+- [`present()`](https://daybrite.dev/api/day_core/fn.present.html) handles file open/save; alerts and prompts are ignored. If your UI depends on a
   confirmation dialog, it will silently do nothing here.
 - Several external pieces have no ArkUI arm: media, map, Lottie, search field, combo box,
   activity indicator, and remote image all render a placeholder. The date/time pickers and
   pull-to-refresh have native arms, and the web view has an **ArkTS** arm: the crate ships its own
   ArkTS component, staged into the host project via `[package.metadata.day.ohos]`, with load,
   back/forward, stop, and reload working.
-- Animation (`with_animation`, `.animation`) runs on ArkUI's own animator (`animateTo`):
+- Animation ([`with_animation`](https://daybrite.dev/api/day_core/fn.with_animation.html), [`.animation`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.animation)) runs on ArkUI's own animator (`animateTo`):
   opacity, transform, and background color interpolate with the requested curve, duration,
   delay, and repeat, and a spring follows Day's own spring curve. Frame changes (layout moves
   and resizes) apply instantly, as on Android.
@@ -89,29 +89,29 @@ cover a component, the node type links to that guide; the rest link to the OpenH
 
 | Day piece | ArkUI node type |
 |---|---|
-| `column` / `row` / `nav_stack` / `section` | [`ARKUI_NODE_STACK`](https://developer.huawei.com/consumer/en/doc/harmonyos-guides/ndk-layout-container) |
-| `label` | [`ARKUI_NODE_TEXT`](https://developer.huawei.com/consumer/en/doc/harmonyos-guides/ndk-use-text-component) |
-| `button` | [`ARKUI_NODE_BUTTON`](https://developer.huawei.com/consumer/en/doc/harmonyos-guides/ndk-build-form-components#button-component) |
-| `toggle` | [`ARKUI_NODE_TOGGLE`](https://developer.huawei.com/consumer/en/doc/harmonyos-guides/ndk-build-form-components#toggle-component) |
-| `slider` | [`ARKUI_NODE_SLIDER`](https://developer.huawei.com/consumer/en/doc/harmonyos-guides/ndk-build-form-components#slider-component) |
-| `text_field` | [`ARKUI_NODE_TEXT_INPUT`](https://developer.huawei.com/consumer/en/doc/harmonyos-guides/ndk-textarea-event) |
-| `secure_field` | the same field with a password input type |
-| `text_area` | [`ARKUI_NODE_TEXT_AREA`](https://developer.huawei.com/consumer/en/doc/harmonyos-guides/ndk-textarea-event) |
-| `picker()` (all three styles) | [`ARKUI_NODE_TEXT_PICKER`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-arkui/capi-native-node-h.md#arkui_nodetype) |
-| `progress(f)` | [`ARKUI_NODE_PROGRESS`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-arkui/capi-native-node-h.md#arkui_nodetype) |
-| `spinner()` | [`ARKUI_NODE_LOADING_PROGRESS`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-arkui/capi-native-node-h.md#arkui_nodetype) |
-| `divider` | a 1 vp tinted [`ARKUI_NODE_STACK`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-arkui/capi-native-node-h.md) (no divider node type) |
-| `scroll` | [`ARKUI_NODE_SCROLL`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-arkui/capi-native-node-h.md#arkui_nodetype) |
-| `list` | [`ARKUI_NODE_LIST`](https://developer.huawei.com/consumer/en/doc/harmonyos-guides/ndk-loading-long-list) with a [node adapter](https://developer.huawei.com/consumer/en/doc/harmonyos-guides/ndk-loading-long-list#implementing-lazy-loading) (real recycling) |
+| [`column`](https://daybrite.dev/api/day_pieces/fn.column.html) / [`row`](https://daybrite.dev/api/day_pieces/fn.row.html) / [`nav_stack`](https://daybrite.dev/api/day_pieces/fn.nav_stack.html) / [`section`](https://daybrite.dev/api/day_pieces/fn.section.html) | [`ARKUI_NODE_STACK`](https://developer.huawei.com/consumer/en/doc/harmonyos-guides/ndk-layout-container) |
+| [`label`](https://daybrite.dev/api/day_pieces/fn.label.html) | [`ARKUI_NODE_TEXT`](https://developer.huawei.com/consumer/en/doc/harmonyos-guides/ndk-use-text-component) |
+| [`button`](https://daybrite.dev/api/day_pieces/fn.button.html) | [`ARKUI_NODE_BUTTON`](https://developer.huawei.com/consumer/en/doc/harmonyos-guides/ndk-build-form-components#button-component) |
+| [`toggle`](https://daybrite.dev/api/day_pieces/fn.toggle.html) | [`ARKUI_NODE_TOGGLE`](https://developer.huawei.com/consumer/en/doc/harmonyos-guides/ndk-build-form-components#toggle-component) |
+| [`slider`](https://daybrite.dev/api/day_pieces/fn.slider.html) | [`ARKUI_NODE_SLIDER`](https://developer.huawei.com/consumer/en/doc/harmonyos-guides/ndk-build-form-components#slider-component) |
+| [`text_field`](https://daybrite.dev/api/day_pieces/fn.text_field.html) | [`ARKUI_NODE_TEXT_INPUT`](https://developer.huawei.com/consumer/en/doc/harmonyos-guides/ndk-textarea-event) |
+| [`secure_field`](https://daybrite.dev/api/day_pieces/fn.secure_field.html) | the same field with a password input type |
+| [`text_area`](https://daybrite.dev/api/day_pieces/fn.text_area.html) | [`ARKUI_NODE_TEXT_AREA`](https://developer.huawei.com/consumer/en/doc/harmonyos-guides/ndk-textarea-event) |
+| [`picker()`](https://daybrite.dev/api/day_pieces/fn.picker.html) (all three styles) | [`ARKUI_NODE_TEXT_PICKER`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-arkui/capi-native-node-h.md#arkui_nodetype) |
+| [`progress(f)`](https://daybrite.dev/api/day_pieces/fn.progress.html) | [`ARKUI_NODE_PROGRESS`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-arkui/capi-native-node-h.md#arkui_nodetype) |
+| [`spinner()`](https://daybrite.dev/api/day_pieces/fn.spinner.html) | [`ARKUI_NODE_LOADING_PROGRESS`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-arkui/capi-native-node-h.md#arkui_nodetype) |
+| [`divider`](https://daybrite.dev/api/day_pieces/fn.divider.html) | a 1 vp tinted [`ARKUI_NODE_STACK`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-arkui/capi-native-node-h.md) (no divider node type) |
+| [`scroll`](https://daybrite.dev/api/day_pieces/fn.scroll.html) | [`ARKUI_NODE_SCROLL`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-arkui/capi-native-node-h.md#arkui_nodetype) |
+| [`list`](https://daybrite.dev/api/day_pieces/fn.list.html) | [`ARKUI_NODE_LIST`](https://developer.huawei.com/consumer/en/doc/harmonyos-guides/ndk-loading-long-list) with a [node adapter](https://developer.huawei.com/consumer/en/doc/harmonyos-guides/ndk-loading-long-list#implementing-lazy-loading) (real recycling) |
 | `tabs` | [`ARKUI_NODE_SWIPER`](https://developer.huawei.com/consumer/en/doc/harmonyos-guides/ndk-swiper) |
-| `nav` | [`ARKUI_NODE_STACK`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-arkui/capi-native-node-h.md), with pushed pages re-homed into ArkTS `NavDestination`s |
+| [`nav`](https://daybrite.dev/api/day_pieces/fn.nav.html) | [`ARKUI_NODE_STACK`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-arkui/capi-native-node-h.md), with pushed pages re-homed into ArkTS `NavDestination`s |
 | `nav_menu` | a scroll + column of row nodes |
-| `cover()` | [`ARKUI_NODE_STACK`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-arkui/capi-native-node-h.md) re-homed onto the window root |
-| `image` | [`ARKUI_NODE_IMAGE`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-arkui/capi-native-node-h.md#arkui_nodetype) |
-| `vector` | [`ARKUI_NODE_IMAGE`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-arkui/capi-native-node-h.md#arkui_nodetype) rendering the staged SVG from `rawfile day/` natively |
-| `canvas` | [`ARKUI_NODE_CUSTOM`](https://developer.huawei.com/consumer/en/doc/harmonyos-guides/ndk-build-custom-components#custom-drawing-component) drawn with OH_Drawing |
-| *external* `date_picker()` | [`ARKUI_NODE_DATE_PICKER`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-arkui/capi-native-node-h.md#arkui_nodetype) inline, [`ARKUI_NODE_CALENDAR_PICKER`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-arkui/capi-native-node-h.md#arkui_nodetype) compact |
-| *external* `time_picker()` | [`ARKUI_NODE_TIME_PICKER`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-arkui/capi-native-node-h.md#arkui_nodetype) |
+| [`cover()`](https://daybrite.dev/api/day_pieces/fn.cover.html) | [`ARKUI_NODE_STACK`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-arkui/capi-native-node-h.md) re-homed onto the window root |
+| [`image`](https://daybrite.dev/api/day_pieces/fn.image.html) | [`ARKUI_NODE_IMAGE`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-arkui/capi-native-node-h.md#arkui_nodetype) |
+| [`vector`](https://daybrite.dev/api/day_pieces/fn.vector.html) | [`ARKUI_NODE_IMAGE`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-arkui/capi-native-node-h.md#arkui_nodetype) rendering the staged SVG from `rawfile day/` natively |
+| [`canvas`](https://daybrite.dev/api/day_pieces/fn.canvas.html) | [`ARKUI_NODE_CUSTOM`](https://developer.huawei.com/consumer/en/doc/harmonyos-guides/ndk-build-custom-components#custom-drawing-component) drawn with OH_Drawing |
+| *external* [`date_picker()`](https://daybrite.dev/api/day_piece_datetime/fn.date_picker.html) | [`ARKUI_NODE_DATE_PICKER`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-arkui/capi-native-node-h.md#arkui_nodetype) inline, [`ARKUI_NODE_CALENDAR_PICKER`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-arkui/capi-native-node-h.md#arkui_nodetype) compact |
+| *external* [`time_picker()`](https://daybrite.dev/api/day_piece_datetime/fn.time_picker.html) | [`ARKUI_NODE_TIME_PICKER`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-arkui/capi-native-node-h.md#arkui_nodetype) |
 | *external* `pull_refresh()` | [`ARKUI_NODE_REFRESH`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-arkui/capi-native-node-h.md#arkui_nodetype) |
 | *external* `webview()` | the ArkTS `Web` component: the piece's ArkTS, staged via `[package.metadata.day.ohos]` (the C node API has no Web node) |
 

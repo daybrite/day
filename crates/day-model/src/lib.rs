@@ -78,6 +78,7 @@ use day_reactive::{Binding, Scope, Trigger};
 /// The Uuid key type, re-exported so a model file needs no direct `uuid` dependency:
 /// `#[obs(key)] id: Uuid` beside `Uuid::now_v7()` (generation is native-target only until the
 /// web pipeline's entropy import is wired; the type itself works everywhere).
+#[doc(no_inline)]
 pub use uuid::Uuid;
 
 // ---------------------------------------------------------------------------
@@ -1805,7 +1806,7 @@ impl<T: Identified + 'static> Store<Keyed<T>> {
 }
 
 impl<T: Identified + 'static> Elem<T> {
-    /// The path handle this element addresses: the raw form of [`Elem::id`].
+    /// The path handle this element addresses: the raw form of [`Elem::model_id`].
     pub fn key(self) -> u64 {
         self.key
     }

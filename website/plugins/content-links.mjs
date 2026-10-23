@@ -7,6 +7,10 @@ const bySource = new Map(Object.values(routes).map((page) => [page.source, page.
 
 /** Keep repository Markdown links usable both in GitHub and at their public route. */
 export function resolveContentLink(href, source) {
+  // Local previews use the published Rustdoc, independently of the local API bundle.
+  if (/^(?:https:\/\/daybrite\.dev)?\/api(?:[/?#]|$)/.test(href)) {
+    return new URL(href, 'https://daybrite.dev').href;
+  }
   if (isUnpublishedPath(href)) return null;
   if (/^(https?:|\/)/.test(href)) return canonicalPath(href);
   if (/^(?:[a-z][a-z0-9+.-]*:|#)/i.test(href) || !source) return href;

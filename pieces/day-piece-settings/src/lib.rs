@@ -9,8 +9,8 @@
 //!   Reads are signals the app can watch; writes land in the [`Store`] (the platform's own
 //!   preferences store through day-part-prefs unless the app installs another).
 //! - **Declaration.** [`Preferences`] holds an [`About`] and the [`Group`]s of [`Section`]s of
-//!   rows ([`toggle`], [`choice`], [`slider`], [`stepper`], [`text`], [`action`], [`link`],
-//!   [`navigate`], [`info`], [`note`], [`custom`]). Groups carry a localized title, an icon and
+//!   rows ([`rows::toggle`], [`rows::choice`], [`rows::slider`], [`rows::stepper`], [`rows::text`], [`rows::action`], [`rows::link`],
+//!   [`rows::navigate`], [`rows::info`], [`rows::note`], [`rows::custom`]). Groups carry a localized title, an icon and
 //!   a route id. Other crates contribute groups through a [`Provider`].
 //! - **Presentation.** [`Preferences::install`] registers the Preferences window (desktop) or
 //!   the navigation presentation (mobile: an About header, then the groups as a list that
@@ -105,7 +105,7 @@ prefvalue_via_str!(i64, i32, u32, u64, f64, String);
 /// ```
 ///
 /// The enum derives `Clone, Copy, PartialEq, Eq, Debug`, implements [`PrefValue`], and gets
-/// a `const ALL: &[Self]` in declaration order (what a [`choice`] row iterates).
+/// a `const ALL: &[Self]` in declaration order (what a [`rows::choice`] row iterates).
 #[macro_export]
 macro_rules! pref_enum {
     ($(#[$meta:meta])* $vis:vis enum $name:ident { $($(#[$vmeta:meta])* $variant:ident = $tag:literal),+ $(,)? }) => {
@@ -522,7 +522,7 @@ impl Section {
     }
 }
 
-/// How a [`choice`] row presents its options.
+/// How a [`rows::choice`] row presents its options.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum ChoiceStyle {
     /// A menu/combo (the default): any number of options.

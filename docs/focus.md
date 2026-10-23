@@ -19,7 +19,7 @@ The UI snippets use generated `res::str` accessors from an app's Fluent catalog;
 
 ## 1. The API
 
-Focus binds to a signal with `.focused(…)`, exactly like every other two-way control binding.
+Focus binds to a signal with [`.focused(…)`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.focused), exactly like every other two-way control binding.
 One name covers both shapes (a marker-trait overload, the `IntoText` pattern):
 
 ```rust
@@ -49,16 +49,16 @@ column((
 - **Signal → native:** writing `Some(K)` / `true` requests native focus for the bound control.
   Writing `None` / `false` resigns it; on iOS and Android that dismisses the soft keyboard,
   matching the platform convention SwiftUI set.
-- **Reading is free.** `focus.get() == Some(Field::User)` is a tracked read like any other,
+- **Reading is free.** [`focus.get() == Some(Field::User)`](https://daybrite.dev/api/day_reactive/struct.Signal.html#method.get) is a tracked read like any other,
   with nothing else to wire.
-- **Field chaining** is a write in `on_submit(f)`, which ships with the same change: the native
+- **Field chaining** is a write in [`on_submit(f)`](https://daybrite.dev/api/day_pieces/trait.TextFieldBuilder.html#tymethod.on_submit), which ships with the same change: the native
   end-editing / return hooks focus needs are the ones `Event::Submitted` needs.
 
-`.focusable()` opts a composed container into focus: the canvas contract (press-to-focus,
-`FocusChanged` both ways, the keys through `.on_key` while focused) behind the
-`Toolkit::set_focusable` duty. AppKit, UIKit, GTK, Qt, Android and DOM implement it for
+[`.focusable()`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.focusable) opts a composed container into focus: the canvas contract (press-to-focus,
+`FocusChanged` both ways, the keys through [`.on_key`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.on_key) while focused) behind the
+[`Toolkit::set_focusable`](https://daybrite.dev/api/day_spec/trait.Toolkit.html#method.set_focusable) duty. AppKit, UIKit, GTK, Qt, Android and DOM implement it for
 containers. Editable descendants retain their editing keys; a container can request focus with
-`.focused(...)` after navigation. XAML and ArkUI still require a canvas or native control as the
+[`.focused(...)`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.focused) after navigation. XAML and ArkUI still require a canvas or native control as the
 keyboard focus target; their container duty remains a no-op. Reserved with names but not implemented: `default_focus(…)`
 on containers, `focus_order(n)`, and focus scopes for dialogs. Tab/Shift-Tab traversal stays
 native, with focus order following layout order.
@@ -71,7 +71,7 @@ native, with focus order following layout order.
    `Event::FocusChanged`, and that report is what lands in the signal (through the echo guard).
    A request naming a target the platform will not focus produces no event: platform focus is
    unchanged, and the next real focus event corrects the signal.
-3. **One-turn latency.** `focus.set(…)` then `focus.get()` in the same turn reads the old
+3. **One-turn latency.** [`focus.set(…)`](https://daybrite.dev/api/day_reactive/struct.Signal.html#method.set) then [`focus.get()`](https://daybrite.dev/api/day_reactive/struct.Signal.html#method.get) in the same turn reads the old
    value, the same asynchrony every reference framework has, made explicit.
 4. **Mount reconciliation.** When a piece bound to `K::V` mounts and the signal already reads
    `Some(K::V)`, it requests focus. Set the signal, then present the sheet: the field focuses
@@ -91,9 +91,9 @@ native, with focus order following layout order.
 Text fields take focus on every toolkit. Desktop buttons, toggles, and sliders follow the
 platform's keyboard-access settings; macOS button traversal depends on Full Keyboard Access.
 On touch platforms, non-text controls generally do not take keyboard focus. A canvas can
-receive focus and key events; on Android, press-to-focus applies when it has an `.on_key` handler.
+receive focus and key events; on Android, press-to-focus applies when it has an [`.on_key`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.on_key) handler.
 
-`.focusable()` makes composed containers keyboard targets on AppKit, UIKit, GTK, Qt, Android,
+[`.focusable()`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.focusable) makes composed containers keyboard targets on AppKit, UIKit, GTK, Qt, Android,
 and DOM. On XAML and ArkUI, bind focus to a native control or canvas inside the container.
 
 ## Mobile keyboards

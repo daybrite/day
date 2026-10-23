@@ -1,0 +1,736 @@
+{
+  "docs/accessibility.md": [
+    {
+      "code": "day::frame",
+      "reason": "Module name, not a function."
+    }
+  ],
+  "docs/activity.md": [
+    {
+      "code": "start()",
+      "reason": "Native indicator start/stop calls, not Day builder methods."
+    },
+    {
+      "code": "stop()",
+      "reason": "Native indicator start/stop calls, not Day builder methods."
+    }
+  ],
+  "docs/android-jni.md": [
+    {
+      "code": "default()",
+      "reason": "Android/JNI API; the portable Rustdoc bundle does not publish this target-specific crate."
+    },
+    {
+      "code": "JString::default()",
+      "reason": "Android/JNI API; the portable Rustdoc bundle does not publish this target-specific crate."
+    },
+    {
+      "code": "JByteArray::default()",
+      "reason": "Android/JNI API; the portable Rustdoc bundle does not publish this target-specific crate."
+    },
+    {
+      "code": "day_android::init",
+      "reason": "Android/JNI API; the portable Rustdoc bundle does not publish this target-specific crate."
+    }
+  ],
+  "docs/api-style.md": [
+    {
+      "code": ".into()",
+      "reason": "Rust standard-library function or trait method, outside the published Day API."
+    },
+    {
+      "code": "Box::new",
+      "reason": "Rust standard-library function or trait method, outside the published Day API."
+    },
+    {
+      "code": ".tooltip(…)",
+      "reason": "Rust standard conversion/allocation or an illustrative extension method, not a published Day method."
+    }
+  ],
+  "docs/async.md": [
+    {
+      "code": "pump()",
+      "reason": "Test-local executor pump from resource_tests, not a public function."
+    }
+  ],
+  "docs/auth.md": [
+    {
+      "code": "session::open(url, callback_prefix, &options)",
+      "reason": "day-part-auth is outside this checkout and has no published Day Rustdoc bundle; this guide links its repository."
+    },
+    {
+      "code": "Client::start()",
+      "reason": "day-part-auth is outside this checkout and has no published Day Rustdoc bundle; this guide links its repository."
+    },
+    {
+      "code": "Client::complete(request, callback_url)",
+      "reason": "day-part-auth is outside this checkout and has no published Day Rustdoc bundle; this guide links its repository."
+    },
+    {
+      "code": "passkeys::create(&options)",
+      "reason": "day-part-auth is outside this checkout and has no published Day Rustdoc bundle; this guide links its repository."
+    },
+    {
+      "code": "passkeys::get(&options)",
+      "reason": "day-part-auth is outside this checkout and has no published Day Rustdoc bundle; this guide links its repository."
+    },
+    {
+      "code": "Client::new(provider, client_id)",
+      "reason": "day-part-auth is outside this checkout and has no published Day Rustdoc bundle; this guide links its repository."
+    },
+    {
+      "code": "Provider::new(authorization_endpoint, token_endpoint)",
+      "reason": "day-part-auth is outside this checkout and has no published Day Rustdoc bundle; this guide links its repository."
+    },
+    {
+      "code": ".scopes([...])",
+      "reason": "day-part-auth is outside this checkout and has no published Day Rustdoc bundle; this guide links its repository."
+    },
+    {
+      "code": ".param(name, value)",
+      "reason": "day-part-auth is outside this checkout and has no published Day Rustdoc bundle; this guide links its repository."
+    },
+    {
+      "code": ".session(SessionOptions)",
+      "reason": "day-part-auth is outside this checkout and has no published Day Rustdoc bundle; this guide links its repository."
+    },
+    {
+      "code": "Client::complete",
+      "reason": "day-part-auth is outside this checkout and has no published Day Rustdoc bundle; this guide links its repository."
+    },
+    {
+      "code": "session::capabilities().https_callback",
+      "reason": "day-part-auth is outside this checkout and has no published Day Rustdoc bundle; this guide links its repository."
+    },
+    {
+      "code": "session::cancel()",
+      "reason": "day-part-auth is outside this checkout and has no published Day Rustdoc bundle; this guide links its repository."
+    },
+    {
+      "code": "client.refresh(refresh_token).await",
+      "reason": "day-part-auth is outside this checkout and has no published Day Rustdoc bundle; this guide links its repository."
+    },
+    {
+      "code": "TokenSet::raw",
+      "reason": "day-part-auth is outside this checkout and has no published Day Rustdoc bundle; this guide links its repository."
+    },
+    {
+      "code": "apple::sign_in(SignInWithApple::new())",
+      "reason": "day-part-auth is outside this checkout and has no published Day Rustdoc bundle; this guide links its repository."
+    },
+    {
+      "code": "google::sign_in(GoogleSignIn::new(server_client_id))",
+      "reason": "day-part-auth is outside this checkout and has no published Day Rustdoc bundle; this guide links its repository."
+    },
+    {
+      "code": "passkeys::create",
+      "reason": "day-part-auth is outside this checkout and has no published Day Rustdoc bundle; this guide links its repository."
+    },
+    {
+      "code": "passkeys::get",
+      "reason": "day-part-auth is outside this checkout and has no published Day Rustdoc bundle; this guide links its repository."
+    },
+    {
+      "code": "passkeys::create(&options).await",
+      "reason": "day-part-auth is outside this checkout and has no published Day Rustdoc bundle; this guide links its repository."
+    },
+    {
+      "code": "passkeys::get(&options).await",
+      "reason": "day-part-auth is outside this checkout and has no published Day Rustdoc bundle; this guide links its repository."
+    },
+    {
+      "code": "passkeys::support()",
+      "reason": "day-part-auth is outside this checkout and has no published Day Rustdoc bundle; this guide links its repository."
+    },
+    {
+      "code": "AuthError::to_string()",
+      "reason": "day-part-auth is outside this checkout and has no published Day Rustdoc bundle; this guide links its repository."
+    }
+  ],
+  "docs/backend-contracts/focus.md": [
+    {
+      "code": "Entry::activate",
+      "reason": "GTK Entry activation signal, not a Day function."
+    }
+  ],
+  "docs/biometrics.md": [
+    {
+      "code": "start()",
+      "reason": "Android bridge entry point, not a portable Day callable."
+    }
+  ],
+  "docs/bridge.md": [
+    {
+      "code": "fn ready() -> bool",
+      "reason": "Generated foreign bridge/example function or target-specific runtime API; no portable public Rustdoc item."
+    },
+    {
+      "code": "fn ready() -> Result<bool, day_bridge::Error>",
+      "reason": "Generated foreign bridge/example function or target-specific runtime API; no portable public Rustdoc item."
+    },
+    {
+      "code": "register(rt)",
+      "reason": "Generated foreign bridge/example function or target-specific runtime API; no portable public Rustdoc item."
+    },
+    {
+      "code": "day_bridge::arkts::invoke",
+      "reason": "Generated foreign bridge/example function or target-specific runtime API; no portable public Rustdoc item."
+    },
+    {
+      "code": "day_android::init",
+      "reason": "Generated foreign bridge/example function or target-specific runtime API; no portable public Rustdoc item."
+    },
+    {
+      "code": "available()",
+      "reason": "Generated foreign bridge/example function or target-specific runtime API; no portable public Rustdoc item."
+    },
+    {
+      "code": "std::fs::write",
+      "reason": "Rust standard-library function or trait method, outside the published Day API."
+    }
+  ],
+  "docs/canvas.md": [
+    {
+      "code": "..Default::default()",
+      "reason": "Rust standard-library function or trait method, outside the published Day API."
+    }
+  ],
+  "docs/color.md": [
+    {
+      "code": "TextStyle::color",
+      "reason": "TextStyle data field, not a method."
+    }
+  ],
+  "docs/commands.md": [
+    {
+      "code": "Command { id, label, action }.build()",
+      "reason": "Historical/sample command spelling or a generic action across several adapter types, not one API owner."
+    }
+  ],
+  "docs/cover.md": [
+    {
+      "code": "build(&r)",
+      "reason": "Application-supplied build closure or generic route implementation, not a concrete published function."
+    },
+    {
+      "code": "R::from_key",
+      "reason": "Application-supplied build closure or generic route implementation, not a concrete published function."
+    }
+  ],
+  "docs/cursor.md": [
+    {
+      "code": "widget.set_cursor(gdk::Cursor::from_name(css))",
+      "reason": "Native GTK API or module name, not a published Day callable."
+    },
+    {
+      "code": "day::cursor",
+      "reason": "Module name, not a function."
+    }
+  ],
+  "docs/deep-links.md": [
+    {
+      "code": "start()",
+      "reason": "Platform-generated host entry point, not a portable Day function."
+    }
+  ],
+  "docs/dialogs.md": [
+    {
+      "code": "dismiss(req)",
+      "reason": "Design pseudocode/private presentation plumbing or a native dialog API; no public item at this spelling."
+    },
+    {
+      "code": "resolve(req,\nresult)",
+      "reason": "Design pseudocode/private presentation plumbing or a native dialog API; no public item at this spelling."
+    },
+    {
+      "code": ".alert",
+      "reason": "Design pseudocode/private presentation plumbing or a native dialog API; no public item at this spelling."
+    },
+    {
+      "code": "open()",
+      "reason": "Design pseudocode/private presentation plumbing or a native dialog API; no public item at this spelling."
+    }
+  ],
+  "docs/documents.md": [
+    {
+      "code": ".app",
+      "reason": "Application bundle filename suffix, not a function."
+    }
+  ],
+  "docs/downloads.md": [
+    {
+      "code": "Progress::state",
+      "reason": "Progress struct field, not a method."
+    },
+    {
+      "code": "Progress::error",
+      "reason": "Progress struct field, not a method."
+    },
+    {
+      "code": "Progress::tier",
+      "reason": "Progress struct field, not a method."
+    }
+  ],
+  "docs/extending.md": [
+    {
+      "code": "day_android::realize",
+      "reason": "Generated bridge, target-specific renderer, or external Objective-C/Java API; not a portable Day item."
+    },
+    {
+      "code": "start()",
+      "reason": "Generated bridge, target-specific renderer, or external Objective-C/Java API; not a portable Day item."
+    },
+    {
+      "code": "Retained::from_raw",
+      "reason": "Generated bridge, target-specific renderer, or external Objective-C/Java API; not a portable Day item."
+    },
+    {
+      "code": "register(rt)",
+      "reason": "Generated bridge, target-specific renderer, or external Objective-C/Java API; not a portable Day item."
+    },
+    {
+      "code": "start(rt, module)",
+      "reason": "Generated bridge, target-specific renderer, or external Objective-C/Java API; not a portable Day item."
+    },
+    {
+      "code": "DayBridge.main.post(...)",
+      "reason": "Generated bridge, target-specific renderer, or external Objective-C/Java API; not a portable Day item."
+    }
+  ],
+  "docs/files.md": [
+    {
+      "code": "open()",
+      "reason": "POSIX file open, not Day open_file."
+    }
+  ],
+  "docs/flavors.md": [
+    {
+      "code": ".app",
+      "reason": "Application bundle filename suffix, not a function."
+    }
+  ],
+  "docs/fonts.md": [
+    {
+      "code": "baseline()",
+      "reason": "Qt font-metrics API, not a Day function."
+    }
+  ],
+  "docs/frames.md": [
+    {
+      "code": "day::frame",
+      "reason": "Module name, not a function."
+    }
+  ],
+  "docs/grid.md": [
+    {
+      "code": "StackLayout::flatten",
+      "reason": "Private StackLayout implementation helper, not exposed in Rustdoc."
+    }
+  ],
+  "docs/harmonyos.md": [
+    {
+      "code": "day_arkui::node",
+      "reason": "Module name, not a function."
+    },
+    {
+      "code": "day::arkui::start",
+      "reason": "ArkUI host/renderer implementation or Rust networking API; absent from the portable Day bundle."
+    },
+    {
+      "code": "canvas::create",
+      "reason": "ArkUI host/renderer implementation or Rust networking API; absent from the portable Day bundle."
+    },
+    {
+      "code": "day::frame",
+      "reason": "Module name, not a function."
+    },
+    {
+      "code": "anim::animate",
+      "reason": "ArkUI host/renderer implementation or Rust networking API; absent from the portable Day bundle."
+    },
+    {
+      "code": "start()",
+      "reason": "ArkUI host/renderer implementation or Rust networking API; absent from the portable Day bundle."
+    },
+    {
+      "code": "TcpListener::bind",
+      "reason": "Rust standard-library function or trait method, outside the published Day API."
+    }
+  ],
+  "docs/http.md": [
+    {
+      "code": "validators::tests",
+      "reason": "Private test module, not a callable API."
+    }
+  ],
+  "docs/icons.md": [
+    {
+      "code": ".app",
+      "reason": "Application bundle filename suffix, not a function."
+    }
+  ],
+  "docs/images.md": [
+    {
+      "code": "EncodeSpec::fit",
+      "reason": "EncodeSpec data field, Rust standard-library operation, or arithmetic pseudocode, not a Day method."
+    },
+    {
+      "code": "ImageSource::Named(String::new())",
+      "reason": "EncodeSpec data field, Rust standard-library operation, or arithmetic pseudocode, not a Day method."
+    },
+    {
+      "code": "min(width, height)",
+      "reason": "EncodeSpec data field, Rust standard-library operation, or arithmetic pseudocode, not a Day method."
+    }
+  ],
+  "docs/list.md": [
+    {
+      "code": "store.rows(projection)",
+      "reason": "ListSource callback field, generated model projection or standard Vec operation, not a public method."
+    },
+    {
+      "code": "release(cell)",
+      "reason": "ListSource callback field, generated model projection or standard Vec operation, not a public method."
+    },
+    {
+      "code": "let it = v.remove(from); v.insert(to, it);",
+      "reason": "ListSource callback field, generated model projection or standard Vec operation, not a public method."
+    },
+    {
+      "code": "ListSource::reorder",
+      "reason": "ListSource callback field, generated model projection or standard Vec operation, not a public method."
+    },
+    {
+      "code": "move_row(from, to)",
+      "reason": "ListSource callback field, generated model projection or standard Vec operation, not a public method."
+    },
+    {
+      "code": "v.remove(index)",
+      "reason": "ListSource callback field, generated model projection or standard Vec operation, not a public method."
+    },
+    {
+      "code": "ListSource::delete",
+      "reason": "ListSource callback field, generated model projection or standard Vec operation, not a public method."
+    },
+    {
+      "code": "delete_row(index)",
+      "reason": "ListSource callback field, generated model projection or standard Vec operation, not a public method."
+    }
+  ],
+  "docs/localization.md": [
+    {
+      "code": "register()",
+      "reason": "Application/package-generated locale accessor or registration function, not a published Day item."
+    },
+    {
+      "code": "package::key",
+      "reason": "Application/package-generated locale accessor or registration function, not a published Day item."
+    },
+    {
+      "code": "package::file::key",
+      "reason": "Application/package-generated locale accessor or registration function, not a published Day item."
+    }
+  ],
+  "docs/logging.md": [
+    {
+      "code": "day::web::start",
+      "reason": "Target-specific web host startup, not published by the portable bundle."
+    }
+  ],
+  "docs/menus.md": [
+    {
+      "code": ".menu",
+      "reason": "Native CSS class/menu property, not a Rust builder method."
+    }
+  ],
+  "docs/model.md": [
+    {
+      "code": "store.name()",
+      "reason": "Accessor generated from an application model field; no published item for this application type."
+    },
+    {
+      "code": "it.name()",
+      "reason": "Accessor generated from an application model field; no published item for this application type."
+    }
+  ],
+  "docs/navigation.md": [
+    {
+      "code": "NavMenuProps::sections",
+      "reason": "NavMenuProps data field, not a method."
+    },
+    {
+      "code": "NavMenuProps::selected",
+      "reason": "NavMenuProps data field, not a method."
+    }
+  ],
+  "docs/notify.md": [
+    {
+      "code": ".app",
+      "reason": "Application bundle filename suffix, not a function."
+    }
+  ],
+  "docs/permissions.md": [
+    {
+      "code": "open(\"/dev/video0\")",
+      "reason": "POSIX open call, not a Day API."
+    }
+  ],
+  "docs/picker.md": [
+    {
+      "code": "PickerProps::enabled",
+      "reason": "PickerProps data field, not a method."
+    }
+  ],
+  "docs/prefs.md": [
+    {
+      "code": "Editor.commit()",
+      "reason": "Android SharedPreferences.Editor.commit, not a Day function."
+    }
+  ],
+  "docs/progress.md": [
+    {
+      "code": "range(0,0)",
+      "reason": "Qt progress-bar range, not a Day function."
+    }
+  ],
+  "docs/resources.md": [
+    {
+      "code": ".app",
+      "reason": "Application bundle filename suffix, not a function."
+    },
+    {
+      "code": "Typeface.create(base, weight, italic)",
+      "reason": "Android Typeface.create, not a Day function."
+    }
+  ],
+  "docs/sandbox.md": [
+    {
+      "code": ".app",
+      "reason": "Application bundle filename suffix, not a function."
+    }
+  ],
+  "docs/scroll.md": [
+    {
+      "code": "MockWidget::scroll_offset",
+      "reason": "MockWidget data field, not a method."
+    }
+  ],
+  "docs/settings.md": [
+    {
+      "code": "root()",
+      "reason": "Application root builder supplied to the framework, not a published function."
+    }
+  ],
+  "docs/shapes.md": [
+    {
+      "code": "Shape: path(in rect) -> Path",
+      "reason": "Proposed/unimplemented shape API in the retained design discussion, not a current public function."
+    },
+    {
+      "code": "Geometry::contains(point)",
+      "reason": "Proposed/unimplemented shape API in the retained design discussion, not a current public function."
+    },
+    {
+      "code": ".native()",
+      "reason": "Proposed/unimplemented shape API in the retained design discussion, not a current public function."
+    },
+    {
+      "code": "path()",
+      "reason": "Proposed/unimplemented shape API in the retained design discussion, not a current public function."
+    },
+    {
+      "code": ".clip(shape)",
+      "reason": "Proposed/unimplemented shape API in the retained design discussion, not a current public function."
+    }
+  ],
+  "docs/size-classes.md": [
+    {
+      "code": "day_core::toolbar",
+      "reason": "Module name, not a function."
+    },
+    {
+      "code": "GridItem(.adaptive(minimum:))",
+      "reason": "Module name or SwiftUI API, not a published Day function."
+    }
+  ],
+  "docs/sound.md": [
+    {
+      "code": ".ambient",
+      "reason": "Native audio-session category, not a Day callable."
+    }
+  ],
+  "docs/swiftui.md": [
+    {
+      "code": "crate::swiftui",
+      "reason": "Module name, not a function."
+    },
+    {
+      "code": "body(_:)",
+      "reason": "Application-generated Swift module or native SwiftUI body, not a Rust callable."
+    }
+  ],
+  "docs/text-runs.md": [
+    {
+      "code": "FontSpec::monospace",
+      "reason": "FontSpec data field or GTK Label.text getter, not a Day function."
+    },
+    {
+      "code": "FontSpec::scale",
+      "reason": "FontSpec data field or GTK Label.text getter, not a Day function."
+    },
+    {
+      "code": "label.text()",
+      "reason": "FontSpec data field or GTK Label.text getter, not a Day function."
+    }
+  ],
+  "docs/texteditor.md": [
+    {
+      "code": "FontSpec::scale",
+      "reason": "FontSpec data field or native GTK TextBuffer.insert, not a Day function."
+    },
+    {
+      "code": "TextBuffer::insert",
+      "reason": "FontSpec data field or native GTK TextBuffer.insert, not a Day function."
+    }
+  ],
+  "docs/tweaks.md": [
+    {
+      "code": "node_handle_any(node) -> Option<Box<dyn Any>>",
+      "reason": "Native toolkit introspection/private helper, not a portable public Day function."
+    },
+    {
+      "code": "type_().name()",
+      "reason": "Native toolkit introspection/private helper, not a portable public Day function."
+    }
+  ],
+  "docs/tween.md": [
+    {
+      "code": "step(sample)",
+      "reason": "Caller-supplied animation callback, not a Day method."
+    },
+    {
+      "code": "day::frame",
+      "reason": "Module name, not a function."
+    }
+  ],
+  "docs/vectors.md": [
+    {
+      "code": ".app",
+      "reason": "Application bundle filename suffix, not a function."
+    }
+  ],
+  "docs/web.md": [
+    {
+      "code": "register(rt)",
+      "reason": "Generated JavaScript host function, browser fetch, or Rust thread API; not a Day callable."
+    },
+    {
+      "code": "start(rt, module)",
+      "reason": "Generated JavaScript host function, browser fetch, or Rust thread API; not a Day callable."
+    },
+    {
+      "code": "std::thread::sleep",
+      "reason": "Rust standard-library function or trait method, outside the published Day API."
+    },
+    {
+      "code": "fetch()",
+      "reason": "Generated JavaScript host function, browser fetch, or Rust thread API; not a Day callable."
+    }
+  ],
+  "website/src/content/docs/dayscript.md": [
+    {
+      "code": "day::record",
+      "reason": "Module name, not a function."
+    }
+  ],
+  "website/src/content/docs/getting-started.md": [
+    {
+      "code": "root()",
+      "reason": "Application root builder, not a framework API."
+    }
+  ],
+  "website/src/content/docs/guide-crash-reporting.md": [
+    {
+      "code": "send(&meta, |result| …)",
+      "reason": "External day-part-break reporting API has no published Day Rustdoc bundle; the guide links its repository."
+    },
+    {
+      "code": "RestReporter::new(url)",
+      "reason": "External day-part-break reporting API has no published Day Rustdoc bundle; the guide links its repository."
+    },
+    {
+      "code": "GithubIssueReporter::new(owner, repo)",
+      "reason": "External day-part-break reporting API has no published Day Rustdoc bundle; the guide links its repository."
+    },
+    {
+      "code": "EmailReporter::new(to)",
+      "reason": "External day-part-break reporting API has no published Day Rustdoc bundle; the guide links its repository."
+    },
+    {
+      "code": "abort()",
+      "reason": "External day-part-break reporting API has no published Day Rustdoc bundle; the guide links its repository."
+    }
+  ],
+  "website/src/content/docs/guide-desktop.md": [
+    {
+      "code": "root()",
+      "reason": "Application root builder, not a framework API."
+    }
+  ],
+  "website/src/content/docs/localization.md": [
+    {
+      "code": "gamekit::res::chrome::str::done()",
+      "reason": "Application/package-generated locale accessor or registration function, not a published Day item."
+    }
+  ],
+  "website/src/content/docs/overview.md": [
+    {
+      "code": "root()",
+      "reason": "Application root builder, not a framework API."
+    }
+  ],
+  "website/src/content/docs/packaging.md": [
+    {
+      "code": ".app",
+      "reason": "Application bundle filename suffix, not a function."
+    }
+  ],
+  "website/src/content/docs/troubleshooting.md": [
+    {
+      "code": "Response::status",
+      "reason": "Response status data field, not a method."
+    }
+  ],
+  "website/src/content/docs/tutorial-native-piece.md": [
+    {
+      "code": "AppKit::new()",
+      "reason": "Illustrative renderer/extension method or target-specific toolkit constructor; not a portable public API."
+    },
+    {
+      "code": ".method()",
+      "reason": "Illustrative renderer/extension method or target-specific toolkit constructor; not a portable public API."
+    },
+    {
+      "code": "update(backend, &Handle, &Patch)",
+      "reason": "Illustrative renderer/extension method or target-specific toolkit constructor; not a portable public API."
+    },
+    {
+      "code": "measure(backend, &Handle, Proposal) -> Size",
+      "reason": "Illustrative renderer/extension method or target-specific toolkit constructor; not a portable public API."
+    },
+    {
+      "code": "GtkSearchEntry::new()",
+      "reason": "Illustrative renderer/extension method or target-specific toolkit constructor; not a portable public API."
+    },
+    {
+      "code": "day_android::realize",
+      "reason": "Illustrative renderer/extension method or target-specific toolkit constructor; not a portable public API."
+    }
+  ],
+  "website/src/content/docs/tutorial-part.md": [
+    {
+      "code": "imp::status()",
+      "reason": "Private imp module function inside the tutorial implementation."
+    }
+  ]
+}

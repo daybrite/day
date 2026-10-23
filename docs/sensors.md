@@ -38,8 +38,8 @@ Platform selection follows the compilation target. There are no toolkit feature 
 
 ## Subscribe
 
-[`watch`](/api/day_part_sensors/fn.watch.html) takes a sensor kind and a callback.
-Keep the returned [`Watch`](/api/day_part_sensors/struct.Watch.html) for as long
+[`watch`](https://daybrite.dev/api/day_part_sensors/fn.watch.html) takes a sensor kind and a callback.
+Keep the returned [`Watch`](https://daybrite.dev/api/day_part_sensors/struct.Watch.html) for as long
 as you want updates. In a Day page, bind it to the reactive scope:
 
 ```rust
@@ -57,11 +57,11 @@ Scope::current().on_cleanup(move || drop(watch));
 Format localized readouts on the UI thread. The callback should pass raw measurements through
 its setter, as described in [asynchronous work](async.md).
 
-[`SensorReading`](/api/day_part_sensors/struct.SensorReading.html) contains
+[`SensorReading`](https://daybrite.dev/api/day_part_sensors/struct.SensorReading.html) contains
 `x`, `y`, and `z` in SI units: acceleration including gravity in m/s², angular velocity in rad/s,
 and magnetic field in µT. Axis signs follow each platform's coordinate system.
 
-[`is_available`](/api/day_part_sensors/fn.is_available.html) probes support
+[`is_available`](https://daybrite.dev/api/day_part_sensors/fn.is_available.html) probes support
 without starting a sensor. Native availability does not imply that permission has been granted.
 On the web it checks API support and a secure context; it cannot establish whether hardware exists.
 An unavailable or denied source delivers no samples. Request access through
@@ -71,7 +71,7 @@ and create another after correcting access or service availability.
 ## Calibrated and uncalibrated readings
 
 A `SensorKind` selects the normal platform sensor. Choose a processing mode explicitly with
-`kind.with_calibration(Calibration::Uncalibrated)`; both `watch` and `is_available` accept it:
+[`kind.with_calibration(Calibration::Uncalibrated)`](https://daybrite.dev/api/day_part_sensors/enum.SensorKind.html#method.with_calibration); both [`watch`](https://daybrite.dev/api/day_part_sensors/fn.watch.html) and [`is_available`](https://daybrite.dev/api/day_part_sensors/fn.is_available.html) accept it:
 
 ```rust
 use day_part_sensors::{Calibration, SensorKind};

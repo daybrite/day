@@ -41,9 +41,9 @@ if day_part_clipboard::has_text() {
 }
 ```
 
-[`set_text(&str) -> bool`](/api/day_part_clipboard/fn.set_text.html) replaces the clipboard with plain text (`true` on success).
-[`get_text() -> Option<String>`](/api/day_part_clipboard/fn.get_text.html) reads the current text; it returns `None` when the clipboard is empty, holds no text
-representation, or the platform denies access. [`has_text() -> bool`](/api/day_part_clipboard/fn.has_text.html) checks for text, using a cheap
+[`set_text(&str) -> bool`](https://daybrite.dev/api/day_part_clipboard/fn.set_text.html) replaces the clipboard with plain text (`true` on success).
+[`get_text() -> Option<String>`](https://daybrite.dev/api/day_part_clipboard/fn.get_text.html) reads the current text; it returns `None` when the clipboard is empty, holds no text
+representation, or the platform denies access. [`has_text() -> bool`](https://daybrite.dev/api/day_part_clipboard/fn.has_text.html) checks for text, using a cheap
 native probe where one exists ([`UIPasteboard.hasStrings`](https://developer.apple.com/documentation/uikit/uipasteboard), Win32 `IsClipboardFormatAvailable`, …).
 
 There are no cargo features; platform selection is purely `#[cfg(target_os)]`, because the clipboard
@@ -82,18 +82,18 @@ nor the Day runtime (unlike Android). Content is typed through UDMF: a write wra
 
 Platform access rules:
 
-- **Android 10+** only lets an app *read* the clipboard while it holds input focus: [`get_text()`](/api/day_part_clipboard/fn.get_text.html) /
-  `has_text()` return `None`/`false` in the background. Writing is always allowed. No manifest permission
+- **Android 10+** only lets an app *read* the clipboard while it holds input focus: [`get_text()`](https://daybrite.dev/api/day_part_clipboard/fn.get_text.html) /
+  [`has_text()`](https://daybrite.dev/api/day_part_clipboard/fn.has_text.html) return `None`/`false` in the background. Writing is always allowed. No manifest permission
   is involved either way. Writing raises a system overlay of its own on recent versions, and it can
   hold that focus for a moment — so a read taken right after a write of the app's own is one of the
-  cases that comes back empty. `day::install_edit_commands` covers it by remembering the payload it
+  cases that comes back empty. [`day::install_edit_commands`](https://daybrite.dev/api/day/fn.install_edit_commands.html) covers it by remembering the payload it
   placed (see [menus](menus.md)); an app calling this crate directly gets the platform's answer
   verbatim.
-- **iOS 14+** shows the system "app pasted from …" banner when `get_text()` reads the pasteboard;
-  `has_text()` uses `hasStrings`, the pre-check Apple provides that does not trigger the banner.
-  Prefer the asynchronous typed `read` API in UI actions: it performs the native read on a
+- **iOS 14+** shows the system "app pasted from …" banner when [`get_text()`](https://daybrite.dev/api/day_part_clipboard/fn.get_text.html) reads the pasteboard;
+  [`has_text()`](https://daybrite.dev/api/day_part_clipboard/fn.has_text.html) uses `hasStrings`, the pre-check Apple provides that does not trigger the banner.
+  Prefer the asynchronous typed [`read`](https://daybrite.dev/api/day_part_clipboard/fn.read.html) API in UI actions: it performs the native read on a
   worker so a delayed provider or paste authorization cannot block the main thread. The legacy
-  `get_text()` helper remains synchronous.
+  [`get_text()`](https://daybrite.dev/api/day_part_clipboard/fn.get_text.html) helper remains synchronous.
 
 ## What it shows about the extension system
 
@@ -105,7 +105,7 @@ other platform the crate is fully day-independent.
 
 ## Typed binary content
 
-`day::clipboard` re-exports [`day-part-clipboard`](/api/day_part_clipboard/index.html). The original text functions remain
+`day::clipboard` re-exports [`day-part-clipboard`](https://daybrite.dev/api/day_part_clipboard/index.html). The original text functions remain
 compatible. The typed API describes **one item with alternate representations**, not
 several unrelated clipboard items:
 
@@ -119,19 +119,19 @@ let written_types = day::clipboard::write(content).await?;
 let item = day::clipboard::read(&["application/x-my-app-document", "image/png"]).await?;
 ```
 
-[`Representation`](/api/day_part_clipboard/struct.Representation.html) holds a MIME string and shared, owned `Arc<Vec<u8>>` bytes. No paths,
+[`Representation`](https://daybrite.dev/api/day_part_clipboard/struct.Representation.html) holds a MIME string and shared, owned `Arc<Vec<u8>>` bytes. No paths,
 image handles, UTF-8 conversions, or base64 encoding are imposed on application data.
-[`Content::validate`](/api/day_part_clipboard/struct.Content.html#method.validate) rejects empty offers, duplicate or invalid MIME names, more than
+[`Content::validate`](https://daybrite.dev/api/day_part_clipboard/struct.Content.html#method.validate) rejects empty offers, duplicate or invalid MIME names, more than
 32 representations, and more than 64 MiB total. Reads apply the same byte limit where
 native length information is available. Use bare MIME names without parameters.
 
-`write(Content)` starts the request immediately and returns a [`ClipboardFuture`](/api/day_part_clipboard/type.ClipboardFuture.html) whose
+[`write(Content)`](https://daybrite.dev/api/day_part_clipboard/fn.write.html) starts the request immediately and returns a [`ClipboardFuture`](https://daybrite.dev/api/day_part_clipboard/type.ClipboardFuture.html) whose
 result lists the representations actually accepted. A platform may accept only a subset;
-zero accepted representations is an error. `read(&[mime, ...])` starts immediately and
+zero accepted representations is an error. [`read(&[mime, ...])`](https://daybrite.dev/api/day_part_clipboard/fn.read.html) starts immediately and
 returns the first available representation in caller preference order, `Ok(None)` for
 no matching content, or an error. Permission/access failures are not replaced with an
 old in-process copy. An application implementing Cut must remove its objects only after
-write succeeds. [`Error`](/api/day_part_clipboard/enum.Error.html) distinguishes invalid data, oversized content, unsupported APIs,
+write succeeds. [`Error`](https://daybrite.dev/api/day_part_clipboard/enum.Error.html) distinguishes invalid data, oversized content, unsupported APIs,
 and unavailable access (including permission denial).
 
 Some native APIs hide denied access as an empty clipboard (notably mobile privacy rules),
@@ -172,7 +172,7 @@ write rejection, and native paste snapshots. The real-browser regression is Day-
 The OS-based implementation deliberately remains usable without initializing GTK or Qt.
 The desktop toolkit edit routes remain responsible for allowing a focused text editor to
 handle its own Copy/Paste first. Apps that need custom async behavior can use
-`day::install_edit_bridge` with `day::EditState` and the typed clipboard functions.
+[`day::install_edit_bridge`](https://daybrite.dev/api/day/fn.install_edit_bridge.html) with `day::EditState` and the typed clipboard functions.
 
 ### Day-Sketch and regression checks
 

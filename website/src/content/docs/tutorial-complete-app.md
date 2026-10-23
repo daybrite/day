@@ -94,7 +94,7 @@ fn summary_page(count: Signal<i64>) -> impl Piece {
 }
 ```
 
-`nav_link` makes a button that navigates to a route key. These links and the sidebar update the
+[`nav_link`](https://daybrite.dev/api/day_pieces/fn.nav_link.html) makes a button that navigates to a route key. These links and the sidebar update the
 same navigation state. This app selects peer sections; it does not push a detail page onto a
 back stack. Every visible message comes from the generated catalog accessors.
 
@@ -162,7 +162,7 @@ the controls by hand because this is not a physical mouse or keyboard test.
 | --- | --- |
 | A script cannot find an ID | Match the YAML identifier to `id!(...)`, save both files, and rerun without `--skip-build`. |
 | The first count is not zero | Start a fresh app run; the script assumes a new in-memory count. |
-| Navigation does nothing | Match `nav_link` keys to the `.item` keys; a visible translated label is not a route key. |
+| Navigation does nothing | Match [`nav_link`](https://daybrite.dev/api/day_pieces/fn.nav_link.html) keys to the [`.item`](https://daybrite.dev/api/day_pieces/trait.NavBuilder.html#tymethod.item) keys; a visible translated label is not a route key. |
 | A text assertion fails | Compare the expected argument with the actual count and keep the final Fluent catalog and Rust file together. |
 
 ## Next steps

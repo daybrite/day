@@ -43,7 +43,7 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 > the live record `android.title=(Hello from Day)`, and the notification renders in the shade with
 > the crate's monochrome icon. Both receivers are present in the merged APK manifest.
 >
-> Not yet implemented: the **Linux** and **web-dom** arms (they fall through to the `Unsupported`
+> Not yet implemented: the **Linux** and **Web** arms (they fall through to the `Unsupported`
 > stub), actions and inline reply, and both `day-part-push-notify` and `day-notify`. Those sections
 > below remain a design.
 >
@@ -251,7 +251,7 @@ it is on, a post answers `PermissionDenied`. A scheduled notification is an in-p
 Linux; the reminder agent could hold one across an exit, at the cost of the
 `PUBLISH_AGENT_REMINDER` permission and its per-app quota.
 
-### Web (web-dom) — the Notification API, foreground only
+### Web — the Notification API, foreground only
 
 `new Notification(title, options)` while the page is open, or `ServiceWorkerRegistration
 .showNotification()` through the day-dom shim; taps arrive at the service worker's
@@ -532,7 +532,7 @@ push part needs a receiver; a background-work part would need a service).
 **2. Nothing could request a route from off the UI thread, or before launch.** An earlier draft of
 this document said day-core needed a buffered launch-route slot. Implementing it showed that was
 wrong: `nav::set_launch_deeplink` already existed and `launch_with` already consumed it one turn
-after the first mount (web-dom seeds it from the URL hash). Two things were missing, and both
+after the first mount (Web seeds it from the URL hash). Two things were missing, and both
 affect the notification case:
 
 - **`set_launch_deeplink` writes a thread-local.** A notification tap arrives on a JNI thread on
@@ -689,7 +689,7 @@ supports none). New shim imports (`day_dom_notify_post`, `day_dom_notify_cancel`
 arrive at the service worker's `notificationclick`, which `postMessage`s to the page, which calls
 back into wasm. `capabilities()` reports no `schedule_while_dead`; a running page schedules through
 the delayed poster. The service worker must be a served file, not a bundled asset, since
-`resource()` returns `None` on web-dom ([docs/web.md](../web.md)).
+`resource()` returns `None` on Web ([docs/web.md](../web.md)).
 
 ### mock
 
@@ -765,7 +765,7 @@ Per platform, `day build` then folds in: `POST_NOTIFICATIONS` + `RECEIVE_BOOT_CO
 three `<receiver>`s + the proguard keeps on Android; the `UserNotifications` framework on
 iOS/macOS (no entitlement while no channel uses `Urgent`; exercising the page's Urgent option
 requires the time-sensitive entitlement, which should be declared and is itself a useful
-demonstration); the AUMID shortcut on Windows; the service worker on web-dom. Four new locale
+demonstration); the AUMID shortcut on Windows; the service worker on Web. Four new locale
 blocks in `resource/locales/{en,fr,ar,zh-CN}/app.ftl`; the showcase requires all four, and
 `day lint` enforces cross-locale coverage.
 

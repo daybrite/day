@@ -52,7 +52,7 @@ bring-your-own-C++ recipe (each tier is spelled out in the
 [tweaks reference](/docs/reference/tweaks)).
 
 The class name keeps a tweak from breaking silently. On the typed tiers it's the *live* widget's
-runtime class, so if a piece ever has more than one native backing (a plain `label` as `UILabel`,
+runtime class, so if a piece ever has more than one native backing (a plain [`label`](https://daybrite.dev/api/day_pieces/fn.label.html) as `UILabel`,
 a link-bearing one as `UITextView`), the tweak can `match` on the class instead of guessing a
 downcast. On the raw tiers, where Rust can't introspect an opaque pointer, it's the metadata your
 C++ needs: pass it across the shim and guard the cast so the pointer is never reinterpreted as
@@ -61,7 +61,7 @@ the wrong control.
 Day re-applies the properties it *manages* (a button's title, a slider's value) on its next update,
 so tweak the properties Day doesn't touch (bezels, tick marks, selectability) and they're stable.
 And if a native call changes the widget's intrinsic size, tell layout with
-`day::invalidate_size(node)`, because Day can't see mutations it didn't make.
+[`day::invalidate_size(node)`](https://daybrite.dev/api/day/fn.invalidate_size.html), because Day can't see mutations it didn't make.
 
 ## Reaching a widget later
 
@@ -81,7 +81,7 @@ column((
 
 The ref clears automatically when the piece unmounts, so a late timer or async completion is a
 safe `None`, never a dangling widget. Reads are [reactive](/docs/reference/glossary#reactive), too: a label whose closure calls
-`save_ref.node()` re-renders when the referenced piece mounts or disappears.
+[`save_ref.node()`](https://daybrite.dev/api/day_pieces/struct.NativeRef.html#method.node) re-renders when the referenced piece mounts or disappears.
 
 ## Packaged tweaks
 

@@ -1,4 +1,5 @@
 ---
+navTitle: "Flavors"
 title: "Build flavors"
 description: "Day-<name>.toml: one source tree shipped as several apps, differing in id, name, icon, strings, features and targets."
 ---

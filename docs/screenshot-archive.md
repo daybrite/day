@@ -1,4 +1,5 @@
 ---
+navTitle: "Screenshots"
 title: "Screenshot bundle"
 description: "The screenshots.tar.xz a release carries: a plain tar.xz of uncompressed PNG files that xz compresses across captures, the SHA256SUMS it opens with, the gallery.json fields that describe it, and how day screenshot pack and unpack handle it."
 ---

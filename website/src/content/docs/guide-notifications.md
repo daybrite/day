@@ -1,4 +1,5 @@
 ---
+navTitle: "Notifications"
 title: Local notifications
 description: "Immediate and scheduled notifications, permissions, and tap handling."
 order: 28
@@ -17,7 +18,7 @@ due after the app has closed. Posting a notification requires permission and a c
 **Works on:** iOS, macOS, Android, and HarmonyOS. Support is selected by operating system.
 HarmonyOS schedules only while the app remains alive; Apple and Android can retain schedules
 after exit. Linux, Windows, and the browser return `NotifyError::Unsupported`. Gate the UI with
-`capabilities()` (step 6); see the [per-platform table](/docs/reference/notify#platform-capabilities).
+[`capabilities()`](https://daybrite.dev/api/day_part_local_notify/fn.capabilities.html) (step 6); see the [per-platform table](/docs/reference/notify#platform-capabilities).
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
 [example messages](/docs/reference/examples/catalog) and [catalog setup](/docs/how-to/localization).
@@ -54,7 +55,7 @@ reminders_channel = Reminders
 reminder_title = Your reminder is ready.
 ```
 
-`Channel::register` returns `()`. `post` returns an ID or `NotifyError`; success is acceptance,
+[`Channel::register`](https://daybrite.dev/api/day_part_local_notify/struct.Channel.html#method.register) returns `()`. [`post`](https://daybrite.dev/api/day_part_local_notify/struct.Notification.html#method.post) returns an ID or `NotifyError`; success is acceptance,
 not proof that the user saw a banner. The title is a localized snapshot, so a scheduled
 notification does not change language later. The remaining code blocks are integration fragments.
 
@@ -80,7 +81,7 @@ needs no `Info.plist` key for local notifications).
 Declaring the permission does not request it. An app must still request
 `Permission::Notifications`, and on Apple
 the failure mode for skipping this is silent: the system accepts every post and drops it with no
-error. The Apple arm cannot warn you either: its settings accessor is async-only, so `post()`
+error. The Apple arm cannot warn you either: its settings accessor is async-only, so [`post()`](https://daybrite.dev/api/day_part_local_notify/struct.Notification.html#method.post)
 never returns `PermissionDenied` there.
 
 ```rust
@@ -121,10 +122,10 @@ let id = Notification::new(res::str::timer_done().format())
 Choose the importance for the behavior you want. `Importance::High` or above shows a heads-up
 banner on Android; `Default` files the notification into the shade with no banner, which reads as
 "the button did nothing". On Android the importance is immutable after first registration (the
-user owns the channel from then on), which is why it's a required argument at `Channel::new`
+user owns the channel from then on), which is why it's a required argument at [`Channel::new`](https://daybrite.dev/api/day_part_local_notify/struct.Channel.html#method.new)
 rather than a setter.
 
-`post()` returns a `NotifId`. Posting again with the same id (via `.id(id)`) updates the existing
+[`post()`](https://daybrite.dev/api/day_part_local_notify/struct.Notification.html#method.post) returns a `NotifId`. Posting again with the same id (via [`.id(id)`](https://daybrite.dev/api/day_part_local_notify/struct.Notification.html#method.id)) updates the existing
 notification in place instead of stacking a second one.
 
 ## 4. Schedule and cancel
@@ -154,11 +155,11 @@ Notification::new(res::str::good_morning().format())
 (a tzdb crate such as jiff has the zone arithmetic; Day-Time's `timezone` module shows the pattern), and re-derive on each foreground if you're tracking
 a local-time target across DST changes. An instant already in the past fires immediately.
 
-Where `capabilities().schedule_while_dead` is true, the OS holds the trigger and fires it even if
+Where [`capabilities().schedule_while_dead`](https://daybrite.dev/api/day_part_local_notify/fn.capabilities.html) is true, the OS holds the trigger and fires it even if
 the app has exited. On Apple the system holds the schedule itself. Android has no notification
 scheduler, so the part sets an `AlarmManager` alarm that wakes a receiver; a reboot clears every
 alarm, and the part's boot receiver re-arms schedules from persisted data. When Android withholds
-the exact-alarm grant, `capabilities().schedule_exact` is false and the notification still arrives,
+the exact-alarm grant, [`capabilities().schedule_exact`](https://daybrite.dev/api/day_part_local_notify/fn.capabilities.html) is false and the notification still arrives,
 possibly late in Doze. Declaring `android.permission.USE_EXACT_ALARM` in your app's
 `[package.metadata.day.android]` gets the install-time exact-alarm grant (Play restricts it to clock
 and calendar apps, so the part can't declare it for you), and scheduling on a channel registered
@@ -170,11 +171,11 @@ at post time as plain strings: a `Notification` cannot bind a signal or a closur
 
 ## 5. Route the tap
 
-`.route("clock/timer")` names the Day route a tap navigates to, the same route strings the
-navigation rail and deep links use. The tap is delivered through `day_core::request_route`, which
+[`.route("clock/timer")`](https://daybrite.dev/api/day_part_local_notify/struct.Notification.html#method.route) names the Day route a tap navigates to, the same route strings the
+navigation rail and deep links use. The tap is delivered through [`day_core::request_route`](https://daybrite.dev/api/day_core/fn.request_route.html), which
 handles both cases: a warm tap navigates the running app, and a tap that cold-starts the process
 is buffered and replayed once routing is live, so the app opens on the target screen.
-`capabilities().tap_route` says whether the running platform delivers taps.
+[`capabilities().tap_route`](https://daybrite.dev/api/day_part_local_notify/fn.capabilities.html) says whether the running platform delivers taps.
 
 ## 6. Gate the UI
 
@@ -191,13 +192,13 @@ caps.tap_route            // taps route into the app
 caps.schedule_exact       // scheduled fires are on time
 ```
 
-On unsupported targets every field is false and `post()` returns `NotifyError::Unsupported`, so a
+On unsupported targets every field is false and [`post()`](https://daybrite.dev/api/day_part_local_notify/struct.Notification.html#method.post) returns `NotifyError::Unsupported`, so a
 notifications section can hide itself.
 
 ## Pitfalls
 
 - Without granted consent, Apple accepts the post and drops it silently. Request
-  `Permission::Notifications` first (step 2); `post()` returning `Ok` is not proof of delivery.
+  `Permission::Notifications` first (step 2); [`post()`](https://daybrite.dev/api/day_part_local_notify/struct.Notification.html#method.post) returning `Ok` is not proof of delivery.
 - On Android, `Importance::Default` puts the notification in the shade only. Use `Importance::High`
   or `Urgent` for a heads-up banner.
 - iOS suppresses a notification posted while the app is frontmost unless a delegate opts in from
@@ -206,7 +207,7 @@ notifications section can hide itself.
   `UNUserNotificationCenterDelegate`, you take that job over.
 - The current AppKit CLI path launches an Xcode host bundle. A manually run bare binary has
   different notification behavior; check the bundle identifier and granted consent before
-  attributing a failure to `post()`. The recipe check compiles but does not deliver notifications.
+  attributing a failure to [`post()`](https://daybrite.dev/api/day_part_local_notify/struct.Notification.html#method.post). The recipe check compiles but does not deliver notifications.
 
 ## Reference
 

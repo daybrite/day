@@ -54,8 +54,8 @@ let target = label(move || received.get()).drop_target(Target {
 });
 ```
 
-Localize user-facing strings in real applications. Apply a canvas's gesture/test `.id(...)`
-before `.drop_target(...)` when the identifier must still address the canvas itself: the
+Localize user-facing strings in real applications. Apply a canvas's gesture/test [`.id(...)`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.id)
+before [`.drop_target(...)`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.drop_target) when the identifier must still address the canvas itself: the
 transfer decorator creates a native wrapper. The source and target may be the same piece.
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
@@ -96,7 +96,7 @@ item/alternative coverage; multiple native file references can be encoded in one
 | UIKit | UIDragInteraction, UIDropInteraction, NSItemProvider | Encoded byte providers; pending loads cancel after 30 seconds |
 | Android | startDragAndDrop, ClipData, ContentProvider | Read-only URI grants; bounded reads on a worker; permissions released at receipt/timeout |
 | ArkUI | native node drag events, UDMF | General byte records and file URI records; compile checked against API 18 |
-| web-dom | HTML draggable and DataTransfer | Files read at drop; HTML custom strings carry the Day bundle as base64 |
+| Web | HTML draggable and DataTransfer | Files read at drop; HTML custom strings carry the Day bundle as base64 |
 
 macOS MIME/UTI conversion is shared with the system mapping used by GTK, so custom types
 survive AppKit/Qt/GTK process boundaries. Windows XAML uses named DataPackage streams; the

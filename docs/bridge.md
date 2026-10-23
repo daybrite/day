@@ -213,10 +213,10 @@ allocated by the callee and released by the generated free function on the side 
 **A completion runs where the platform delivers it, and the generated future is the door
 home.** An Android binder thread, a Swift completion on a background queue, an OkHttp dispatcher
 thread, the browser's sole thread: the closure a `Done<T>` resolves runs right there, which is
-why it is `Send`. Nothing in a bridged crate calls `day_reactive::on_main` — a part must work in
+why it is `Send`. Nothing in a bridged crate calls [`day_reactive::on_main`](https://daybrite.dev/api/day_reactive/fn.on_main.html) — a part must work in
 a plain `main` and under `cargo test`, where no main loop exists ([docs/async](async.md)
 rule 3). What brings an answer to the UI thread is the awaitable form: `<fn>_future(…).await`
-under `day::task` resumes on the UI thread, so the code after the `.await` writes signals
+under [`day::task`](https://daybrite.dev/api/day/fn.task.html) resumes on the UI thread, so the code after the `.await` writes signals
 directly. A callback user captures a `Setter` instead, the same idiom every part documents.
 
 This revises the rule dayffi left behind (every re-entry posts to the main loop): posting from
@@ -374,7 +374,7 @@ day_bridge::bridge! {
 `Item<T>` is `Value(T)`, `End` or `Failed(Error)`. A foreign arm answers through three helpers:
 `<fn>_emit(emit, value)`, `<fn>_end(emit)` and `<fn>_fail(emit, message)`, over the same exported
 symbol the callback tier uses, whose status argument tells a value from the end. A Rust arm calls
-`emit.emit(value)`, `emit.end()` and `emit.fail(error)` on the handle.
+[`emit.emit(value)`](https://daybrite.dev/api/day_bridge/struct.Emit.html#method.emit), [`emit.end()`](https://daybrite.dev/api/day_bridge/struct.Emit.html#method.end) and [`emit.fail(error)`](https://daybrite.dev/api/day_bridge/struct.Emit.html#method.fail) on the handle.
 
 **In order, one at a time, and the end once.** Values pushed from several threads reach the
 callback serially and in push order: the first pusher drains the slot's queue while the others
@@ -638,7 +638,7 @@ Read it before writing a bridge of your own.
   graphs, and out-of-process hosts were designed once as dayffi and dropped
   because one string and one number covered the required cases. This design starts smaller.
 - **A bridge implements a function, never a view.** Native views enter the tree through
-  `Toolkit::adopt` and the piece mechanisms ([docs/extending](extending.md)), which are unaffected.
+  [`Toolkit::adopt`](https://daybrite.dev/api/day_spec/trait.Toolkit.html#method.adopt) and the piece mechanisms ([docs/extending](extending.md)), which are unaffected.
 - **Rust comes first.** Where Rust reaches the API (`objc2`, `#[link]`), use Rust.
 - **Foreign state is limited to process statics.** An arm may hold a synthesizer or a connection in
   a file-scope static; it may not hold anything Rust is expected to own or free.
@@ -695,7 +695,7 @@ Settled 2026-08-10, recorded so the reasoning outlives the discussion:
 | Symbol collisions | **Fail the build**, naming both manifest paths | A path hash would make the failure silent and the symbol unreadable in a crash log; predictable names are what the derivation table is for |
 | Win32 string width | **Opt-in per arm** (`encoding = "utf16"`), UTF-8 by default | A UTF-8 C library on Windows stays natural; an arm calling a wide API asks for what it needs |
 | Kotlin `suspend` | **Deferred** past the callback tier | Bridgeable now that tokens exist; waits for an arm that needs it |
-| Where a completion runs | **The platform's thread**; the generated future is the door to the UI thread (2026-09) | Posting from generated code would make an arm behave differently under `cargo test` and in an app, and a part may never call `on_main` ([docs/async](async.md) rule 3) |
+| Where a completion runs | **The platform's thread**; the generated future is the door to the UI thread (2026-09) | Posting from generated code would make an arm behave differently under `cargo test` and in an app, and a part may never call [`on_main`](https://daybrite.dev/api/day_reactive/fn.on_main.html) ([docs/async](async.md) rule 3) |
 | Multi-shot callbacks | **A separate tier**, built 2026-09 as `Emit<T>` ([Streams](#streams)) | Sensors and location need repeated delivery, which is a different shape from at-most-once completion; half-building either would foreclose the other |
 | Struct evolution | **No versioning.** A change breaks every arm at once, and file-form arms are signature-validated | Everything regenerates in one build, so the only drift risk is the hand-written file arm, which the validator catches |
 
@@ -713,13 +713,13 @@ initialization. The name is reserved for generated code.
 On web-dom, `dayHost.dom` provides three operations for crate-owned browser behavior:
 
 - `element(id)` returns the DOM element for a `DomHandle` ID, or no element after release.
-- `emit(id, num, text = '')` sends a custom event to the piece through Day's normal event dispatch.
+- [`emit(id, num, text = '')`](https://daybrite.dev/api/day_bridge/struct.Emit.html#method.emit) sends a custom event to the piece through Day's normal event dispatch.
   Events for released handles are ignored.
 - `onRelease(id, dispose)` registers cleanup for a live handle. Day calls it once, before removing
   the element, and discards the callback. Detaching an element for reuse does not run cleanup.
   Use this to remove listeners and cancel subscriptions.
 
-A crate calls `day_build::bridge::generate()` in `build.rs`. `day build` discovers its bridge,
+A crate calls [`day_build::bridge::generate()`](https://daybrite.dev/api/day_build/bridge/fn.generate.html) in `build.rs`. `day build` discovers its bridge,
 stages the generated ES module, and registers its imports before starting the app. No application
 script tag or change to Day's shared browser shim is needed.
 
