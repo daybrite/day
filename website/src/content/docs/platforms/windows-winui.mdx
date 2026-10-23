@@ -103,7 +103,7 @@ entry, and offers a silent `/S` mode for managed deployment. The Microsoft Store
 ## Native pieces
 
 A native piece enables WinUI through a `winui` feature that implies the piece's
-`xaml` feature and turns on both `day-xaml/winui` and `day-xaml-sys/winui`, with `"winui"` in
+`xaml` feature and turns on both `day-winui/winui` and `day-xaml-sys/winui`, with `"winui"` in
 `[package.metadata.day.piece] backends`. Its `build.rs` uses
 [`day_toolchain::winappsdk::shim_includes(&cppwinrt)`](https://daybrite.dev/api/day_toolchain/winappsdk/fn.shim_includes.html) and defines `DAY_WINUI` when
 [`day_toolchain::winappsdk::shim_is_winui()`](https://daybrite.dev/api/day_toolchain/winappsdk/fn.shim_is_winui.html), and the shim switches its includes and namespace on

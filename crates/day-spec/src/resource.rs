@@ -433,7 +433,7 @@ pub fn resolve_vector_svg(name: &str) -> Option<PathBuf> {
         .find(|p| p.is_file())
 }
 
-/// Resolve a vector name to its staged XAML geometry (docs/vectors.md), the form day-xaml draws
+/// Resolve a vector name to its staged XAML geometry (docs/vectors.md), the form day-winui draws
 /// as real `Path` geometry: vector at any size, and tintable by brush at runtime.
 /// `DAY_VECTOR_XAML_ROOT` under `day launch`, else `vectors/xaml` beside a flat-layout exe.
 /// `None` (name isn't a vector, the art was outside the convertible subset, or the layout

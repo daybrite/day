@@ -20,7 +20,7 @@ day-qt-sys = { workspace = true }
 linkme = { workspace = true }
 
 [target.'cfg(windows)'.dependencies]
-windows = { workspace = true, features = ["ApplicationModel_DataTransfer", "Foundation", "Win32_Foundation", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging", "Win32_UI_Input_KeyboardAndMouse"] }
+day-windows-runtime = { workspace = true }
 
 # The Linux launcher entry and single-instance forwarding (docs/status-item.md,
 # docs/deep-links.md): Unity LauncherEntry and a claimed bus name over the session bus, std-only.

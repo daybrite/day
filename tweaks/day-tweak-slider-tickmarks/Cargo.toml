@@ -18,7 +18,7 @@ gtk4 = { workspace = true, optional = true, features = ["v4_10"] }
 day-mdc = { workspace = true, optional = true }
 day-android-runtime = { workspace = true, optional = true }
 day-qt = { workspace = true, optional = true }
-day-xaml = { workspace = true, optional = true }
+day-winui = { workspace = true, optional = true }
 day-arkui = { workspace = true, optional = true }
 
 [build-dependencies]
@@ -30,9 +30,9 @@ appkit = ["dep:day-appkit", "dep:objc2-app-kit"]
 gtk = ["dep:day-gtk", "dep:gtk4"]
 mdc = ["dep:day-mdc", "dep:day-android-runtime"]
 qt = ["dep:day-qt"]
-xaml = ["dep:day-xaml"]
+xaml = ["dep:day-winui"]
 # WinUI 3 (windows-winui, docs/winui.md): the xaml half, built against Microsoft.UI.Xaml.
-winui = ["xaml", "day-xaml/winui"]
+winui = ["xaml", "day-winui/winui"]
 arkui = ["dep:day-arkui"]
 # uikit intentionally absent: UISlider has no native tick API — the tweak is a documented no-op
 # there (see lib.rs), and declaring no backend keeps `day build` from enabling a dead feature.

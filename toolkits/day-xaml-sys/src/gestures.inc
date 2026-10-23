@@ -5,7 +5,7 @@
 
 // Attach a native pointer recognizer to `h`, reporting to cb(id, phase, x, y, tx, ty) with `x,y` in
 // the element's local space (docs/shapes.md). kind 0 = Tap, 1 = LongPress, 2 = Drag. Phase codes:
-// 0 Tap, 1 Drag-Began, 2 Drag-Changed, 3 Drag-Ended, 4 LongPress (matching day-xaml's on_gesture).
+// 0 Tap, 1 Drag-Began, 2 Drag-Changed, 3 Drag-Ended, 4 LongPress (matching day-winui's on_gesture).
 // Routed events bubble from the shape's Path children up to the Canvas handle, so only the drawn
 // shape is hit (a transparent Canvas isn't hit-testable) — the "hit-test the path" semantic.
 void day_xaml_enable_gesture(void* h, unsigned long long id, int kind,

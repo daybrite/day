@@ -29,8 +29,8 @@ uikit = ["dep:day-uikit", "dep:objc2", "dep:objc2-ui-kit", "dep:objc2-foundation
 mdc = ["dep:day-mdc", "dep:day-android-runtime"]        # + [package.metadata.day.android] stages src/DaySettingsRow.java
 # XAML: build.rs compiles src/lib-xaml-shim.cpp (the settings-card row, boxed via day-xaml-sys's
 # day_xaml_box functions like the searchfield piece). Windows-only, built in CI, not verified locally.
-xaml = ["dep:day-xaml", "dep:day-xaml-sys"]
-winui = ["xaml", "day-xaml/winui", "day-xaml-sys/winui"]
+xaml = ["dep:day-winui", "dep:day-xaml-sys"]
+winui = ["xaml", "day-winui/winui", "day-xaml-sys/winui"]
 arkui = ["dep:day-arkui"]
 dom = []
 mock = []
@@ -56,7 +56,7 @@ day-qt = { workspace = true, optional = true }
 day-uikit = { workspace = true, optional = true }
 day-mdc = { workspace = true, optional = true }
 day-android-runtime = { workspace = true, optional = true }
-day-xaml = { workspace = true, optional = true }
+day-winui = { workspace = true, optional = true }
 day-xaml-sys = { workspace = true, optional = true }
 day-arkui = { workspace = true, optional = true }
 objc2 = { workspace = true, optional = true }

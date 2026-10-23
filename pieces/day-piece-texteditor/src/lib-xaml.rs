@@ -17,7 +17,7 @@ use std::os::raw::{c_char, c_int, c_void};
 
 use day_spec::sidetable::SideTable;
 use day_spec::{ListStyle, NodeId, ParagraphAlign, Proposal, Size, Underline};
-use day_xaml::{WinHandle, Xaml};
+use day_winui::{WinHandle, Xaml};
 
 unsafe extern "C" {
     fn day_texteditor_xaml_new(
@@ -125,14 +125,14 @@ extern "C" fn on_text(id: u64, text: *const c_char) {
             .into_owned()
     };
     remember_text(id, &s);
-    day_xaml::emit(NodeId(id), Event::TextChanged(s));
+    day_winui::emit(NodeId(id), Event::TextChanged(s));
 }
 
 extern "C" fn on_sel(id: u64, start: u64, end: u64) {
     let text = text_of(id);
     let a = byte_of_utf16(&text, start as usize);
     let b = byte_of_utf16(&text, end as usize);
-    day_xaml::emit(
+    day_winui::emit(
         NodeId(id),
         Event::custom("texteditor:sel", selection_payload(a, b)),
     );
@@ -148,7 +148,7 @@ extern "C" fn on_key(id: u64, name: *const c_char) {
     let key = unsafe { std::ffi::CStr::from_ptr(name) }
         .to_string_lossy()
         .into_owned();
-    day_xaml::emit(
+    day_winui::emit(
         NodeId(id),
         Event::Key(day_spec::KeyEvent { key, modifiers: 0 }),
     );
@@ -351,6 +351,6 @@ fn release(_backend: &mut Xaml, h: &WinHandle) {
     unsafe { day_texteditor_xaml_release(h.0) };
 }
 
-day_pieces::renderer!(day_xaml::RENDERERS, Xaml,
+day_pieces::renderer!(day_winui::RENDERERS, Xaml,
     kind: KIND, props: EditorProps, patch: EditorPatch,
     make: make, update: update, measure: measure, release: release);

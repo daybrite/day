@@ -27,7 +27,7 @@ use std::os::raw::{c_char, c_void};
 
 use day_core::{BuildCx, Flex, Layout, LayoutOps, RNode, with_tree};
 use day_spec::{Event, NodeId, Proposal, Rect, Size};
-use day_xaml::{WinHandle, Xaml};
+use day_winui::{WinHandle, Xaml};
 
 const KIND: &str = "day-piece-settings.row";
 
@@ -45,7 +45,7 @@ const GLYPH_OPEN: u32 = 0xE8A7;
 /// Navigation's image channel handles bundled art. Standard symbols use Day's shared vectors
 /// here, including when a locale change replaces the NavigationViewItems.
 pub(super) fn sidebar_symbols(nav: AnyPiece, groups: &[&Group]) -> AnyPiece {
-    use day_xaml::XamlExt;
+    use day_winui::XamlExt;
     let paths = groups
         .iter()
         .map(|g| match &g.icon {
@@ -107,7 +107,7 @@ enum CardPatch {
 
 /// A clickable card's Button clicked (pointer, Enter/Space or a UI Automation Invoke).
 extern "C" fn on_card_tap(id: u64) {
-    day_xaml::emit(NodeId(id), Event::Tap(day_spec::Point::ZERO));
+    day_winui::emit(NodeId(id), Event::Tap(day_spec::Point::ZERO));
 }
 
 fn cstr(s: &str) -> CString {
@@ -147,7 +147,7 @@ fn measure(_backend: &mut Xaml, h: &WinHandle, p: Proposal) -> Size {
     Size::new(p.width.unwrap_or(w), hh)
 }
 
-day_pieces::renderer!(day_xaml::RENDERERS, Xaml,
+day_pieces::renderer!(day_winui::RENDERERS, Xaml,
     kind: KIND, props: CardProps, patch: CardPatch,
     make: make, update: update, measure: measure);
 

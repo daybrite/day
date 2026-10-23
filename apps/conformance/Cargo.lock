@@ -238,7 +238,7 @@ dependencies = [
  "day-script",
  "day-spec",
  "day-uikit",
- "day-xaml",
+ "day-winui",
  "log",
 ]
 
@@ -383,6 +383,7 @@ dependencies = [
  "day-pieces",
  "day-reactive",
  "day-spec",
+ "day-windows-runtime",
  "gtk4",
  "libadwaita",
  "libc",
@@ -395,7 +396,6 @@ dependencies = [
  "objc2-foundation",
  "pangocairo",
  "pkg-config",
- "windows",
 ]
 
 [[package]]
@@ -507,7 +507,7 @@ dependencies = [
  "day-spec",
  "day-toolchain",
  "day-uikit",
- "day-xaml",
+ "day-winui",
  "day-xaml-sys",
  "gtk4",
  "libadwaita",
@@ -556,7 +556,7 @@ dependencies = [
  "day-spec",
  "day-toolchain",
  "day-uikit",
- "day-xaml",
+ "day-winui",
  "day-xaml-sys",
  "gtk4",
  "linkme",
@@ -595,9 +595,9 @@ dependencies = [
  "day-qt-sys",
  "day-reactive",
  "day-spec",
+ "day-windows-runtime",
  "linkme",
  "log",
- "windows",
 ]
 
 [[package]]
@@ -673,7 +673,14 @@ dependencies = [
 ]
 
 [[package]]
-name = "day-xaml"
+name = "day-windows-runtime"
+version = "0.6.0"
+dependencies = [
+ "windows",
+]
+
+[[package]]
+name = "day-winui"
 version = "0.6.0"
 dependencies = [
  "day-core",
@@ -681,10 +688,10 @@ dependencies = [
  "day-pieces",
  "day-reactive",
  "day-spec",
+ "day-windows-runtime",
  "day-xaml-sys",
  "linkme",
  "log",
- "windows",
 ]
 
 [[package]]

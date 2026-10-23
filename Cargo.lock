@@ -461,7 +461,7 @@ dependencies = [
  "day-script",
  "day-spec",
  "day-uikit",
- "day-xaml",
+ "day-winui",
  "log",
  "serde",
  "serde_json",
@@ -643,6 +643,7 @@ dependencies = [
  "day-pieces",
  "day-reactive",
  "day-spec",
+ "day-windows-runtime",
  "gtk4",
  "libadwaita",
  "libc",
@@ -655,7 +656,6 @@ dependencies = [
  "objc2-foundation",
  "pangocairo",
  "pkg-config",
- "windows",
 ]
 
 [[package]]
@@ -974,7 +974,7 @@ dependencies = [
  "day-spec",
  "day-toolchain",
  "day-uikit",
- "day-xaml",
+ "day-winui",
  "day-xaml-sys",
  "gtk4",
  "libadwaita",
@@ -1025,7 +1025,7 @@ dependencies = [
  "day-spec",
  "day-toolchain",
  "day-uikit",
- "day-xaml",
+ "day-winui",
  "day-xaml-sys",
  "gtk4",
  "linkme",
@@ -1066,9 +1066,9 @@ dependencies = [
  "day-qt-sys",
  "day-reactive",
  "day-spec",
+ "day-windows-runtime",
  "linkme",
  "log",
- "windows",
 ]
 
 [[package]]
@@ -1150,7 +1150,7 @@ dependencies = [
  "day-pieces",
  "day-qt",
  "day-toolchain",
- "day-xaml",
+ "day-winui",
  "gtk4",
  "objc2-app-kit",
 ]
@@ -1213,7 +1213,14 @@ dependencies = [
 ]
 
 [[package]]
-name = "day-xaml"
+name = "day-windows-runtime"
+version = "0.6.0"
+dependencies = [
+ "windows",
+]
+
+[[package]]
+name = "day-winui"
 version = "0.6.0"
 dependencies = [
  "day-core",
@@ -1221,10 +1228,10 @@ dependencies = [
  "day-pieces",
  "day-reactive",
  "day-spec",
+ "day-windows-runtime",
  "day-xaml-sys",
  "linkme",
  "log",
- "windows",
 ]
 
 [[package]]
@@ -5212,27 +5219,3 @@ name = "zmij"
 version = "1.0.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "29666d0abbfad1e3dc4dcf6144730dd3a3ab225bbbdac83319345b1b44ccfc1b"
-
-[[patch.unused]]
-name = "day-piece-media"
-version = "0.4.3"
-
-[[patch.unused]]
-name = "day-persistence"
-version = "0.1.0"
-
-[[patch.unused]]
-name = "day-persistence-macros"
-version = "0.1.0"
-
-[[patch.unused]]
-name = "day-sqlite-worker"
-version = "0.1.0"
-
-[[patch.unused]]
-name = "day-conformance-registry-fixture"
-version = "0.0.0"
-
-[[patch.unused]]
-name = "day-id-registry-fixture"
-version = "0.0.0"

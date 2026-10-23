@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # Copyright © The Daybrite Project
 # SPDX-License-Identifier: MPL-2.0
-"""Keep Android services and their shared runtime independent of widget backends."""
+"""Keep platform services and shared runtimes independent of widget backends."""
 
 from pathlib import Path
 import re
@@ -28,7 +28,8 @@ def dependencies(data):
 
 
 errors = []
-roots = ["day-android-runtime", *(name for name in packages if name.startswith("day-part-"))]
+runtimes = ("day-android-runtime", "day-windows-runtime")
+roots = [*runtimes, *(name for name in packages if name.startswith("day-part-"))]
 for root in roots:
     pending = [(root, [root])]
     seen = set()
@@ -38,7 +39,7 @@ for root in roots:
             continue
         seen.add(name)
         path, data = packages[name]
-        if path.parent.name == "toolkits" or name in ("day-pieces", "day") or (root == "day-android-runtime" and name == "day-core"):
+        if path.parent.name == "toolkits" or name in ("day-pieces", "day") or (root in runtimes and name == "day-core"):
             errors.append("UI dependency: " + " -> ".join(chain))
         pending.extend((dep, chain + [dep]) for dep in dependencies(data))
     path, _ = packages[root]
@@ -46,9 +47,9 @@ for root in roots:
         if source.suffix not in (".java", ".kt", ".rs"):
             continue
         # Includes Java embedded in bridge! Rust declarations.
-        if re.search(r"\bDayBridge\b|\bday_mdc\b|com\.google\.android\.material", source.read_text()):
+        if re.search(r"\bDayBridge\b|\bday_mdc\b|\bday_winui\b|\bday_xaml_sys\b|com\.google\.android\.material", source.read_text()):
             errors.append(f"UI bridge reference: {source.relative_to(ROOT)}")
 
 if errors:
     sys.exit("\n".join(errors))
-print(f"Android runtime boundary: {len(roots)} runtime/service crates are independent of UI backends")
+print(f"Platform runtime boundaries: {len(roots)} runtime/service crates are independent of UI backends")

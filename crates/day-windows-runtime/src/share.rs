@@ -1,6 +1,6 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
-//! Desktop sharing through DataTransferManager, shared by XAML, GTK and Qt.
+//! Desktop sharing through DataTransferManager, shared by WinUI, GTK and Qt.
 use std::cell::RefCell;
 use windows::{
     ApplicationModel::DataTransfer::{DataRequestedEventArgs, DataTransferManager},
@@ -16,14 +16,21 @@ thread_local! {
     // leak into a later share; removing the token drops the payload captured by the handler.
     static CURRENT: RefCell<Option<(DataTransferManager, i64)>> = const { RefCell::new(None) };
 }
+/// Present the Windows share UI for a URL using the active window on this thread.
+///
+/// Call from the toolkit's UI thread, with its COM/WinRT apartment initialized and
+/// a live active window. Returns `false` if Windows cannot present the share UI.
+/// A new presentation replaces the previous payload and its event registration.
 pub fn share(url: &str, title: &str) -> bool {
     fn present(url: &str, title: &str) -> Result<()> {
         let interop: IDataTransferManagerInterop =
             factory::<DataTransferManager, IDataTransferManagerInterop>()?;
+        // SAFETY: GetActiveWindow borrows the calling thread's active HWND; it does not own it.
         let hwnd = unsafe { GetActiveWindow() };
         if hwnd.is_invalid() {
             return Err(windows::core::Error::from_hresult(E_HANDLE));
         }
+        // SAFETY: the active HWND is checked above and used synchronously on its UI thread.
         let manager: DataTransferManager = unsafe { interop.GetForWindow(hwnd)? };
         let uri = Uri::CreateUri(&HSTRING::from(url))?;
         let title = HSTRING::from(if title.is_empty() { url } else { title });
@@ -45,7 +52,20 @@ pub fn share(url: &str, title: &str) -> bool {
             Ok(())
         }))?;
         CURRENT.with(|slot| *slot.borrow_mut() = Some((manager, token)));
+        // SAFETY: the same live HWND and UI apartment used to create the manager above.
         unsafe { interop.ShowShareUIForWindow(hwnd) }
     }
     present(url, title).is_ok()
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn sharing_without_an_active_window_fails_cleanly() {
+        // Synthetic URL/title; a fresh worker thread has no active toolkit window.
+        let presented = std::thread::spawn(|| super::share("https://example.invalid", "fixture"))
+            .join()
+            .expect("share worker must not panic");
+        assert!(!presented);
+    }
 }

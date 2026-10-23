@@ -104,7 +104,7 @@ static WUXC::IconElement toolbar_icon(const std::string& glyph, const std::strin
     // both schemes and in the disabled/pressed visuals.
     if (!geom.empty()) {
         std::string spec = geom;
-        // Undo both escapes day-xaml applied: this line format owns \t and \n, and a geometry
+        // Undo both escapes day-winui applied: this line format owns \t and \n, and a geometry
         // spec uses both (\n between shapes, \t before a shape's path data).
         for (auto& c : spec) {
             if (c == '\x1f') c = '\n';

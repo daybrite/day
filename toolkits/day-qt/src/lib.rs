@@ -7,10 +7,6 @@
 
 mod controls;
 
-#[cfg(windows)]
-#[path = "../../share-windows.rs"]
-mod share_windows;
-
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::ffi::{CStr, CString};
@@ -3945,7 +3941,7 @@ impl Toolkit for Qt {
     }
     #[cfg(windows)]
     fn share_url(&mut self, url: &str, title: &str) -> bool {
-        share_windows::share(url, title)
+        day_windows_runtime::share::share(url, title)
     }
     #[cfg(target_os = "macos")]
     fn share_support(&self) -> day_spec::Support {

@@ -27,9 +27,9 @@ uikit = ["dep:day-uikit", "dep:objc2", "dep:objc2-ui-kit", "dep:objc2-foundation
 mdc = ["dep:day-mdc", "dep:day-android-runtime"]           # + [package.metadata.day.android] carries DayTextEditor.java
 # XAML: build.rs compiles src/lib-xaml-shim.cpp, a RichEditBox driven through its TOM
 # ITextDocument. Windows-only, built in CI, not verified locally.
-xaml = ["dep:day-xaml", "dep:day-xaml-sys"]
+xaml = ["dep:day-winui", "dep:day-xaml-sys"]
 # WinUI 3 (windows-winui, docs/winui.md): the xaml half, built against Microsoft.UI.Xaml.
-winui = ["xaml", "day-xaml/winui", "day-xaml-sys/winui"]
+winui = ["xaml", "day-winui/winui", "day-xaml-sys/winui"]
 # HarmonyOS: the ArkUI C node API has no rich editor, so the component is this crate's own ArkTS.
 arkui = ["dep:day-arkui"]
 # web-dom: a contenteditable element, which is the browser's own rich text editing.
@@ -54,7 +54,7 @@ day-qt = { workspace = true, optional = true }
 day-uikit = { workspace = true, optional = true }
 day-mdc = { workspace = true, optional = true }
 day-android-runtime = { workspace = true, optional = true }
-day-xaml = { workspace = true, optional = true }
+day-winui = { workspace = true, optional = true }
 day-xaml-sys = { workspace = true, optional = true }
 day-arkui = { workspace = true, optional = true }
 day-dom = { workspace = true, optional = true }

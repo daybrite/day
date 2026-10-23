@@ -47,7 +47,7 @@ exec cargo test --locked --workspace --no-fail-fast \
     --exclude day-qt-sys \
     --exclude day-uikit \
     --exclude day-mdc \
-    --exclude day-xaml \
+    --exclude day-winui \
     --exclude day-xaml-sys \
     --exclude day-dom \
     "$@"

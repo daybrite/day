@@ -13,7 +13,7 @@ script compiles the shim against the Windows kits and, with the `winui` feature 
 whose packages it fetches on first use; without it, against the system XAML in Windows
 (`Windows.UI.Xaml` in XAML Islands), which is the deprecated `windows-xaml` target. XAML
 objects cross into Rust as opaque pointers. There is deliberately no safe API here: the safe
-layer is [`day-xaml`](https://crates.io/crates/day-xaml), and apps depend on neither crate
+layer is [`day-winui`](https://crates.io/crates/day-winui), and apps depend on neither crate
 directly — the backend arrives through a cargo feature on
 [`day`](https://crates.io/crates/day).
 

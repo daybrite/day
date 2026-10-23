@@ -3,7 +3,7 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-# day-xaml
+# day-winui
 
 Day's Windows backend: the interface is built from WinUI 3's own XAML controls.
 
@@ -17,6 +17,10 @@ users install nothing extra. This is the backend behind the `windows-winui` targ
 The same code, with the shim built against the system XAML in Windows (`Windows.UI.Xaml` in
 XAML Islands) instead of WinUI 3 (`Microsoft.UI.Xaml`), is the deprecated `windows-xaml`
 target (the `xaml` feature), kept for projects that have not moved to `windows-winui` yet.
+
+Windows services shared with other toolkits live in `day-windows-runtime`. The Windows
+share UI uses that runtime from WinUI, GTK, and Qt. Headless services can depend on the
+runtime without pulling in XAML controls or the Day rendering tree.
 
 You don't add this crate to a project yourself. Backends are chosen by a cargo feature on
 [`day`](https://crates.io/crates/day) — each app binary contains exactly one — and the

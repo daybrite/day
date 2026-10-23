@@ -7,7 +7,7 @@
 // or empty string, role 0 and hidden 0 leave the element's own answer alone, so a repeat call
 // with the same values changes nothing. `role` is day_spec::Role's declaration order (0 None,
 // 1 Button, 2 Toggle, 3 Slider, 4 TextInput, 5 Heading, 6 Image, 7 Meter, 8 Group, 9 Tree,
-// 10 TreeItem; the same table is in day-xaml's `set_a11y`); `level` is the 1-based heading level
+// 10 TreeItem; the same table is in day-winui's `set_a11y`); `level` is the 1-based heading level
 // and is read only with role 5. XAML cannot retype an element, so a role lands as what UIA does
 // carry: a heading level (what a screen reader's heading navigation walks) or a localized
 // control-type string, the type name spoken in place of the element's own. Those strings are

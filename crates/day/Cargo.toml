@@ -30,10 +30,10 @@ gtk = ["day-piece-texteditor?/gtk", "day-piece-settings?/gtk", "dep:day-gtk"]
 qt = ["day-piece-texteditor?/qt", "day-piece-settings?/qt", "dep:day-qt"]
 uikit = ["day-piece-swiftui?/uikit", "day-piece-texteditor?/uikit", "day-piece-settings?/uikit", "dep:day-uikit"]
 mdc = ["day-piece-texteditor?/mdc", "day-piece-settings?/mdc", "dep:day-mdc", "dep:day-android-runtime"]
-xaml = ["day-piece-texteditor?/xaml", "day-piece-settings?/xaml", "dep:day-xaml"]
+xaml = ["day-piece-texteditor?/xaml", "day-piece-settings?/xaml", "dep:day-winui"]
 # WinUI 3 (the Windows App SDK) on the same backend: the xaml toolkit with its shim built
 # against Microsoft.UI.Xaml (docs/winui.md). Implies `xaml`, whose code it is.
-winui = ["day-piece-texteditor?/winui", "day-piece-settings?/winui", "xaml", "day-xaml/winui"]
+winui = ["day-piece-texteditor?/winui", "day-piece-settings?/winui", "xaml", "day-winui/winui"]
 arkui = ["day-piece-texteditor?/arkui", "day-piece-settings?/arkui", "dep:day-arkui"]
 dom = ["day-piece-texteditor?/dom", "day-piece-settings?/dom", "dep:day-dom"]
 # Headless: also swaps `day::prefs` for an in-process map, so `cargo test` starts empty and never
@@ -77,7 +77,7 @@ day-qt = { workspace = true, optional = true }
 day-uikit = { workspace = true, optional = true }
 day-mdc = { workspace = true, optional = true }
 day-android-runtime = { workspace = true, optional = true }
-day-xaml = { workspace = true, optional = true }
+day-winui = { workspace = true, optional = true }
 day-arkui = { workspace = true, optional = true }
 day-dom = { workspace = true, optional = true }
 day-mock = { workspace = true, optional = true }

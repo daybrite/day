@@ -26,7 +26,7 @@ corresponding runtime path, from creating a widget to handling its events.
       ┌──────────────┐                   ┌──────────────────┐
       │  day-pieces  │  built-in pieces  │ toolkit backend   │  day-appkit / day-uikit /
       │              │  + Decorate API   │ (one per binary)  │  day-gtk / day-qt / day-mdc /
-      └──────┬───────┘                   └────────┬─────────┘  day-xaml / day-arkui / day-dom /
+      └──────┬───────┘                   └────────┬─────────┘  day-winui / day-arkui / day-dom /
              │                                    │            day-mock
              ▼                                    │ implements
       ┌──────────────┐   realized tree,           ▼

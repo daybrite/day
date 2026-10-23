@@ -1,13 +1,12 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-//! day-xaml — the Windows backend (target `windows-xaml`; DESIGN.md §1, §9), over the
-//! day-xaml-sys C++/WinRT XAML-Islands shim. `Handle = WinHandle(*mut UIElement)`; every Day
-//! node is a real `Windows.UI.Xaml` control (TextBlock, Button, ToggleSwitch, Slider, TextBox,
-//! ComboBox) hosted inside a `DesktopWindowXamlSource`. Day owns layout — containers are XAML
-//! `Canvas`es and children are placed by absolute frame — exactly like the GTK/AppKit/Qt
-//! backends. Native events (Click/Toggled/ValueChanged/TextChanged) funnel through the shim's
-//! id-keyed callbacks into Day's event sink.
+//! WinUI 3 backend for `windows-winui`, over the `day-xaml-sys` C++/WinRT shim.
+//! The `winui` feature selects Microsoft.UI.Xaml; the deprecated `windows-xaml`
+//! target uses Windows.UI.Xaml through the same shim. Controls live in a
+//! DesktopWindowXamlSource, with Day layout placing them inside XAML Canvases.
+//! Toolkit-independent Windows services come from `day-windows-runtime`.
+//! The `Xaml` and `XamlExt` type names remain shared by both target variants.
 
 #![cfg(windows)]
 
@@ -18,9 +17,6 @@ mod list;
 #[cfg(not(feature = "winui"))]
 #[path = "list_legacy.rs"]
 mod list;
-#[cfg(windows)]
-#[path = "../../share-windows.rs"]
-mod share_windows;
 mod transfer;
 mod tree;
 
@@ -961,7 +957,7 @@ fn stage_bundled_fonts() {
             std::fs::create_dir_all(&dir).and_then(|_| std::fs::copy(&src, &dst).map(|_| ()))
         {
             log::warn!(
-                "day-xaml: could not stage bundled font {}: {e}",
+                "day-winui: could not stage bundled font {}: {e}",
                 src.display()
             );
         }
@@ -2638,7 +2634,7 @@ impl Toolkit for Xaml {
         // replacement's place. A password left in a `TextBox` is worth saying out loud.
         if traits.secure && unsafe { ffi::day_xaml_field_is_secure(live) } == 0 {
             log::error!(
-                "day-xaml: a secure text field could not be rebuilt as a PasswordBox; its \
+                "day-winui: a secure text field could not be rebuilt as a PasswordBox; its \
                  characters are showing"
             );
         }
@@ -3046,7 +3042,7 @@ impl Toolkit for Xaml {
     }
     #[cfg(windows)]
     fn share_url(&mut self, url: &str, title: &str) -> bool {
-        share_windows::share(url, title)
+        day_windows_runtime::share::share(url, title)
     }
     fn open_url(&mut self, url: &str) {
         let c = cstr(url);
@@ -4063,7 +4059,7 @@ impl Platform for Xaml {
                 &chrome,
             );
             if win.is_null() {
-                log::error!("day-xaml: could not create the XAML window (see error above)");
+                log::error!("day-winui: could not create the XAML window (see error above)");
                 return;
             }
             self.window = win;

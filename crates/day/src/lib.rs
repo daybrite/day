@@ -683,7 +683,7 @@ pub mod lifecycle {
         }
         #[cfg(all(feature = "xaml", windows))]
         {
-            return day_xaml::lifecycle_supported(phase);
+            return day_winui::lifecycle_supported(phase);
         }
         #[cfg(all(feature = "arkui", target_env = "ohos"))]
         {
@@ -794,7 +794,7 @@ pub fn launch<P: Piece>(options: WindowOptions, root: impl FnOnce() -> P + 'stat
 #[cfg(all(feature = "xaml", windows))]
 pub fn launch<P: Piece>(options: WindowOptions, root: impl FnOnce() -> P + 'static) {
     day_script::init();
-    start(day_xaml::Xaml::new(), options, root);
+    start(day_winui::Xaml::new(), options, root);
 }
 
 #[cfg(all(feature = "dom", target_arch = "wasm32"))]

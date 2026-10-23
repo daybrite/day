@@ -469,7 +469,7 @@ pub fn vector_svg_dir(project: &Project) -> PathBuf {
     crate::ops::staged_root(project).join("vectors/svg")
 }
 
-/// Where the prepared XAML geometry lives (docs/vectors.md): day-xaml loads these as real
+/// Where the prepared XAML geometry lives (docs/vectors.md): day-winui loads these as real
 /// `Path`/`PathIcon` geometry, which is what lets a Windows glyph stay vector at any size and
 /// take its tint as a brush at runtime. Converted here, in the CLI, so the backend needs no SVG
 /// parser, the same split Android's VectorDrawable emission uses. A glyph outside the
@@ -570,7 +570,7 @@ pub fn prepare_vectors(project: &Project) -> Result<Vec<VectorAsset>, String> {
                 .map_err(|e| format!("vector svg {staged}: {e}"))?;
             // XAML geometry, when the art converts. Unlike the Android emission this is not a
             // declared-target concern: every project stages it, and a glyph that cannot convert
-            // just leaves day-xaml on the raster, so there is nothing to warn about here.
+            // just leaves day-winui on the raster, so there is nothing to warn about here.
             let xaml_ok = match day_vector::to_xaml_geometry(&tree) {
                 Ok(g) => {
                     std::fs::create_dir_all(&geom)

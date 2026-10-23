@@ -82,7 +82,7 @@ static long long pump_until_presented() {
         nudge.mi.dwFlags = MOUSEEVENTF_MOVE;
         SendInput(1, &nudge, sizeof(nudge));
         pump_until([] { return g_display_state == 1; }, 5000);
-        std::fprintf(stderr, "day-xaml: the display was %s; woke it for the capture\n",
+        std::fprintf(stderr, "day-winui: the display was %s; woke it for the capture\n",
                      g_display_state == 1 ? "off" : "off and did not come back on");
         std::fflush(stderr);
         *seen = 0;
@@ -396,7 +396,7 @@ int day_xaml_snapshot_png(void* win, const char* path) try {
     return app ? snapshot_hwnd_png(app->host, path) : 1;
 #endif
 } catch (winrt::hresult_error const& e) {
-    std::fprintf(stderr, "day-xaml: capture threw hr=0x%08X %ls\n",
+    std::fprintf(stderr, "day-winui: capture threw hr=0x%08X %ls\n",
                  static_cast<unsigned>(e.code()), e.message().c_str());
     std::fflush(stderr);
     return 9;

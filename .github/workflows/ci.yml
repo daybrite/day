@@ -182,8 +182,8 @@ jobs:
       # diff as "dropped", where someone has to agree with it (§14.6).
       - name: Recorder-matrix drift check
         run: bash scripts/ci/recorder-matrix.sh --check
-      - name: Android runtime dependency boundary
-        run: python3 -B scripts/ci/check-android-runtime.py
+      - name: Platform runtime dependency boundaries
+        run: python3 -B scripts/ci/check-platform-runtimes.py
       - name: Readiness gate regression tests
         run: python3 scripts/ci/test-readiness.py
 
@@ -1278,7 +1278,9 @@ jobs:
           echo "DAY_BIN=$BIN" >> "$GITHUB_ENV"
           echo "day CLI: $BIN"
       - name: Clippy (winui backend)
-        run: cargo clippy --locked -p day-xaml --features winui --all-targets
+        run: cargo clippy --locked -p day-winui -p day-windows-runtime --features winui --all-targets
+      - name: Windows backend and runtime tests
+        run: cargo test --locked -p day-winui -p day-windows-runtime --features winui --lib
       - name: Scaffold check (new + lint + build + pack + rebuild + launch)
         run: scripts/ci/scaffold-check.sh "$DAY_BIN" windows-winui
   # The host-portable tests (scripts/ci/host-test.sh) under the windows-gnu toolchain, which the

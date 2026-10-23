@@ -1,5 +1,5 @@
 [package]
-name = "day-xaml"
+name = "day-winui"
 publish = false
 version.workspace = true
 edition.workspace = true
@@ -8,14 +8,10 @@ description.workspace = true
 repository.workspace = true
 license.workspace = true
 
-# day-xaml — the Windows backend (target `windows-xaml`; DESIGN.md §1, §9), over the
-# day-xaml-sys C++/WinRT shim. `Handle = *mut UIElement`; real Windows.UI.Xaml controls
-# (TextBlock / Button / ToggleSwitch / Slider / TextBox / ComboBox / Canvas) hosted via XAML
-# Islands. day owns layout: absolute frames inside XAML Canvases (Canvas.Left/Top + size).
-#
-# System XAML (Windows.UI.Xaml) needs no Windows App SDK / MSIX, so it builds and launches
-# locally with just cargo + MSVC. True WinUI 3 (Microsoft.UI.Xaml) would layer on behind this
-# same shim once the App SDK bootstrap lands (DESIGN §9).
+# WinUI 3 backend for `windows-winui`, with the deprecated system XAML build
+# retained for `windows-xaml`. The `winui` feature selects Microsoft.UI.Xaml in
+# day-xaml-sys; without it, the same C ABI uses Windows.UI.Xaml / XAML Islands.
+# Toolkit-independent Windows services live in day-windows-runtime.
 
 [dependencies]
 day-reactive = { workspace = true }
@@ -31,7 +27,7 @@ linkme = { workspace = true }
 
 [target.'cfg(windows)'.dependencies]
 day-xaml-sys = { workspace = true }
-windows = { workspace = true, features = ["ApplicationModel_DataTransfer", "Foundation", "Win32_Foundation", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging", "Win32_UI_Input_KeyboardAndMouse"] }
+day-windows-runtime = { workspace = true }
 
 [features]
 # WinUI 3 instead of system XAML (the `windows-winui` target, docs/winui.md):

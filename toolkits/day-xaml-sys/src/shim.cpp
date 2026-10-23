@@ -1900,12 +1900,12 @@ void* day_xaml_window_new(const char* title, int w, int h, int min_w, int min_h,
     return aw;
 } catch (winrt::hresult_error const& e) {
     std::string msg = u8(e.message());
-    std::fprintf(stderr, "day-xaml: XAML Islands init failed: hr=0x%08X %s\n",
+    std::fprintf(stderr, "day-winui: XAML Islands init failed: hr=0x%08X %s\n",
                  static_cast<unsigned>(e.code().value), msg.c_str());
     std::fflush(stderr);
     return nullptr;
 } catch (...) {
-    std::fprintf(stderr, "day-xaml: XAML Islands init failed (unknown C++ exception)\n");
+    std::fprintf(stderr, "day-winui: XAML Islands init failed (unknown C++ exception)\n");
     std::fflush(stderr);
     return nullptr;
 }
@@ -2280,7 +2280,7 @@ void* day_xaml_window_new2(const char* title, int w, int h,
     report_overlay_inset(host, overlay_band_dip(host));
     return sw;
 } catch (...) {
-    std::fprintf(stderr, "day-xaml: secondary window init failed\n");
+    std::fprintf(stderr, "day-winui: secondary window init failed\n");
     std::fflush(stderr);
     return nullptr;
 }
@@ -2700,7 +2700,7 @@ static std::map<uint64_t, std::vector<uint8_t>>& xaml_bitmaps();
 #else
 void* day_xaml_canvas_new(unsigned long long, int (*)(unsigned long long),
                           void (*)(unsigned long long, const char*, int)) {
-    std::fprintf(stderr, "day-xaml: canvas is unsupported on deprecated windows-xaml\n");
+    std::fprintf(stderr, "day-winui: canvas is unsupported on deprecated windows-xaml\n");
     return day_xaml_container_new();
 }
 void day_xaml_canvas_set_ops(void*, const double*, int, const char*) {}
@@ -3062,7 +3062,7 @@ static void prune_navviews() {
 // PaneToggleButton is that affordance on Windows, and each window's built-in button already acts
 // on its own pane — so nothing needs to resolve a window from a click any more.)
 
-// The window-less entry point (day-xaml's `toggle_sidebar` duty, and dayscript's step): no click
+// The window-less entry point (day-winui's `toggle_sidebar` duty, and dayscript's step): no click
 // to locate a window from, so it drives the primary window's nav — the first one still alive,
 // which is the one the app opened with.
 /// The ElementTheme every live root should carry right now.
@@ -3531,7 +3531,7 @@ void day_xaml_delete(void* h);
 
 // The nav pane's icon slot. Three parallel per-row lists, each one line per row:
 //   `icons_joined`  the staged RASTER file name — the fallback when a row has no geometry
-//   `geoms_joined`  the row's `.xamlgeom` spec with newlines escaped as \x1f (see day-xaml),
+//   `geoms_joined`  the row's `.xamlgeom` spec with newlines escaped as \x1f (see day-winui),
 //                   empty when the glyph did not convert
 //   `tints_joined`  an ARGB value, 0 meaning "no tint" — that row keeps the theme foreground
 // A row draws as PathIcon geometry wherever it can, so the sidebar is vector at any DPI and its

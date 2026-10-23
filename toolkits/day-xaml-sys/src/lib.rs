@@ -647,7 +647,7 @@ unsafe extern "C" {
 
     // Window toolbar (docs/toolbars.md): a CommandBar under the menu bar, edited one item at a
     // time. Each item crosses as its own tab/newline spec, the same format the menus use (the
-    // format is documented on both sides — `serialize_toolbar` in day-xaml, the parser in
+    // format is documented on both sides — `serialize_toolbar` in day-winui, the parser in
     // shim.cpp). Buttons ride `day_xaml_set_menu_cb`; values arrive on the toolbar callback as
     // (action, kind, on, text) with kind 0 = toggle, 1 = search text, 2 = segment index.
     pub fn day_xaml_set_toolbar_cb(cb: extern "C" fn(u64, c_int, c_int, *const c_char));

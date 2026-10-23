@@ -10,7 +10,7 @@
 //! fill rules, nested plain groups; anything XAML cannot express as one flat shape list returns
 //! [`Unsupported`] and the caller stages only the raster, a loud fallback and never wrong art.
 //!
-//! Emitted at build time rather than parsed in the backend: day-xaml would otherwise carry
+//! Emitted at build time rather than parsed in the backend: day-winui would otherwise carry
 //! resvg/usvg into every Windows binary to read a handful of icons, and Android already sets
 //! the precedent of converting once, in the CLI, into the form the toolkit loads natively.
 //!
@@ -45,7 +45,7 @@ pub struct XamlGeometry {
     pub shapes: Vec<XamlShape>,
 }
 
-/// The line-oriented form staged under `build/day/vectors/xaml/`, parsed by day-xaml.
+/// The line-oriented form staged under `build/day/vectors/xaml/`, parsed by day-winui.
 ///
 /// ```text
 /// V <width> <height>

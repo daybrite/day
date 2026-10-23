@@ -495,7 +495,7 @@ extern "C" int day_xaml_claim_instance(const char* app_id) try {
                 return 0;
         }
         // No answer: the first instance is hung or going away. Run rather than lose the launch.
-        std::fprintf(stderr, "day-xaml: another instance holds the app id but did not answer\n");
+        std::fprintf(stderr, "day-winui: another instance holds the app id but did not answer\n");
         return 1;
     }
     g_instance_mutex = m; // held for the life of the process

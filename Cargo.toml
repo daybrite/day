@@ -15,6 +15,7 @@ members = [
     "crates/day-async",
     "crates/day-bridge",
     "crates/day-android-runtime",
+    "crates/day-windows-runtime",
     "crates/day-dbus",
     "crates/day-mock",
     "crates/day-core",
@@ -34,7 +35,7 @@ members = [
     "toolkits/day-qt-sys",
     "toolkits/day-uikit",
     "toolkits/day-mdc",
-    "toolkits/day-xaml",
+    "toolkits/day-winui",
     "toolkits/day-xaml-sys",
     "toolkits/day-arkui",
     "toolkits/day-dom",
@@ -158,7 +159,8 @@ day-qt-sys = { path = "toolkits/day-qt-sys" }
 day-uikit = { path = "toolkits/day-uikit" }
 day-android-runtime = { path = "crates/day-android-runtime" }
 day-mdc = { path = "toolkits/day-mdc" }
-day-xaml = { path = "toolkits/day-xaml" }
+day-windows-runtime = { path = "crates/day-windows-runtime" }
+day-winui = { path = "toolkits/day-winui" }
 day-xaml-sys = { path = "toolkits/day-xaml-sys" }
 day-arkui = { path = "toolkits/day-arkui" }
 day-dom = { path = "toolkits/day-dom" }

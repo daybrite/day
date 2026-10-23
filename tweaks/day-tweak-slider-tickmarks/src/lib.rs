@@ -180,7 +180,7 @@ fn apply(node: RNode, t: Tickmarks) {
                 snap: std::os::raw::c_int,
             );
         }
-        if let Some((abi, class)) = day_xaml::with_native_raw(node) {
+        if let Some((abi, class)) = day_winui::with_native_raw(node) {
             let cls = std::ffi::CString::new(class).unwrap_or_default();
             let pos = match t.position {
                 TickPosition::Below => 0,

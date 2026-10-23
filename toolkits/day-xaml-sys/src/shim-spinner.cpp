@@ -61,7 +61,7 @@ void *day_activity_xaml_new(int large, int animating) {
         // it with an AnimatedVisualPlayer that measures to nothing before the control loads, which
         // is when Day measures it. Reserve its loaded size (32 regular, 48 large) from
         // the first measure, so loading the template does not change layout. The floor goes on
-        // MinWidth/MinHeight because day-xaml's measure clears Width/Height to Auto first.
+        // MinWidth/MinHeight because day-winui's measure clears Width/Height to Auto first.
         const double side = large ? 48.0 : 32.0;
         ring.MinWidth(side);
         ring.MinHeight(side);

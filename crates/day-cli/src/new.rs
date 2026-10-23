@@ -224,7 +224,7 @@ fn subpath(crate_name: &str) -> String {
         n if n.starts_with("day-piece-") => format!("pieces/{n}"),
         n if n.starts_with("day-part-") => format!("parts/{n}"),
         "day-appkit" | "day-gtk" | "day-qt" | "day-qt-sys" | "day-uikit" | "day-mdc"
-        | "day-xaml" | "day-xaml-sys" | "day-arkui" => {
+        | "day-winui" | "day-xaml-sys" | "day-arkui" => {
             format!("toolkits/{crate_name}")
         }
         n => format!("crates/{n}"),
@@ -1956,9 +1956,9 @@ fn native_piece_files(
                 "uikit = [\"dep:day-uikit\", \"dep:objc2\", \"dep:objc2-ui-kit\", \"dep:objc2-foundation\", \"dep:objc2-core-foundation\"]"
             }
             "mdc" => "mdc = [\"dep:day-mdc\", \"dep:day-android-runtime\"]",
-            "xaml" => "xaml = [\"dep:day-xaml\", \"dep:day-xaml-sys\"]",
+            "xaml" => "xaml = [\"dep:day-winui\", \"dep:day-xaml-sys\"]",
             // Enable WinUI in both the Rust toolkit and its C++ shim.
-            "winui" => "winui = [\"xaml\", \"day-xaml/winui\", \"day-xaml-sys/winui\"]",
+            "winui" => "winui = [\"xaml\", \"day-winui/winui\", \"day-xaml-sys/winui\"]",
             _ => continue,
         };
         features.push_str(entry);
@@ -1995,7 +1995,7 @@ fn native_piece_files(
         push_dep(deps.dep("day-android-runtime", ", optional = true"));
     }
     if has("xaml") {
-        push_dep(deps.dep("day-xaml", ", optional = true"));
+        push_dep(deps.dep("day-winui", ", optional = true"));
         push_dep(deps.dep("day-xaml-sys", ", optional = true"));
     }
 
@@ -2978,7 +2978,7 @@ use std::ffi::{CStr, CString};
 use std::os::raw::{c_char, c_void};
 
 use day_spec::{NodeId, Proposal, Size};
-use day_xaml::{WinHandle, Xaml};
+use day_winui::{WinHandle, Xaml};
 
 unsafe extern "C" {
     fn day___SNAKE___xaml_new(
@@ -3006,7 +3006,7 @@ extern "C" fn on_text(id: u64, text: *const c_char) {
             .to_string_lossy()
             .into_owned()
     };
-    day_xaml::emit(NodeId(id), Event::TextChanged(s));
+    day_winui::emit(NodeId(id), Event::TextChanged(s));
 }
 
 fn cstr(s: &str) -> CString {
@@ -3037,7 +3037,7 @@ fn measure(_backend: &mut Xaml, h: &WinHandle, p: Proposal) -> Size {
     Size::new(width, hh.max(32.0))
 }
 
-day_pieces::renderer!(day_xaml::RENDERERS, Xaml,
+day_pieces::renderer!(day_winui::RENDERERS, Xaml,
     kind: KIND, props: __PASCAL__Props, patch: __PASCAL__Patch,
     make: make, update: update, measure: measure);
 "#;
@@ -4215,7 +4215,7 @@ mod scaffold_tests {
             assert!(text("src/lib.rs").contains("day_pieces::glue_modules!(xaml);"));
             let manifest: toml::Value = toml::from_str(text("Cargo.toml")).unwrap();
             let winui = manifest["features"]["winui"].as_array().unwrap();
-            for feature in ["xaml", "day-xaml/winui", "day-xaml-sys/winui"] {
+            for feature in ["xaml", "day-winui/winui", "day-xaml-sys/winui"] {
                 assert!(winui.iter().any(|value| value.as_str() == Some(feature)));
             }
             assert!(!text("src/lib-xaml.rs").is_empty());

@@ -1285,7 +1285,7 @@ pub fn desktop_launch_plan(
             "DAY_VECTOR_SVG_ROOT".to_string(),
             crate::resources::vector_svg_dir(project).into_os_string(),
         );
-        // The XAML geometry; day-xaml draws these as real Path geometry, which is what keeps a
+        // The XAML geometry; day-winui draws these as real Path geometry, which is what keeps a
         // Windows glyph vector at any size and lets a tint be a brush rather than a second asset
         // (docs/vectors.md).
         env.insert(

@@ -22,7 +22,7 @@
 //! //       s.TickFrequency(freq);
 //! //       s.TickPlacement(winrt::Windows::UI::Xaml::Controls::Primitives::TickPlacement::BottomRight);
 //! //   }
-//! use day_xaml::XamlExt;
+//! use day_winui::XamlExt;
 //! slider(v).xaml_raw(|abi, class| {
 //!     let cls = std::ffi::CString::new(class).unwrap();
 //!     unsafe { my_slider_ticks(abi, cls.as_ptr(), 10.0) };

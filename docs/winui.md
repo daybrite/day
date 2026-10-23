@@ -21,7 +21,7 @@ deprecated `windows-xaml` target still builds against.
 The two stacks expose nearly the same control set under two namespaces, so there is one
 backend and one shim, not two:
 
-- `day` feature `winui` implies `xaml` and turns on `day-xaml/winui` → `day-xaml-sys/winui`.
+- `day` feature `winui` implies `xaml` and turns on `day-winui/winui` → `day-xaml-sys/winui`.
   Everything written for the XAML backend in Rust applies unchanged; [`day::toolkit_name()`](https://daybrite.dev/api/day/fn.toolkit_name.html)
   reports `"WinUI"`.
 - `day-xaml-sys/src/shim.cpp` is written against namespace aliases (`WUX`, `WUXC`, …) that point
@@ -85,7 +85,7 @@ A piece's XAML half is built for WinUI the same way the backend is: one shim, co
 whichever stack the build targets.
 
 - **Cargo.** A `winui` feature that implies the piece's `xaml` feature and turns on
-  `day-xaml/winui` and `day-xaml-sys/winui` (or forwards to the piece it wraps), with `"winui"` in
+  `day-winui/winui` and `day-xaml-sys/winui` (or forwards to the piece it wraps), with `"winui"` in
   `[package.metadata.day.piece] backends`. The Rust half is the `xaml` half, unchanged, and
   `day build -t windows-winui` switches `<piece>/winui` on like any backend feature.
 - **build.rs.** [`.includes(day_toolchain::winappsdk::shim_includes(&cppwinrt))`](https://daybrite.dev/api/day_toolchain/winappsdk/fn.shim_includes.html) where the shim used

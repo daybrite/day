@@ -113,7 +113,7 @@ Add `measure: f` for custom sizing: `measure: day_pieces::fill_measure` for a gr
 view, a canvas), or omit it for the backend's default. A **patchless** piece (configured once, e.g. Lottie)
 drops `patch:`/`update:`: `renderer!(day_uikit::RENDERERS, Uikit, kind: KIND, props: MyProps, make: make)`.
 Do the same for `day_gtk::RENDERERS`, `day_qt::RENDERERS`, `day_uikit::RENDERERS`,
-`day_mdc::RENDERERS`, `day_xaml::RENDERERS`. Each backend is behind a cargo feature that pulls in
+`day_mdc::RENDERERS`, `day_winui::RENDERERS`. Each backend is behind a cargo feature that pulls in
 that toolkit crate; the app enables `my-piece/<backend>` alongside `day/<backend>`.
 
 **Reporting events back.** A renderer calls `day_<backend>::emit(node, event)`. Beyond the fixed
@@ -554,7 +554,7 @@ gtk = ["dep:day-gtk", "dep:gtk4"]
 qt = ["dep:day-qt"]                 # + a build.rs that compiles src/lib-qt-shim.cpp
 uikit = ["dep:day-uikit", …]
 mdc = ["dep:day-mdc", "dep:day-android-runtime"]        # + [package.metadata.day.android]
-xaml = ["dep:day-xaml", "dep:day-xaml-sys"]   # + build.rs compiles src/lib-xaml-shim.cpp
+xaml = ["dep:day-winui", "dep:day-xaml-sys"]   # + build.rs compiles src/lib-xaml-shim.cpp
 ```
 
 The app mirrors each: `my-piece/<backend>` in the matching feature. Adding a piece needs no

@@ -14,10 +14,6 @@
 
 mod controls;
 
-#[cfg(windows)]
-#[path = "../../share-windows.rs"]
-mod share_windows;
-
 #[cfg(target_os = "macos")]
 mod snapshot_macos;
 
@@ -9114,7 +9110,7 @@ impl Toolkit for Gtk {
     }
     #[cfg(windows)]
     fn share_url(&mut self, url: &str, title: &str) -> bool {
-        share_windows::share(url, title)
+        day_windows_runtime::share::share(url, title)
     }
     fn open_url(&mut self, url: &str) {
         // Hand the URI to the desktop's default handler (xdg-open equivalent). Fire and forget;
