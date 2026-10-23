@@ -720,6 +720,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "day-part-biometrics"
+version = "0.6.0"
+dependencies = [
+ "block2",
+ "day-android",
+ "day-async",
+ "day-bridge",
+ "day-build",
+ "objc2",
+ "objc2-foundation",
+ "windows",
+ "windows-future",
+]
+
+[[package]]
 name = "day-part-clipboard"
 version = "0.6.0"
 dependencies = [
@@ -809,6 +824,22 @@ dependencies = [
  "tokio-tungstenite",
  "url",
  "webpki-roots",
+]
+
+[[package]]
+name = "day-part-keychain"
+version = "0.6.0"
+dependencies = [
+ "day-android",
+ "day-async",
+ "day-bridge",
+ "day-build",
+ "day-part-biometrics",
+ "objc2",
+ "objc2-core-foundation",
+ "objc2-foundation",
+ "objc2-security",
+ "windows",
 ]
 
 [[package]]

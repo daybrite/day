@@ -26,6 +26,8 @@ The UI snippets use generated `res::str` accessors from an app's Fluent catalog;
 | [`day-part-prefs`](/docs/reference/prefs) | small key-value preference storage in the platform's conventional location | [prefs](/docs/reference/prefs) |
 | [`day-part-fs`](/docs/reference/fs) | app-local file storage: read, write, remove, list (sync and async) | [fs](/docs/reference/fs) |
 | [`day-part-local-notify`](/docs/reference/notify) | local notifications: post now or schedule, channels, tap-to-route | [notify](/docs/reference/notify) |
+| [`day-part-keychain`](/docs/reference/keychain) | small secrets in the platform's secure store, with a user-presence level | [keychain](/docs/reference/keychain) |
+| [`day-part-biometrics`](/docs/reference/biometrics) | the platform's own authentication prompt: biometrics or the device credential | [biometrics](/docs/reference/biometrics) |
 | [`day-part-network`](/docs/reference/network) | connectivity status | [network](/docs/reference/network) |
 | [`day-part-deviceinfo`](/docs/reference/deviceinfo) | device model, OS version | [deviceinfo](/docs/reference/deviceinfo) |
 | [`day-part-sensors`](/docs/reference/sensors) | accelerometer and friends, as a live stream | [sensors](/docs/reference/sensors) |

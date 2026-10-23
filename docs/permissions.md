@@ -209,11 +209,18 @@ unbundled aborts the process.
 | `photos` | `READ_MEDIA_IMAGES`, `READ_MEDIA_VIDEO`, `READ_EXTERNAL_STORAGE` capped at `maxSdkVersion=32` | [`NSPhotoLibraryUsageDescription`](https://developer.apple.com/documentation/bundleresources/information-property-list/nsphotolibraryusagedescription) | same | `READ_IMAGEVIDEO` ⚠ |
 | `motion` | `ACTIVITY_RECOGNITION` | [`NSMotionUsageDescription`](https://developer.apple.com/documentation/bundleresources/information-property-list/nsmotionusagedescription) | none (CoreMotion is iOS-only) | `ACTIVITY_MOTION` |
 | `screen-privacy` | none | none | none | `PRIVACY_WINDOW` (granted at install, no reason) |
+| `biometrics` | `USE_BIOMETRIC` (install-time, no dialog) | [`NSFaceIDUsageDescription`](https://developer.apple.com/documentation/bundleresources/information-property-list/nsfaceidusagedescription) | none (Touch ID and the account password need no key) | `ACCESS_BIOMETRIC` (granted at install) |
 
 `screen-privacy = true` is how a HarmonyOS app opts into content protection
 (`WindowHandle::set_content_protected`, [docs/windows](windows.md)): the window's privacy mode needs this
 permission, and `Cap::ContentProtection` answers `Native` there only when the app declared it. No
 other platform needs a permission for it, and nothing prompts, so it takes no reason.
+
+`biometrics = "…"` is what [`day-part-biometrics`](/docs/reference/biometrics) asks an app to declare,
+and what [`day-part-keychain`](/docs/reference/keychain) needs for items that require the person
+present: the reason is the sentence Face ID shows the first time, and the Android and HarmonyOS
+permissions are granted at install with no dialog. Nothing requests it at run time through this
+crate, so it has no `Permission` variant.
 
 ⚠ `ohos.permission.READ_IMAGEVIDEO` is a `system_basic` permission, which an app signed at the
 default `normal` level cannot hold. Prefer `PhotoViewPicker`, which needs no permission at all.
@@ -222,7 +229,7 @@ The table lives in `day_build::permissions`, one source shared by the CLI's gene
 crate's runtime, with a parity test pinning the Rust variant names so `day lint` can map a source
 reference back to a declaration.
 
-For anything outside the portable eight, use the raw tables:
+For anything outside the portable set, use the raw tables:
 
 ```toml
 [permissions.raw]

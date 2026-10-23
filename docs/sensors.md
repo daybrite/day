@@ -130,7 +130,9 @@ with `xArbitraryCorrectedZVertical` to remove device bias. The field remains in 
 and µT. Raw `CMMagnetometerData` includes that bias and is unsuitable for a compass.
 Uncalibrated samples are withheld; gently rotate the device if readings have not started.
 Day does not show a system calibration dialog. Nearby metal still affects calibrated readings.
-Calibrated gyroscope readings use `CMDeviceMotion.rotationRate`, which removes gyroscope bias.
+Calibrated gyroscope readings use
+[CMDeviceMotion.rotationRate](https://developer.apple.com/documentation/coremotion/cmdevicemotion/rotationrate),
+which removes gyroscope bias.
 Both calibrated kinds share one device-motion subscription; it stops after both have unsubscribed.
 When only gyroscope readings are requested, `xArbitraryZVertical` avoids requiring a magnetometer.
 Changing that membership restarts device motion with the appropriate reference frame and rejects

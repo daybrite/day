@@ -197,6 +197,22 @@ pub const ALL: &[PermissionSpec] = &[
         needs_reason: true,
     },
     PermissionSpec {
+        name: "biometrics",
+        // Declaration only, so no variant: the prompt is not asked for through
+        // `day_part_permissions`. `USE_BIOMETRIC` is an install-time permission with no dialog;
+        // `NSFaceIDUsageDescription` is the reason Face ID shows the first time an app uses it (a
+        // Touch ID device never shows it, but the key is required wherever Face ID may be);
+        // `ACCESS_BIOMETRIC` is `system_grant`. Used by day-part-biometrics, and by
+        // day-part-keychain for items that need the person present.
+        variant: "",
+        android: &[android("android.permission.USE_BIOMETRIC")],
+        ios: &["NSFaceIDUsageDescription"],
+        // macOS prompts with Touch ID or the account password and has no usage-description key.
+        macos: &[],
+        ohos: &[ohos("ohos.permission.ACCESS_BIOMETRIC")],
+        needs_reason: true,
+    },
+    PermissionSpec {
         name: "screen-privacy",
         // Declaration only, so no variant: nothing asks the user, and `day_part_permissions` has
         // nothing to request. It opts a HarmonyOS app into `WindowHandle::set_content_protected`
@@ -213,7 +229,10 @@ pub const ALL: &[PermissionSpec] = &[
 
 /// The HarmonyOS permissions in [`ALL`] that the system grants at install (`system_grant`): no
 /// prompt shows them to the user, so their `module.json5` entries carry no reason.
-pub const OHOS_SYSTEM_GRANT: &[&str] = &["ohos.permission.PRIVACY_WINDOW"];
+pub const OHOS_SYSTEM_GRANT: &[&str] = &[
+    "ohos.permission.PRIVACY_WINDOW",
+    "ohos.permission.ACCESS_BIOMETRIC",
+];
 
 /// The warning both the CLI and the docs use for HarmonyOS photo access, kept in one place so they
 /// cannot drift.
@@ -335,6 +354,20 @@ mod tests {
         assert_eq!(spec.ohos.len(), 1);
         assert_eq!(spec.ohos[0].name, "ohos.permission.PRIVACY_WINDOW");
         assert!(!spec.needs_reason);
+    }
+
+    /// Biometrics: an install-time Android permission, the Face ID reason on iOS, a `system_grant`
+    /// HarmonyOS permission, and nothing on macOS. Declaration only, so no variant.
+    #[test]
+    fn biometrics_declares_everywhere_but_macos() {
+        let spec = find("biometrics").expect("biometrics");
+        assert!(spec.variant.is_empty());
+        assert_eq!(spec.android, &[android("android.permission.USE_BIOMETRIC")]);
+        assert_eq!(spec.ios, &["NSFaceIDUsageDescription"]);
+        assert!(spec.macos.is_empty());
+        assert_eq!(spec.ohos.len(), 1);
+        assert!(OHOS_SYSTEM_GRANT.contains(&spec.ohos[0].name));
+        assert!(spec.needs_reason);
     }
 
     /// macOS has no CoreMotion activity API, so it has nothing to declare for motion.

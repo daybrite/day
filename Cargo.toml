@@ -54,6 +54,8 @@ members = [
     "parts/day-part-permissions",
     "parts/day-part-location",
     "parts/day-part-local-notify",
+    "parts/day-part-biometrics",
+    "parts/day-part-keychain",
     "pieces/day-piece-activity",
     "pieces/day-piece-searchfield",
     "pieces/day-piece-map",
@@ -147,6 +149,8 @@ day-part-permissions = { path = "parts/day-part-permissions" }
 day-part-location = { path = "parts/day-part-location" }
 day-part-local-notify = { path = "parts/day-part-local-notify" }
 day-part-fs = { path = "parts/day-part-fs" }
+day-part-biometrics = { path = "parts/day-part-biometrics" }
+day-part-keychain = { path = "parts/day-part-keychain" }
 day-piece-activity = { path = "pieces/day-piece-activity" }
 day-piece-searchfield = { path = "pieces/day-piece-searchfield" }
 day-piece-map = { path = "pieces/day-piece-map" }
@@ -195,6 +199,9 @@ sha2 = "0.11"
 toml = "1.1"
 uuid = { version = "1", default-features = false }
 windows = "0.62"
+# The `IAsyncOperation` the `windows` crate hands back is this crate's type (a dependency of
+# `windows` either way); naming it needs the direct line.
+windows-future = "0.3"
 # Apple runtime and framework binding versions are shared by every workspace member.
 # Feature selections and optional/target gating stay in the consuming crates. Bindings with
 # lean consumers disable defaults here; consumers needing defaults opt back in explicitly.

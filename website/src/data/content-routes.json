@@ -67,6 +67,12 @@
     "type": "reference",
     "audience": "app developer"
   },
+  "internal/biometrics": {
+    "route": "/docs/reference/biometrics",
+    "source": "docs/biometrics.md",
+    "type": "reference",
+    "audience": "app developer"
+  },
   "internal/break": {
     "route": "/docs/reference/break",
     "source": "docs/break.md",
@@ -264,6 +270,12 @@
   "internal/haptics": {
     "route": "/docs/reference/haptics",
     "source": "docs/haptics.md",
+    "type": "reference",
+    "audience": "app developer"
+  },
+  "internal/keychain": {
+    "route": "/docs/reference/keychain",
+    "source": "docs/keychain.md",
     "type": "reference",
     "audience": "app developer"
   },

@@ -102,6 +102,7 @@
       "fs",
       "http",
       "downloads",
+      "keychain",
       "persistence",
       "applications",
       "sharing",
@@ -114,12 +115,13 @@
   {
     "id": "device-features",
     "name": "Optional device features",
-    "description": "Read device information and use permissions, sensors, location, sound, and haptics.",
+    "description": "Read device information and use permissions, biometrics, sensors, location, sound, and haptics.",
     "pages": [
       "battery",
       "deviceinfo",
       "network",
       "permissions",
+      "biometrics",
       "haptics",
       "location",
       "sensors",

@@ -1,0 +1,84 @@
+[package]
+name = "day-part-biometrics"
+publish = false
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description.workspace = true
+repository.workspace = true
+license.workspace = true
+
+# A headless day-ecosystem crate (no UI Piece): the platform's own "prove it is you" prompt.
+# Any Rust code can depend on it and call `day_part_biometrics::authenticate(prompt, cb)`.
+# Platform selection is by `#[cfg(target_os)]` (the prompt is an OS service, not a widget-toolkit
+# one), so there are no backend features; it works per target as follows:
+#   iOS/macOS: LocalAuthentication's LAContext (Touch ID, Face ID, Optic ID, the device passcode or
+#              account password)
+#   Android:   the platform BiometricPrompt (API 28+) through the inline Java arm in src/android.rs
+#              (docs/bridge.md); Unsupported below API 28
+#   Windows:   Windows Hello through UserConsentVerifier (PIN, face, fingerprint), owned by the
+#              active window through the desktop interop interface
+#   HarmonyOS: User Authentication Kit's system dialog, an ArkTS arm in src/ohos.rs; the result
+#              carries the kit's AuthToken for keys bound to it (day-part-keychain uses it)
+#   Linux, Web: no app-usable user-presence API, so support() is Unsupported and every prompt
+#              fails with BiometricError::Unsupported
+# See docs/biometrics.md + docs/extending.md.
+#
+# Dependency budget. The Apple arm is raw `objc2` + `block2` over LAContext (one class, three
+# selectors, one block), the same call day-part-permissions made; no objc2-local-authentication.
+# Windows uses the `windows` crate the tree already pins. No crypto, no randomness: a prompt
+# produces a yes or a no, and the one secret it ever carries (HarmonyOS's token) is opaque bytes
+# handed straight back to the caller.
+
+[dependencies]
+# `Support` is day-spec's through day-bridge, so a caller matches one enum for this crate and for
+# `day::capability()`; the `Done`/`Completion` machinery is what the Android and HarmonyOS arms
+# answer through, and what every target's `authenticate_future` is built on.
+day-bridge = { workspace = true }
+# The oneshot behind `authenticate_future` (docs/async.md), the same one day-bridge builds on.
+day-async = { workspace = true }
+
+# Apple: `objc2` for the runtime (class lookup, `msg_send!`), `block2` for the reply block
+# `evaluatePolicy:localizedReason:reply:` takes, `objc2-foundation` for the strings and the error.
+[target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
+objc2 = { workspace = true }
+block2 = { workspace = true }
+objc2-foundation = { workspace = true, features = ["NSString", "NSError", "NSObject"] }
+
+# Android rides the day runtime's cached JVM, like every part with a Java arm.
+[target.'cfg(target_os = "android")'.dependencies]
+day-android = { workspace = true }
+
+# Windows: UserConsentVerifier and its desktop interop, plus the window handle the dialog is owned by.
+[target.'cfg(target_os = "windows")'.dependencies]
+windows = { workspace = true, features = [
+    "Foundation",
+    "Security_Credentials_UI",
+    "Win32_Foundation",
+    "Win32_System_Threading",
+    "Win32_System_WinRT",
+    "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_UI_WindowsAndMessaging",
+] }
+windows-future = { workspace = true }
+
+# --- iOS / macOS framework linking (docs/extending.md) ---
+# Rust's own `#[link]` is honored only when cargo drives the final link; on iOS xcodebuild links
+# the staticlib and ignores it, so the app links the framework through the generated DayPieces
+# SwiftPM package.
+[package.metadata.day.ios]
+frameworks = ["LocalAuthentication"]
+
+[package.metadata.day.macos]
+frameworks = ["LocalAuthentication"]
+
+# --- The declaration every app using this crate needs (docs/permissions.md) ---
+# `biometrics` is a portable permission: `android.permission.USE_BIOMETRIC` (install-time, no
+# prompt), `NSFaceIDUsageDescription` on iOS (the reason Face ID shows the first time), and
+# `ohos.permission.ACCESS_BIOMETRIC` on HarmonyOS (system_grant). The reason is app copy, so the
+# app writes `permission_biometrics` in its catalogs; this line is what makes `day build` insist.
+[package.metadata.day.permissions]
+uses = ["biometrics"]
+
+[build-dependencies]
+day-build = { workspace = true }

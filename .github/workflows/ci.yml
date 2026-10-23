@@ -675,6 +675,11 @@ jobs:
       - name: Clippy (day-part-battery — Windows impl)
         if: matrix.toolkit == 'winui'
         run: cargo clippy --locked -p day-part-battery --all-targets
+      # DPAPI and Windows Hello: the keychain's and the biometrics part's Windows arms likewise
+      # compile only here.
+      - name: Clippy (day-part-keychain, day-part-biometrics — Windows impl)
+        if: matrix.toolkit == 'winui'
+        run: cargo clippy --locked -p day-part-keychain -p day-part-biometrics --all-targets
       - name: Scaffold check (${{ matrix.combo }})
         run: |
           set -euo pipefail

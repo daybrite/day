@@ -108,6 +108,8 @@ the architecture-level view and the rationale.
 | extension packages — pieces, parts, `[package.metadata.day.*]` | [docs/extending.md](docs/extending.md) | [§15](#15-extensibility-pieces-parts-and-tweaks) |
 | daybridge — foreign-language implementations of a Rust API (Swift/Kotlin/Java/ArkTS/JS/C/C++) | [docs/bridge.md](docs/bridge.md) | [§15.6](#156-daybridge-foreign-language-implementations-of-a-rust-api) |
 | Android JNI bindings — `java_class!`, the startup check, generated R8 keep rules | [docs/android-jni.md](docs/android-jni.md) | [§15.7](#157-typed-jni-bindings) |
+| keychain — `Secret`, `Protection::{WhenUnlocked, AfterFirstUnlock, UserPresence}`, `set`/`get`/`get_async`/`entries`, the platform store per target and the `backend()` report | [docs/keychain.md](docs/keychain.md) | [§15](#15-extensibility-pieces-parts-and-tweaks) |
+| biometrics — `Prompt`, `availability()`/`biometry()`, `authenticate`/`authenticate_future`, the one-prompt guard, the HarmonyOS token the keychain consumes | [docs/biometrics.md](docs/biometrics.md) | [§15](#15-extensibility-pieces-parts-and-tweaks) |
 | scripting & agents — dayscript, recording (`day::record`, `--record`), `day drive`, MCP | [docs/agent.md](docs/agent.md), website dayscript reference | [§14](#14-scripting-dayscript) |
 | platform services ("parts": battery, network, sensors, clipboard, prefs, haptics, sound, wakelock, deviceinfo, http, downloads, permissions, location, fs) | [docs/battery.md](docs/battery.md), [docs/network.md](docs/network.md), [docs/sensors.md](docs/sensors.md), [docs/clipboard.md](docs/clipboard.md), [docs/prefs.md](docs/prefs.md), [docs/haptics.md](docs/haptics.md), [docs/sound.md](docs/sound.md), [docs/wakelock.md](docs/wakelock.md), [docs/deviceinfo.md](docs/deviceinfo.md), [docs/http.md](docs/http.md), [docs/downloads.md](docs/downloads.md), [docs/permissions.md](docs/permissions.md), [docs/location.md](docs/location.md), [docs/fs.md](docs/fs.md) | [§15](#15-extensibility-pieces-parts-and-tweaks) |
 | bundled pieces (map, searchfield, combobox, color picker, …) and external ones (media, lottie, webview) | [docs/media.md](docs/media.md), [docs/map.md](docs/map.md), [day-piece-lottie](https://github.com/daybrite/day-piece-lottie), [day-piece-webview](https://github.com/daybrite/day-piece-webview), [docs/webview-eval.md](docs/webview-eval.md), [docs/searchfield.md](docs/searchfield.md), [docs/combobox.md](docs/combobox.md), [docs/colorpicker.md](docs/colorpicker.md) | [§15](#15-extensibility-pieces-parts-and-tweaks) |
@@ -3873,8 +3875,11 @@ Two package kinds share the mechanism:
   (keeping the screen on, [docs/wakelock.md](docs/wakelock.md)), deviceinfo,
   http (requests through the platform HTTP stack, [docs/http.md](docs/http.md)), permissions (the OS consent system
   plus the build-time declarations each platform requires, [docs/permissions.md](docs/permissions.md)), location
-  ([docs/location.md](docs/location.md)), fs (app-local file storage, [docs/fs.md](docs/fs.md)), and local-notify (local
-  notifications: post or schedule, channels, tap-to-route, [docs/notify.md](docs/notify.md)). Same
+  ([docs/location.md](docs/location.md)), fs (app-local file storage, [docs/fs.md](docs/fs.md)), local-notify (local
+  notifications: post or schedule, channels, tap-to-route, [docs/notify.md](docs/notify.md)), keychain
+  (small secrets in the platform's secure store by key, with a user-presence level the OS binds
+  the item to where it can, [docs/keychain.md](docs/keychain.md)), and biometrics (the platform's
+  own "prove it is you" prompt, [docs/biometrics.md](docs/biometrics.md)). Same
   registration and metadata machinery, no widget. Speech (text to speech, daybridge's reference
   crate) is the same kind of package in its own repository
   ([daybrite/day-part-speech](https://github.com/daybrite/day-part-speech)); see the note under
@@ -3884,9 +3889,9 @@ Two package kinds share the mechanism:
   needs no part.)
 
 Motion sensor parts use event sources throughout (`day-part-sensors`, [sensor API](docs/sensors.md)).
-The first `watch` starts a source per kind and calibration mode; the last drop invalidates queued delivery and requests
-teardown. On native targets a condition-variable dispatcher serializes source lifecycle and user
-callbacks, coalesces pending readings to one per kind, and exits when idle. It does not sample on a
+The first `watch` starts a source per kind and calibration mode; the last drop invalidates queued
+delivery and requests teardown. On native targets a condition-variable dispatcher serializes source lifecycle and user
+callbacks, coalesces pending readings to one per source, and exits when idle. It does not sample on a
 clock. Callback reentry is supported; no registry lock is held while invoking app code. Generation
 tokens reject samples from replaced subscriptions. UIKit uses CoreMotion blocks. Its magnetometer
 uses device-motion calibrated magnetic fields in device coordinates (`xArbitraryCorrectedZVertical`)
@@ -3899,8 +3904,8 @@ calls select `Calibration::Calibrated` (the platform's normal source). Explicit 
 are supported for iOS gyro/magnetometer and Android's three kinds where hardware exposes them;
 other targets report them unavailable. There is no silent mode substitution, and no change to
 units or gravity inclusion. Sensor fusion may use hardware whose independent subscription is
-paused. Android uses JNI callbacks, ArkUI SensorServiceKit, Windows WinRT events, and DOM `devicemotion` with direct WASM
-callbacks. DOM delivery runs on the browser thread. Desktop Linux and macOS report unavailable;
+paused. Android uses JNI callbacks, ArkUI SensorServiceKit, Windows WinRT events, and DOM
+`devicemotion` with direct WASM callbacks. DOM delivery runs on the browser thread. Desktop Linux and macOS report unavailable;
 Linux buffered IIO is deferred. This is a live-state API, not a lossless recording stream.
 Lifecycle and bounded-delivery regressions live in `parts/day-part-sensors/src/tests.rs`; the
 browser ABI is exercised by `scripts/ci/webdom-sensor-events-test.mjs`.
