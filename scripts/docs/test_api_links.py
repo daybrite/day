@@ -54,13 +54,16 @@ class GuideApiLinks(unittest.TestCase):
                 ]:
                     with self.subTest(href=href):
                         put(guide, f'<a href="{href}">Synthetic API link</a>')
-                        with redirect_stdout(io.StringIO()):
+                        output = io.StringIO()
+                        with redirect_stdout(output):
                             status = module.main()
                         self.assertEqual(status, 0 if href in valid else 1)
                         result = json.loads((work / 'api-links.json').read_text())
                         self.assertGreater(result['guide_api_links'], 0)
                         if status:
                             self.assertEqual(result['failures'][0]['page'], guide)
+                            self.assertIn(f'{guide}: {result["failures"][0]["reason"]}: {href}',
+                                          output.getvalue())
 
 
 if __name__ == '__main__':

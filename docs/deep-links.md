@@ -229,9 +229,12 @@ url_schemes = ["feed", "web+feed"]
 ```
 
 Register `day::on_open_url(|url| { /* show validation UI */ true })` in the app root.
+Handlers stack: the newest registration is asked first, and a URL it declines passes to the
+earlier ones, so a part awaiting a callback URL (such as a sign-in redirect)
+registers for the duration of its own scope without
+displacing the app's handler; each registration leaves the stack with the scope it was made in.
 The callback receives the complete original URL on the UI thread, including its scheme and query.
-Return false to retain existing route handling. The latest live registration receives activations;
-its scope owns cleanup. Cold-start delivery occurs after mounting. Use `DAY_OPEN_URL` or the
+Return false to retain existing route handling. Each registration's scope owns its cleanup. Cold-start delivery occurs after mounting. Use `DAY_OPEN_URL` or the
 `open_url: { url: ... }` dayscript step to exercise this rail without OS registration.
 
 Apple bundles, Android/Harmony manifests, Linux desktop entries, Windows MSIX and NSIS packages

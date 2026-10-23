@@ -86,7 +86,7 @@ day_bridge::bridge! {
                     }
                 }
                 // API 28 has no manager: the hardware features are the only probe, and
-                // enrolment is reported by the prompt itself.
+                // enrollment is reported by the prompt itself.
                 return biometry_native() == 0 ? 2 : 0;
             }
 

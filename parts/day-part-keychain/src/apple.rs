@@ -28,7 +28,7 @@
 //! (`Locked`). [`get_with_presence`] hands the keychain an `LAContext` carrying the reason, and
 //! the system shows its dialog during `SecItemCopyMatching`, which is why that call runs on a
 //! thread of its own. The `UserPresence` access control is satisfied by a biometric or the
-//! passcode, and is not invalidated by a change of enrolment.
+//! passcode, and is not invalidated by a change of enrollment.
 
 use std::ptr::NonNull;
 use std::sync::OnceLock;

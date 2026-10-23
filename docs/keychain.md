@@ -44,6 +44,10 @@ biometrics = true   # the reason is the catalog's `permission_biometrics` messag
 | HarmonyOS | Files in the app sandbox, encrypted with Universal Keystore keys; user presence through a key bound to user authentication. |
 | Web | No store a page may rely on for a secret: `Unsupported`. |
 
+[`backend()`](/api/day_part_keychain/fn.backend.html) identifies the selected storage implementation.
+It returns `secret-service` on Linux even when the session has no reachable service. Check
+[`support()`](/api/day_part_keychain/fn.support.html) for current availability.
+
 ## Authoring
 
 ```rust
@@ -138,7 +142,7 @@ Platform guidance: [Apple: keychain services](https://developer.apple.com/docume
   `AfterFirstUnlock` is [`kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly`](https://developer.apple.com/documentation/security/ksecattraccessibleafterfirstunlockthisdeviceonly), and `UserPresence`
   is an access control created with [`kSecAttrAccessibleWhenPasscodeSetThisDeviceOnly`](https://developer.apple.com/documentation/security/ksecattraccessiblewhenpasscodesetthisdeviceonly) and the
   `userPresence` flag: a biometric or the passcode, each read, not invalidated by a change of
-  enrolment. The synchronous `get` hands the keychain an `LAContext` with `interactionNotAllowed`
+  enrollment. The synchronous `get` hands the keychain an `LAContext` with `interactionNotAllowed`
   set, so the keychain refuses instead of prompting; `get_async` hands it one carrying the reason,
   and the system shows its dialog during `SecItemCopyMatching`. The data protection keychain
   needs the `keychain-access-groups` entitlement a signed app has; an unsigned `cargo run` or

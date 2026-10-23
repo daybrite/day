@@ -251,7 +251,7 @@ pub enum KeychainError {
     /// The item needs a device passcode, PIN or password and none is set.
     PasscodeNotSet,
     /// The item exists but cannot be read: its key was invalidated (the device credential was
-    /// removed, a protected key's biometric enrolment changed), its file is damaged, or it was
+    /// removed, a protected key's biometric enrollment changed), its file is damaged, or it was
     /// written by another user account. The item is left in place; [`remove`] clears it.
     Unreadable,
     /// The store is locked and cannot be unlocked now: a Linux keyring whose unlock dialog was
@@ -313,9 +313,12 @@ pub fn protection_support(protection: Protection) -> Support {
     imp::protection_support(protection)
 }
 
-/// The store this process writes to, as a short name for diagnostics and support notes:
+/// The store selected for this process, as a short name for diagnostics and support notes:
 /// `data-protection-keychain`, `login-keychain`, `android-keystore`, `dpapi`, `secret-service`,
 /// `huks`, or `none`.
+///
+/// This names the implementation, not its current availability. Linux reports `secret-service`
+/// even when the session has no reachable service; use [`support`] to check availability.
 pub fn backend() -> &'static str {
     imp::backend()
 }
@@ -570,12 +573,24 @@ mod tests {
         assert_eq!(rx.recv().ok(), Some(Err(KeychainError::InvalidReason)));
     }
 
-    /// The probes answer on every host, including headless CI, and agree: a target with no store
-    /// supports no protection level, and names its backend `none`.
+    /// An unavailable store supports no protection level. Its backend still identifies the
+    /// implementation, including Secret Service on a headless Linux host.
     #[test]
     fn probes_never_panic_and_agree() {
         let s = support();
-        let _ = backend();
+        let name = backend();
+        assert!(matches!(
+            name,
+            "data-protection-keychain"
+                | "login-keychain"
+                | "android-keystore"
+                | "dpapi"
+                | "secret-service"
+                | "huks"
+                | "none"
+        ));
+        #[cfg(all(target_os = "linux", not(target_env = "ohos")))]
+        assert_eq!(name, "secret-service");
         for p in [
             Protection::WhenUnlocked,
             Protection::AfterFirstUnlock,
@@ -586,8 +601,8 @@ mod tests {
                 assert_eq!(ps, Support::Unsupported);
             }
         }
-        if s == Support::Unsupported {
-            assert_eq!(backend(), "none");
+        if name == "none" {
+            assert_eq!(s, Support::Unsupported);
         }
     }
 

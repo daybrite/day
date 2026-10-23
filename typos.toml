@@ -120,3 +120,8 @@ extend-exclude = [
   "*.svg",
   "*.png",
 ]
+
+# RFC 4648 §10 uses this two-byte input in its base64 test vectors.
+[type.base64-vectors]
+extend-glob = ["base64.rs"]
+extend-words = { fo = "fo" }

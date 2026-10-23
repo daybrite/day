@@ -42,6 +42,8 @@
       "blurb": "Headless native capabilities — no UI; any Rust code can depend on them.",
       "crates": [
         { "pkg": "day-part-battery", "blurb": "Battery level and charging state." },
+        { "pkg": "day-part-biometrics", "blurb": "Verify the user with the platform's biometric or device-credential prompt." },
+        { "pkg": "day-part-keychain", "blurb": "Store small secrets in the platform's secure store." },
         { "pkg": "day-part-sensors", "blurb": "Motion sensors — accelerometer, gyroscope, and friends." },
         { "pkg": "day-part-clipboard", "blurb": "Read and write the system plain-text clipboard." },
         { "pkg": "day-part-network", "blurb": "Network connectivity and connection type." },

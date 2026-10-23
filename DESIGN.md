@@ -3888,6 +3888,11 @@ Two package kinds share the mechanism:
   Day-Time, now carries that module itself, since a pure-Rust dependency with no platform arm
   needs no part.)
 
+  The keychain's `backend()` identifies its selected storage implementation independently of
+  runtime availability: Linux reports `secret-service` even without a reachable session service,
+  while `support()` reports `Unsupported`. `none` identifies the unsupported implementation.
+  `probes_never_panic_and_agree` checks this distinction on headless CI as well as desktop hosts.
+
 Motion sensor parts use event sources throughout (`day-part-sensors`, [sensor API](docs/sensors.md)).
 The first `watch` starts a source per kind and calibration mode; the last drop invalidates queued
 delivery and requests teardown. On native targets a condition-variable dispatcher serializes source lifecycle and user
@@ -8164,10 +8169,13 @@ without overwriting the user's chosen default. Development `.reg` files remain o
 installed PWA advertises only browser-permitted `web+` schemes; native names cannot be registered
 by a web app. Ordinary HTTPS MIME handoff remains browser-dependent.
 
-`day::on_open_url(|original| -> bool)` is scoped to the application/window root, like
+`day::on_open_url(|original| -> bool)` is scoped to the registering scope, like
 `on_open_files`: cold-start URLs queue until mounting; warm URLs post to the UI thread. It preserves
 scheme, query and escaping. Returning true consumes the data activation; false uses the existing
-`route_of_url` / `request_route` rail. File URLs retain the document handler. Android launch and
+`route_of_url` / `request_route` rail. Registrations stack, newest first (2026-10): a part that
+awaits a callback URL for the life of one operation (day-part-auth's sign-in redirect) registers
+in its own scope and declines everything else, and the app's root handler keeps receiving what
+the part declines. File URLs retain the document handler. Android launch and
 warm Intents, UIKit scene URLs, AppKit openURLs, GTK GApplication open and Qt QFileOpenEvent
 use this rail. Windows protocol commands explicitly pass `--day-open-url`; web PWA handlers use
 `?day_url=`; `DAY_OPEN_URL` is the portable test launch override. The newest live handler owns

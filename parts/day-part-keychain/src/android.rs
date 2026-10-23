@@ -20,7 +20,7 @@
 //! only way to use it is through a cipher the system prompt authorized (`CryptoObject`). On API 30
 //! and later the device credential is accepted alongside a biometric; on API 28 and 29 the prompt
 //! is biometric-only, because the platform does not combine a credential with a `CryptoObject`
-//! there. A change of biometric enrolment does not invalidate the key (the item is bound to the
+//! there. A change of biometric enrollment does not invalidate the key (the item is bound to the
 //! person's device credential as much as to a fingerprint); removing the screen lock does, and
 //! the item then reads as `Unreadable`. Below API 28 there is no prompt that can authorize a key,
 //! so the level is `Unsupported`.

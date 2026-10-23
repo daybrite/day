@@ -126,6 +126,8 @@ def main():
     (WORK / 'api-links.json').write_text(json.dumps(result, indent=2) + '\n')
     print(json.dumps({key: value for key, value in result.items() if key != 'failures'}))
     print(f'Broken API links: {len(failures)}; full details in {WORK / "api-links.json"}')
+    for failure in failures:
+        print(f'{failure["page"]}: {failure["reason"]}: {failure["href"]}')
     return int(bool(failures or navigation_failures))
 
 
