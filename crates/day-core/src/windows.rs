@@ -538,12 +538,16 @@ pub fn open_window<P: Piece>(
 }
 
 /// The open window registered under `key`, if any (the dayscript `screenshot` step's
-/// `window:` target resolves here).
+/// `window:` target resolves here). Native windows being closed are excluded; a dismissing
+/// fallback cover remains available so reopening its key can reverse the transition.
 pub fn window_by_key(key: &str) -> Option<WindowHandle> {
     WINDOWS.with(|w| {
         w.borrow()
             .iter()
-            .find(|r| r.key.as_deref() == Some(key))
+            .find(|r| {
+                r.key.as_deref() == Some(key)
+                    && !matches!(&r.tier, Tier::Native { closing } if closing.get())
+            })
             .map(|r| WindowHandle { root: r.root })
     })
 }
@@ -625,7 +629,10 @@ pub fn window_root_by_key(key: &str) -> Option<RNode> {
     WINDOWS.with(|w| {
         w.borrow()
             .iter()
-            .find(|r| r.key.as_deref() == Some(key))
+            .find(|r| {
+                r.key.as_deref() == Some(key)
+                    && !matches!(&r.tier, Tier::Native { closing } if closing.get())
+            })
             .map(|r| match &r.tier {
                 // The cover renders inside the primary window: its pixels are the
                 // primary's pixels.

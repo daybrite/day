@@ -84,7 +84,7 @@ A piece's XAML half is built for WinUI the same way the backend is: one shim, co
 whichever stack the build targets.
 
 - **Cargo.** A `winui` feature that implies the piece's `xaml` feature and turns on
-  `day-xaml-sys/winui` (or forwards to the piece it wraps), with `"winui"` in
+  `day-xaml/winui` and `day-xaml-sys/winui` (or forwards to the piece it wraps), with `"winui"` in
   `[package.metadata.day.piece] backends`. The Rust half is the `xaml` half, unchanged, and
   `day build -t windows-winui` switches `<piece>/winui` on like any backend feature.
 - **build.rs.** `.includes(day_toolchain::winappsdk::shim_includes(&cppwinrt))` where the shim used

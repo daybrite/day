@@ -29,7 +29,7 @@ mdc = ["dep:day-android"]           # + [package.metadata.day.android] carries D
 # ITextDocument. Windows-only, built in CI, not verified locally.
 xaml = ["dep:day-xaml", "dep:day-xaml-sys"]
 # WinUI 3 (windows-winui, docs/winui.md): the xaml half, built against Microsoft.UI.Xaml.
-winui = ["xaml", "day-xaml-sys/winui"]
+winui = ["xaml", "day-xaml/winui", "day-xaml-sys/winui"]
 # HarmonyOS: the ArkUI C node API has no rich editor, so the component is this crate's own ArkTS.
 arkui = ["dep:day-arkui"]
 # web-dom: a contenteditable element, which is the browser's own rich text editing.

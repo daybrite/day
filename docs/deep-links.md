@@ -48,6 +48,12 @@ However a link arrives, the behavior inside the app is the same:
   turn after the first mount. It wins over `.restore`.
 - **Warm delivery** (the app was running): the platform layer emits `RouteRequested(route)`
   to the active nav host, which navigates immediately.
+- **Handlers stack.** `day::on_open_url` registrations stack, newest first: the newest live
+  handler sees a URL first, and a handler that returns `false` passes it on. A part that waits for
+  one callback URL for the life of one operation (the sign-in redirect in
+  [day-part-auth](https://github.com/daybrite/day-part-auth)) registers in a scope of its own,
+  takes the one URL it expects, and declines everything else, so the app's root handler keeps
+  receiving the rest. A registration goes with its scope.
 - **Navigation only.** A scheme URL can be sent by any app or web page, unauthenticated. Deep
   links never execute an action; they only address a surface. Anything destructive must sit
   behind the app's own UI once the user arrives.

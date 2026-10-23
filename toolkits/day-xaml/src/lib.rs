@@ -633,16 +633,17 @@ extern "C" fn on_slider(id: u64, v: f64, committed: c_int) {
         }
     });
 }
-/// Focus callback from the shim (docs/focus.md). kind: 0 = lost, 1 = gained, 2 = submitted.
 /// Whether this node has a `Decorate::on_key` handler (docs/menus.md). The shim asks before it
 /// marks a key handled, so an arrow nobody wanted stays XAML's — its own directional focus
 /// navigation still moves between controls.
+#[cfg(feature = "winui")]
 extern "C" fn on_key_handled(id: u64) -> c_int {
     ffi_guard::contain(0, || c_int::from(day_spec::keys::handled(NodeId(id))))
 }
 
 /// An arrow that reached a focused canvas (docs/menus.md): `key` is the day name, `modifiers`
 /// the [`day_spec::KeyEvent`] mask.
+#[cfg(feature = "winui")]
 extern "C" fn on_key(id: u64, key: *const c_char, modifiers: c_int) {
     ffi_guard::contain((), || {
         if key.is_null() {
@@ -661,6 +662,7 @@ extern "C" fn on_key(id: u64, key: *const c_char, modifiers: c_int) {
     });
 }
 
+/// Focus callback from the shim (docs/focus.md). kind: 0 = lost, 1 = gained, 2 = submitted.
 extern "C" fn on_focus(id: u64, kind: c_int) {
     ffi_guard::contain((), || {
         let ev = match kind {

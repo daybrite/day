@@ -135,9 +135,9 @@ the main window) or
 
 - `.key(..)` names the logical window: opening an already-open key focuses it instead of
   duplicating, which is how `day.preferences` stays a singleton. `window_by_key` finds it later.
-  A key reopened while its window is still *closing* is the same window arriving again: on the
-  cover tier that reverses the hide transition and keeps the content that is already there,
-  rather than handing back a surface the pending confirmation is about to dispose.
+  Reopening a key after requesting a native window's close builds a new window; the closing
+  window is excluded from key lookup while it waits for confirmation. On the cover tier,
+  reopening reverses the hide transition and keeps the existing content.
 - `.kind(WindowKind)` shapes the chrome: `Normal` (the default) is resizable/miniaturizable
   and joins the platform's tabbing group; `Preferences` drops resize/minimize and never tabs
   (macOS convention; other platforms map as fits).

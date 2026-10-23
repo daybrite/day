@@ -28,7 +28,7 @@ uikit = ["dep:day-uikit", "dep:objc2", "dep:objc2-ui-kit", "dep:objc2-foundation
 mdc = ["dep:day-android"]        # + [package.metadata.day.android]
 xaml = ["dep:day-xaml", "dep:day-xaml-sys"]
 # WinUI 3 (windows-winui, docs/winui.md): the xaml half, built against Microsoft.UI.Xaml.
-winui = ["xaml", "day-xaml-sys/winui"]
+winui = ["xaml", "day-xaml/winui", "day-xaml-sys/winui"]
 arkui = ["dep:day-arkui"]
 dom = ["dep:day-dom"]
 

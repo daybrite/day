@@ -31,7 +31,7 @@ mdc = ["dep:day-android"]        # + [package.metadata.day.android] carries the 
 # which has no feature at all: iOS has no native combo-box control).
 xaml = ["dep:day-xaml", "dep:day-xaml-sys"]
 # WinUI 3 (windows-winui, docs/winui.md): the xaml half, built against Microsoft.UI.Xaml.
-winui = ["xaml", "day-xaml-sys/winui"]
+winui = ["xaml", "day-xaml/winui", "day-xaml-sys/winui"]
 # HarmonyOS: an ArkTS TextInput + suggestions menu (platform/harmony/ets, staged through
 # [package.metadata.day.ohos]) behind day-arkui's piece bridge (src/lib-arkui.rs).
 arkui = ["dep:day-arkui"]

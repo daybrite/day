@@ -32,7 +32,7 @@ mdc = ["dep:day-android"] # + [package.metadata.day.android] stages src/DayActiv
 # falls back to day's placeholder leaf.
 xaml = ["dep:day-xaml", "dep:day-xaml-sys"]
 # WinUI 3 (windows-winui, docs/winui.md): the xaml half, built against Microsoft.UI.Xaml.
-winui = ["xaml", "day-xaml-sys/winui"]
+winui = ["xaml", "day-xaml/winui", "day-xaml-sys/winui"]
 # HarmonyOS: the C node API's LOADING_PROGRESS spinner (src/lib-arkui.rs), no ArkTS.
 arkui = ["dep:day-arkui"]
 mock = []

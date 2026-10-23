@@ -30,7 +30,7 @@ mdc = ["dep:day-android"]        # + [package.metadata.day.android] stages src/D
 # XAML: build.rs compiles src/lib-xaml-shim.cpp (the settings-card row, boxed via day-xaml-sys's
 # day_xaml_box functions like the searchfield piece). Windows-only, built in CI, not verified locally.
 xaml = ["dep:day-xaml", "dep:day-xaml-sys"]
-winui = ["xaml", "day-xaml-sys/winui"]
+winui = ["xaml", "day-xaml/winui", "day-xaml-sys/winui"]
 arkui = ["dep:day-arkui"]
 dom = []
 mock = []

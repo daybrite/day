@@ -6224,6 +6224,54 @@ fn singleton_key_opens_once_and_refocuses() {
 }
 
 #[test]
+fn native_key_reopened_before_close_confirmation_builds_a_new_window() {
+    // Synthetic fixture text; no shipped app UI.
+    let probe = boot(|| label("fixture main").any());
+    probe.set_defer_window_close(true);
+    let first = day_core::open_window(win_options("fixture", 300.0, 200.0).key("fixture"), || {
+        label("old content").any()
+    });
+    flush_sync();
+    let old_node = day_core::windows::window_node_id(&first);
+    first.close();
+    flush_sync();
+    assert!(first.is_open(), "the platform has not confirmed close yet");
+    assert!(day_core::window_by_key("fixture").is_none());
+
+    let replacement =
+        day_core::open_window(win_options("fixture", 300.0, 200.0).key("fixture"), || {
+            label("replacement content")
+                .id(day_core::id!(replacement_label))
+                .any()
+        });
+    let replacement_node = day_core::windows::window_node_id(&replacement);
+    assert_ne!(old_node, replacement_node);
+    replacement.focus();
+    flush_sync();
+    assert_eq!(
+        day_core::windows::window_node_id(&day_core::window_by_key("fixture").unwrap()),
+        replacement_node
+    );
+    assert!(
+        probe
+            .windows()
+            .iter()
+            .any(|w| w.node == replacement_node && w.focused)
+    );
+
+    // A late close confirmation must dispose only the old window and its content.
+    probe.close_window_natively(old_node);
+    flush_sync();
+    assert!(!first.is_open());
+    assert!(replacement.is_open());
+    assert!(day_core::with_tree(|t| t.find_by_id("replacement_label")).is_some());
+    assert_eq!(
+        day_core::windows::window_node_id(&day_core::window_by_key("fixture").unwrap()),
+        replacement_node
+    );
+}
+
+#[test]
 fn set_title_reaches_the_backend() {
     let probe = boot(|| label("main").any());
     let handle = day_core::open_window(win_options("before", 300.0, 200.0), || label("w2").any());

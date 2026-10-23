@@ -469,7 +469,7 @@ with `cc` (MSVC) + the Windows SDK cppwinrt projection. It is Windows-only and b
 will likely not verify it locally.
 
 The same shim serves both Windows targets. For `windows-winui`, the piece's `winui` feature
-implies `xaml` and turns on `day-xaml-sys/winui`; `build.rs` adds
+implies `xaml` and turns on both `day-xaml/winui` and `day-xaml-sys/winui`; `build.rs` adds
 `day_toolchain::winappsdk::shim_includes(&cppwinrt)` to the include path and defines `DAY_WINUI`
 when `day_toolchain::winappsdk::shim_is_winui()`, and the shim switches its includes and
 namespace (`Microsoft.UI.Xaml` rather than `Windows.UI.Xaml`) on `DAY_WINUI`. The Rust half is the
@@ -539,7 +539,7 @@ qt     = ["dep:day-qt"]              # + build.rs compiles src/lib-qt-shim.cpp
 uikit  = ["dep:day-uikit", "dep:objc2", "dep:objc2-ui-kit", "dep:objc2-foundation", "dep:objc2-core-foundation"]
 mdc = ["dep:day-android"]         # + [package.metadata.day.android] carries the DaySearch Java
 xaml  = ["dep:day-xaml", "dep:day-xaml-sys"]   # + build.rs compiles src/lib-xaml-shim.cpp
-winui  = ["xaml", "day-xaml-sys/winui"]        # the xaml half, built against WinUI 3
+winui  = ["xaml", "day-xaml/winui", "day-xaml-sys/winui"] # Rust toolkit and shim use WinUI 3
 mock   = []                          # no renderer; falls back to Day's placeholder leaf
 ```
 

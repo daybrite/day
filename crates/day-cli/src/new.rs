@@ -1957,8 +1957,8 @@ fn native_piece_files(
             }
             "mdc" => "mdc = [\"dep:day-android\"]",
             "xaml" => "xaml = [\"dep:day-xaml\", \"dep:day-xaml-sys\"]",
-            // The same shim built against WinUI 3 (DAY_WINUI); it rides the xaml feature.
-            "winui" => "winui = [\"xaml\", \"day-xaml-sys/winui\"]",
+            // Enable WinUI in both the Rust toolkit and its C++ shim.
+            "winui" => "winui = [\"xaml\", \"day-xaml/winui\", \"day-xaml-sys/winui\"]",
             _ => continue,
         };
         features.push_str(entry);
@@ -4212,7 +4212,11 @@ mod scaffold_tests {
             let files = native_piece_files(&r, &Deps::Git(None), &toolkits, true);
             let text = |path: &str| -> &str { &files.iter().find(|(p, _)| p == path).unwrap().1 };
             assert!(text("src/lib.rs").contains("day_pieces::glue_modules!(xaml);"));
-            assert!(text("Cargo.toml").contains("winui = [\"xaml\", \"day-xaml-sys/winui\"]"));
+            let manifest: toml::Value = toml::from_str(text("Cargo.toml")).unwrap();
+            let winui = manifest["features"]["winui"].as_array().unwrap();
+            for feature in ["xaml", "day-xaml/winui", "day-xaml-sys/winui"] {
+                assert!(winui.iter().any(|value| value.as_str() == Some(feature)));
+            }
             assert!(!text("src/lib-xaml.rs").is_empty());
             assert!(text("src/lib-xaml-shim.cpp").contains("#ifdef DAY_WINUI"));
             assert!(!files.iter().any(|(p, _)| p == "src/lib-winui.rs"));
