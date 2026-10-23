@@ -53,12 +53,31 @@ pub use day_core::{
 pub use day_core::{focus_search, request_route};
 /// Tweening for canvas animations (docs/tween.md): `Lerp`, `Timing`, `animate`, `Tweened`.
 pub use day_core::{testing, tween};
+/// Optional app-local storage, including asynchronous browser storage.
+#[cfg(feature = "fs")]
+pub use day_part_fs as fs;
+/// Optional app-controlled runtime permission requests.
+#[cfg(feature = "permissions")]
+pub use day_part_permissions as permissions;
+/// Optional settings declaration and presentation layer.
+#[cfg(feature = "settings")]
+pub use day_piece_settings as settings;
+/// Optional Apple SwiftUI hosting bridge.
+#[cfg(feature = "swiftui")]
+pub use day_piece_swiftui as swiftui;
+/// Optional native styled-text editor.
+#[cfg(feature = "text-editor")]
+pub use day_piece_texteditor as texteditor;
+#[cfg(feature = "text-editor")]
+pub use day_piece_texteditor::{TextEditor, TextEditorBuilder, text_editor};
+pub use day_pieces::{AsyncImage, AsyncImageBuilder, async_image};
 /// Canvas export (docs/canvas.md "Exporting"): render a recorded `Drawing` to a bitmap or a PDF
 /// through the toolkit's own painter. `canvas_exports()` says which of the two this target
 /// offers; the PDF writer is native on AppKit, UIKit, GTK, Qt and Android only.
 pub use day_pieces::{
     CanvasExports, Drawing, PdfDocument, RenderBitmap, RenderPdf, canvas_exports,
 };
+pub use day_pieces::{colorpicker, combobox, datetime, pager, pullrefresh, searchfield, stepper};
 pub use day_spec::AppBadge;
 pub use day_spec::applications::{
     Application, ApplicationError, ApplicationHandlers, HandlerQuery,
@@ -578,6 +597,8 @@ pub mod prelude {
     pub use day_fluent::{
         LocalizedText, install as install_locales, matches_search, set_locale, sort_localized, tr,
     };
+    #[cfg(feature = "text-editor")]
+    pub use day_piece_texteditor::{TextEditor, TextEditorBuilder, text_editor};
     pub use day_pieces::prelude::*;
     pub use day_spec::{Lifecycle, Size, WindowOptions};
     // Canvas drawing vocabulary (docs/canvas.md): arbitrary paths and their fill rule, the
@@ -1259,3 +1280,20 @@ pub use day_spec::transfer;
 
 /// Receive local document activations from the operating system. See docs/documents.md.
 pub use day_core::{on_open_files, on_open_url};
+
+/// Download an image through the platform HTTP client and display it through the core decoder.
+/// The request is cancelled when the owning reactive scope is disposed.
+#[cfg(feature = "http-image")]
+pub fn http_image(url: impl Into<String>) -> day_pieces::AsyncImage {
+    let source = day_reactive::Signal::new(None);
+    let request = day_part_http::Request::get(url);
+    let task = day_core::task(async move {
+        if let Ok(response) = day_part_http::fetch_future(request).await
+            && (200..300).contains(&response.status)
+        {
+            source.set(Some(std::sync::Arc::new(response.body)));
+        }
+    });
+    day_reactive::Scope::current().on_cleanup(move || task.abort());
+    day_pieces::async_image(source)
+}

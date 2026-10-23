@@ -120,8 +120,8 @@ the architecture-level view and the rationale.
 | keychain — `Secret`, `Protection::{WhenUnlocked, AfterFirstUnlock, UserPresence}`, `set`/`get`/`get_async`/`entries`, the platform store per target and the `backend()` report | [docs/keychain.md](docs/keychain.md) | [§15](#15-extensibility-pieces-parts-and-tweaks) |
 | biometrics — `Prompt`, `availability()`/`biometry()`, `authenticate`/`authenticate_future`, the one-prompt guard, the HarmonyOS token the keychain consumes | [docs/biometrics.md](docs/biometrics.md) | [§15](#15-extensibility-pieces-parts-and-tweaks) |
 | scripting & agents — dayscript, recording (`day::record`, `--record`), `day drive`, MCP | [docs/agent.md](docs/agent.md), website dayscript reference | [§14](#14-scripting-dayscript) |
-| platform services ("parts": battery, network, sensors, clipboard, prefs, haptics, sound, wakelock, deviceinfo, http, downloads, permissions, location, fs) | [docs/battery.md](docs/battery.md), [docs/network.md](docs/network.md), [docs/sensors.md](docs/sensors.md), [docs/clipboard.md](docs/clipboard.md), [docs/prefs.md](docs/prefs.md), [docs/haptics.md](docs/haptics.md), [docs/sound.md](docs/sound.md), [docs/wakelock.md](docs/wakelock.md), [docs/deviceinfo.md](docs/deviceinfo.md), [docs/http.md](docs/http.md), [docs/downloads.md](docs/downloads.md), [docs/permissions.md](docs/permissions.md), [docs/location.md](docs/location.md), [docs/fs.md](docs/fs.md) | [§15](#15-extensibility-pieces-parts-and-tweaks) |
-| bundled pieces (map, searchfield, combobox, color picker, …) and external ones (media, lottie, webview) | [docs/media.md](docs/media.md), [docs/map.md](docs/map.md), [day-piece-lottie](https://github.com/daybrite/day-piece-lottie), [day-piece-webview](https://github.com/daybrite/day-piece-webview), [docs/webview-eval.md](docs/webview-eval.md), [docs/searchfield.md](docs/searchfield.md), [docs/combobox.md](docs/combobox.md), [docs/colorpicker.md](docs/colorpicker.md) | [§15](#15-extensibility-pieces-parts-and-tweaks) |
+| platform services ("parts": device identity and battery (`day-part-device::{info,battery}`), connectivity, sensors, clipboard, prefs, haptics, sound, wakelock, deviceinfo, http, downloads, permissions, location, fs) | [docs/battery.md](docs/battery.md), [docs/network.md](docs/network.md), [docs/sensors.md](docs/sensors.md), [docs/clipboard.md](docs/clipboard.md), [docs/prefs.md](docs/prefs.md), [docs/haptics.md](docs/haptics.md), [docs/sound.md](docs/sound.md), [docs/wakelock.md](docs/wakelock.md), [docs/deviceinfo.md](docs/deviceinfo.md), [docs/http.md](docs/http.md), [docs/downloads.md](docs/downloads.md), [docs/permissions.md](docs/permissions.md), [docs/location.md](docs/location.md), [docs/fs.md](docs/fs.md) | [§15](#15-extensibility-pieces-parts-and-tweaks) |
+| core controls (searchfield, combobox, color picker, …) and optional pieces (media, lottie, webview) | [docs/media.md](docs/media.md), [docs/map.md](docs/map.md), [day-piece-lottie](https://github.com/daybrite/day-piece-lottie), [day-piece-webview](https://github.com/daybrite/day-piece-webview), [docs/webview-eval.md](docs/webview-eval.md), [docs/searchfield.md](docs/searchfield.md), [docs/combobox.md](docs/combobox.md), [docs/colorpicker.md](docs/colorpicker.md) | [§15](#15-extensibility-pieces-parts-and-tweaks) |
 | color — the `Color`/`Paint` currency, what a native picker can hand back, and a proposal to widen it | [docs/color.md](docs/color.md) | [§6.3](#63-semantic-theme-tokens), [§11](#11-canvas) |
 | SwiftUI embedding — local SwiftPM packages, generated `crate::swiftui::*` bindings + hosting glue, the macOS Swift build leg | [docs/swiftui.md](docs/swiftui.md) | [§15.2](#152-package-layout-and-aggregation) |
 | reusable application commands — shared metadata, scope ownership, guarded invocation | [docs/commands.md](docs/commands.md) | [§5.1](#51-authoring-surface-functions-and-builders-no-macros) |
@@ -134,7 +134,7 @@ the architecture-level view and the rationale.
 | day-piece-break — consent-first crash reporting (panic hook + signal handlers, next-launch report, pluggable upload) | [docs/break.md](docs/break.md) | [§8.5](#85-panics-and-crashes) |
 | document tabs — stable keys, resident pages, native window groups, and live chrome switching | [docs/navigation.md](docs/navigation.md#document-tabs), [docs/windows.md](docs/windows.md#document-window-tabs) | [§5.3](#53-built-in-pieces-mvp-set), [§8.1](#81-the-toolkit-trait) |
 | secondary windows — `open_window`, the Preferences window + auto menu item, `WindowKind`, the cover fallback, the debug title tag; window properties (`state()`, content protection, frame, level, monitors, remembered frames, macOS tab groups) | [docs/windows.md](docs/windows.md) | [§8.1](#81-the-toolkit-trait) |
-| settings and About — `day-piece-settings`: `Pref<T>` over a `Store`, groups/sections/rows, the Settings and About windows + menu items, the mobile navigation presentation, provider groups from other crates (the self-updater) | [docs/settings.md](docs/settings.md) | [§8.1](#81-the-toolkit-trait), [§15](#15-extensibility-pieces-parts-and-tweaks), [§17.1](#171-project-layout-day-new-output) |
+| settings and About — `day-piece-settings`: presentation over `day-part-prefs::Pref<T>`, groups/sections/rows, the Settings and About windows + menu items, the mobile navigation presentation, provider groups from other crates (the self-updater) | [docs/settings.md](docs/settings.md) | [§8.1](#81-the-toolkit-trait), [§15](#15-extensibility-pieces-parts-and-tweaks), [§17.1](#171-project-layout-day-new-output) |
 | window chrome — `WindowChrome` (frameless, overlay title bar), transparent and material backgrounds, placement, `.window_drag_region()` | [docs/window-chrome.md](docs/window-chrome.md) | [§5.3](#53-built-in-pieces-mvp-set), [§8.1](#81-the-toolkit-trait) |
 | status items — menu-bar / tray items, Dock and taskbar progress, menu-bar apps, `KeepRunning`, `day::quit` | [docs/status-item.md](docs/status-item.md) | [§8.1](#81-the-toolkit-trait) |
 | toolchain & environment discovery | [docs/environment.md](docs/environment.md) | [§16](#16-the-day-cli) |
@@ -1087,18 +1087,18 @@ constant or a reactive source; routed to `Toolkit::set_status_bar_hidden`)
 and `.any()`.
 
 Beyond the built-ins, optional widgets ship as ordinary crates under `pieces/` (`combo_box`,
-`search_field`, `rating`, `activity`, `web_view`, `media`, `map`, `lottie`, `remote_image`,
+`search_field`, `rating`, `activity`, `web_view`, `media`, `map`, `lottie`, `async_image`,
 `color_picker` ([docs/colorpicker.md](docs/colorpicker.md)), `stepper` — a numeric field with
 increment/decrement arrows, [docs/stepper.md](docs/stepper.md) —
 `swiftui` — hosted SwiftUI views, [docs/swiftui.md](docs/swiftui.md)) and headless services under
-`parts/` (battery, network, sensors,
+`parts/` (device identity and battery (`day-part-device::{info,battery}`), connectivity, sensors,
 clipboard, prefs, haptics, sound, wakelock, deviceinfo, http, fs) — [§15](#15-extensibility-pieces-parts-and-tweaks) has the extension model.
 
 The native stepper accepts committed values only from its `stepper:value` custom event
 (or the legacy bridge's empty tag) and `TextChanged`/`ValueCommitted`. Synthetic typing
 sends `day:synthesized-text` before `TextChanged`; the paint notification must not commit
 the binding a second time, or one inspector edit creates two undo units. The native and
-composed paths are covered by `day-piece-stepper`'s `scripted_typing_commits_once_in_both_idioms`
+composed paths are covered by `day-pieces`'s `scripted_typing_commits_once_in_both_idioms`
 regression test; see [docs/stepper.md](docs/stepper.md).
 The stepper's `.id()` names its interactive field in both idioms, wherever it sits in the chain.
 Both idioms are tested using the public `.id()` API, including range clamping and the
@@ -2186,7 +2186,7 @@ startup-time completeness check is impossible if the registry itself is the only
 3. The `linkme` distributed slice remains for zero-setup unit tests and pure-cargo development
    (pane's proven mechanism, kept as the ergonomic layer).
 
-CI includes a release+LTO ios-uikit build of showcase + day-piece-searchfield that asserts via
+CI includes a release+LTO ios-uikit build of showcase + day-pieces that asserts via
 dayscript that the externally-registered piece actually rendered ([§20](#20-continuous-integration)).
 
 > [!NOTE]
@@ -3007,7 +3007,7 @@ to update and are ignored; the selected destination's navigation host owns its t
 >   (`UISplitViewController`) and android-mdc (`SlidingPaneLayout`) (observed). GTK and XAML keep
 >   the pre-size-class behavior; ArkUI is untouched. `safe_area` moved to the same per-window
 >   signal in the same change. [docs/size-classes.md](docs/size-classes.md) is normative.
-> - **Interactive mobile pager** — `day-piece-pager::pager(state, busy, pages, settled)`
+> - **Interactive mobile pager** — `day-pieces::pager(state, busy, pages, settled)`
 >   hosts fixed-identity child slots in UIKit `UIPageViewController`, AndroidX `ViewPager`,
 >   or ArkUI `Swiper`. `PagerState` supplies logical slot order, selected slot and presentation
 >   epoch. Native dragging owns frame-by-frame movement; the callback reports a settled slot,
@@ -3020,7 +3020,7 @@ to update and are ignored; the selected destination's navigation host owns its t
 >   apps bound their own window (Day-News uses three) and control prefetch side effects.
 >   Non-mobile builds have a static selected-page fallback, not an interactive renderer.
 >   Standard `SelectionChanged` addresses logical positions for automation/accessibility;
->   it is not a gesture simulation. See `pieces/day-piece-pager/tests/paging.rs` for commit,
+>   it is not a gesture simulation. See `crates/day-pieces/tests/pager_paging.rs` for commit,
 >   stale-callback and retained-child contracts. Native gesture tests live in Day-News;
 >   Harmony is compile-checked locally and requires CI runtime acceptance.
 > - **`nav_stack(path, root)`** — push/pop navigation bound to a `Vec<Route>` signal; native back
@@ -3871,7 +3871,7 @@ The shipped ladder, cheapest first (a single package may mix rungs per toolkit):
 
 - **Tweaks** (below composition; [Addendum](#addendum-2026-07-09--tweaks-per-toolkit-configuration-of-built-in-pieces), [docs/tweaks.md](docs/tweaks.md)): configure the native widget behind
   an existing built-in — `Decorate::tweak`/`native_ref`, packaged as `tweaks/day-tweak-*`.
-- **Tier 0 — composition:** pure Day pieces (a gauge from `canvas`, `day-piece-rating`). No
+- **Tier 0 — composition:** pure Day pieces (a gauge from `canvas`, `example-star-rating`). No
   native code.
 - **Tier 1 — Rust renderers:** per-toolkit renderers written in Rust against the backend's own
   FFI (objc2 / gtk4-rs / jni / the C++ shims), registered link-time into each backend's
@@ -3885,15 +3885,19 @@ The shipped ladder, cheapest first (a single package may mix rungs per toolkit):
 
 Two package kinds share the mechanism:
 
-- **Pieces** (`pieces/day-piece-*`): UI — combobox, search field, rating, activity,
-  datetime, color picker, styled-text editor, pull-refresh, map,
-  remote-image. Media, Lottie, and the web view live in their own repositories
-  ([daybrite/day-piece-media](https://github.com/daybrite/day-piece-media),
-  [daybrite/day-piece-lottie](https://github.com/daybrite/day-piece-lottie),
-  [daybrite/day-piece-webview](https://github.com/daybrite/day-piece-webview)); see the note
-  under [§15.2](#152-package-layout-and-aggregation) for what an external repository adds.
+- **Core controls**: search fields, combo boxes, steppers, date/time pickers, color pickers,
+  pull-to-refresh, pagers, and progress indicators belong to `day-pieces`. Shared protocols
+  and date/time value types live in `day-spec`. Native Rust, Java, ArkTS, and C++ code belongs
+  to the implementing toolkit. Controls choose native or composed behavior through runtime
+  capabilities. Toolkit crates depend on `day-pieces`; `day-pieces` never depends on a toolkit.
+  Spinner animation bindings apply only to indeterminate progress; determinate bars retain their fraction.
+- **Optional pieces** (`pieces/day-piece-*`): settings presentation, styled-text editing, and
+  SwiftUI hosting remain separate packages. The facade's `settings`, `text-editor`, and
+  `swiftui` features re-export them and forward toolkit selection. The `fs` and `permissions`
+  features expose optional services without adding them to default UI builds. Media, Lottie, and web
+  views remain in their existing external repositories.
 - **Parts** (`parts/day-part-*`): headless platform services exposing signals/functions —
-  battery, network, sensors (streaming, [docs/sensors.md](docs/sensors.md)), clipboard, prefs, haptics, sound
+  device identity and battery (`day-part-device::{info,battery}`), connectivity, sensors (streaming, [docs/sensors.md](docs/sensors.md)), clipboard, prefs, haptics, sound
   (bundled clips played once or looped through each platform's low-latency engine; libpulse and the
   part's own mixer on Linux, [docs/sound.md](docs/sound.md)), wakelock
   (keeping the screen on, [docs/wakelock.md](docs/wakelock.md)), deviceinfo,
@@ -3965,6 +3969,25 @@ keep these images in their original colors, while bundled symbols retain templat
 Applications own download/cache lifecycle and use changed filenames to invalidate native
 caches; trailing badge icons can indicate independent per-row activity alongside unread
 counts. See [navigation](docs/navigation.md).
+
+Typed preference values and their shared store live in `day-part-prefs`. Settings owns
+presentation and its application-level appearance/language declarations. The facade's default
+`prefs` feature exposes typed values without a settings dependency.
+
+`async_image` composes the core decoder and canvas. Each source replacement aborts its prior
+decode task, clears the old bitmap, and shows a placeholder until completion. Disposal aborts
+the pending task. HTTP loading is an optional facade helper above this layer. There is no
+remote-image renderer registry. Activity uses the existing progress protocol with `Animating`
+patches and a large-size property; there is no second activity protocol.
+
+The pager's composed path retains each page's scope and hides inactive native subtrees through
+`Toolkit::set_presented`, removing input and accessibility participation. Pull-to-refresh uses
+separate indicator and gesture capabilities. AppKit and GTK attach overscroll observers
+through `Toolkit::attach_refresh` in the composed path. Qt, WinUI, and browser indicators
+can be driven programmatically without claiming a user pull gesture.
+
+The prototype map and rating packages are removed. Showcase owns its card and badge
+composition examples. Maps require a separate design and implementation exercise.
 
 ### §15.2 Package layout and aggregation
 
@@ -4320,7 +4343,7 @@ one of them is Java-only — because Apple, Windows, Linux, and HarmonyOS have b
 exist too, but not in the crates: `day_dom_sensor_*`, `day_dom_fs_start`, `day_http_start`, and
 `day_location_fix` all live in the CLI's centralized `resources/web/shim.js`, because there is no
 per-crate staging for JavaScript. And where a value has to cross, each crate invents its own wire
-format — day-part-battery packs a level and a state into one `i64` as `(state << 8) | levelByte`,
+format — day-part-device packs a level and a state into one `i64` as `(state << 8) | levelByte`,
 written twice, in two languages, agreed by comment.
 
 **The design.** A bridge makes the **Rust signature the contract** and each foreign arm an
@@ -5328,7 +5351,7 @@ count; an `UndoStack` with localized labels backs the Edit menu's Undo/Redo, and
 `Space` scale. Four tests (the first-launch seed, deletion and selection, a relaunch, the search and the setting
 filtering the list) live in an inline module at the bottom of `model.rs`; under the `mock`
 backend `day::prefs` is an in-process map, so they need no cleanup.
-The only external piece dependency is `day-piece-settings`, whose `Preferences::new().about(..)
+The only optional in-repository piece dependency is `day-piece-settings`, whose `Preferences::new().about(..)
 .group(general_group(..)).install()` in `root()` supplies the Settings and About windows and
 menu items on desktop and the Settings navigation section (About at its top) elsewhere
 ([docs/settings.md](docs/settings.md)). Monochrome row glyphs use
@@ -5903,13 +5926,11 @@ day/                                # THIS repository
                                     #   day-build, day-fonts, day-toolchain, day-cli
   toolkits/                         # day-appkit, day-uikit, day-gtk, day-qt(+sys), day-macos-tabs,
                                     #   day-android, day-xaml(+sys), day-arkui(+sys)
-  pieces/                           # external-style UI pieces (day-piece-combobox, -searchfield,
-                                    #   -picker, -rating, -activity, -map,
-                                    #   -remote-image, -colorpicker, -texteditor); day-piece-media,
-                                    #   day-piece-lottie and day-piece-webview live in their own repositories (§15.2)
-  parts/                            # headless platform services (day-part-battery, -network,
-                                    #   -sensors, -clipboard, -prefs, -haptics, -sound, -wakelock, -deviceinfo,
-                                    #   -http, -permissions, -location)
+  pieces/                           # optional settings, texteditor and SwiftUI integration
+                                    # media, lottie and webview remain separate repositories (§15.2)
+  parts/                            # headless platform services: device (info + battery),
+                                    # connectivity, sensors, clipboard, prefs, fs, haptics, sound,
+                                    # wakelock, http, permissions, location, biometrics, keychain, menu
   tweaks/                           # packaged tweaks (day-tweak-button-bezel, -tooltip,
                                     #   -slider-tickmarks) — Addendum, docs/tweaks.md
   apps/conformance/                 # the app `day test` runs the built-in pieces' #[day::test]
@@ -6679,7 +6700,7 @@ ios-uikit --locale fr-FR --script scripts/walkthrough.yaml` runs the localized w
 passes its assertions, and produces screenshots; `day new` scaffolds a working project;
 `day lint` reports fluent/a11y findings; `day pack -t macos-appkit` emits a `.dmg` and
 `-t android-mdc` an `.apk`; canvas renders the gauge demo natively on all five; **the showcase
-includes an externally-registered tier-1 piece (`day-piece-combobox`) on all five targets**
+includes an registered native control (now in core `day-pieces`) on all five targets**
 (pillar 4 is demonstrated, not deferred — DP-21). Showcase pieces: `column`, `row`, `label`,
 `button`, `toggle`, `text_field`, `slider`, `canvas`, `when`, `each`, `scroll`, `spacer`,
 `divider`, `image`, `combo_box` — with state, localization (en/fr + en-XA/ar-XB), a11y
@@ -6692,7 +6713,7 @@ annotations, and ids throughout.
 | M0 | workspace bootstrap; `day-reactive` (scoped signals/memos/effects/bind/watch/Setter, fixpoint drain, batching); `day-geometry`; `day-spec` v0; `day-mock` | unit/property tests: graph semantics, disposal-during-drain, disposed-handle rules, `Signal: !Send` compile-fail, setter-after-dispose, reentrancy (synthetic echo), batching |
 | M1 | `day-core`: build-once mounter, realized tree, layout engine (`column`/`row`/leaf protocol, measurement cache, RTL flip, boundary re-entry), event routing; `label`+`button`+`column`+`row`+`divider` on mock; `IntoText` compile-pass suite | e2e-on-mock: counter updates exactly-one-op per click **and bounded measure-call counts** (op-log golden tests — the fine-grained guarantee is a *test*); sibling-re-proposal relayout test |
 | M2 | `day-appkit` + desktop `launch()` + **default main menu** (Cmd+C/V/X/A via responder-chain selectors, Cmd+Q — NSTextField editing is broken without it); pieces: toggle/slider/text_field/spacer/scroll/when/each; styling core + `PerTarget`; `snapshot_window`; showcase v0 | manual + screenshot verification on host; **manual Japanese-IME smoke** |
-| M3 | `day-gtk`, `day-qt` (host macOS; C++ shim per pane) incl. `snapshot_window`; **`day-piece-combobox` tier-1 renderers (appkit/gtk/qt)**; showcase parity across 3 desktop toolkits | side-by-side screenshots; external piece renders on all 3 |
+| M3 | `day-gtk`, `day-qt` (host macOS; C++ shim per pane) incl. `snapshot_window`; **registered core control renderers (appkit/gtk/qt)**; showcase parity across 3 desktop toolkits | side-by-side screenshots; external piece renders on all 3 |
 | M4 | CLI v0: `new`/`build`/`launch` (desktop targets), Day.toml + day-meta, templates, doctor-lite, JSON events (hello/log/result), cancellation | `day new app t && cd t && day launch` works |
 | M5 | mobile: `day-uikit` + ios scaffold (VC-hosted root, xcode-backend callback, sandboxing off) + simctl pipeline; `day-android` + gradle scaffold (fragment-hosted root, DayRustBuildTask, configChanges) + adb pipeline; **assets/locales resource conveyance ([§18.1](#181-data-resources-lands-in-m5-with-the-scaffolds--fluent-m6-and-the-walkthrough-m7-depend-on-it))**; safe-area/keyboard insets ([§7.7](#77-safe-areas-insets-and-the-keyboard)); combobox uikit/android renderers | showcase on Simulator + emulator via `day launch`; wrapping-label reflow test; **manual keyboard + iOS IME smokes** |
 | M6 | `day-fluent` (tr/locale signal/negotiation/ICU4X functions/en-XA/ar-XB), a11y props + lint v0, ids, per-target locale plumbing | live locale switch + relayout benchmark; VoiceOver smoke on appkit/uikit; **`a11y_audit` green on apple targets**; fr/de number-format conformance |
@@ -7003,7 +7024,7 @@ script; Day's app integration jobs continue to exercise its consumers.
 > `#[derive(Model)]` lives in `crates/day-persistence-macros`
 > and expands to day-macros' `observable_impls!` for its observable half; day-macros keeps
 > `Observable`, which still accepts `#[model(…)]` and reads only `id`. The `DayDate`/`DayTime`
-> codecs are day-persistence's `datetime` feature, not a feature of day-piece-datetime. The
+> codecs are day-persistence's `datetime` feature, not a feature of day-pieces. The
 > day-sql channel and worker script ship in `crates/day-sqlite-worker/web/` and reach the page
 > through `[package.metadata.day.web]`. The result is three crates that use the framework's
 > public API and that nothing in the framework depends on, now maintained and versioned in
@@ -7050,7 +7071,7 @@ What shipped, and where:
   lets `#[model(column = …)]` renames meet the change log's field labels), row↔struct mappers,
   `NULL`-reads-as-`Default` leniency. `Observable` also accepts `#[model(…)]`, so a web build
   swaps only the derive line. Codecs: `ColumnValue` (one impl per type) and named
-  `ValueCodec`s (`#[model(with = …)]`, `#[model(json)]`); day-piece-datetime ships
+  `ValueCodec`s (`#[model(with = …)]`, `#[model(json)]`); day-pieces ships
   `DayDate`/`DayTime` canonical `INTEGER` forms plus `Iso8601`/`EpochSeconds`/`EpochMillis`
   behind its `persistence` feature.
 - **Cipher** — `.key(Secret)` (zeroed on drop, never stored by Day), `BadKey` at open,
@@ -7342,14 +7363,14 @@ $ day launch -t macos-appkit --variant dark --env DAY_THEME=dark --script dayscr
 ### B.1 ComboBox (tier 1 — Rust renderers, the pane-combobox pattern)
 
 > [!NOTE]
-> **Shipped** as `pieces/day-piece-combobox`. The `ForeignPiece` prop-bag sketch became
+> **Shipped** as `crates/day-pieces`. The `ForeignPiece` prop-bag sketch became
 > **typed props + the `renderer!` macro**. Reworked 2026-07 ([docs/combobox.md](docs/combobox.md)) from a
 > selection-only dropdown into a real combo box — free-form text plus a dropdown, the text
 > being the value — on every toolkit that has such a control (iOS and ArkUI do not; the piece
 > carries no renderer there and day renders its placeholder leaf).
 
 ```rust
-// pieces/day-piece-combobox/src/lib.rs (as shipped)
+// crates/day-pieces/src/combobox.rs (as shipped)
 pub fn combo_box(items: Signal<Vec<String>>, text: Signal<String>) -> ComboBox { … }
 
 // per-backend module, e.g. cfg(feature = "appkit"):
@@ -7370,7 +7391,7 @@ App usage: add the crate with the matching toolkit features. No edits to day.
 pub fn battery() -> BatteryHandle;             // BatteryHandle { pub level: Signal<f32>, pub charging: Signal<bool> }
 ```
 > [!NOTE]
-> **Shipped** as `parts/day-part-battery` — the first **part** ([docs/battery.md](docs/battery.md)). Per-OS Rust
+> **Shipped** as `parts/day-part-device` — the first **part** ([docs/battery.md](docs/battery.md)). Per-OS Rust
 > halves selected by `cfg(target_os)` (IOKit on Apple targets — including `macos-gtk`/`-qt`,
 > exactly the nav host case the design worried about; upower on Linux; `GetSystemPowerStatus`
 > on Windows) plus a small Java shim staged via `[package.metadata.day.android]`. No dayffi:
@@ -7437,7 +7458,7 @@ existing ordinary-document behavior; inline/resource policies are unchanged.
 ### B.6 PullRefresh (the reference CONTAINER piece — native/emulated hybrid)
 
 > [!NOTE]
-> **Shipped** as `pieces/day-piece-pullrefresh` ([docs/pullrefresh.md](docs/pullrefresh.md)): pull-to-refresh for any
+> **Shipped** as `crates/day-pieces` ([docs/pullrefresh.md](docs/pullrefresh.md)): pull-to-refresh for any
 > scrollable, and the first external piece whose native view **hosts a Day child** — proving the
 > container seam needs no framework hook (day-core mounts children by handle; the piece supplies
 > a fill layout via `cx.native` + `cx.under` — [docs/extending.md](docs/extending.md) §5). Per toolkit it is a hybrid:
@@ -7448,10 +7469,10 @@ existing ordinary-document behavior; inline/resource policies are unchanged.
 > two-way `refreshing: Signal<bool>` contract mirrors SwiftUI's `refreshable`; dayscript drives it
 > through the existing `toggle:` step (`Event::ToggleChanged` as synthetic begin/end).
 
-### B.7 Date & time pickers (the first all-seven-toolkits external piece)
+### B.7 Date & time pickers (now core controls)
 
 > [!NOTE]
-> **Shipped** as `pieces/day-piece-datetime` ([docs/datepicker.md](docs/datepicker.md)): `date_picker(Signal<DayDate>)`
+> **Shipped** as `crates/day-pieces` ([docs/datepicker.md](docs/datepicker.md)): `date_picker(Signal<DayDate>)`
 > and `time_picker(Signal<DayTime>)` — TWO pieces, because a combined date-time control exists on
 > only 3 of the 7 toolkits while separate controls are native on all of them (combined = row
 > composition). Two style intents (`Compact` = field → transient chooser, `Inline` = embedded
@@ -7459,15 +7480,14 @@ existing ordinary-document behavior; inline/resource policies are unchanged.
 > `DayActivity`'s FragmentManager, `QDateEdit`/`QCalendarWidget` (own shim), `CalendarDatePicker`/
 > `CalendarView`/`TimePicker` (own shim), the ArkUI NDK picker nodes (own shim), and a
 > GTK-composed `GtkMenuButton`+`GtkCalendar`/spin-button build (GTK4 has no stock picker —
-> `support()` reports Emulated there). The first external piece covering EVERY backend's renderer
-> slice. Values are civil/zoneless; controls are pinned to a Gregorian-UTC calendar with the
+> `support()` reports Emulated there). Originally the first external piece covering every native renderer; now a core control. Values are civil/zoneless; controls are pinned to a Gregorian-UTC calendar with the
 > user's locale, so platforms localize month names while the value never shifts by zone; dayscript
 > drives every picker via the existing `input:` step (`Event::TextChanged` with ISO text).
 
 ### B.9 Color picker (the piece that is native OR composed, per target and per call)
 
 > [!NOTE]
-> **Shipped** as `pieces/day-piece-colorpicker` ([docs/colorpicker.md](docs/colorpicker.md)):
+> **Shipped** as `crates/day-pieces` ([docs/colorpicker.md](docs/colorpicker.md)):
 > `color_picker(Signal<Color>)`, a color well bound two-way, and the first piece to ship TWO idioms
 > behind one API. `PickerIdiom::Native` realizes a leaf that six toolkits render with the system
 > chooser (`NSColorWell` → the shared `NSColorPanel`, `UIColorWell` → the iOS picker,

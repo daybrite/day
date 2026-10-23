@@ -259,7 +259,7 @@ Known gaps, in rough order of interest:
 - **Native pieces** — webview, map, lottie, combobox, searchfield and activity render their
   standard placeholder. [`day-piece-media`](/docs/reference/media) now renders a real `<video>` ([docs/media](media.md)): the browser
   supplies the transport chrome, so a URL is required (a file path cannot load) and autoplay needs
-  `.muted(true)`. [`day-piece-colorpicker`](/docs/reference/colorpicker) renders `<input type="color">`
+  `.muted(true)`. [`day-pieces`](/docs/reference/colorpicker) renders `<input type="color">`
   ([docs/colorpicker](colorpicker.md)), the browser's own picker, which on desktop is the system
   chooser; its value is 8-bit `#rrggbb`, and the `alpha` attribute is set but honored only where the
   browser has shipped it. The registry is open for the others: day-dom exposes a runtime renderer registry

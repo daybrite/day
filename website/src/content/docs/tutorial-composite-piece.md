@@ -12,7 +12,8 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
 A composite piece combines existing Day pieces into a reusable control. It is a Rust library
-crate and needs no additional native backend. This tutorial builds a star-rating control bound to
+crate and needs no additional native toolkit implementation. The `example-star-rating`
+package in this tutorial is a user-created example, not a shipped Day crate. This tutorial builds a star-rating control bound to
 a `Signal<usize>`, with configurable star count and size.
 
 ## 1. What a composite piece is (and why it needs no backend code)
@@ -25,7 +26,7 @@ Day has two kinds of pieces:
 | Per-toolkit code | one renderer per backend (Obj-C, C++, Java…) | none |
 | Cargo features | `appkit` / `gtk` / `qt` / `uikit` / `mdc` / `xaml` / `winui` | none |
 | Extra build assets | `build.rs`, shims, Gradle/SwiftPM entries | none |
-| Reference | [the native-piece tutorial](/contributing/tutorials/native-piece) · [`day-piece-searchfield`](/docs/reference/searchfield) | this tutorial · `day-piece-rating` |
+| Reference | [the native-piece tutorial](/contributing/tutorials/native-piece) · [`day-piece-texteditor`](/docs/reference/texteditor) | this tutorial · `example-star-rating` |
 
 A native piece exists to introduce a native widget Day does not already have. A star rating is a
 row of small drawings that react to taps, and Day already gives you [`row`](https://daybrite.dev/api/day_pieces/fn.row.html), [`canvas`](https://daybrite.dev/api/day_pieces/fn.canvas.html) (a native 2D
@@ -55,7 +56,7 @@ Start with the scaffolder. `day new piece` generates a ready-to-build crate (`Ca
 `.gitignore`, `README.md`, and a sample `src/lib.rs`) and a `demo/` app that shows it:
 
 ```bash
-day new piece day-piece-rating          # no --toolkits ⇒ a composite piece
+day new piece example-star-rating          # no --toolkits ⇒ a composite piece
 ```
 
 The generated crate builds immediately (`cargo build`) and depends on a remote Day release, so it
@@ -71,9 +72,9 @@ A composite piece is an ordinary library crate. It depends on three Day crates a
 platform-specific.
 
 ```toml
-# day-piece-rating/Cargo.toml
+# example-star-rating/Cargo.toml
 [package]
-name = "day-piece-rating"
+name = "example-star-rating"
 version = "0.1.0"
 edition = "2024"
 
@@ -178,7 +179,7 @@ impl Rating {
 }
 ```
 
-The shipped crate also provides [`.star_id(|n| id!(rating_star, n))`](https://daybrite.dev/api/day_piece_rating/trait.RatingBuilder.html#tymethod.star_id). It assigns each
+The example's `.star_id(|n| id!(rating_star, n))` method names each star. It assigns each
 tappable star a typed ID using its 1-based position; [`.id(id!(rating_row))`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.id) separately names
 the whole piece. A dayscript can then `tap: { id: 'rating_star:3' }`.
 The old [`.id(prefix)`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.id) string-prefix setter is no longer supported. See
@@ -301,21 +302,21 @@ tracked read in the [`canvas`](https://daybrite.dev/api/day_pieces/fn.canvas.htm
 
 ## 5. Use it in an app
 
-The app depends on `day-piece-rating` like any crate, with one line in `Cargo.toml`:
+The app depends on `example-star-rating` like any crate, with one line in `Cargo.toml`:
 
 ```toml
 # the app's Cargo.toml (the framework crates come from git until they're on crates.io —
 # `day new app` writes this form for you)
 [dependencies]
 day = { git = "https://github.com/daybrite/day.git" }
-day-piece-rating = { path = "../day-piece-rating" }   # a plain dependency, nothing else to wire
+example-star-rating = { path = "../example-star-rating" }   # a plain dependency, nothing else to wire
 ```
 
 Then use it like a built-in piece, bound to your own `Signal`:
 
 ```rust
 use day::prelude::*;
-use day_piece_rating::rating;
+use example_star_rating::rating;
 
 fn review_form() -> impl Piece {
     let stars = Signal::new(3usize);
@@ -354,12 +355,11 @@ The same approach covers most of a design system:
   ```
 
   For a one-off you do not even need the type; a plain closure is a `Modifier` via the blanket impl:
-  `my_content`[`.modifier`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.modifier)`(|c: AnyPiece| c`[`.padding`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.padding)`(16.0)`[`.corner_radius`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.corner_radius)`(12.0))`. The shipped
-  `day-piece-rating` crate includes a ready-made `Card` of exactly this shape.
+  `my_content`[`.modifier`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.modifier)`(|c: AnyPiece| c`[`.padding`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.padding)`(16.0)`[`.corner_radius`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.corner_radius)`(12.0))`.
 
 - **A badge** is [`.overlay_aligned(Alignment::TopTrailing, dot)`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.overlay_aligned), an annotation layered on top of an
-  avatar or icon without disturbing its layout size. `day-piece-rating` ships one as
-  [`badge(count, over)`](https://daybrite.dev/api/day_piece_rating/fn.badge.html).
+  avatar or icon without disturbing its layout size. Keep this helper in the app until other
+  consumers need it.
 
 - **A chip** is a labeled [`.background`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.background)`(...)`[`.corner_radius`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.corner_radius)`(...)` capsule. For a **native button**, choose
   [`.plain()`](https://daybrite.dev/api/day_pieces/trait.ButtonBuilder.html#tymethod.plain),

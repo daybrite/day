@@ -1,6 +1,6 @@
 ---
 title: "Date & time pickers"
-description: "Native date and time pickers as external pieces, with per-platform presentation notes."
+description: "Date and time controls, shared civil values, and platform presentation options."
 ---
 
 <!--
@@ -10,22 +10,16 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 # Date & time pickers
 
-Let people choose dates and times using familiar platform controls. `day-piece-datetime`
+Let people choose dates and times using familiar platform controls. `day-pieces`
 provides separate date and time pickers, each bound to app state. Place them together when a
 form needs both.
 
 ## Add to your app
 
-Defined in [`day-piece-datetime`](https://github.com/daybrite/day/tree/main/pieces/day-piece-datetime). Add this to your app’s `Cargo.toml`
-`[dependencies]` table, using the same Day Git source as the rest of your app:
-
-```toml
-[dependencies]
-day-piece-datetime = { git = "https://github.com/daybrite/day.git" }
-```
-
-`day build -t <target>` enables this direct dependency’s matching toolkit feature
-automatically. No dependency entry is needed in `Day.toml`.
+This control is included in [`day-pieces`](https://github.com/daybrite/day/tree/main/crates/day-pieces)
+and re-exported through `day::prelude::*`. No additional crate or control feature is required.
+The selected toolkit supplies its native implementation; [`day::datetime::support()`](https://daybrite.dev/api/day_pieces/datetime/fn.support.html) reports
+its availability after the Day runtime starts.
 
 | Platforms / toolkits | Availability |
 | --- | --- |
@@ -35,7 +29,7 @@ automatically. No dependency entry is needed in `Day.toml`.
 ## Authoring
 
 ```rust
-use day_piece_datetime::{DayDate, DayTime, date_picker, time_picker};
+use day::datetime::{DayDate, DayTime, date_picker, time_picker};
 
 let date = Signal::new(DayDate::new(2026, 7, 18).unwrap());
 let time = Signal::new(DayTime::new(9, 30, 0).unwrap());
@@ -54,12 +48,12 @@ The bound signal is **two-way**: a user pick writes it; the app writing it updat
 control. Values are **civil (zoneless)**: `DayDate { year, month, day }` (proleptic Gregorian,
 validated constructors, `Display`/`parse_iso` speak ISO-8601) and `DayTime { hour, minute,
 second }`. Day carries no time-zone database: an app that needs zoned instants attaches the zone
-itself ([`DayDate::today()`](https://daybrite.dev/api/day_piece_datetime/struct.DayDate.html#method.today) derives from the system clock in UTC). Interchange across native
+itself ([`DayDate::today()`](https://daybrite.dev/api/day_pieces/datetime/struct.DayDate.html#method.today) derives from the system clock in UTC). Interchange across native
 boundaries is epoch days / seconds-of-day; every renderer pins its control's calendar to
 proleptic-Gregorian UTC so the civil value never shifts by zone, while the **locale stays the
 user's**: month and weekday names render localized by the platform.
 
-[`min`](https://daybrite.dev/api/day_piece_datetime/trait.DatePickerBuilder.html#tymethod.min)/[`max`](https://daybrite.dev/api/day_piece_datetime/trait.DatePickerBuilder.html#tymethod.max) bound the date natively where the control supports it, and the piece clamps every
+[`min`](https://daybrite.dev/api/day_pieces/datetime/trait.DatePickerBuilder.html#tymethod.min)/[`max`](https://daybrite.dev/api/day_pieces/datetime/trait.DatePickerBuilder.html#tymethod.max) bound the date natively where the control supports it, and the piece clamps every
 pick regardless; an out-of-range synthetic set lands on the nearest bound.
 
 ## Styles: the shared subset
@@ -82,7 +76,7 @@ Platform guidance: [Apple: pickers](https://developer.apple.com/design/human-int
 | Target | Tier | Date: Compact | Date: Inline | Time |
 |---|---|---|---|---|
 | macos-appkit | **Native** | [`NSDatePicker`](https://developer.apple.com/documentation/appkit/nsdatepicker) textFieldAndStepper | [`NSDatePicker`](https://developer.apple.com/documentation/appkit/nsdatepicker) clockAndCalendar | same control, hour/minute[/second] elements |
-| ios-uikit | **Native** | [`UIDatePicker`](https://developer.apple.com/documentation/uikit/uidatepicker) .compact (popover) | [`.inline`](https://daybrite.dev/api/day_piece_datetime/trait.DatePickerBuilder.html#tymethod.inline) calendar | [`.compact`](https://daybrite.dev/api/day_piece_datetime/trait.DatePickerBuilder.html#tymethod.compact) keypad; Inline = `.wheels` (iOS has no inline clock) |
+| ios-uikit | **Native** | [`UIDatePicker`](https://developer.apple.com/documentation/uikit/uidatepicker) .compact (popover) | [`.inline`](https://daybrite.dev/api/day_pieces/datetime/trait.DatePickerBuilder.html#tymethod.inline) calendar | [`.compact`](https://daybrite.dev/api/day_pieces/datetime/trait.DatePickerBuilder.html#tymethod.compact) keypad; Inline = `.wheels` (iOS has no inline clock) |
 | android-mdc | **Native** | value button → [`MaterialDatePicker`](https://developer.android.com/reference/com/google/android/material/datepicker/MaterialDatePicker) dialog (via `DayActivity`'s FragmentManager) | framework [`DatePicker`](https://developer.android.com/reference/android/widget/DatePicker) calendar | button → [`MaterialTimePicker`](https://developer.android.com/reference/com/google/android/material/timepicker/MaterialTimePicker) clock dialog; Inline = framework [`TimePicker`](https://developer.android.com/reference/android/widget/TimePicker) |
 | qt | **Native** | [`QDateEdit`](https://doc.qt.io/qt-6/qdateedit.html) + calendar popup | [`QCalendarWidget`](https://doc.qt.io/qt-6/qcalendarwidget.html) | [`QTimeEdit`](https://doc.qt.io/qt-6/qtimeedit.html) (both styles; seconds via display format) |
 | xaml | **Native** | [`CalendarDatePicker`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.xaml.controls.calendardatepicker) flyout | [`CalendarView`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.xaml.controls.calendarview) | [`TimePicker`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.xaml.controls.timepicker) flyout (both styles; XAML has no inline clock) |
@@ -90,12 +84,12 @@ Platform guidance: [Apple: pickers](https://developer.apple.com/design/human-int
 | gtk | Emulated | [`GtkMenuButton`](https://docs.gtk.org/gtk4/class.MenuButton.html) (locale-formatted label) → [`GtkCalendar`](https://docs.gtk.org/gtk4/class.Calendar.html) in a [`GtkPopover`](https://docs.gtk.org/gtk4/class.Popover.html) | [`GtkCalendar`](https://docs.gtk.org/gtk4/class.Calendar.html) | linked [`GtkSpinButton`](https://docs.gtk.org/gtk4/class.SpinButton.html)s h/m[/s]; GTK4/libadwaita have no stock date/time picker, so this composes native primitives |
 | mock | Emulated | generic widget; tests drive via events | " | " |
 
-[`day_piece_datetime::support()`](https://daybrite.dev/api/day_piece_datetime/fn.support.html) reports the compiled toolkit's tier.
+[`day_pieces::datetime::support()`](https://daybrite.dev/api/day_pieces/datetime/fn.support.html) reports the active toolkit's tier.
 
 ## What the unified pieces do not promise
 
 - **Identical chrome** — Android's chooser is a modal dialog, iOS's a popover, Qt's a popup.
-- **Seconds everywhere** — [`.seconds()`](https://daybrite.dev/api/day_piece_datetime/struct.TimePicker.html#method.seconds) is honored on AppKit and Qt (the two toolkits whose
+- **Seconds everywhere** — [`.seconds()`](https://daybrite.dev/api/day_pieces/datetime/struct.TimePicker.html#method.seconds) is honored on AppKit and Qt (the two toolkits whose
   controls have a seconds field) and is a no-op elsewhere.
 - **A combined date+time single control** — compose the two pieces; a `date_time_picker`
   convenience that upgrades to the native combined control on AppKit/UIKit/Qt is a possible v2.
@@ -125,3 +119,6 @@ assert locale-independently:
   hour-cycle preference is a follow-up.
 - `DayTime`'s `Display` shows seconds exactly when nonzero (`"09:30"` / `"09:30:07"`); assert
   accordingly in scripts.
+
+The `DayDate` and `DayTime` value types are defined in `day-spec` and re-exported here.
+Headless persistence code can use them without depending on `day-pieces` or a toolkit.

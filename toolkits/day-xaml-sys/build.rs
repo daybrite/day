@@ -7,6 +7,11 @@
 //! one and add it. Everything else (um/shared/ucrt/winrt) comes from `cc`'s MSVC environment.
 
 fn main() {
+    println!("cargo:rerun-if-changed=src/shim-spinner.cpp");
+    println!("cargo:rerun-if-changed=src/shim-colorpicker.cpp");
+    println!("cargo:rerun-if-changed=src/shim-datetime.cpp");
+    println!("cargo:rerun-if-changed=src/shim-combobox.cpp");
+    println!("cargo:rerun-if-changed=src/shim-searchfield.cpp");
     // Windows-only shim: on other hosts this crate is an empty stub (see src/lib.rs).
     if std::env::var("CARGO_CFG_WINDOWS").is_err() {
         return;
@@ -34,6 +39,11 @@ fn main() {
         // Concern-specific .inc files keep that single translation unit while making the source
         // easier to navigate. Include order and C/C++ linkage remain owned by shim.cpp; register
         // each fragment in the rerun-if-changed list below so edits always rebuild the shim.
+        .file("src/shim-searchfield.cpp")
+        .file("src/shim-combobox.cpp")
+        .file("src/shim-datetime.cpp")
+        .file("src/shim-colorpicker.cpp")
+        .file("src/shim-spinner.cpp")
         .file("src/shim.cpp");
     // WinUI 3 (the `windows-winui` target): the same shim compiled against Microsoft.UI.Xaml. The
     // generated Windows App SDK projection goes AHEAD of the SDK's cppwinrt directory (it shares

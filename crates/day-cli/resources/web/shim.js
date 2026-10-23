@@ -822,6 +822,7 @@ const env = {
   },
   day_dom_remove: (child) => { const el = E(child); dropCoverStrip(el); el?.remove(); },
   day_dom_release(id) {
+    E(id)?.__datalist?.remove();
     const callbacks = releaseHooks.get(id);
     releaseHooks.delete(id);
     for (const dispose of callbacks ?? []) {
@@ -897,6 +898,26 @@ const env = {
   },
   day_dom_set_attr(id, a, al, v, vl) {
     const el = V(id); const name = str(a, al); const val = str(v, vl);
+    if (name === 'data-day-presented') {
+      el.style.visibility = val === 'true' ? 'visible' : 'hidden';
+      el.inert = val !== 'true';
+      return;
+    }
+    if (name === 'data-day-animating') {
+      el.style.animationPlayState = val === 'true' ? 'running' : 'paused';
+      return;
+    }
+    if (name === 'data-day-completions') {
+      if (!el.__datalist) {
+        const dl = document.createElement('datalist');
+        dl.id = `day-completions-${id}`;
+        el.__datalist = dl;
+        el.setAttribute('list', dl.id);
+        document.body.append(dl);
+      }
+      setSuggestions(el.__datalist, JSON.parse(val));
+      return;
+    }
     if (name === 'value') { el.value = val; return; }
     // Boolean attrs use a marker convention from the Rust side: "" removes, "-" sets.
     if (name === 'disabled' || name === 'readonly') {

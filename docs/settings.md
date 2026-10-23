@@ -150,7 +150,7 @@ row), [`.enabled(on)`](https://daybrite.dev/api/day_piece_settings/struct.Row.ht
 / [`.requires(Cap)`](https://daybrite.dev/api/day_piece_settings/struct.Row.html#method.requires).
 A long caption wraps inside the title column rather than widening it; prose that belongs to
 the whole card goes in [`Section::footer`](https://daybrite.dev/api/day_piece_settings/struct.Section.html#method.footer). A color value has no row of its own yet: wrap
-[`day-piece-colorpicker`](/docs/reference/colorpicker) in [`rows::custom`](https://daybrite.dev/api/day_piece_settings/rows/fn.custom.html) over a hex `Pref<String>`. Rows never name a
+[`day-pieces`](/docs/reference/colorpicker) in [`rows::custom`](https://daybrite.dev/api/day_piece_settings/rows/fn.custom.html) over a hex `Pref<String>`. Rows never name a
 toolkit; a different control on one platform is a [`rows::custom`](https://daybrite.dev/api/day_piece_settings/rows/fn.custom.html) with `PerTarget` inside.
 
 The row constructors live in the `rows` module and are used qualified, because several share a

@@ -12,6 +12,8 @@
 //! with its request cleared, or the last placement becomes a floor on the next measure.
 //! Native signals connect once at realize, capturing the NodeId and emitting into the Day sink.
 
+mod controls;
+
 #[cfg(windows)]
 #[path = "../../share-windows.rs"]
 mod share_windows;
@@ -4757,8 +4759,24 @@ impl Toolkit for Gtk {
         gtk4::Settings::default().is_some_and(|s| !s.is_gtk_enable_animations())
     }
 
+    fn attach_refresh(&mut self, handle: &Self::Handle, host: NodeId) {
+        controls::refresh_gesture::attach(handle, host);
+    }
+
+    fn set_presented(&mut self, handle: &Self::Handle, visible: bool) {
+        handle.set_visible(visible);
+    }
+
     fn capability(&self, cap: Cap) -> Support {
         match cap {
+            Cap::SearchField => Support::Native,
+            Cap::ComboBox => Support::Native,
+            Cap::Stepper => Support::Native,
+            Cap::DateTimePicker => Support::Emulated,
+            Cap::ColorPicker => Support::Native,
+            Cap::PullRefresh => Support::Emulated,
+            Cap::Pager => Support::Emulated,
+            Cap::PullRefreshGesture => Support::Emulated,
             // `gdk::Cursor::from_name` takes the CSS vocabulary as it is (docs/cursor.md).
             Cap::Cursor => Support::Native,
             // Opacity and transform tween on libadwaita's frame clock (`gtk_animation`); a
@@ -5672,6 +5690,9 @@ impl Toolkit for Gtk {
                 let Some(p) = props_of::<ProgressProps>(kind, "gtk", props) else {
                     return placeholder_label(kind);
                 };
+                if p.value.is_none() {
+                    return crate::controls::spinner::make(self, p, id);
+                }
                 match p.value {
                     Some(v) => {
                         let bar = gtk4::ProgressBar::new();
@@ -6850,6 +6871,12 @@ impl Toolkit for Gtk {
                 }
             }
             kinds::PROGRESS => {
+                if let Some(p @ ProgressPatch::Animating(_)) = patch.downcast_ref::<ProgressPatch>()
+                {
+                    crate::controls::spinner::update(self, h, p);
+                    return;
+                }
+
                 if let Some(ProgressPatch::Value(Some(v))) = patch.downcast_ref::<ProgressPatch>()
                     && let Some(bar) = h.downcast_ref::<gtk4::ProgressBar>()
                     && (bar.fraction() - v).abs() > 0.0001
@@ -7530,8 +7557,8 @@ impl Toolkit for Gtk {
             // The recycling list fills the space it is offered (its scroll owns overflow).
             kinds::LIST | kinds::TREE => Size::new(p.width.unwrap_or(0.0), p.height.unwrap_or(0.0)),
             kinds::PROGRESS => {
-                if h.downcast_ref::<gtk4::Spinner>().is_some() {
-                    Size::new(20.0, 20.0)
+                if let Some(side) = crate::controls::spinner::side(h) {
+                    Size::new(side, side)
                 } else {
                     let (_, nat_h, _, _) = h.measure(gtk4::Orientation::Vertical, -1);
                     Size::new(p.width.unwrap_or(180.0), (nat_h as f64).max(6.0))

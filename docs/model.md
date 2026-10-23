@@ -155,7 +155,7 @@ every two-way control takes it directly:
 let it = items().elem(id);
 text_field(it.name())                      // read AND write, no draft signal, no watch()
 toggle(it.done())
-day_piece_datetime::date_picker(it.date().map(date_of, iso_of))   // converted, still two-way
+day_pieces::datetime::date_picker(it.date().map(date_of, iso_of))   // converted, still two-way
 ```
 
 [`.map(to, from)`](https://daybrite.dev/api/day_model/struct.Field.html#method.map) converts on both sides with plain `fn`s (an ISO string as a date, `#RRGGBB` as

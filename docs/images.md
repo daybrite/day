@@ -158,44 +158,34 @@ UIKit and Android also treat the default source (`ImageSource::Named(String::new
 explicit clear when patching an existing image view. An unresolved nonempty name or a source
 the toolkit cannot decode retains the preceding image, so it is not a loading placeholder.
 
-## Reactive remote-image views
+## Reactive images with placeholders
 
-`day-piece-remote-image` provides [`remote_image(Signal<Option<Arc<Vec<u8>>>>)`](https://daybrite.dev/api/day_piece_remote_image/fn.remote_image.html) for avatars
-and downloaded image content. [`remote_image_url(url)`](https://daybrite.dev/api/day_piece_remote_image/fn.remote_image_url.html) fetches through [`day-part-http`](/docs/reference/http) and feeds
-the same view. The app does not need to decode the bytes first. Unlike the built-in [`image`](https://daybrite.dev/api/day_pieces/fn.image.html)
-replacement behavior above, `None`, an empty buffer, or invalid image bytes restores the
-placeholder color instead of keeping the preceding image.
+[`async_image`](https://daybrite.dev/api/day_pieces/async_image/fn.async_image.html) accepts a
+`Signal<Option<Arc<Vec<u8>>>>`. It uses the core decoder and canvas, with no HTTP dependency.
+`None`, a pending decode, and an invalid image show the placeholder. A new source cancels the
+previous decode and clears its picture; a disposed scope cancels the task. Completed bitmap
+handles remain alive while the drawing uses them.
 
-The native renderers cover AppKit, UIKit, GTK, Qt, Android, XAML/WinUI, and ArkUI. Day enables
-the renderer through the piece's toolkit metadata when building the app. ArkUI uses a native
-`Image` node and the Image Kit decoder, with no ArkTS component or extra permission needed for
-the bytes-only path. Network fetching still needs the app's network permission.
+```rust
+let bytes = Signal::new(None);
+async_image(bytes).circle().frame(48.0, 48.0)
+```
 
-`ContentMode::Fill` fills the bounds while preserving aspect ratio and cropping the excess;
-`Fit` preserves the entire image and shows the placeholder in the letterbox margins.
-[`.rounded(radius)`](https://daybrite.dev/api/day_piece_remote_image/trait.RemoteImageBuilder.html#tymethod.rounded) and [`.circle()`](https://daybrite.dev/api/day_piece_remote_image/trait.RemoteImageBuilder.html#tymethod.circle) clip both the image and its placeholder. A circle is
-centered with diameter `min(width, height)`, including in a non-square frame. ArkUI updates
-that clip when the native node's area changes and retains each drawable only until its source
-is replaced or its node is disposed. Decoding currently runs on the UI thread; this renderer
-does not introduce background decoding, caching, or downsampling of large source images.
+The view grows in both axes. Constrain avatars and thumbnails with [`.frame(width, height)`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.frame).
+Its default scaling is `ContentMode::Fill`; choose `Fit` to preserve the whole picture or
+`Stretch` to fill without preserving its proportions. [`.placeholder_color(color)`](https://daybrite.dev/api/day_pieces/async_image/trait.AsyncImageBuilder.html#tymethod.placeholder_color) changes
+the empty surface. [`.rounded(radius)`](https://daybrite.dev/api/day_pieces/async_image/trait.AsyncImageBuilder.html#tymethod.rounded) clips the image and placeholder to a rounded rectangle;
+[`.circle()`](https://daybrite.dev/api/day_pieces/async_image/trait.AsyncImageBuilder.html#tymethod.circle) uses a centered circle whose diameter is the shorter side, including after resize.
 
-Android keeps native outline clipping for hardware rendering and applies the same shape to
-`draw(Canvas)` when drawing into a software bitmap. Outline clipping alone does not mask
-[`window_image()`](https://daybrite.dev/api/day/fn.window_image.html) snapshots. The software path clips both the placeholder background and image,
-and is rebuilt when the view changes size.
+For a URL, enable `day`'s optional `http-image` feature and call
+[`day::http_image(url)`](https://daybrite.dev/api/day/fn.http_image.html). The helper uses the
+[HTTP service](/docs/reference/http), accepts only successful HTTP responses, and cancels the
+request when the owning scope is disposed. Transport failure leaves the placeholder.
+This is a convenience for one request, with no shared response cache or retry policy.
 
-UIKit applies a centered circular shape-layer mask and recomputes its path during layout.
-This clips the placeholder and image together, including in wide or tall frames; a corner
-radius alone would produce a capsule. Rounded rectangles retain native corner-radius clipping.
-
-WinUI constrains the image to its viewport and applies a composition clip to both the image
-and placeholder. The clip follows frame changes; clearing or invalidating the source keeps
-the placeholder and its clip intact.
-
-The piece's portable `remote-image-*` conformance cases sample captured pixels for initial
-loading, replacement, clearing, invalid data, recovery, disposal/remounting, fit/fill, and
-clipping of both images and placeholders, including after layout changes. They require a
-renderer and snapshot support, but no network connection.
+The ordinary [`image`](https://daybrite.dev/api/day_pieces/fn.image.html) API retains the
+previous picture on an invalid replacement. Choose it when that behavior fits the app; use
+`async_image` when an explicit loading or empty state is required.
 
 ## Lifetime
 

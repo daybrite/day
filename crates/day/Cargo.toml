@@ -9,6 +9,12 @@ repository.workspace = true
 license.workspace = true
 
 [features]
+fs = ["dep:day-part-fs"]
+permissions = ["dep:day-part-permissions"]
+swiftui = ["dep:day-piece-swiftui"]
+text-editor = ["dep:day-piece-texteditor"]
+settings = ["dep:day-piece-settings"]
+http-image = ["dep:day-part-http"]
 # On by default so `day::prefs` is there (docs/prefs.md). Apps that want neither the Apple
 # NSUserDefaults dependency nor the Android SharedPreferences Java shim opt out with
 # `day = { …, default-features = false }`. NOTE: `day build` passes `--no-default-features` for the
@@ -17,22 +23,22 @@ default = ["prefs"]
 prefs = ["dep:day-part-prefs"]
 # The built-in pieces' `#[day::test]` cases (docs/testing.md), for the conformance app and a
 # test flavor of an app; a shipping build leaves it off.
-conformance = ["day-pieces/conformance"]
+conformance = ["day-piece-texteditor?/conformance", "day-piece-settings?/conformance", "day-pieces/conformance"]
 # Exactly one backend feature per binary (§3.2).
-appkit = ["dep:day-appkit"]
-gtk = ["dep:day-gtk"]
-qt = ["dep:day-qt"]
-uikit = ["dep:day-uikit"]
-mdc = ["dep:day-android"]
-xaml = ["dep:day-xaml"]
+appkit = ["day-piece-swiftui?/appkit", "day-piece-texteditor?/appkit", "day-piece-settings?/appkit", "dep:day-appkit"]
+gtk = ["day-piece-texteditor?/gtk", "day-piece-settings?/gtk", "dep:day-gtk"]
+qt = ["day-piece-texteditor?/qt", "day-piece-settings?/qt", "dep:day-qt"]
+uikit = ["day-piece-swiftui?/uikit", "day-piece-texteditor?/uikit", "day-piece-settings?/uikit", "dep:day-uikit"]
+mdc = ["day-piece-texteditor?/mdc", "day-piece-settings?/mdc", "dep:day-android"]
+xaml = ["day-piece-texteditor?/xaml", "day-piece-settings?/xaml", "dep:day-xaml"]
 # WinUI 3 (the Windows App SDK) on the same backend: the xaml toolkit with its shim built
 # against Microsoft.UI.Xaml (docs/winui.md). Implies `xaml`, whose code it is.
-winui = ["xaml", "day-xaml/winui"]
-arkui = ["dep:day-arkui"]
-dom = ["dep:day-dom"]
+winui = ["day-piece-texteditor?/winui", "day-piece-settings?/winui", "xaml", "day-xaml/winui"]
+arkui = ["day-piece-texteditor?/arkui", "day-piece-settings?/arkui", "dep:day-arkui"]
+dom = ["day-piece-texteditor?/dom", "day-piece-settings?/dom", "dep:day-dom"]
 # Headless: also swaps `day::prefs` for an in-process map, so `cargo test` starts empty and never
 # touches the user's preferences.
-mock = ["dep:day-mock", "day-part-prefs?/memory"]
+mock = ["day-piece-texteditor?/mock", "day-piece-settings?/mock", "dep:day-mock", "day-part-prefs?/memory"]
 # The per-property observable store (docs/model.md): day::model plus the Observable derive in
 # the prelude. Off by default, so an app that binds plain Signals pays nothing for it. serde_json
 # backs `day::prefs::bind_json`, which keeps a small keyed store in the preferences.
@@ -42,6 +48,12 @@ model = ["dep:day-model", "day-pieces/model", "dep:serde", "dep:serde_json"]
 # (docs/persistence.md).
 
 [dependencies]
+day-part-fs = { workspace = true, optional = true }
+day-part-permissions = { workspace = true, optional = true }
+day-piece-swiftui = { workspace = true, optional = true }
+day-piece-texteditor = { workspace = true, optional = true }
+day-piece-settings = { workspace = true, optional = true }
+day-part-http = { workspace = true, optional = true }
 day-macros = { workspace = true }
 day-geometry = { workspace = true }
 day-reactive = { workspace = true }

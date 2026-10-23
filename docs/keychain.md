@@ -175,7 +175,7 @@ Platform guidance: [Apple: keychain services](https://developer.apple.com/docume
 
 ## What it shows about the extension system
 
-Like [`day-part-battery`](/docs/reference/battery) and [`day-part-haptics`](/docs/reference/haptics), this is a headless crate with no UI Piece. It
+Like [`day-part-device`](/docs/reference/battery) and [`day-part-haptics`](/docs/reference/haptics), this is a headless crate with no UI Piece. It
 exercises three of the extension mechanisms at once ([docs/extending](/contributing/backend-contracts/extending)): a daybridge Java arm for Android
 ([docs/bridge](/contributing/backend-contracts/bridge)), the **manifest-permission overlay** (`USE_BIOMETRIC` and `ACCESS_BIOMETRIC` contributed by
 the crate, the Face ID reason declared by the app), and a part depending on a part

@@ -10,6 +10,8 @@
 #![allow(unused_unsafe)]
 #![cfg(target_os = "macos")]
 
+mod controls;
+
 mod applications;
 mod nav_progress;
 
@@ -6816,8 +6818,26 @@ impl Toolkit for AppKit {
         unsafe { app.setAppearance(appearance.as_deref()) };
     }
 
+    fn attach_refresh(&mut self, handle: &Self::Handle, host: NodeId) {
+        controls::refresh_gesture::attach(handle, host);
+    }
+
+    fn set_presented(&mut self, handle: &Self::Handle, visible: bool) {
+        unsafe {
+            handle.setHidden(!visible);
+        }
+    }
+
     fn capability(&self, cap: Cap) -> Support {
         match cap {
+            Cap::SearchField => Support::Native,
+            Cap::ComboBox => Support::Native,
+            Cap::Stepper => Support::Native,
+            Cap::DateTimePicker => Support::Native,
+            Cap::ColorPicker => Support::Native,
+            Cap::PullRefresh => Support::Emulated,
+            Cap::Pager => Support::Emulated,
+            Cap::PullRefreshGesture => Support::Emulated,
             // A tracking-area owner sets an `NSCursor` per view (docs/cursor.md). Wait, progress,
             // help, and move take the arrow — AppKit draws no such shapes — and the zoom and
             // diagonal-resize cursors need macOS 15.
@@ -7112,6 +7132,9 @@ impl Toolkit for AppKit {
                 let Some(p) = props_of::<ProgressProps>(kind, "appkit", props) else {
                     return placeholder_view(mtm, kind);
                 };
+                if p.value.is_none() {
+                    return crate::controls::spinner::make(self, p, id);
+                }
                 let pi = unsafe { NSProgressIndicator::new(mtm) };
                 unsafe {
                     match p.value {
@@ -8067,6 +8090,12 @@ impl Toolkit for AppKit {
                 }
             }
             kinds::PROGRESS => {
+                if let Some(p @ ProgressPatch::Animating(_)) = patch.downcast_ref::<ProgressPatch>()
+                {
+                    crate::controls::spinner::update(self, h, p);
+                    return;
+                }
+
                 if let (Some(ProgressPatch::Value(v)), Ok(pi)) = (
                     patch.downcast_ref::<ProgressPatch>(),
                     h.clone().downcast::<NSProgressIndicator>(),
@@ -9123,7 +9152,11 @@ impl Toolkit for AppKit {
                     .map(|pi| unsafe { pi.isIndeterminate() })
                     .unwrap_or(false);
                 if indeterminate {
-                    Size::new(20.0, 20.0)
+                    let large = h
+                        .downcast_ref::<NSProgressIndicator>()
+                        .is_some_and(|pi| pi.controlSize() == objc2_app_kit::NSControlSize::Large);
+                    let side = if large { 32.0 } else { 20.0 };
+                    Size::new(side, side)
                 } else {
                     Size::new(p.width.unwrap_or(180.0), 20.0)
                 }

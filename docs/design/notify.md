@@ -484,7 +484,7 @@ day-reactive = { workspace = true }   # Signal for `pending()`/`last_action`, on
 objc2 = "0.6"
 objc2-foundation = { version = "0.3", features = ["NSObject", "NSDictionary", "NSDate"] }
 # The one framework wrapper: the delegate protocol and the content/trigger/request classes are
-# too broad to hand-roll with `msg_send!` the way day-part-battery does for UIDevice.
+# too broad to hand-roll with `msg_send!` the way day-part-device does for UIDevice.
 objc2-user-notifications = "0.3"
 
 [target.'cfg(target_os = "android")'.dependencies]

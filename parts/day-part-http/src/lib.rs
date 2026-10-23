@@ -269,7 +269,7 @@ impl Request {
 
     /// Whether the request may use "expensive" paths (cellular / personal hotspot). Default
     /// `true`. Native on Apple (`allowsExpensiveNetworkAccess`); advisory elsewhere; combine
-    /// with `day_part_network::status().expensive` for app-side policy.
+    /// with `day_part_connectivity::status().expensive` for app-side policy.
     pub fn allow_expensive(mut self, allowed: bool) -> Self {
         self.allow_expensive = allowed;
         self

@@ -63,8 +63,8 @@ empty alt text. Review keyboard use, focus visibility, and contrast when changin
 
 When prose or a table names another Day capability, crate, guide, or documented concept, link
 that reference to its relevant page. For example, write
-“Like [`day-part-battery`](/docs/reference/battery) and
-[`day-part-network`](/docs/reference/network)” rather than leaving the crate names as plain text.
+“Like [`day-part-device`](/docs/reference/battery) and
+[`day-part-connectivity`](/docs/reference/network)” rather than leaving the crate names as plain text.
 Use the guide for a capability or crate reference; use Rustdoc for an exact function, type,
 method, or variant. Keep explicit links to source files when discussing their implementation.
 

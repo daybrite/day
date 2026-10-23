@@ -23,6 +23,8 @@
 //! contract (docs/navigation.md).
 #![cfg(target_arch = "wasm32")]
 
+mod controls;
+
 mod transfer;
 
 use std::cell::{Cell, RefCell};
@@ -874,7 +876,7 @@ thread_local! {
     /// List cell element → (list host element, row index) for selection clicks.
     static CELL_ROWS: RefCell<HashMap<u32, (u32, usize)>> = RefCell::new(HashMap::new());
     /// Spinner-vs-bar per PROGRESS element (progress with `None` renders as a spinner).
-    static SPINNERS: RefCell<std::collections::HashSet<u32>> = RefCell::new(Default::default());
+    static SPINNERS: RefCell<std::collections::HashMap<u32, f64>> = RefCell::new(Default::default());
     static POSTED: RefCell<Vec<Box<dyn FnOnce() + Send>>> = RefCell::new(Vec::new());
     static DELAYED: RefCell<HashMap<u32, Box<dyn FnOnce() + Send>>> = RefCell::new(HashMap::new());
     static NEXT_DELAY: Cell<u32> = const { Cell::new(1) };
@@ -1634,6 +1636,7 @@ pub struct Dom {
 impl Dom {
     #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
+        controls::register();
         // The two launch overrides a process environment would carry (docs/accessibility.md),
         // read from the page's query string instead.
         #[cfg(target_arch = "wasm32")]
@@ -1837,8 +1840,24 @@ impl Toolkit for Dom {
         transfer::target(h.0, target);
     }
 
+    fn set_presented(&mut self, handle: &Self::Handle, visible: bool) {
+        attr(
+            handle.0,
+            "data-day-presented",
+            if visible { "true" } else { "false" },
+        );
+    }
+
     fn capability(&self, cap: Cap) -> Support {
         match cap {
+            Cap::SearchField => Support::Native,
+            Cap::ComboBox => Support::Native,
+            Cap::Stepper => Support::Emulated,
+            Cap::DateTimePicker => Support::Native,
+            Cap::ColorPicker => Support::Native,
+            Cap::PullRefresh => Support::Emulated,
+            Cap::Pager => Support::Emulated,
+            Cap::PullRefreshGesture => Support::Unsupported,
             // `requestFullscreen` on the document element. A page in an iframe without
             // `allow="fullscreen"`, and Safari on iPhone, have no element fullscreen, which
             // `document.fullscreenEnabled` says. The browser grants the request only during a
@@ -2113,7 +2132,17 @@ impl Toolkit for Dom {
                     // Which of the two this element is, is only knowable here — both render with
                     // no text, so `measure` cannot tell them apart from the DOM.
                     None => {
-                        SPINNERS.with(|s| s.borrow_mut().insert(el));
+                        SPINNERS
+                            .with(|s| s.borrow_mut().insert(el, if p.large { 48.0 } else { 22.0 }));
+                        attr(
+                            el,
+                            "data-day-animating",
+                            if p.animating { "true" } else { "false" },
+                        );
+                        if p.large {
+                            s(el, "width", "48px");
+                            s(el, "height", "48px");
+                        }
                     }
                 }
                 el
@@ -2590,6 +2619,10 @@ impl Toolkit for Dom {
                 }
             }
             kinds::PROGRESS => {
+                if let Some(ProgressPatch::Animating(on)) = patch.downcast_ref::<ProgressPatch>() {
+                    attr(el, "data-day-animating", if *on { "true" } else { "false" });
+                }
+
                 if let Some(ProgressPatch::Value(v)) = patch.downcast_ref::<ProgressPatch>()
                     && let Some(v) = v
                 {
@@ -2868,8 +2901,8 @@ impl Toolkit for Dom {
             // other aspect ratio spins as an ellipse sweeping the layout (docs/pieces.md).
             // Determinate progress is the wide, short bar.
             kinds::PROGRESS => {
-                if SPINNERS.with(|s| s.borrow().contains(&el)) {
-                    Size::new(22.0, 22.0)
+                if let Some(side) = SPINNERS.with(|s| s.borrow().get(&el).copied()) {
+                    Size::new(side, side)
                 } else {
                     Size::new(p.width.unwrap_or(160.0), 8.0)
                 }

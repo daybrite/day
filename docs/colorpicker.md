@@ -11,29 +11,23 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 # Color picker
 
-Let people choose a color for a drawing, highlight, or theme. `day-piece-colorpicker` binds the
+Let people choose a color for a drawing, highlight, or theme. `day-pieces` binds the
 selection to app state and presents a native color control where available, with a picker built
 from Day pieces on the other targets.
 
 ## Add to your app
 
-Defined in [`day-piece-colorpicker`](https://github.com/daybrite/day/tree/main/pieces/day-piece-colorpicker). Add this to your app’s `Cargo.toml`
-`[dependencies]` table, using the same Day Git source as the rest of your app:
-
-```toml
-[dependencies]
-day-piece-colorpicker = { git = "https://github.com/daybrite/day.git" }
-```
-
-`day build -t <target>` enables this direct dependency’s matching toolkit feature
-automatically. No dependency entry is needed in `Day.toml`.
+This control is included in [`day-pieces`](https://github.com/daybrite/day/tree/main/crates/day-pieces)
+and re-exported through `day::prelude::*`. No additional crate or control feature is required.
+The selected toolkit supplies its native implementation; [`day::colorpicker::support()`](https://daybrite.dev/api/day_pieces/colorpicker/fn.support.html) reports
+its availability after the Day runtime starts.
 
 | Platforms / toolkits | Availability |
 | --- | --- |
 | AppKit, UIKit, GTK, Qt, WinUI, Web | Native chooser; Windows alpha selection remains unverified. |
 | Android, ArkUI | Composed picker; HarmonyOS device behavior remains unverified. |
 
-[`color_picker(Signal<Color>)`](https://daybrite.dev/api/day_piece_colorpicker/fn.color_picker.html) is a **color well**: a swatch showing the current color that opens a
+[`color_picker(Signal<Color>)`](https://daybrite.dev/api/day_pieces/colorpicker/fn.color_picker.html) is a **color well**: a swatch showing the current color that opens a
 chooser when pressed. Both idioms give the app that same control and differ only in who draws the
 chooser behind it.
 
@@ -43,7 +37,7 @@ The UI snippets use generated `res::str` accessors from an app's Fluent catalog;
 ## Authoring
 
 ```rust
-use day_piece_colorpicker::{PickerIdiom, color_picker};
+use day::colorpicker::{PickerIdiom, color_picker};
 
 let tint = Signal::new(Color::hex(0xE86A3C));
 
@@ -70,7 +64,7 @@ The value is Day's ordinary [`Color`](color.md), so the same signal drives [`.ti
 
 - **`Native`** — realizes the piece's leaf, which six toolkits render with their own chooser. This
   is *literal*: on a toolkit with no renderer it draws Day's visible `⟨day.piece.colorpicker⟩`
-  placeholder, exactly like any other unrendered kind. Pin it only behind a [`support()`](https://daybrite.dev/api/day_piece_colorpicker/fn.support.html) check.
+  placeholder, exactly like any other unrendered kind. Pin it only behind a [`support()`](https://daybrite.dev/api/day_pieces/colorpicker/fn.support.html) check.
 - **`Composed`** — builds the picker out of ordinary Day pieces: a drawn swatch opening a
   [`cover`](cover.md) that holds a canvas saturation/brightness field, a hue strip, an opacity
   strip and a preset palette. Every part of it is Rust that already runs everywhere, so it is the
@@ -78,7 +72,7 @@ The value is Day's ordinary [`Color`](color.md), so the same signal drives [`.ti
 - **`Automatic`** (default) — `Native` where the toolkit has a chooser, `Composed` where it does
   not.
 
-[`day_piece_colorpicker::support()`](https://daybrite.dev/api/day_piece_colorpicker/fn.support.html) reports which one `Automatic` will pick. It does not report
+[`day_pieces::colorpicker::support()`](https://daybrite.dev/api/day_pieces/colorpicker/fn.support.html) reports which one `Automatic` will pick. It does not report
 whether the picker works (it works on every target), so an app showing a "not supported here"
 banner from this answer would be wrong. Use it to say *which* picker the user gets.
 
@@ -145,7 +139,7 @@ rather than the route adapter.
 
 ## Alpha
 
-[`.alpha()`](https://daybrite.dev/api/day_piece_colorpicker/trait.ColorPickerBuilder.html#tymethod.alpha) offers an opacity channel and lets the bound signal carry a non-opaque value. The
+[`.alpha()`](https://daybrite.dev/api/day_pieces/colorpicker/trait.ColorPickerBuilder.html#tymethod.alpha) offers an opacity channel and lets the bound signal carry a non-opaque value. The
 composed panel honors it everywhere. Among the native choosers there is one gap:
 `<input type="color">` gained an `alpha` attribute only recently and browsers are still shipping
 it, so the web arm sets the attribute and stays opaque where the browser has not implemented it.
@@ -153,7 +147,7 @@ There is no reliable feature test that predicts the UI (a browser can accept the
 still draw an opaque-only picker), so the arm sets it and reads whatever value comes back; an
 opaque pick arrives with `a = 1`.
 
-Without [`.alpha()`](https://daybrite.dev/api/day_piece_colorpicker/trait.ColorPickerBuilder.html#tymethod.alpha) (the default) the piece drops the alpha off any pick, so a chooser with a
+Without [`.alpha()`](https://daybrite.dev/api/day_pieces/colorpicker/trait.ColorPickerBuilder.html#tymethod.alpha) (the default) the piece drops the alpha off any pick, so a chooser with a
 stray alpha channel cannot make an app's brand color half-transparent behind its back.
 
 ## Precision
@@ -196,18 +190,18 @@ the drawn controls. They take a `tap` at a point, which is how the walkthrough p
 ## What this piece does not promise
 
 - **Identical chrome across the native idiom.** AppKit's panel is a floating inspector, iOS's a
-  sheet, GTK's a dialog, XAML's a flyout. That difference is the platform's chrome; [`.composed()`](https://daybrite.dev/api/day_piece_colorpicker/trait.ColorPickerBuilder.html#tymethod.composed) is the escape hatch when an app wants one look.
+  sheet, GTK's a dialog, XAML's a flyout. That difference is the platform's chrome; [`.composed()`](https://daybrite.dev/api/day_pieces/colorpicker/trait.ColorPickerBuilder.html#tymethod.composed) is the escape hatch when an app wants one look.
 - **An embedded/inline style.** Three of the eight toolkits have nothing to embed, and a style that
   silently degrades on most toolkits is worse than one an app can reason about. The composed panel
   covers the case an inline picker was wanted for.
 - **Palettes, recent colors, or an eyedropper of Day's own.** The native choosers each bring their
-  own; the composed panel offers [`.presets(…)`](https://daybrite.dev/api/day_piece_colorpicker/trait.ColorPickerBuilder.html#tymethod.presets) and nothing more.
+  own; the composed panel offers [`.presets(…)`](https://daybrite.dev/api/day_pieces/colorpicker/trait.ColorPickerBuilder.html#tymethod.presets) and nothing more.
 - **Anything `Color` cannot carry**, covered in [color](color.md).
 
 > [!WARNING]
 > **Windows / WinUI: alpha selection.**
 > Native alpha selection has not been validated. Test transparent color selection before
-> relying on [`.alpha()`](https://daybrite.dev/api/day_piece_colorpicker/trait.ColorPickerBuilder.html#tymethod.alpha) in a Windows app.
+> relying on [`.alpha()`](https://daybrite.dev/api/day_pieces/colorpicker/trait.ColorPickerBuilder.html#tymethod.alpha) in a Windows app.
 
 > [!WARNING]
 > **HarmonyOS / ArkUI: composed picker.**

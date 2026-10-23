@@ -22,6 +22,11 @@
 //! This is a small **string** store for user settings and lightweight app state, not a database.
 //! Keep values modest; large blobs belong in a file. See docs/prefs.md for the per-platform matrix.
 
+mod typed;
+pub use typed::{
+    MemoryStore, NativeStore, Pref, PrefValue, Store, install_store, persistence_failures,
+};
+
 /// Persist `value` under `key`, overwriting any previous value. Returns `true` when the write was
 /// committed. On Apple platforms this always succeeds; on Android it reflects
 /// `SharedPreferences.Editor.commit()`; on the file-backed platforms it reflects whether the store

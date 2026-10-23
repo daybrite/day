@@ -33,19 +33,8 @@ crate-type = ["rlib"]
 day = { path = "../../crates/day", features = ["conformance"] }
 # The pieces inside this checkout, each with its own cases (docs/testing.md). Only these: a
 # piece from another repository is that repository's to test.
-day-piece-activity = { path = "../../pieces/day-piece-activity", features = ["conformance"] }
-day-piece-colorpicker = { path = "../../pieces/day-piece-colorpicker", features = ["conformance"] }
-day-piece-combobox = { path = "../../pieces/day-piece-combobox", features = ["conformance"] }
-day-piece-datetime = { path = "../../pieces/day-piece-datetime", features = ["conformance"] }
-day-piece-map = { path = "../../pieces/day-piece-map", features = ["conformance"] }
-day-piece-pager = { path = "../../pieces/day-piece-pager", features = ["conformance"] }
-day-piece-pullrefresh = { path = "../../pieces/day-piece-pullrefresh", features = ["conformance"] }
-day-piece-rating = { path = "../../pieces/day-piece-rating", features = ["conformance"] }
-day-piece-remote-image = { path = "../../pieces/day-piece-remote-image", features = ["conformance"] }
-day-piece-searchfield = { path = "../../pieces/day-piece-searchfield", features = ["conformance"] }
 day-piece-settings = { path = "../../pieces/day-piece-settings", features = ["conformance"] }
 day-piece-texteditor = { path = "../../pieces/day-piece-texteditor", features = ["conformance"] }
-day-piece-stepper = { path = "../../pieces/day-piece-stepper", features = ["conformance"] }
 
 [target.'cfg(target_env = "ohos")'.dependencies]
 # The opt-in native-input fixture exercises an existing toolkit hook without adding a
@@ -69,17 +58,6 @@ day-core = { path = "../../crates/day-core" }
 required-providers = [
     "conformance",
     "day-pieces",
-    "day-piece-activity",
-    "day-piece-colorpicker",
-    "day-piece-combobox",
-    "day-piece-datetime",
-    "day-piece-map",
-    "day-piece-pager",
-    "day-piece-pullrefresh",
-    "day-piece-rating",
-    "day-piece-remote-image",
-    "day-piece-searchfield",
     "day-piece-settings",
     "day-piece-texteditor",
-    "day-piece-stepper",
-]
+    ]

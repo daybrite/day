@@ -207,7 +207,7 @@ styles and scale with the OS accessibility text size.
 ### External Piece (native widget from a crate; no core edits)
 
 ```rust
-use day_piece_combobox::combo_box;
+use day_pieces::combobox::combo_box;
 let items = Signal::new(vec!["a".into(), "b".into()]);
 let text = Signal::new(String::new());
 combo_box(items, text).id(id!(combo))
@@ -239,7 +239,7 @@ macos-qt, which have no AppKit view tree.
 | text input | [`text_field(sig)`](https://daybrite.dev/api/day_pieces/fn.text_field.html) · multiline: [`text_area(sig)`](https://daybrite.dev/api/day_pieces/fn.text_area.html) |
 | number input | [`slider`](https://daybrite.dev/api/day_pieces/fn.slider.html)`(sig)`[`.range`](https://daybrite.dev/api/day_pieces/trait.SliderBuilder.html#tymethod.range)`(a..=b)` |
 | boolean | [`toggle(sig)`](https://daybrite.dev/api/day_pieces/fn.toggle.html) |
-| choice | [`picker(sig, [(value, title), …])`](https://daybrite.dev/api/day_pieces/fn.picker.html) · editable: external [`combo_box(opts, text_sig)`](https://daybrite.dev/api/day_piece_combobox/fn.combo_box.html) |
+| choice | [`picker(sig, [(value, title), …])`](https://daybrite.dev/api/day_pieces/fn.picker.html) · editable: external [`combo_box(opts, text_sig)`](https://daybrite.dev/api/day_pieces/combobox/fn.combo_box.html) |
 | vertical / horizontal / z-stack | [`column((…))`](https://daybrite.dev/api/day_pieces/fn.column.html) / [`row((…))`](https://daybrite.dev/api/day_pieces/fn.row.html) / [`zstack((…))`](https://daybrite.dev/api/day_pieces/fn.zstack.html) |
 | scroll · spacer · divider | [`scroll(child)`](https://daybrite.dev/api/day_pieces/fn.scroll.html) · [`spacer()`](https://daybrite.dev/api/day_pieces/fn.spacer.html) · [`divider()`](https://daybrite.dev/api/day_pieces/fn.divider.html) |
 | conditional · list | [`when(cond, view)`](https://daybrite.dev/api/day_pieces/fn.when.html) · [`each`](https://daybrite.dev/api/day_pieces/fn.each.html)`(`[`items`](https://daybrite.dev/api/day_pieces/fn.items.html)`(data, key), row)` |

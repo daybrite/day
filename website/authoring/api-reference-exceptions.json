@@ -5,16 +5,6 @@
       "reason": "Module name, not a function."
     }
   ],
-  "docs/activity.md": [
-    {
-      "code": "start()",
-      "reason": "Native indicator start/stop calls, not Day builder methods."
-    },
-    {
-      "code": "stop()",
-      "reason": "Native indicator start/stop calls, not Day builder methods."
-    }
-  ],
   "docs/android-jni.md": [
     {
       "code": "default()",
@@ -377,10 +367,6 @@
     {
       "code": "ImageSource::Named(String::new())",
       "reason": "EncodeSpec data field, Rust standard-library operation, or arithmetic pseudocode, not a Day method."
-    },
-    {
-      "code": "min(width, height)",
-      "reason": "EncodeSpec data field, Rust standard-library operation, or arithmetic pseudocode, not a Day method."
     }
   ],
   "docs/list.md": [
@@ -699,32 +685,6 @@
     {
       "code": "Response::status",
       "reason": "Response status data field, not a method."
-    }
-  ],
-  "website/src/content/docs/tutorial-native-piece.md": [
-    {
-      "code": "AppKit::new()",
-      "reason": "Illustrative renderer/extension method or target-specific toolkit constructor; not a portable public API."
-    },
-    {
-      "code": ".method()",
-      "reason": "Illustrative renderer/extension method or target-specific toolkit constructor; not a portable public API."
-    },
-    {
-      "code": "update(backend, &Handle, &Patch)",
-      "reason": "Illustrative renderer/extension method or target-specific toolkit constructor; not a portable public API."
-    },
-    {
-      "code": "measure(backend, &Handle, Proposal) -> Size",
-      "reason": "Illustrative renderer/extension method or target-specific toolkit constructor; not a portable public API."
-    },
-    {
-      "code": "GtkSearchEntry::new()",
-      "reason": "Illustrative renderer/extension method or target-specific toolkit constructor; not a portable public API."
-    },
-    {
-      "code": "day_android::realize",
-      "reason": "Illustrative renderer/extension method or target-specific toolkit constructor; not a portable public API."
     }
   ],
   "website/src/content/docs/tutorial-part.md": [

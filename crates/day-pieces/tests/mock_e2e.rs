@@ -725,6 +725,35 @@ fn progress_tracks_signal_with_one_op_per_change() {
 }
 
 #[test]
+fn spinner_animation_binding_does_not_change_determinate_progress() {
+    let animating = Signal::new(true);
+    let probe = boot(move || column((progress(0.25).animating(animating),)).any());
+    probe.clear_log();
+    animating.set(false);
+    flush_sync();
+    assert_eq!(probe.find_by_kind("day.progress")[0].1.value, 0.25);
+    assert!(
+        probe
+            .mutations()
+            .iter()
+            .all(|m| !m.starts_with("update day.progress"))
+    );
+
+    let probe = boot(move || column((spinner().animating(animating),)).any());
+    probe.clear_log();
+    animating.set(true);
+    flush_sync();
+    assert_eq!(
+        probe
+            .mutations()
+            .iter()
+            .filter(|m| m.starts_with("update day.progress"))
+            .count(),
+        1
+    );
+}
+
+#[test]
 fn progress_clamps_out_of_range_fractions() {
     let frac = Signal::new(2.0f64); // above 1.0
     let probe = boot(move || column((progress(move || frac.get()),)).any());

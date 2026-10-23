@@ -1079,6 +1079,9 @@ pub trait TreeOps {
     fn snapshot_of(&mut self, root: RNode) -> Result<Vec<u8>, String>;
     /// Toolkit capability probe (pieces pick presentation with it, e.g. `Cap::NavSplit`).
     fn capability(&self, cap: Cap) -> Support;
+    /// Attach pull recognition to a mounted scroll view.
+    fn attach_refresh(&mut self, node: RNode, host: NodeId);
+    fn set_presented(&mut self, node: RNode, visible: bool);
     /// Does the running backend deliver this lifecycle phase (docs/lifecycle.md)?
     fn supports_lifecycle(&self, phase: day_spec::Lifecycle) -> bool;
     /// Present a native modal for request `req` (docs/dialogs.md).
@@ -1220,6 +1223,18 @@ pub trait TreeOps {
 }
 
 impl<B: Toolkit> TreeOps for Tree<B> {
+    fn set_presented(&mut self, node: RNode, visible: bool) {
+        if let Some(handle) = self.nodes.get(node).and_then(|n| n.handle.clone()) {
+            self.toolkit.set_presented(&handle, visible);
+        }
+    }
+
+    fn attach_refresh(&mut self, node: RNode, host: NodeId) {
+        if let Some(handle) = self.nodes.get(node).and_then(|n| n.handle.clone()) {
+            self.toolkit.attach_refresh(&handle, host);
+        }
+    }
+
     fn capability(&self, cap: Cap) -> Support {
         self.toolkit.capability(cap)
     }

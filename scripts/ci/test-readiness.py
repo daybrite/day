@@ -23,12 +23,14 @@ class ReadinessTests(unittest.TestCase):
         # Do not regenerate the baseline: doing so could bless an incomplete fixture whose
         # generator silently skipped the same inputs as the implementation under test.
         paths = subprocess.check_output(
-            ["git", "ls-files", "-z"], cwd=ROOT
+            ["git", "ls-files", "--cached", "--others", "--exclude-standard", "-z"], cwd=ROOT
         ).decode().split("\0")
         paths += [str(p.relative_to(ROOT)) for p in (ROOT / "scripts/ci").glob("*.sh")]
         paths += [str(p.relative_to(ROOT)) for p in (ROOT / "scripts/ci").glob("*.py")]
         paths += [".githooks/pre-commit"]
         for name in sorted(set(filter(None, paths))):
+            if not (ROOT / name).exists():
+                continue
             dest = self.root / name
             dest.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(ROOT / name, dest, follow_symlinks=False)
@@ -60,9 +62,9 @@ class ReadinessTests(unittest.TestCase):
 
     def test_piece_manifests_are_inputs_to_the_staged_coverage_check(self):
         # Removing only a manifest must change coverage even when all Rust files remain.
-        self.run_cmd("git", "rm", "--force", "pieces/day-piece-activity/Cargo.toml")
+        self.run_cmd("git", "rm", "--force", "pieces/day-piece-texteditor/Cargo.toml")
         result = self.run_cmd("bash", "scripts/ci/check-matrices.sh", "--staged", ok=False)
-        self.assertIn("day-piece-activity", result.stderr)
+        self.assertIn("day-piece-texteditor", result.stderr)
         self.run_cmd("bash", "scripts/ci/coverage-matrix.sh")
         self.run_cmd("git", "add", "docs/coverage-matrix.md")
         self.run_cmd("bash", "scripts/ci/check-matrices.sh", "--staged")

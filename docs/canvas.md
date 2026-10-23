@@ -312,7 +312,7 @@ wants. Put them on the canvas **before** any wrapping decorator, because
 [`.frame`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.frame) and [`.corner_radius`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.corner_radius) build layout nodes of their own, and a point in a wrapper's space
 is not a point in the canvas's.
 
-The reference use is [`day-piece-colorpicker`](/docs/reference/colorpicker)'s composed panel
+The reference use is [`day-pieces`](/docs/reference/colorpicker)'s composed panel
 ([docs/colorpicker](colorpicker.md)): its saturation/brightness field, hue strip and opacity
 strip are three canvases that read their value straight out of the press location.
 

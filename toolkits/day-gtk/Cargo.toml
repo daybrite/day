@@ -21,6 +21,7 @@ name = "native_focus_removal"
 harness = false # GTK must run on the process's main thread.
 
 [dependencies]
+day-reactive = { workspace = true }
 log = { workspace = true }
 day-spec = { workspace = true }
 # Tweaks (docs/tweaks.md): the ext module reads the realized tree (day-core) and

@@ -94,7 +94,7 @@ platform picks the right density at runtime the same way it does for any native 
 - **`resource/images/` is raster.** Photos and artwork belong here, with `@2x`/`@3x` density
   variants; SVG glyphs belong in `resource/vectors/` (next section), which ships them as
   vectors.
-- **Remote images** (URL-loaded, cached) are a separate [piece](/docs/reference/glossary#piece), [`day-piece-remote-image`](/docs/reference/images),
+- **Remote images** (URL-loaded, cached) are a separate [piece](/docs/reference/glossary#piece), [`day-pieces`](/docs/reference/images),
   because they involve networking and cache policy that the core leaves to the piece.
 
 ## Vector glyphs: `resource/vectors/`

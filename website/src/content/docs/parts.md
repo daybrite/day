@@ -22,15 +22,15 @@ The UI snippets use generated `res::str` accessors from an app's Fluent catalog;
 
 | Crate | What it does | Reference |
 |---|---|---|
-| [`day-part-battery`](/docs/reference/battery) | charge level and charging state | [battery](/docs/reference/battery) |
+| [`day-part-device`](/docs/reference/battery) | charge level and charging state | [battery](/docs/reference/battery) |
 | [`day-part-clipboard`](/docs/reference/clipboard) | read/write the system clipboard (text) | [clipboard](/docs/reference/clipboard) |
 | [`day-part-prefs`](/docs/reference/prefs) | small key-value preference storage in the platform's conventional location | [prefs](/docs/reference/prefs) |
 | [`day-part-fs`](/docs/reference/fs) | app-local file storage: read, write, remove, list (sync and async) | [fs](/docs/reference/fs) |
 | [`day-part-local-notify`](/docs/reference/notify) | local notifications: post now or schedule, channels, tap-to-route | [notify](/docs/reference/notify) |
 | [`day-part-keychain`](/docs/reference/keychain) | small secrets in the platform's secure store, with a user-presence level | [keychain](/docs/reference/keychain) |
 | [`day-part-biometrics`](/docs/reference/biometrics) | the platform's own authentication prompt: biometrics or the device credential | [biometrics](/docs/reference/biometrics) |
-| [`day-part-network`](/docs/reference/network) | connectivity status | [network](/docs/reference/network) |
-| [`day-part-deviceinfo`](/docs/reference/deviceinfo) | device model, OS version | [deviceinfo](/docs/reference/deviceinfo) |
+| [`day-part-connectivity`](/docs/reference/network) | connectivity status | [network](/docs/reference/network) |
+| [`day-part-device`](/docs/reference/deviceinfo) | device model, OS version | [deviceinfo](/docs/reference/deviceinfo) |
 | [`day-part-sensors`](/docs/reference/sensors) | accelerometer and friends, as a live stream | [sensors](/docs/reference/sensors) |
 | [`day-part-http`](/docs/reference/http) | HTTP through each platform's networking stack | [http](/docs/reference/http) |
 | [`day-part-permissions`](/docs/reference/permissions) | ask the OS for the camera, location, notifications … and declare them at build time | [permissions](/docs/reference/permissions) |
@@ -45,7 +45,7 @@ The UI snippets use generated `res::str` accessors from an app's Fluent catalog;
 
 | Need | Entry point and result | Constraint |
 | --- | --- | --- |
-| Current battery reading | [`day_part_battery::status() -> Option<BatteryStatus>`](https://daybrite.dev/api/day_part_battery/fn.status.html) | Absence can mean no battery/API; inspect the returned fields |
+| Current battery reading | [`day_part_device::battery::status() -> Option<BatteryStatus>`](https://daybrite.dev/api/day_part_device/battery/fn.status.html) | Absence can mean no battery/API; inspect the returned fields |
 | Small preference | [`day::prefs::get(&str) -> Option<String>`](https://daybrite.dev/api/day/prefs/fn.get.html); [`set(&str, &str) -> bool`](https://daybrite.dev/api/day_part_prefs/fn.set.html) | Synchronous; the default facade feature supplies it; false/None can include failure |
 | File data | [`day_part_fs::read_future(&str)`](https://daybrite.dev/api/day_part_fs/fn.read_future.html) | Await a result; native blocking forms must stay off the UI thread |
 | HTTP response | [`day_part_http::fetch_future(Request)`](https://daybrite.dev/api/day_part_http/fn.fetch_future.html) | Check transport errors and HTTP status separately |

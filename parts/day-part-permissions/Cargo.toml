@@ -25,7 +25,7 @@ license.workspace = true
 # Dependency budget. The Apple arm uses raw `objc2` + `block2` with `class!`/`msg_send!`
 # rather than the objc2-core-location / -av-foundation / -photos / -user-notifications /
 # -core-motion wrapper crates: this crate calls a handful of static authorization methods, and
-# day-part-network already sets the precedent of raw framework access with zero wrapper crates.
+# day-part-connectivity already sets the precedent of raw framework access with zero wrapper crates.
 # This crate depends on no other part.
 
 [dependencies]

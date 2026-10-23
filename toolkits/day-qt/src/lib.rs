@@ -5,6 +5,8 @@
 //! the day-qt-sys C++ shim. `Handle = QtHandle(*mut QWidget)`; absolute geometry; toggle is a
 //! QCheckBox (Qt Widgets has no native switch — an explicitly documented divergence).
 
+mod controls;
+
 #[cfg(windows)]
 #[path = "../../share-windows.rs"]
 mod share_windows;
@@ -2164,8 +2166,22 @@ fn qt_cursor_shape(c: &Cursor) -> c_int {
 impl Toolkit for Qt {
     type Handle = QtHandle;
 
+    fn set_presented(&mut self, handle: &Self::Handle, visible: bool) {
+        unsafe {
+            day_qt_sys::day_qt_set_visible(handle.0, visible as i32);
+        }
+    }
+
     fn capability(&self, cap: Cap) -> Support {
         match cap {
+            Cap::SearchField => Support::Native,
+            Cap::ComboBox => Support::Native,
+            Cap::Stepper => Support::Native,
+            Cap::DateTimePicker => Support::Native,
+            Cap::ColorPicker => Support::Native,
+            Cap::PullRefresh => Support::Emulated,
+            Cap::Pager => Support::Emulated,
+            Cap::PullRefreshGesture => Support::Unsupported,
             // `QWidget::setCursor` per widget; several CSS shapes take their nearest Qt shape
             // (docs/cursor.md).
             Cap::Cursor => Support::Emulated,
@@ -2700,6 +2716,9 @@ impl Toolkit for Qt {
                     let Some(p) = props_of::<ProgressProps>(kind, "qt", props) else {
                         return placeholder_handle(kind);
                     };
+                    if p.value.is_none() {
+                        return crate::controls::spinner::make(self, p, id);
+                    }
                     match p.value {
                         Some(v) => QtHandle(ffi::day_qt_progress_new(1, progress_ticks(v))),
                         None => QtHandle(ffi::day_qt_progress_new(0, 0)),
@@ -3317,6 +3336,13 @@ impl Toolkit for Qt {
                     }
                 }
                 kinds::PROGRESS => {
+                    if let Some(p @ ProgressPatch::Animating(_)) =
+                        patch.downcast_ref::<ProgressPatch>()
+                    {
+                        crate::controls::spinner::update(self, h, p);
+                        return;
+                    }
+
                     if let Some(ProgressPatch::Value(Some(v))) =
                         patch.downcast_ref::<ProgressPatch>()
                     {

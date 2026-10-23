@@ -13,6 +13,15 @@
 
 // External-piece registration surface (§8.2): the `renderer!` macro + `fill_measure`, plus the
 // re-exports the macro expands to (so a piece needs only a `day-pieces` dependency, not linkme).
+pub mod async_image;
+pub mod colorpicker;
+pub mod combobox;
+pub mod datetime;
+pub mod pager;
+pub mod pullrefresh;
+pub mod searchfield;
+pub mod stepper;
+pub use async_image::{AsyncImage, AsyncImageBuilder, async_image};
 pub mod render;
 
 // The dynamic piece registry (docs/lite.md §4 in https://github.com/daybrite/day-lite): drive
@@ -84,7 +93,30 @@ pub use day_core::{Ambient, app_environment, environment, focused_environment, w
 pub use day_core::{CanvasExports, RenderBitmap, RenderPdf, canvas_exports};
 pub use toolbar::*;
 
+pub use colorpicker::{ColorPicker, ColorPickerBuilder, PickerIdiom, color_picker};
+pub use combobox::{ComboBox, ComboBoxBuilder, combo_box};
+pub use datetime::{
+    DatePicker, DatePickerBuilder, DayDate, DayTime, TimePicker, TimePickerBuilder, date_picker,
+    time_picker,
+};
+pub use pager::{Pager, PagerState, pager};
+pub use pullrefresh::{PullRefresh, PullRefreshBuilder, pull_to_refresh};
+pub use searchfield::{SearchField, SearchFieldBuilder, search_field};
+pub use stepper::{Stepper, StepperIdiom, stepper};
+
 pub mod prelude {
+    pub use crate::colorpicker::{ColorPicker, ColorPickerBuilder, PickerIdiom, color_picker};
+    pub use crate::combobox::{ComboBox, ComboBoxBuilder, combo_box};
+    pub use crate::datetime::{
+        DatePicker, DatePickerBuilder, DayDate, DayTime, TimePicker, TimePickerBuilder,
+        date_picker, time_picker,
+    };
+    pub use crate::pager::{Pager, PagerState, pager};
+    pub use crate::pullrefresh::{PullRefresh, PullRefreshBuilder, pull_to_refresh};
+    pub use crate::searchfield::{SearchField, SearchFieldBuilder, search_field};
+    pub use crate::stepper::{Stepper, StepperIdiom, stepper};
+    pub use crate::{AsyncImage, AsyncImageBuilder, async_image};
+
     pub use crate::{DocumentTabs, TabActions, TabSet, document_tabs};
     pub use day_core::{ElementId, IntoElementKey, id};
     // Model-driven rows (docs/model.md): the store-as-RowSource surface.
@@ -98,20 +130,20 @@ pub mod prelude {
         IntoFocusBinding, IntoFraction, IntoImageSource, IntoReactive, IntoText, ItemSlot,
         LabelBuilder, Labeled, Link, List, ListItem, ListItemBuilder, Loaded, MenuContent,
         MenuEntry, Modifier, Move, NativeRef, Nav, NavContent, NavItem, NavStack, NavStyle,
-        OpenFile, Pan, PathBuilder, Pinch, Prompt, Reactive, Reorder, ReorderVerdict, Route,
-        RoutePath, RowBuilder, RowFit, SaveFile, Search, SearchReveal, Sections, ShapeKind,
-        ShapePiece, StatusItem, SwipeAction, TextBuilder, VAlign, VectorWeight, When, ZStack,
-        adaptive, alert, app_environment, app_menu, arc, button, canvas, capsule, circle, column,
-        confirm, cover, current_route, divider, dock_menu, each, ellipse, environment,
-        focused_environment, form, frame_clock, grid, grid_row, image, inspector, item, items,
-        keyed, label, labeled, line, link, list, list_item, load, menu_item, menu_role,
-        menu_separator, nav, nav_back, nav_items, nav_link, nav_link_to, nav_stack, navigate,
-        navigate_to, open_file, open_link, picker, picker_optional, polygon, progress, prompt,
-        rectangle, rounded_rectangle, route, route_param, route_params, row, save_file, scroll,
-        section, secure_field, segment, shape, shape_group, shape_group_fn, slider, spacer,
-        spinner, split, status_item, sub_menu, swipe_action, switch, text_area, text_field, toggle,
-        toolbar_button, toolbar_label, toolbar_menu, toolbar_segmented, toolbar_separator,
-        toolbar_toggle, vector, when, with_environment, zstack,
+        OpenFile, Pan, PathBuilder, Pinch, ProgressBuilder, Prompt, Reactive, Reorder,
+        ReorderVerdict, Route, RoutePath, RowBuilder, RowFit, SaveFile, Search, SearchReveal,
+        Sections, ShapeKind, ShapePiece, StatusItem, SwipeAction, TextBuilder, VAlign,
+        VectorWeight, When, ZStack, adaptive, alert, app_environment, app_menu, arc, button,
+        canvas, capsule, circle, column, confirm, cover, current_route, divider, dock_menu, each,
+        ellipse, environment, focused_environment, form, frame_clock, grid, grid_row, image,
+        inspector, item, items, keyed, label, labeled, line, link, list, list_item, load,
+        menu_item, menu_role, menu_separator, nav, nav_back, nav_items, nav_link, nav_link_to,
+        nav_stack, navigate, navigate_to, open_file, open_link, picker, picker_optional, polygon,
+        progress, prompt, rectangle, rounded_rectangle, route, route_param, route_params, row,
+        save_file, scroll, section, secure_field, segment, shape, shape_group, shape_group_fn,
+        slider, spacer, spinner, split, status_item, sub_menu, swipe_action, switch, text_area,
+        text_field, toggle, toolbar_button, toolbar_label, toolbar_menu, toolbar_segmented,
+        toolbar_separator, toolbar_toggle, vector, when, with_environment, zstack,
     };
     pub use crate::{Space, TextPreset};
     // Canvas export (docs/canvas.md "Exporting"): record a drawing once, render it to a bitmap

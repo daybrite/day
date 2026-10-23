@@ -103,7 +103,7 @@ There are four things in that table that `Color` cannot carry. Opacity is not on
 2. **The authoring model.** HSB → RGB → HSB is not the identity. Hue is undefined at zero
    saturation and at zero brightness, so a value the user reached by dragging brightness to the
    floor comes back as "black, hue 0" and the picker re-opens on red. Every real picker keeps H/S/V
-   as its own state to avoid this ([day-piece-colorpicker](colorpicker.md)'s composed panel does
+   as its own state to avoid this ([day-pieces](colorpicker.md)'s composed panel does
    exactly that, per presentation), but the *bound value* still cannot express it, so the state
    dies when the panel closes.
 3. **Dynamic system colors.** [`NSColor.controlAccentColor`](https://developer.apple.com/documentation/appkit/nscolor), `?attr/colorPrimary`, the XAML accent

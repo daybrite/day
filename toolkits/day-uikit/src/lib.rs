@@ -20,6 +20,9 @@ unsafe extern "C" {}
 pub use imp::*;
 
 #[cfg(target_os = "ios")]
+mod controls;
+
+#[cfg(target_os = "ios")]
 mod nav_progress;
 #[cfg(target_os = "ios")]
 mod picker;
@@ -10245,6 +10248,14 @@ mod imp {
         }
         fn capability(&self, cap: Cap) -> Support {
             match cap {
+            Cap::SearchField => Support::Native,
+            Cap::ComboBox => Support::Unsupported,
+            Cap::Stepper => Support::Emulated,
+            Cap::DateTimePicker => Support::Native,
+            Cap::ColorPicker => Support::Native,
+            Cap::PullRefresh => Support::Native,
+            Cap::Pager => Support::Native,
+            Cap::PullRefreshGesture => Support::Native,
                 Cap::DragDrop | Cap::DragExternalImport | Cap::DragExternalExport | Cap::DragMultipleItems => Support::Native,
                 // A UIPointerInteraction per view answers pointer EFFECTS (beam, highlight,
                 // lift, hidden) for the nearest shapes; iPadOS draws no arrows (docs/cursor.md).
@@ -11200,6 +11211,9 @@ mod imp {
                     let Some(p) = day_spec::props_of::<ProgressProps>(kind, "uikit", props) else {
                         return placeholder_view(kind);
                     };
+                    if p.value.is_none() {
+                        return crate::controls::spinner::make(self, p, id);
+                    }
                     match p.value {
                         Some(v) => {
                             let pv = unsafe { UIProgressView::new(mtm) };
@@ -11905,6 +11919,13 @@ mod imp {
                     }
                 }
                 kinds::PROGRESS => {
+                    if let Some(p @ ProgressPatch::Animating(_)) =
+                        patch.downcast_ref::<ProgressPatch>()
+                    {
+                        crate::controls::spinner::update(self, h, p);
+                        return;
+                    }
+
                     if let Some(ProgressPatch::Value(Some(val))) =
                         patch.downcast_ref::<ProgressPatch>()
                         && let Some(pv) = (**h).downcast_ref::<UIProgressView>()
@@ -12709,7 +12730,7 @@ mod imp {
                 }
                 kinds::PROGRESS => {
                     if (**h).downcast_ref::<UIActivityIndicatorView>().is_some() {
-                        Size::new(20.0, 20.0)
+                        fit(1.0e6, 1.0e6)
                     } else {
                         Size::new(p.width.unwrap_or(180.0), 4.0)
                     }

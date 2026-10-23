@@ -78,7 +78,7 @@ const PLATFORMS: &[&str] = &[
 const ARM_OPTIONS: &[&str] = &["src", "link", "pkg_config", "encoding", "support", "sdk"];
 
 /// The `cfg` predicate for one platform. `linux` and `ohos` both report `target_os = "linux"`,
-/// so they are told apart by `target_env` exactly as day-part-battery's hand-written arms do.
+/// so they are told apart by `target_env` exactly as day-part-device's hand-written arms do.
 fn cfg_for(platform: &str) -> &'static str {
     match platform {
         "ios" => "target_os = \"ios\"",

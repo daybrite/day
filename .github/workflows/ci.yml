@@ -672,9 +672,9 @@ jobs:
       # The Windows implementation of this part compiles only here, so its lint rides the winui
       # row rather than needing a Windows job of its own. (day-part-speech's C++ arm against SAPI
       # used to ride here too; it lives in its own repository now, whose CI has a Windows host leg.)
-      - name: Clippy (day-part-battery — Windows impl)
+      - name: Clippy (day-part-device — Windows impl)
         if: matrix.toolkit == 'winui'
-        run: cargo clippy --locked -p day-part-battery --all-targets
+        run: cargo clippy --locked -p day-part-device --all-targets
       # DPAPI and Windows Hello: the keychain's and the biometrics part's Windows arms likewise
       # compile only here.
       - name: Clippy (day-part-keychain, day-part-biometrics — Windows impl)

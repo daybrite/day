@@ -271,7 +271,7 @@ picker is an external `combo_box` Piece from a separate crate, with free-form te
 native dropdown, both bound to signals:
 
 ```rust
-use day_piece_combobox::combo_box;
+use day_pieces::combobox::combo_box;
 
 let flavors = Signal::new(vec!["vanilla".into(), "chocolate".into()]);
 let flavor  = Signal::new(String::new());   // the typed-or-picked text

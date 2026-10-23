@@ -38,16 +38,17 @@ rating(stars).max(5).editable(true)
 ```
 
 Most reusable UI in a Day app is this tier: cards, badges, form rows, charts drawn with
-[`canvas`](https://daybrite.dev/api/day_pieces/fn.canvas.html). The shipped [`day-piece-rating`](/contributing/tutorials/composite-piece) and [`day-piece-settings`](/docs/reference/settings) crates are composite pieces,
+[`canvas`](https://daybrite.dev/api/day_pieces/fn.canvas.html). The [composite-piece tutorial](/contributing/tutorials/composite-piece) and
+[`day-piece-settings`](/docs/reference/settings) show composition,
 and the [composite piece tutorial](/contributing/tutorials/composite-piece) provides a complete example.
 
 ## Tier 1: a native leaf widget per toolkit
 
-When the platform has a control Day doesn't wrap (a combo box, a web view, a map), you write a
+When the platform has a control Day doesn't wrap (a web view or a map), you write a
 **native piece**: one cross-platform front end plus a renderer per [toolkit](/docs/reference/glossary#toolkit) you support.
 
 The front end defines the piece's identity and its props/patch protocol, and creates a leaf node
-(abridged from `pieces/day-piece-combobox`):
+(abridged from `crates/day-pieces`):
 
 ```rust
 pub const KIND: &str = "day.piece.combobox";

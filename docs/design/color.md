@@ -18,7 +18,7 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 ## 4. Proposal
 
 > [!WARNING]
-> Everything below is a proposal. It is not implemented, and [`day-piece-colorpicker`](/docs/reference/colorpicker) binds to
+> Everything below is a proposal. It is not implemented, and [`day-pieces`](/docs/reference/colorpicker) binds to
 > today's `Color`.
 
 There are five changes, ordered by what they pay off. Each is independently landable, and only
@@ -179,6 +179,6 @@ a gradient behind anything but a canvas), it is additive rather than breaking, a
 change to the `Color` type at all.
 
 §4.1 and §4.2 have to land together, because a role in the type means nothing until backends
-resolve it. That is the larger change, and the one [day-piece-colorpicker](../colorpicker.md) would
+resolve it. That is the larger change, and the one [day-pieces](../colorpicker.md) would
 benefit from most: a picker that could offer the platform's accent color as a preset, and have
 the pick stay dynamic, is a different control from one that hands back four frozen floats.

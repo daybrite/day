@@ -54,7 +54,7 @@ device build (`<stem>-ios-uikit-unsigned.ipa`) for sideloading or your own signi
 - Declare permissions before you use them. A gated API without its `NS*UsageDescription` key
   terminates the app on first use. Day generates those keys from your `[permissions]` table, and
   `day lint` fails the build when one is missing, so the mistake surfaces in CI.
-- [`day-piece-combobox`](/docs/reference/combobox) has no UIKit arm, because iOS has no native combo-box control; it renders as
+- [`day-pieces`](/docs/reference/combobox) has no UIKit arm, because iOS has no native combo-box control; it renders as
   a placeholder. Use [`picker`](https://daybrite.dev/api/day_pieces/fn.picker.html)`()`[`.menu`](https://daybrite.dev/api/day_pieces/trait.PickerBuilder.html#tymethod.menu)`()`.
 - iOS has no persistent menu bar, so `set_app_menu` is a no-op; context menus work
   ([`UIContextMenuInteraction`](https://developer.apple.com/documentation/uikit/uicontextmenuinteraction)).
@@ -95,13 +95,12 @@ this table adds links and notes.
 | dialogs / alerts / prompts | [`UIAlertController`](https://developer.apple.com/documentation/uikit/uialertcontroller) |
 | file dialogs | [`UIDocumentPickerViewController`](https://developer.apple.com/documentation/uikit/uidocumentpickerviewcontroller) |
 | context menus | [`UIContextMenuInteraction`](https://developer.apple.com/documentation/uikit/uicontextmenuinteraction) |
-| *external* [`activity()`](https://daybrite.dev/api/day_piece_activity/fn.activity.html) | [`UIActivityIndicatorView`](https://developer.apple.com/documentation/uikit/uiactivityindicatorview) |
-| *external* [`search_field()`](https://daybrite.dev/api/day_piece_searchfield/fn.search_field.html) | [`UISearchTextField`](https://developer.apple.com/documentation/uikit/uisearchtextfield) |
-| *external* [`date_picker()`](https://daybrite.dev/api/day_piece_datetime/fn.date_picker.html) / [`time_picker()`](https://daybrite.dev/api/day_piece_datetime/fn.time_picker.html) | [`UIDatePicker`](https://developer.apple.com/documentation/uikit/uidatepicker) |
+| *external* [`spinner()`](https://daybrite.dev/api/day_pieces/fn.spinner.html) | [`UIActivityIndicatorView`](https://developer.apple.com/documentation/uikit/uiactivityindicatorview) |
+| *external* [`search_field()`](https://daybrite.dev/api/day_pieces/searchfield/fn.search_field.html) | [`UISearchTextField`](https://developer.apple.com/documentation/uikit/uisearchtextfield) |
+| *external* [`date_picker()`](https://daybrite.dev/api/day_pieces/datetime/fn.date_picker.html) / [`time_picker()`](https://daybrite.dev/api/day_pieces/datetime/fn.time_picker.html) | [`UIDatePicker`](https://developer.apple.com/documentation/uikit/uidatepicker) |
 | *external* `pull_refresh()` | [`UIRefreshControl`](https://developer.apple.com/documentation/uikit/uirefreshcontrol) |
 | *external* `webview()` | [`WKWebView`](https://developer.apple.com/documentation/webkit/wkwebview) |
 | *external* `media()` | [`AVPlayerViewController`](https://developer.apple.com/documentation/avkit/avplayerviewcontroller) |
-| *external* [`map()`](https://daybrite.dev/api/day_piece_map/fn.map.html) | [`MKMapView`](https://developer.apple.com/documentation/mapkit/mkmapview) |
 | *external* `lottie()` | `LottieAnimationView` ([lottie-ios](https://github.com/airbnb/lottie-ios), via SwiftPM) |
 
 [`toggle`](https://daybrite.dev/api/day_pieces/fn.toggle.html) is the only boolean control, radio behavior is [`picker`](https://daybrite.dev/api/day_pieces/fn.picker.html)`()`[`.inline`](https://daybrite.dev/api/day_pieces/trait.PickerBuilder.html#tymethod.inline)`()`, and [`list`](https://daybrite.dev/api/day_pieces/fn.list.html) is the only

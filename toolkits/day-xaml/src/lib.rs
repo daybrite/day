@@ -11,6 +11,8 @@
 
 #![cfg(windows)]
 
+mod controls;
+
 #[cfg(feature = "winui")]
 mod list;
 #[cfg(not(feature = "winui"))]
@@ -1288,8 +1290,22 @@ impl Toolkit for Xaml {
         transfer::target(h, target);
     }
 
+    fn set_presented(&mut self, handle: &Self::Handle, visible: bool) {
+        unsafe {
+            day_xaml_sys::day_xaml_set_visible(handle.0, visible as i32);
+        }
+    }
+
     fn capability(&self, cap: Cap) -> Support {
         match cap {
+            Cap::SearchField => Support::Native,
+            Cap::ComboBox => Support::Native,
+            Cap::Stepper => Support::Emulated,
+            Cap::DateTimePicker => Support::Native,
+            Cap::ColorPicker => Support::Native,
+            Cap::PullRefresh => Support::Emulated,
+            Cap::Pager => Support::Emulated,
+            Cap::PullRefreshGesture => Support::Unsupported,
             Cap::DragDrop
             | Cap::DragExternalImport
             | Cap::DragExternalExport
@@ -1770,6 +1786,9 @@ impl Toolkit for Xaml {
                     let Some(p) = props_of::<ProgressProps>(kind, "xaml", props) else {
                         return placeholder_handle(kind);
                     };
+                    if p.value.is_none() {
+                        return crate::controls::spinner::make(self, p, id);
+                    }
                     match p.value {
                         Some(v) => WinHandle(ffi::day_xaml_progress_new(1, progress_ticks(v))),
                         None => WinHandle(ffi::day_xaml_progress_new(0, 0)),
@@ -2004,6 +2023,13 @@ impl Toolkit for Xaml {
                     }
                 }
                 kinds::PROGRESS => {
+                    if let Some(p @ ProgressPatch::Animating(_)) =
+                        patch.downcast_ref::<ProgressPatch>()
+                    {
+                        crate::controls::spinner::update(self, h, p);
+                        return;
+                    }
+
                     if let Some(ProgressPatch::Value(Some(v))) =
                         patch.downcast_ref::<ProgressPatch>()
                     {

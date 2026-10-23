@@ -44,7 +44,7 @@ User-supplied text can be passed through directly. See the
 | Android | nothing; the platform is Java | **yes**, for every platform API |
 | Web | nothing; wasm cannot touch the DOM or browser APIs | **yes** |
 
-`parts/day-part-battery` is the reference for the negative case: five of its six arms are Rust
+`parts/day-part-device` is the reference for the negative case: five of its six arms are Rust
 because IOKit, `GetSystemPowerStatus`, sysfs, and `libohbattery_info.so` are C APIs. Writing those
 in a foreign language would add a toolchain to the build and buy nothing.
 
@@ -474,7 +474,7 @@ native methods.
 
 **A part published for other people's apps should use `java`.** It cannot know whether its
 consumers have Kotlin, and the JVM half of a bridge is a handful of static methods where the two
-languages differ little. [`day-part-battery`](/docs/reference/battery) and `day-part-speech` both do this. An app's own crate,
+languages differ little. [`day-part-device`](/docs/reference/battery) and `day-part-speech` both do this. An app's own crate,
 which controls its Gradle build, can use either.
 
 ## Linking
@@ -614,7 +614,7 @@ restamps, and the second restamps *and* drops the source mtime.
 - The `other` arm is what makes `cargo test` and day-mock work on a development host, so it is
   mandatory.
 - Each bridged crate carries a test that calls every declared function and asserts only that it
-  does not panic, the shape [`day-part-battery`](/docs/reference/battery) already uses. A crate with a `Done<T>` also
+  does not panic, the shape [`day-part-device`](/docs/reference/battery) already uses. A crate with a `Done<T>` also
   checks that the callback and the future both answer on the fallback (`day-part-speech`'s
   `the_completing_forms_always_answer`), with the ~20-line park/unpark `block_on` from
   [docs/async](async.md).
@@ -654,7 +654,7 @@ can be cut without stranding the phases before them.
 | 1 | **Skeleton** — `day-bridge` (discarding macros, `Error`, `Support`), `day-build/src/bridge.rs` scanner + Rust generator, `rust`/`other` arm only | a crate with only a fallback arm passes `cargo check` and `cargo test` on the host, under day-mock, with no foreign toolchain installed |
 | 2 | **C / C++** — `cc` from the crate's `build.rs`, `#line` mapping, `link`/`pkg_config`/`encoding` attributes | a C arm builds on macOS, Linux, and Windows in CI, and an injected syntax error names the `.rs` line |
 | 3 | **Swift** — adapters into the generated `DayPieces` module | an inline Swift arm calls AVFoundation on `macos-appkit` and `ios-uikit`; a Swift type error names the `.rs` line |
-| 4 | **Kotlin / JNI** — generated object into a Gradle `srcDir`, `RegisterNatives` in `JNI_OnLoad`, thread attach, `GlobalRef` promotion | [`day-part-battery`](/docs/reference/battery) migrates: its `DayBattery.java`, its `java = [...]` table, and its packed-`i64` protocol all deleted, emulator walkthrough green |
+| 4 | **Kotlin / JNI** — generated object into a Gradle `srcDir`, `RegisterNatives` in `JNI_OnLoad`, thread attach, `GlobalRef` promotion | [`day-part-device`](/docs/reference/battery) migrates: its `DayBattery.java`, its `java = [...]` table, and its packed-`i64` protocol all deleted, emulator walkthrough green |
 | 5 | **JavaScript** — per-crate ES module under `build/day/web/bridge/`, imported by the day-dom shim, merged into the wasm import table | headless WebKit walkthrough green; two bridge crates linked together produce no duplicate or missing import |
 | 6 | **ArkTS** — generated module with its `Index.ets`, wired through hvigor | the arm runs on the ohos leg in CI; that leg is the verification, with no local emulator run in the acceptance criteria (harmony-arkui is Tier 3, and its emulator is the least reliable part of the local loop) |
 | 7 | **`day-part-speech`** — the reference crate, six arms, plus a Day-Showcase Platform-services demo and dayscript step (cross-repo) | `speak`/`stop` work on every target that claims support, the walkthrough drives the demo on each target's CI leg, and `available()` matches the generated matrix |

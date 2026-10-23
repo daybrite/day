@@ -1175,5 +1175,11 @@
     "type": "reference",
     "audience": "contributor",
     "status": "historical scoped validation results"
+  },
+  "internal/pager": {
+    "route": "/docs/reference/pager",
+    "source": "docs/pager.md",
+    "type": "reference",
+    "audience": "app developer"
   }
 }

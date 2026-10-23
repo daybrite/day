@@ -37,8 +37,10 @@ day-macros = { workspace = true }
 # android-mdc leg failed exactly this way when SlidingPaneLayout arrived).
 [package.metadata.day.android]
 manifest-components = ["components.xml"]
-gradle-dependencies = ["androidx.slidingpanelayout:slidingpanelayout:1.2.0"]
+gradle-dependencies = ["androidx.slidingpanelayout:slidingpanelayout:1.2.0", "com.google.android.material:material:1.14.0", "androidx.swiperefreshlayout:swiperefreshlayout:1.1.0", "androidx.viewpager:viewpager:1.1.0"]
 # The toolkit's own glyph set for `Symbol` (res/drawable/day_symbol_*.xml, docs/toolbars.md):
 # a Material Symbols vector per variant, so a symbol-only toolbar item has an icon to show in
 # the app bar the way an SF Symbol gives it one on Apple.
-res = ["res"]
+res = ["res", "controls/datetime/platform/android/res"]
+
+java = ["controls/spinner/DayActivity.java", "controls/searchfield/src/DaySearch.java", "controls/combobox/src/DayCombo.java", "controls/datetime/src/DayDateTime.java", "controls/pullrefresh/src/DayPullRefresh.java", "controls/pager/src/DayPager.java"]

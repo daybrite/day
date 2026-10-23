@@ -13,67 +13,168 @@
       "name": "Core",
       "blurb": "The framework your app is built on.",
       "crates": [
-        { "pkg": "day", "features": "mock,model", "blurb": "The umbrella crate your app depends on — re-exports the core API plus one native backend." },
-        { "pkg": "day-core", "blurb": "The Piece model: the realized view tree, the mounter, the layout engine, and event routing." },
-        { "pkg": "day-reactive", "blurb": "The Copy-signal reactive core — signals, memos, and effects that keep a built-once tree live." },
-        { "pkg": "day-pieces", "features": "model", "blurb": "The built-in piece library (text, stacks, controls, list…) and the renderer! extension macro." },
-        { "pkg": "day-geometry", "blurb": "Plain Copy value types — points, sizes, rects, and affine transforms — shared across backends." },
-        { "pkg": "day-spec", "blurb": "The backend-neutral toolkit specification that pieces emit and each toolkit renders." },
-        { "pkg": "day-fluent", "blurb": "The piece-facing Project Fluent localization layer over the day-l10n engine." },
-        { "pkg": "day-l10n", "blurb": "The low-level localization engine and the built-in core string catalog." },
-        { "pkg": "day-script", "blurb": "The embedded dayscript engine that drives scripted UI walkthroughs and tests." },
-        { "pkg": "day-mock", "blurb": "The headless toolkit — a backend with no native UI, for tests and documentation." },
-        { "pkg": "day-async", "blurb": "Tasks, cancellation, blocking work, and timers." },
-        { "pkg": "day-bridge", "blurb": "Native bridge completion and stream contracts." },
-        { "pkg": "day-build", "blurb": "Build-time resources, localization, and native project generation." },
-        { "pkg": "day-model", "blurb": "Observable models and property bindings." },
-        { "pkg": "day-toolchain", "blurb": "Host toolchain and SDK discovery." },
-        { "pkg": "day-vector", "blurb": "Vector parsing, rasterization, and platform icon writers." },
-        { "pkg": "day-fonts", "blurb": "Bundled font metadata and processing." },
-        { "pkg": "day-script-proto", "blurb": "Script commands, events, and capture configuration." }
+        {
+          "pkg": "day",
+          "features": "mock,model,settings,text-editor,swiftui,http-image,fs,permissions",
+          "blurb": "The umbrella crate your app depends on \u2014 re-exports the core API plus one native backend."
+        },
+        {
+          "pkg": "day-core",
+          "blurb": "The Piece model: the realized view tree, the mounter, the layout engine, and event routing."
+        },
+        {
+          "pkg": "day-reactive",
+          "blurb": "The Copy-signal reactive core \u2014 signals, memos, and effects that keep a built-once tree live."
+        },
+        {
+          "pkg": "day-pieces",
+          "features": "model",
+          "blurb": "The built-in piece library (text, stacks, controls, list\u2026) and the renderer! extension macro."
+        },
+        {
+          "pkg": "day-geometry",
+          "blurb": "Plain Copy value types \u2014 points, sizes, rects, and affine transforms \u2014 shared across backends."
+        },
+        {
+          "pkg": "day-spec",
+          "blurb": "The backend-neutral toolkit specification that pieces emit and each toolkit renders."
+        },
+        {
+          "pkg": "day-fluent",
+          "blurb": "The piece-facing Project Fluent localization layer over the day-l10n engine."
+        },
+        {
+          "pkg": "day-l10n",
+          "blurb": "The low-level localization engine and the built-in core string catalog."
+        },
+        {
+          "pkg": "day-script",
+          "blurb": "The embedded dayscript engine that drives scripted UI walkthroughs and tests."
+        },
+        {
+          "pkg": "day-mock",
+          "blurb": "The headless toolkit \u2014 a backend with no native UI, for tests and documentation."
+        },
+        {
+          "pkg": "day-async",
+          "blurb": "Tasks, cancellation, blocking work, and timers."
+        },
+        {
+          "pkg": "day-bridge",
+          "blurb": "Native bridge completion and stream contracts."
+        },
+        {
+          "pkg": "day-build",
+          "blurb": "Build-time resources, localization, and native project generation."
+        },
+        {
+          "pkg": "day-model",
+          "blurb": "Observable models and property bindings."
+        },
+        {
+          "pkg": "day-toolchain",
+          "blurb": "Host toolchain and SDK discovery."
+        },
+        {
+          "pkg": "day-vector",
+          "blurb": "Vector parsing, rasterization, and platform icon writers."
+        },
+        {
+          "pkg": "day-fonts",
+          "blurb": "Bundled font metadata and processing."
+        },
+        {
+          "pkg": "day-script-proto",
+          "blurb": "Script commands, events, and capture configuration."
+        }
       ]
     },
     {
       "name": "Pieces",
-      "blurb": "Optional native widgets you add to an app à la carte.",
+      "blurb": "Optional native widgets you add to an app \u00e0 la carte.",
       "crates": [
-        { "pkg": "day-piece-combobox", "blurb": "An editable combo box: free text with a native dropdown of suggestions." },
-        { "pkg": "day-piece-searchfield", "blurb": "A native search input with a search glyph and a clear button." },
-        { "pkg": "day-piece-rating", "blurb": "A tappable star-rating control, composed from primitive pieces." },
-        { "pkg": "day-piece-remote-image", "blurb": "A native image view that decodes and caches an image from a URL." },
-        { "pkg": "day-piece-map", "blurb": "The platform's native map view (Apple platforms)." },
-        { "pkg": "day-piece-activity", "blurb": "The platform's native share / activity sheet." },
-        { "pkg": "day-piece-colorpicker", "blurb": "Color selection and palettes." },
-        { "pkg": "day-piece-datetime", "blurb": "Date and time pickers." },
-        { "pkg": "day-piece-pager", "blurb": "Swipeable page containers." },
-        { "pkg": "day-piece-pullrefresh", "blurb": "Pull-to-refresh containers." },
-        { "pkg": "day-piece-settings", "blurb": "Preferences, settings pages, and About panels." },
-        { "pkg": "day-piece-stepper", "blurb": "Numeric stepper controls." },
-        { "pkg": "day-piece-swiftui", "blurb": "Host custom SwiftUI views." },
-        { "pkg": "day-piece-texteditor", "blurb": "Rich-text editing and styled documents." }
+        {
+          "pkg": "day-piece-settings",
+          "blurb": "Preferences, settings pages, and About panels."
+        },
+        {
+          "pkg": "day-piece-swiftui",
+          "blurb": "Host custom SwiftUI views."
+        },
+        {
+          "pkg": "day-piece-texteditor",
+          "blurb": "Rich-text editing and styled documents."
+        }
       ]
     },
     {
       "name": "Parts",
-      "blurb": "Headless native capabilities — no UI; any Rust code can depend on them.",
+      "blurb": "Headless native capabilities \u2014 no UI; any Rust code can depend on them.",
       "crates": [
-        { "pkg": "day-part-battery", "blurb": "Battery level and charging state." },
-        { "pkg": "day-part-biometrics", "blurb": "Verify the user with the platform's biometric or device-credential prompt." },
-        { "pkg": "day-part-keychain", "blurb": "Store small secrets in the platform's secure store." },
-        { "pkg": "day-part-sensors", "blurb": "Motion sensors — accelerometer, gyroscope, and friends." },
-        { "pkg": "day-part-clipboard", "blurb": "Read and write the system plain-text clipboard." },
-        { "pkg": "day-part-network", "blurb": "Network connectivity and connection type." },
-        { "pkg": "day-part-haptics", "blurb": "Trigger native haptic feedback." },
-        { "pkg": "day-part-sound", "blurb": "Play and loop short sound clips through the native audio engine." },
-        { "pkg": "day-part-wakelock", "blurb": "Keep the screen on while something is showing." },
-        { "pkg": "day-part-prefs", "blurb": "A persistent native key/value preference store." },
-        { "pkg": "day-part-deviceinfo", "blurb": "Device identity — model, OS version, and locale." },
-        { "pkg": "day-part-downloads", "blurb": "Managed downloads and progress." },
-        { "pkg": "day-part-fs", "blurb": "Application files and streaming reads." },
-        { "pkg": "day-part-http", "blurb": "HTTP requests, streaming bodies, and WebSockets." },
-        { "pkg": "day-part-local-notify", "blurb": "Local notifications and scheduling." },
-        { "pkg": "day-part-location", "blurb": "Location updates and availability." },
-        { "pkg": "day-part-permissions", "blurb": "Permission status and requests." }
+        {
+          "pkg": "day-part-device",
+          "blurb": "Device identity and battery snapshots."
+        },
+        {
+          "pkg": "day-part-biometrics",
+          "blurb": "Verify the user with the platform's biometric or device-credential prompt."
+        },
+        {
+          "pkg": "day-part-keychain",
+          "blurb": "Store small secrets in the platform's secure store."
+        },
+        {
+          "pkg": "day-part-sensors",
+          "blurb": "Motion sensors \u2014 accelerometer, gyroscope, and friends."
+        },
+        {
+          "pkg": "day-part-clipboard",
+          "blurb": "Read and write the system plain-text clipboard."
+        },
+        {
+          "pkg": "day-part-connectivity",
+          "blurb": "Network connectivity and connection type."
+        },
+        {
+          "pkg": "day-part-haptics",
+          "blurb": "Trigger native haptic feedback."
+        },
+        {
+          "pkg": "day-part-sound",
+          "blurb": "Play and loop short sound clips through the native audio engine."
+        },
+        {
+          "pkg": "day-part-wakelock",
+          "blurb": "Keep the screen on while something is showing."
+        },
+        {
+          "pkg": "day-part-prefs",
+          "blurb": "A persistent native key/value preference store."
+        },
+        {
+          "pkg": "day-part-downloads",
+          "blurb": "Managed downloads and progress."
+        },
+        {
+          "pkg": "day-part-fs",
+          "blurb": "Application files and streaming reads."
+        },
+        {
+          "pkg": "day-part-http",
+          "blurb": "HTTP requests, streaming bodies, and WebSockets."
+        },
+        {
+          "pkg": "day-part-local-notify",
+          "blurb": "Local notifications and scheduling."
+        },
+        {
+          "pkg": "day-part-location",
+          "blurb": "Location updates and availability."
+        },
+        {
+          "pkg": "day-part-permissions",
+          "blurb": "Permission status and requests."
+        }
       ]
     }
   ]

@@ -38,28 +38,33 @@ walkthrough asserts the same facts at runtime via `assert_no_placeholders`.
 | `day.split_pane` | ✓ | · | ✓ | ✓ | · | · | · | · |
 | `day.list_item` | ✓ | ✓ | ✓ | · | · | ✓ | · | · |
 
+## Core registered controls
+
+These controls are included in day-pieces. Native arms live in each toolkit; composed
+fallbacks are reported separately by the capability table below.
+
+| control | kind(s) | appkit | uikit | gtk | qt | xaml | android | arkui | dom |
+|---|---|---|---|---|---|---|---|---|---|
+| colorpicker | `day.piece.colorpicker` | ✓ | ✓ | ✓ | ✓ | ✓ | · | · | ✓ |
+| combobox | `day.piece.combobox` | ✓ | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| datetime | `day.piece.datepicker`, `day.piece.timepicker` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| pager | `day.piece.pager` | · | ✓ | · | · | · | ✓ | ✓ | · |
+| pullrefresh | `day.piece.pullrefresh` | · | ✓ | · | · | · | ✓ | ✓ | · |
+| searchfield | `day.piece.searchfield` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| stepper | `day.piece.stepper` | ✓ | · | ✓ | ✓ | · | · | · | · |
+
 ## External pieces
 
 `✓` = the crate ships that backend's renderer arm; `·` = no arm, so the kind renders the
 placeholder. A piece may still be absent at runtime if the app does not enable its feature.
 
-A `·` is not always a gap: [`day-piece-colorpicker`](/docs/reference/colorpicker) answers android and arkui with a picker
+A missing native arm may have a composed fallback, such as the core color picker.
 COMPOSED from ordinary pieces, which by construction registers no renderer for its kind
 ([colorpicker](colorpicker.md)). This table measures arms, so it cannot see that —
 nothing derived from `realize` can.
 
 | piece | kind(s) | appkit | uikit | gtk | qt | xaml | android | arkui | dom |
 |---|---|---|---|---|---|---|---|---|---|
-| [`day-piece-activity`](/docs/reference/activity) | `day.piece.activity` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · |
-| [`day-piece-colorpicker`](/docs/reference/colorpicker) | `day.piece.colorpicker` | ✓ | ✓ | ✓ | ✓ | ✓ | · | · | ✓ |
-| [`day-piece-combobox`](/docs/reference/combobox) | `day.piece.combobox` | ✓ | · | ✓ | ✓ | ✓ | ✓ | ✓ | · |
-| [`day-piece-datetime`](/docs/reference/datepicker) | `day.piece.datepicker`, `day.piece.timepicker` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| [`day-piece-map`](/docs/reference/map) | `day.piece.map` | ✓ | ✓ | · | · | · | · | · | · |
-| `day-piece-pager` | `day.piece.pager` | · | ✓ | · | · | · | ✓ | ✓ | · |
-| [`day-piece-pullrefresh`](/docs/reference/pullrefresh) | `day.piece.pullrefresh` | · | ✓ | · | · | · | ✓ | ✓ | · |
-| [`day-piece-remote-image`](/docs/reference/images) | `day.piece.remote_image` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · |
-| [`day-piece-searchfield`](/docs/reference/searchfield) | `day.piece.searchfield` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · |
-| [`day-piece-stepper`](/docs/reference/stepper) | `day.piece.stepper` | ✓ | · | ✓ | ✓ | · | · | · | · |
 | [`day-piece-swiftui`](/docs/reference/swiftui) | `day.piece.swiftui` | ✓ | ✓ | · | · | · | · | · | · |
 | [`day-piece-texteditor`](/docs/reference/texteditor) | `day.piece.texteditor` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 
@@ -72,6 +77,14 @@ An app branches on this rather than on the target name.
 
 | cap | appkit | uikit | gtk | qt | xaml | android | arkui | dom |
 |---|---|---|---|---|---|---|---|---|
+| `SearchField` | N | N | N | N | N | N | N | N |
+| `ComboBox` | N | – | N | N | N | N | N | N |
+| `Stepper` | N | E | N | N | E | E | E | E |
+| `DateTimePicker` | N | N | E | N | N | N | N | N |
+| `ColorPicker` | N | N | N | N | N | E | E | N |
+| `PullRefresh` | E | N | E | E | E | N | N | E |
+| `Pager` | E | N | E | E | E | N | N | E |
+| `PullRefreshGesture` | E | N | E | – | – | N | N | – |
 | `DragDrop` | N | N | N | N | N | N | N | N |
 | `DragExternalImport` | N | N | N | N | N | N | N | N |
 | `DragExternalExport` | N | N | N | N | N | N | N | – |

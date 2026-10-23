@@ -227,7 +227,7 @@ a heads-up that Android ships the raster).
 
 Apple-native symbol weights (the `.symbolset` catalog staging that would enable them; staged
 weights are template-extracted everywhere today, Apple included), and the opt-in runtime
-rasterizer for downloaded SVGs ([`day-piece-remote-image`](/docs/reference/images)'s planned svg arm).
+rasterizer for downloaded SVGs ([`day-pieces`](/docs/reference/images)'s planned svg arm).
 
 ## Platform guidance
 

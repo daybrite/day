@@ -7,18 +7,7 @@
 //! resources, such as vector icons, live in this app.
 
 // Test-only providers must enter rustc's dependency graph even without an app call.
-use day_piece_activity as _;
-use day_piece_colorpicker as _;
-use day_piece_combobox as _;
-use day_piece_datetime as _;
-use day_piece_map as _;
-use day_piece_pager as _;
-use day_piece_pullrefresh as _;
-use day_piece_rating as _;
-use day_piece_remote_image as _;
-use day_piece_searchfield as _;
 use day_piece_settings as _;
-use day_piece_stepper as _;
 use day_piece_texteditor as _;
 
 use day::prelude::*;
@@ -86,7 +75,7 @@ mod tests {
         let ids = day_core::element_id::registry()
             .expect("conformance fixtures must not prevent the app's script handshake");
         assert!(ids.iter().any(|id| id.family == "canvas_image::painted"));
-        assert!(ids.iter().any(|id| id.family == "remote_image::fit"));
+        assert!(ids.iter().any(|id| id.family == "async_image::fit"));
         assert!(ids.iter().any(|id| id.family == "vector_test::fit"));
     }
 }

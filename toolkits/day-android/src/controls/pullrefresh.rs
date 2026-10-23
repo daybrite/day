@@ -1,0 +1,43 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
+// ---------------------------------------------------------------------------
+// Android: the native tier, AndroidX SwipeRefreshLayout. The Java factory
+// (`dev.daybrite.day.piece.pullrefresh.DayPullRefresh`) is bundled with this crate in
+// `src/DayPullRefresh.java` and pulled into the app's Gradle build via `[package.metadata.day.android]`,
+// which also contributes the `androidx.swiperefreshlayout` dependency. The realized node is the
+// SwipeRefreshLayout (a ViewGroup): day-core's generic `addChild` mounts the wrapped scrollable
+// directly into it, and the layout wants exactly one scrollable child, which is exactly what the
+// piece provides. Pull-begins come back through DayBridge.nativeOnEvent's open Custom-event kind
+// (12); `RefreshPatch` drives `setRefreshing`.
+// ---------------------------------------------------------------------------
+
+use day_pieces::pullrefresh::*;
+
+use crate::{AHandle, Android, java};
+use day_spec::NodeId;
+
+// This piece's Java class (src/DayPullRefresh.java, on the app classpath at build).
+crate::java_class! {
+    DayPullRefresh => dev.daybrite.day.piece.pullrefresh.DayPullRefresh,
+    methods {
+        static fn makePullRefresh(id: jlong, refreshing: jboolean) -> android.view.View,
+        static fn refreshCommand(view: android.view.View, on: jboolean),
+    },
+}
+
+fn make(_backend: &mut Android, p: &RefreshProps, id: NodeId) -> AHandle {
+    let refreshing = p.refreshing;
+    crate::realize("pull_refresh", |env| {
+        DayPullRefresh::makePullRefresh(env, id.0 as i64, refreshing)
+    })
+}
+
+fn update(_backend: &mut Android, h: &AHandle, patch: &RefreshPatch) {
+    let RefreshPatch::SetRefreshing(on) = patch;
+    java(|env| DayPullRefresh::refreshCommand(env, h.0.as_obj(), *on));
+}
+
+day_pieces::renderer!(crate::RENDERERS, Android,
+    kind: KIND, props: RefreshProps, patch: RefreshPatch,
+    make: make, update: update, measure: day_pieces::fill_measure);

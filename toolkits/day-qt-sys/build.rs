@@ -22,6 +22,12 @@ fn pkg_config(args: &[&str]) -> String {
 }
 
 fn main() {
+    println!("cargo:rerun-if-changed=src/shim-spinner.cpp");
+    println!("cargo:rerun-if-changed=src/shim-colorpicker.cpp");
+    println!("cargo:rerun-if-changed=src/shim-datetime.cpp");
+    println!("cargo:rerun-if-changed=src/shim-stepper.cpp");
+    println!("cargo:rerun-if-changed=src/shim-combobox.cpp");
+    println!("cargo:rerun-if-changed=src/shim-searchfield.cpp");
     if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("macos") {
         println!("cargo:rustc-link-lib=framework=CoreServices");
     }
@@ -32,6 +38,12 @@ fn main() {
     build
         .cpp(true)
         .std("c++17")
+        .file("src/shim-searchfield.cpp")
+        .file("src/shim-combobox.cpp")
+        .file("src/shim-stepper.cpp")
+        .file("src/shim-datetime.cpp")
+        .file("src/shim-colorpicker.cpp")
+        .file("src/shim-spinner.cpp")
         .file("src/shim.cpp")
         // Built-in leaf shims moved in from their satellite crates (2026-07).
         .file("src/shim-picker.cpp")

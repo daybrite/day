@@ -101,7 +101,7 @@ will resolve from a different directory in the staged project.
   `TEXT_INPUT`, `TOGGLE`, `SLIDER`), children get an explicit position + size in **vp** (≈ Day
   points), and events (click / text / toggle / slider) come back through `on_event`. A standalone
   piece drives its own node through `day_arkui::node` and the raw `day_arkui::arkui_sys` bindings
-  ([day-piece-datetime](/docs/reference/datepicker), [day-piece-pullrefresh](/docs/reference/pullrefresh), day-tweak-slider-tickmarks): no C++ of its own.
+  ([day-pieces](/docs/reference/datepicker), [day-pieces](/docs/reference/pullrefresh), day-tweak-slider-tickmarks): no C++ of its own.
 - **`day::day_start_arkui!(root)`**: exports `day_arkui_start`, the symbol the shim's NAPI `start` calls;
   it mounts the app's root piece and runs the loop (`day::arkui::start` → [`launch_with`](https://daybrite.dev/api/day_core/fn.launch_with.html)). Apps
   reach it through `day::day_start!("App Name", root)`, which expands to this macro and to every
@@ -430,11 +430,11 @@ on the Oniro emulator:
 - **Canvas images** — `DrawOp::Image` draws the decoded pixelmap with
   `OH_Drawing_CanvasDrawPixelMapRect`, preceded by a fully transparent rect: a custom node's
   recording whose only content is pixel map draws renders nothing.
-- **Remote images** — [`day-piece-remote-image`](/docs/reference/images) has a native Image-node renderer, automatically
+- **Remote images** — [`day-pieces`](/docs/reference/images) has a native Image-node renderer, automatically
   enabled by its `arkui` feature metadata. Reactive PNG/JPEG bytes replace the displayed image;
   absent, empty, or invalid bytes restore the placeholder. Fit/fill scaling and rounded or
   centered circular clipping apply to both content and placeholder. Drawables are retained
-  until replacement or node disposal. See [images](images.md#reactive-remote-image-views)
+  until replacement or node disposal. See [images](images.md#reactive-images-with-placeholders)
   for behavior, conformance coverage, and decoding limits.
 - **Fullscreen cover** ([docs/cover](cover.md)) — `Cap::Cover` answers `Emulated`: the cover node is
   re-homed onto the window root at full bounds (no transition, no gesture dismissal).

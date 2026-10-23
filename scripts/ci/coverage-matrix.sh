@@ -89,14 +89,14 @@ kinds = [(variant, key) for variant, _const, key in kinds if variant != "ListCel
 
 # ---- external pieces ----------------------------------------------------------------------
 # A piece implements a backend when it ships that backend's arm file. An empty feature (e.g.
-# day-piece-map's `qt = []`) exists so an app can enable it uniformly, but registers no renderer.
+# a package's `qt = []`) exists so an app can enable it uniformly, but registers no renderer.
 pieces = []
 for crate in sorted(Path("pieces").iterdir()):
     src = crate / "src"
     if not (crate / "Cargo.toml").exists() or not src.is_dir():
         continue
     # Kind constants are conventionally `KIND`, but a multi-kind piece names them per kind
-    # (day-piece-datetime: DATE_KIND / TIME_KIND), so match any const whose value is a kind.
+    # (date and time pickers: DATE_KIND / TIME_KIND), so match any const whose value is a kind.
     kind_consts = re.findall(
         r'pub const \w*KIND\w*: &str = "([^"]+)"', (src / "lib.rs").read_text()
     )
@@ -157,6 +157,19 @@ for variant, kind in kinds:
         row.append("✓" if arm.search(realize_bodies[n]) else "·")
     out.append("| " + " | ".join(row) + " |")
 
+out += ["", "## Core registered controls", "",
+    "These controls are included in day-pieces. Native arms live in each toolkit; composed",
+    "fallbacks are reported separately by the capability table below.", "",
+    "| control | kind(s) | " + " | ".join(names) + " |",
+    "|---|---|" + "---|" * len(names)]
+for protocol in sorted(Path("crates/day-spec/src/controls").glob("*.rs")):
+    keys = re.findall(r'pub const \w*KIND\w*: &str = "([^"]+)"', protocol.read_text())
+    if not keys:
+        continue
+    row = [protocol.stem, ", ".join(f"`{key}`" for key in keys)]
+    row += ["✓" if Path(f"toolkits/day-{n}/src/controls/{protocol.stem}.rs").exists() else "·" for n in names]
+    out.append("| " + " | ".join(row) + " |")
+
 out += [
     "",
     "## External pieces",
@@ -164,7 +177,7 @@ out += [
     "`✓` = the crate ships that backend's renderer arm; `·` = no arm, so the kind renders the",
     "placeholder. A piece may still be absent at runtime if the app does not enable its feature.",
     "",
-    f"A `·` is not always a gap: {crate_link('day-piece-colorpicker')} answers android and arkui with a picker",
+    "A missing native arm may have a composed fallback, such as the core color picker.",
     "COMPOSED from ordinary pieces, which by construction registers no renderer for its kind",
     "([colorpicker](colorpicker.md)). This table measures arms, so it cannot see that —",
     "nothing derived from `realize` can.",

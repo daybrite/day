@@ -37,17 +37,15 @@ members = [
     "toolkits/day-xaml-sys",
     "toolkits/day-arkui",
     "toolkits/day-dom",
-    "pieces/day-piece-combobox",
     "pieces/day-piece-swiftui",
-    "parts/day-part-battery",
+    "parts/day-part-device",
     "parts/day-part-sensors",
     "parts/day-part-clipboard",
-    "parts/day-part-network",
+    "parts/day-part-connectivity",
     "parts/day-part-haptics",
     "parts/day-part-sound",
     "parts/day-part-wakelock",
     "parts/day-part-prefs",
-    "parts/day-part-deviceinfo",
     "parts/day-part-fs",
     "parts/day-part-http",
     "parts/day-part-downloads",
@@ -56,16 +54,6 @@ members = [
     "parts/day-part-local-notify",
     "parts/day-part-biometrics",
     "parts/day-part-keychain",
-    "pieces/day-piece-activity",
-    "pieces/day-piece-searchfield",
-    "pieces/day-piece-map",
-    "pieces/day-piece-remote-image",
-    "pieces/day-piece-rating",
-    "pieces/day-piece-pullrefresh",
-    "pieces/day-piece-pager",
-    "pieces/day-piece-datetime",
-    "pieces/day-piece-colorpicker",
-    "pieces/day-piece-stepper",
     "pieces/day-piece-texteditor",
     "pieces/day-piece-settings",
     "tweaks/day-tweak-button-bezel",
@@ -133,16 +121,14 @@ day-model = { path = "crates/day-model" }
 day-macros = { path = "crates/day-macros" }
 # Persistence is maintained separately: https://github.com/daybrite/day-persistence.
 day = { path = "crates/day" }
-day-piece-combobox = { path = "pieces/day-piece-combobox" }
-day-part-battery = { path = "parts/day-part-battery" }
+day-part-device = { path = "parts/day-part-device" }
 day-part-sensors = { path = "parts/day-part-sensors" }
 day-part-clipboard = { path = "parts/day-part-clipboard" }
-day-part-network = { path = "parts/day-part-network" }
+day-part-connectivity = { path = "parts/day-part-connectivity" }
 day-part-haptics = { path = "parts/day-part-haptics" }
 day-part-sound = { path = "parts/day-part-sound" }
 day-part-wakelock = { path = "parts/day-part-wakelock" }
 day-part-prefs ={ path = "parts/day-part-prefs" }
-day-part-deviceinfo = { path = "parts/day-part-deviceinfo" }
 day-part-http = { path = "parts/day-part-http" }
 day-part-downloads = { path = "parts/day-part-downloads" }
 day-part-permissions = { path = "parts/day-part-permissions" }
@@ -151,16 +137,8 @@ day-part-local-notify = { path = "parts/day-part-local-notify" }
 day-part-fs = { path = "parts/day-part-fs" }
 day-part-biometrics = { path = "parts/day-part-biometrics" }
 day-part-keychain = { path = "parts/day-part-keychain" }
-day-piece-activity = { path = "pieces/day-piece-activity" }
-day-piece-searchfield = { path = "pieces/day-piece-searchfield" }
-day-piece-map = { path = "pieces/day-piece-map" }
-day-piece-remote-image = { path = "pieces/day-piece-remote-image" }
-day-piece-rating = { path = "pieces/day-piece-rating" }
+day-piece-swiftui = { path = "pieces/day-piece-swiftui" }
 day-piece-settings = { path = "pieces/day-piece-settings" }
-day-piece-pullrefresh = { path = "pieces/day-piece-pullrefresh" }
-day-piece-datetime = { path = "pieces/day-piece-datetime" }
-day-piece-colorpicker = { path = "pieces/day-piece-colorpicker" }
-day-piece-stepper = { path = "pieces/day-piece-stepper" }
 day-piece-texteditor = { path = "pieces/day-piece-texteditor" }
 # Tweaks (docs/tweaks.md): packaged per-backend configuration of built-in pieces.
 day-tweak-button-bezel = { path = "tweaks/day-tweak-button-bezel" }

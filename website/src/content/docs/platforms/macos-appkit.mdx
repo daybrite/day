@@ -95,13 +95,12 @@ Pieces marked *external* live in separate crates and are only present when you d
 | dialogs / alerts / prompts | [`NSAlert`](https://developer.apple.com/documentation/appkit/nsalert) (window-modal sheet) |
 | file dialogs | [`NSOpenPanel`](https://developer.apple.com/documentation/appkit/nsopenpanel) / [`NSSavePanel`](https://developer.apple.com/documentation/appkit/nssavepanel) |
 | menu bar & context menus | [`NSMenu`](https://developer.apple.com/documentation/appkit/nsmenu) |
-| *external* [`activity()`](https://daybrite.dev/api/day_piece_activity/fn.activity.html) | [`NSProgressIndicator`](https://developer.apple.com/documentation/appkit/nsprogressindicator) |
+| *external* [`spinner()`](https://daybrite.dev/api/day_pieces/fn.spinner.html) | [`NSProgressIndicator`](https://developer.apple.com/documentation/appkit/nsprogressindicator) |
 | *external* `combobox()` | [`NSComboBox`](https://developer.apple.com/documentation/appkit/nscombobox) |
-| *external* [`search_field()`](https://daybrite.dev/api/day_piece_searchfield/fn.search_field.html) | [`NSSearchField`](https://developer.apple.com/documentation/appkit/nssearchfield) |
-| *external* [`date_picker()`](https://daybrite.dev/api/day_piece_datetime/fn.date_picker.html) / [`time_picker()`](https://daybrite.dev/api/day_piece_datetime/fn.time_picker.html) | [`NSDatePicker`](https://developer.apple.com/documentation/appkit/nsdatepicker) |
+| *external* [`search_field()`](https://daybrite.dev/api/day_pieces/searchfield/fn.search_field.html) | [`NSSearchField`](https://developer.apple.com/documentation/appkit/nssearchfield) |
+| *external* [`date_picker()`](https://daybrite.dev/api/day_pieces/datetime/fn.date_picker.html) / [`time_picker()`](https://daybrite.dev/api/day_pieces/datetime/fn.time_picker.html) | [`NSDatePicker`](https://developer.apple.com/documentation/appkit/nsdatepicker) |
 | *external* `webview()` | [`WKWebView`](https://developer.apple.com/documentation/webkit/wkwebview) |
 | *external* `media()` | [`AVPlayerView`](https://developer.apple.com/documentation/avkit/avplayerview) |
-| *external* [`map()`](https://daybrite.dev/api/day_piece_map/fn.map.html) | [`MKMapView`](https://developer.apple.com/documentation/mapkit/mkmapview) |
 
 [`toggle`](https://daybrite.dev/api/day_pieces/fn.toggle.html) is the only boolean control, radio behavior is [`picker`](https://daybrite.dev/api/day_pieces/fn.picker.html)`()`[`.inline`](https://daybrite.dev/api/day_pieces/trait.PickerBuilder.html#tymethod.inline)`()`, and [`list`](https://daybrite.dev/api/day_pieces/fn.list.html) is the only
 collection; there is no checkbox, stepper, or table piece. See [pieces](/docs/explanation/pieces) for the full

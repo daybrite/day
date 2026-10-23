@@ -10,21 +10,15 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 # Pull-to-refresh
 
-Let people pull down on scrollable content to reload it. `day-piece-pullrefresh` wraps that
+Let people pull down on scrollable content to reload it. `day-pieces` wraps that
 content, starts the app’s refresh action, and displays the refreshing state until the work ends.
 
 ## Add to your app
 
-Defined in [`day-piece-pullrefresh`](https://github.com/daybrite/day/tree/main/pieces/day-piece-pullrefresh). Add this to your app’s `Cargo.toml`
-`[dependencies]` table, using the same Day Git source as the rest of your app:
-
-```toml
-[dependencies]
-day-piece-pullrefresh = { git = "https://github.com/daybrite/day.git" }
-```
-
-`day build -t <target>` enables this direct dependency’s matching toolkit feature
-automatically. No dependency entry is needed in `Day.toml`.
+This control is included in [`day-pieces`](https://github.com/daybrite/day/tree/main/crates/day-pieces)
+and re-exported through `day::prelude::*`. No additional crate or control feature is required.
+The selected toolkit supplies its native implementation; [`day::pullrefresh::support()`](https://daybrite.dev/api/day_pieces/pullrefresh/fn.support.html) reports
+its availability after the Day runtime starts.
 
 | Platforms / toolkits | Availability |
 | --- | --- |
@@ -35,7 +29,7 @@ automatically. No dependency entry is needed in `Day.toml`.
 ## Authoring
 
 ```rust
-use day_piece_pullrefresh::pull_to_refresh;
+use day::pullrefresh::pull_to_refresh;
 
 let refreshing = Signal::new(false);
 
@@ -56,14 +50,16 @@ pull_to_refresh(refreshing, scroll(rows)).id(id!(feed_refresh))   // or list(ite
 The bound `refreshing: Signal<bool>` is **two-way** (the same contract as [`UIRefreshControl`](https://developer.apple.com/documentation/uikit/uirefreshcontrol),
 [`SwipeRefreshLayout.setRefreshing`](https://developer.android.com/reference/androidx/swiperefreshlayout/widget/SwipeRefreshLayout), and ArkUI `Refresh`):
 
-- a **user pull** sets it `true` (and runs the optional [`.on_refresh(f)`](https://daybrite.dev/api/day_piece_pullrefresh/trait.PullRefreshBuilder.html#tymethod.on_refresh) sugar);
+- a **user pull** sets it `true` (and runs the optional [`.on_refresh(f)`](https://daybrite.dev/api/day_pieces/pullrefresh/trait.PullRefreshBuilder.html#tymethod.on_refresh) sugar);
 - the app sets it **`false`** when the reload completes (from a thread via [`Signal::setter`](https://daybrite.dev/api/day_reactive/struct.Signal.html#method.setter), or
   inside [`day::task`](https://daybrite.dev/api/day/fn.task.html));
 - the app may set it **`true`** to begin a refresh programmatically (a toolbar button, ⌘R, …).
 
-Prefer the [`watch`](https://daybrite.dev/api/day_reactive/fn.watch.html)-on-the-signal idiom above over [`.on_refresh`](https://daybrite.dev/api/day_piece_pullrefresh/trait.PullRefreshBuilder.html#tymethod.on_refresh) when a programmatic path exists;
-it makes every begin take the same route. [`day_piece_pullrefresh::support()`](https://daybrite.dev/api/day_piece_pullrefresh/fn.support.html) reports the compiled
-toolkit's tier (`Native` / `Emulated`).
+Prefer the [`watch`](https://daybrite.dev/api/day_reactive/fn.watch.html)-on-the-signal idiom above over [`.on_refresh`](https://daybrite.dev/api/day_pieces/pullrefresh/trait.PullRefreshBuilder.html#tymethod.on_refresh) when a programmatic path exists;
+it makes every begin take the same route. [`day_pieces::pullrefresh::support()`](https://daybrite.dev/api/day_pieces/pullrefresh/fn.support.html) reports the active
+toolkit's indicator tier (`Native` / `Emulated`).
+[`day::pullrefresh::gesture_support()`](https://daybrite.dev/api/day_pieces/pullrefresh/fn.gesture_support.html) separately reports whether a user pull can start a refresh.
+A composed indicator alone does not imply gesture support.
 
 ## Scripting
 
@@ -82,8 +78,8 @@ Platform guidance: [Android: swipe-to-refresh](https://developer.android.com/dev
 | Target | Tier | Mechanism |
 |---|---|---|
 | ios-uikit | **Native** | A passthrough host view attaches a [`UIRefreshControl`](https://developer.apple.com/documentation/uikit/uirefreshcontrol) to the descendant [`UIScrollView`](https://developer.apple.com/documentation/uikit/uiscrollview) when day mounts it (`didAddSubview:`, which covers [`list()`](https://daybrite.dev/api/day_pieces/fn.list.html), since a [`UITableView`](https://developer.apple.com/documentation/uikit/uitableview) is a [`UIScrollView`](https://developer.apple.com/documentation/uikit/uiscrollview)). |
-| android-mdc | **Native** | This crate's `DayPullRefresh extends SwipeRefreshLayout` (AndroidX, added to Gradle via `[package.metadata.day.android]`); the scrollable mounts directly into it. |
-| harmony-arkui | **Native** | [`ARKUI_NODE_REFRESH`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-arkui/capi-native-node-h.md) created by this crate's own NDK shim; pull events via `NODE_REFRESH_ON_REFRESH`, indicator via `NODE_REFRESH_REFRESHING`. |
+| android-mdc | **Native** | The Android toolkit's `DayPullRefresh extends SwipeRefreshLayout` (AndroidX, added to Gradle via `[package.metadata.day.android]`); the scrollable mounts directly into it. |
+| harmony-arkui | **Native** | [`ARKUI_NODE_REFRESH`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-arkui/capi-native-node-h.md) created by the toolkit's own NDK shim; pull events via `NODE_REFRESH_ON_REFRESH`, indicator via `NODE_REFRESH_REFRESHING`. |
 | macos-appkit | Emulated | Spinner-chip overlay + the pull gesture from elastic scrolling: the clip view's bounds go negative during a trackpad rubber-band; crossing ~60 pt begins a refresh. |
 | gtk | Emulated | Overlay + [`GtkScrolledWindow::edge-overshot`](https://docs.gtk.org/gtk4/class.ScrolledWindow.html) (Top), GTK's purpose-built overshoot signal. |
 | qt / xaml | Emulated | Overlay + programmatic only (desktop Qt has no elastic overscroll; XAML's `RefreshContainer` is touch-only; a native tier is a follow-up for touch devices). |

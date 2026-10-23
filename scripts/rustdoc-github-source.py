@@ -7,8 +7,8 @@ Rustdoc renders every documented crate's source into `<doc-dir>/src/<crate>/<fil
 each item's "Source" / `[src]` link there. This rewrites those links to the canonical source on GitHub,
 e.g.
 
-    ../src/day_part_battery/lib.rs.html#1-113
-    -> https://github.com/daybrite/day/blob/main/parts/day-part-battery/src/lib.rs#L1-L113
+    ../src/day_part_device::battery/lib.rs.html#1-113
+    -> https://github.com/daybrite/day/blob/main/parts/day-part-device/src/lib.rs#L1-L113
 
 then deletes the orphaned local source tree. The crate -> repo-path map comes from `cargo metadata`
 (each crate's lib source dir, relative to the workspace root), so it needs no hand-maintained table.

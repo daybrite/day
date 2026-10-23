@@ -21,6 +21,9 @@ pub use imp::*;
 /// DayBridge.java must mirror `day_spec::bridge::BridgeKind` exactly. Host-runnable (pure
 /// text against the enum, no JNI), so a drifted or colliding kind fails `cargo test` on
 /// any host as well as on a device.
+#[cfg(target_os = "android")]
+mod controls;
+
 #[cfg(test)]
 mod bridge_kinds_parity {
     #[test]
@@ -2999,6 +3002,14 @@ mod imp {
         }
         fn capability(&self, cap: Cap) -> Support {
             match cap {
+            Cap::SearchField => Support::Native,
+            Cap::ComboBox => Support::Native,
+            Cap::Stepper => Support::Emulated,
+            Cap::DateTimePicker => Support::Native,
+            Cap::ColorPicker => Support::Emulated,
+            Cap::PullRefresh => Support::Native,
+            Cap::Pager => Support::Native,
+            Cap::PullRefreshGesture => Support::Native,
                 Cap::DragDrop | Cap::DragExternalImport | Cap::DragExternalExport | Cap::DragMultipleItems => Support::Native,
                 // `View.setPointerIcon` with a system `PointerIcon` per view (docs/cursor.md).
                 Cap::Cursor => Support::Native,
@@ -3657,6 +3668,9 @@ mod imp {
                     else {
                         return realize_placeholder(kind);
                     };
+                    if p.value.is_none() {
+                        return crate::controls::spinner::make(self, p, id);
+                    }
                     with_env(|env| {
                         AHandle(bridge_view(env, "makeProgress", |env| {
                             DayBridge::makeProgress(env, p.value.is_some(), p.value.unwrap_or(0.0))
@@ -4177,6 +4191,13 @@ mod imp {
                     }
                 }
                 kinds::PROGRESS => {
+                    if let Some(p @ ProgressPatch::Animating(_)) =
+                        patch.downcast_ref::<ProgressPatch>()
+                    {
+                        crate::controls::spinner::update(self, h, p);
+                        return;
+                    }
+
                     if let Some(ProgressPatch::Value(Some(v))) =
                         patch.downcast_ref::<ProgressPatch>()
                     {

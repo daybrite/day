@@ -337,7 +337,7 @@ None of the eight is in this position; the mock toolkit is, and an external tool
 round-tripping so nothing is lost but the styling.
 
 **Do not compose one.** This is the opposite call from
-[`day-piece-colorpicker`](colorpicker.md), where drawing the whole picker on a canvas was the right
+[`day-pieces`](colorpicker.md), where drawing the whole picker on a canvas was the right
 answer, and the reasoning does not transfer. A color picker
 is a few shapes and a press location. A text editor is IME composition for every language that
 needs one, bidirectional text and cursor movement, grapheme-cluster-aware selection, the platform's

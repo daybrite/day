@@ -12,28 +12,22 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 # Stepper field
 
 Let people adjust a number in steps, such as a quantity, zoom level, or dimension.
-`day-piece-stepper` binds the value to app state and uses a native numeric control where
+`day-pieces` binds the value to app state and uses a native numeric control where
 available, with a composed control on other targets.
 
 ## Add to your app
 
-Defined in [`day-piece-stepper`](https://github.com/daybrite/day/tree/main/pieces/day-piece-stepper). Add this to your app’s `Cargo.toml`
-`[dependencies]` table, using the same Day Git source as the rest of your app:
-
-```toml
-[dependencies]
-day-piece-stepper = { git = "https://github.com/daybrite/day.git" }
-```
-
-`day build -t <target>` enables this direct dependency’s matching toolkit feature
-automatically. No dependency entry is needed in `Day.toml`.
+This control is included in [`day-pieces`](https://github.com/daybrite/day/tree/main/crates/day-pieces)
+and re-exported through `day::prelude::*`. No additional crate or control feature is required.
+The selected toolkit supplies its native implementation; [`day::stepper::support()`](https://daybrite.dev/api/day_pieces/stepper/fn.support.html) reports
+its availability after the Day runtime starts.
 
 | Platforms / toolkits | Availability |
 | --- | --- |
 | AppKit, GTK, Qt | Native numeric stepper. |
-| UIKit, Android, WinUI, ArkUI, Web | Composed control. Forcing [`.native()`](https://daybrite.dev/api/day_piece_stepper/struct.Stepper.html#method.native) on these targets shows a placeholder. |
+| UIKit, Android, WinUI, ArkUI, Web | Composed control. Forcing [`.native()`](https://daybrite.dev/api/day_pieces/stepper/struct.Stepper.html#method.native) on these targets shows a placeholder. |
 
-[`stepper(value)`](https://daybrite.dev/api/day_piece_stepper/fn.stepper.html) is a numeric **stepper field**: a text field with increment/decrement arrows,
+[`stepper(value)`](https://daybrite.dev/api/day_pieces/stepper/fn.stepper.html) is a numeric **stepper field**: a text field with increment/decrement arrows,
 bound two-way to any `Binding<f64>` (a `Signal<f64>`, a [day-model](/docs/explanation/model) `Field`, or an app's own
 binding over a selection). Each arrow click, and each settled edit (Return, focus loss), lands
 through `write_commit`, so under an undo stack every click is one undoable step.
@@ -44,7 +38,7 @@ The UI snippets use generated `res::str` accessors from an app's Fluent catalog;
 ## Authoring
 
 ```rust
-use day_piece_stepper::stepper;
+use day::stepper::stepper;
 
 let width = Signal::new(1.0f64);
 
@@ -58,11 +52,11 @@ labeled(
 )
 ```
 
-- **[`.native()`](https://daybrite.dev/api/day_piece_stepper/struct.Stepper.html#method.native) / [`.composed()`](https://daybrite.dev/api/day_piece_stepper/struct.Stepper.html#method.composed) / [`.idiom(…)`](https://daybrite.dev/api/day_piece_stepper/struct.Stepper.html#method.idiom)** pin one idiom; the default is `Automatic`:
-  native where an arm exists ([`support()`](https://daybrite.dev/api/day_piece_stepper/fn.support.html) answers `Native` on appkit, gtk, qt), composed
+- **[`.native()`](https://daybrite.dev/api/day_pieces/stepper/struct.Stepper.html#method.native) / [`.composed()`](https://daybrite.dev/api/day_pieces/stepper/struct.Stepper.html#method.composed) / [`.idiom(…)`](https://daybrite.dev/api/day_pieces/stepper/struct.Stepper.html#method.idiom)** pin one idiom; the default is `Automatic`:
+  native where an arm exists ([`support()`](https://daybrite.dev/api/day_pieces/stepper/fn.support.html) answers `Native` on appkit, gtk, qt), composed
   everywhere else. `Native` is literal: pinned on a toolkit with no renderer it draws Day's
   visible placeholder.
-- **[`.id(…)`](https://daybrite.dev/api/day_piece_stepper/struct.Stepper.html#method.id)** names the interactive field for dayscript on both idioms, wherever it sits in the
+- **[`.id(…)`](https://daybrite.dev/api/day_pieces/stepper/struct.Stepper.html#method.id)** names the interactive field for dayscript on both idioms, wherever it sits in the
   chain.
 
 ## Driving and asserting from dayscript
@@ -70,7 +64,7 @@ labeled(
 The native leaf accepts `input:` (typed text, parsed and clamped), `set_value:`
 (`ValueChanged` previews, `ValueCommitted` commits), and mirrors its state into the probe
 through day-core's `set_probe_value` hook, so `assert_text` sees the display form
-([`fmt_value`](https://daybrite.dev/api/day_piece_stepper/fn.fmt_value.html)'s fixed-decimal text) and `assert_value` the number, exactly like a built-in
+([`fmt_value`](https://daybrite.dev/api/day_pieces/stepper/fn.fmt_value.html)'s fixed-decimal text) and `assert_value` the number, exactly like a built-in
 control. The composed idiom is a real text field and needs nothing special. One script drives
 both idioms by the same key.
 

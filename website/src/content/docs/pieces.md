@@ -130,7 +130,7 @@ The `day` prelude ships a small set of Pieces, grouped roughly as follows:
 | Navigation | [`nav`](https://daybrite.dev/api/day_pieces/fn.nav.html), [`nav_stack`](https://daybrite.dev/api/day_pieces/fn.nav_stack.html), [`nav_link`](https://daybrite.dev/api/day_pieces/fn.nav_link.html), [`toolbar`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.toolbar) |
 | Presentation | [`alert`](https://daybrite.dev/api/day_pieces/fn.alert.html), [`confirm`](https://daybrite.dev/api/day_pieces/fn.confirm.html), [`prompt`](https://daybrite.dev/api/day_pieces/fn.prompt.html), [`cover`](https://daybrite.dev/api/day_pieces/fn.cover.html), menus |
 
-Anything beyond this vocabulary (a combo box, a map, a web view, a Lottie animation, an [embedded
+Anything beyond this vocabulary (a map, a web view, a Lottie animation, an [embedded
 SwiftUI view](/docs/reference/swiftui)) lives in a separate *piece crate* (`day-piece-*`) that you
 add as an ordinary Cargo dependency. Optional widgets are separate dependencies, so apps include only the piece crates they use. The [extension model](/contributing/extending)
 explains how those crates plug in.
@@ -255,7 +255,7 @@ controls through separate crates:
 2. **Composite pieces**: plain Rust functions or builder structs that compose existing Pieces.
    They need no new native code; their target support is limited by the controls and capabilities they compose. Most of your app is this; so
    are the
-   in-tree [`day-piece-rating`](/contributing/tutorials/composite-piece) and [`day-piece-settings`](/docs/reference/settings), and the
+   [composite-piece tutorial](/contributing/tutorials/composite-piece), [`day-piece-settings`](/docs/reference/settings), and the
    [star-rating tutorial](/contributing/tutorials/composite-piece).
 3. **Native pieces**: a new leaf widget with a per-toolkit implementation, registered at link
    time. This is how `day-piece-webview` wraps `WKWebView`/`WebView`/`WebKitGTK`, how

@@ -13,16 +13,16 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 A part exposes an operating-system capability through a shared Rust API, without a UI.
 This tutorial uses the battery monitor in
-[`day-part-battery`](https://github.com/daybrite/day/tree/main/parts/day-part-battery) to show how
+[`day-part-device`](https://github.com/daybrite/day/tree/main/parts/day-part-device) to show how
 native implementations are selected at compile time and included in the app build.
-The public entry point is [`day_part_battery::status()`](https://daybrite.dev/api/day_part_battery/fn.status.html).
+The public entry point is [`day_part_device::battery::status()`](https://daybrite.dev/api/day_part_device/battery/fn.status.html).
 
 ## 1. What a part is (and when to build one)
 
 A **part** is a *headless capability crate*. It has:
 
 - **No UI:** it has no renderer, so it never depends on a toolkit.
-- **A flat cross-platform API:** one or two free functions like [`status() -> Option<BatteryStatus>`](https://daybrite.dev/api/day_part_battery/fn.status.html).
+- **A flat cross-platform API:** one or two free functions like [`status() -> Option<BatteryStatus>`](https://daybrite.dev/api/day_part_device/battery/fn.status.html).
 - **Per-OS native implementations**, selected at compile time by `#[cfg(target_os = "…")]` rather
   than a Cargo feature, because a battery is an OS concern rather than a toolkit one.
 
@@ -32,7 +32,7 @@ in [`parts/`](https://github.com/daybrite/day/tree/main/parts), the non-UI count
 whether the crate has a UI:
 
 - Building a **visible control** backed by a native widget? Write a **piece**; see
-  [the piece tutorial](/contributing/backend-contracts/extending) and [`pieces/day-piece-searchfield`](https://github.com/daybrite/day/tree/main/pieces/day-piece-searchfield).
+  [the piece tutorial](/contributing/backend-contracts/extending) and [`day-piece-texteditor`](https://github.com/daybrite/day/tree/main/pieces/day-piece-texteditor).
 - Exposing a **device service** with no UI of its own? Write a **part**.
 
 A part reuses the same build-contribution channel pieces use (the `[package.metadata.day.*]` keys
@@ -47,7 +47,7 @@ target Android, the `src/Day<Name>.java` shim plus the `[package.metadata.day.an
 block:
 
 ```bash
-day new part day-part-battery --platforms macos,ios,android,linux,windows
+day new part day-part-device --platforms macos,ios,android,linux,windows
 ```
 
 Omit `--platforms` to get that same default set, which is also the full set the scaffolder knows
@@ -60,7 +60,7 @@ below explain each generated file.
 A part is an ordinary library crate with this layout:
 
 ```text
-parts/day-part-battery/
+parts/day-part-device/
 ├── Cargo.toml
 ├── examples/battery.rs                                     # a plain `main`, no Day at all
 └── src/
@@ -116,13 +116,13 @@ pub fn status() -> Option<BatteryStatus> {
 }
 ```
 
-The public [`status()`](https://daybrite.dev/api/day_part_battery/fn.status.html) is a one-liner that forwards to `imp::status()`. `imp` is a different module
+The public [`status()`](https://daybrite.dev/api/day_part_device/battery/fn.status.html) is a one-liner that forwards to `imp::status()`. `imp` is a different module
 on every platform, and that indirection does the dispatch.
 
 ### The cfg/path dispatch (and the mandatory fallback)
 
 Below the API, `lib.rs` binds `imp` to exactly one file per target with `#[cfg]` + `#[path]`. Each
-file exposes the same private [`fn status() -> Option<BatteryStatus>`](https://daybrite.dev/api/day_part_battery/fn.status.html):
+file exposes the same private [`fn status() -> Option<BatteryStatus>`](https://daybrite.dev/api/day_part_device/battery/fn.status.html):
 
 ```rust
 #[cfg(target_os = "macos")]
@@ -168,7 +168,7 @@ mod imp {
 
 - **HarmonyOS is `target_os = "linux"`** but sandboxes `/sys` away, so it is disambiguated with
   `target_env = "ohos"`: one arm for desktop Linux, one for OpenHarmony.
-- **The catch-all `#[cfg(not(any(...)))]` fallback is not optional.** Without it, [`status()`](https://daybrite.dev/api/day_part_battery/fn.status.html) would
+- **The catch-all `#[cfg(not(any(...)))]` fallback is not optional.** Without it, [`status()`](https://daybrite.dev/api/day_part_device/battery/fn.status.html) would
   fail to compile on any target you did not enumerate (a WASM build, a BSD, a bare `cargo check` on
   an exotic host). The fallback module returns `None` so the crate compiles everywhere and reports
   "no battery API here." The fallback makes the API's `Option` promise hold on every target.
@@ -184,7 +184,7 @@ per-target so they are only pulled in where they compile:
 
 ```toml
 [package]
-name = "day-part-battery"
+name = "day-part-device"
 version.workspace = true
 edition.workspace = true
 
@@ -244,7 +244,7 @@ pub fn status() -> Option<BatteryStatus> {
 }
 ```
 
-[`day-part-network`](/docs/reference/network) shows the same plain-C style even more minimally: its shared `src/apple.rs`
+[`day-part-connectivity`](/docs/reference/network) shows the same plain-C style even more minimally: its shared `src/apple.rs`
 declares SystemConfiguration's reachability API with two `extern "C"` functions and a locally-declared
 `sockaddr_in`, with no crates at all:
 
@@ -295,7 +295,7 @@ and `Context` that `day-android` already caches.
 
 > [!NOTE] The shipped crate does this with a bridge now
 > Everything in this section is the mechanism underneath, and it still works as described, but
-> [`day-part-battery`](/docs/reference/battery) itself has since moved its Android half to a
+> [`day-part-device`](/docs/reference/battery) itself has since moved its Android half to a
 > [daybridge](/contributing/backend-contracts/bridge) arm: the Java lives inline in `src/android.rs` beside the Rust
 > declaration it implements, and the JNI call and the packed-`long` protocol below are generated,
 > so the checked-in `.java` file and the `java = [...]` table are gone. Read this section to
@@ -453,8 +453,8 @@ permissions = ["android.permission.ACCESS_NETWORK_STATE"] # → <uses-permission
 manifest-components = ["platform/android/components.xml"]          # → <receiver>/<service> overlay (if needed)
 ```
 
-[`day-part-battery`](/docs/reference/battery) needs no permission (the sticky battery broadcast is unrestricted), so it declares
-only `java = ["src/DayBattery.java"]`. [`day-part-network`](/docs/reference/network), whose `ConnectivityManager` call *does* require
+[`day-part-device`](/docs/reference/battery) needs no permission (the sticky battery broadcast is unrestricted), so it declares
+only `java = ["src/DayBattery.java"]`. [`day-part-connectivity`](/docs/reference/network), whose `ConnectivityManager` call *does* require
 `ACCESS_NETWORK_STATE`, adds the `permissions` line above.
 
 `manifest-components` is required when a part's Java half is a `BroadcastReceiver` or a `Service`:
@@ -479,7 +479,7 @@ and its Java appears in the build.
 frameworks = ["SystemConfiguration"]
 ```
 
-This is what [`day-part-network`](/docs/reference/network) declares (its `apple.rs` drives SystemConfiguration). The
+This is what [`day-part-connectivity`](/docs/reference/network) declares (its `apple.rs` drives SystemConfiguration). The
 `#[link(name = "SystemConfiguration", kind = "framework")]` directive in the Rust source is not
 enough, because cargo honors it only when it drives the final link, i.e. on the macOS desktop build.
 On iOS, `xcodebuild` links the Rust staticlib and does not read Rust link metadata, so the app
@@ -494,11 +494,11 @@ package. [`day-part-local-notify`](/docs/reference/notify) declares `frameworks 
 Both also take a `platform` key (`platform = "16.0"`) to raise the minimum-OS floor when the
 native API needs it; the max across contributing crates wins.
 
-[`day-part-battery`](/docs/reference/battery) itself declares no `[package.metadata.day.ios]`: it uses `objc2-ui-kit`, and UIKit
+[`day-part-device`](/docs/reference/battery) itself declares no `[package.metadata.day.ios]`: it uses `objc2-ui-kit`, and UIKit
 is auto-linked by the iOS SDK. You only need the `frameworks` key for a system framework that is not
 linked by default (SystemConfiguration, WebKit, …).
 
-This is the same contribution channel [`pieces/day-piece-searchfield`](https://github.com/daybrite/day/tree/main/pieces/day-piece-searchfield) (Android Java + Gradle deps) and
+This is the same contribution channel [`day-piece-texteditor`](https://github.com/daybrite/day/tree/main/pieces/day-piece-texteditor) (Android Java + Gradle deps) and
 [`day-piece-webview`](https://github.com/daybrite/day-piece-webview) (a framework + a permission) use.
 ## 5. Use it
 
@@ -506,7 +506,7 @@ Any Rust code (inside a Day app or a plain binary) depends on the crate and call
 
 ```rust
 fn main() {
-    match day_part_battery::status() {
+    match day_part_device::battery::status() {
         Some(b) => println!(
             "battery: {:?}, {} charging={}",
             b.state,
@@ -519,12 +519,12 @@ fn main() {
 ```
 
 That is
-[`parts/day-part-battery/examples/battery.rs`](https://github.com/daybrite/day/blob/main/parts/day-part-battery/examples/battery.rs)
-unchanged: a `main` with no Day dependency, which `cargo run -p day-part-battery --example battery`
+[`parts/day-part-device/examples/battery.rs`](https://github.com/daybrite/day/blob/main/parts/day-part-device/examples/battery.rs)
+unchanged: a `main` with no Day dependency, which `cargo run -p day-part-device --example battery`
 runs. Inside a Day app you would bind the reading into a `Signal` and drive a [`label`](https://daybrite.dev/api/day_pieces/fn.label.html) or a [`canvas`](https://daybrite.dev/api/day_pieces/fn.canvas.html)
 gauge with it, but the part itself knows nothing about UI.
 
-On a target with no battery API (or a device with no battery, or the iOS simulator), [`status()`](https://daybrite.dev/api/day_part_battery/fn.status.html)
+On a target with no battery API (or a device with no battery, or the iOS simulator), [`status()`](https://daybrite.dev/api/day_part_device/battery/fn.status.html)
 returns `None`, and the fallback module from step 2 keeps the crate compiling everywhere. A test in
 the crate checks this:
 
@@ -546,7 +546,7 @@ of thing an LLM drafts well.
 
 The recommended workflow:
 
-1. **Write the Rust `imp` signature first.** [`fn status() -> Option<BatteryStatus>`](https://daybrite.dev/api/day_part_battery/fn.status.html) is the contract
+1. **Write the Rust `imp` signature first.** [`fn status() -> Option<BatteryStatus>`](https://daybrite.dev/api/day_part_device/battery/fn.status.html) is the contract
    every platform must satisfy. Decide the wire format up front (the packed-`long` trick the Android
    shim uses is a good pattern: it keeps the JNI/FFI boundary to a single primitive).
 2. **Ask an LLM to draft the native side** from a one-line description of the platform API: "a Java
@@ -563,8 +563,8 @@ Android or iOS) one line of `Cargo.toml` metadata.
 
 ---
 
-For the full source, see [`parts/day-part-battery/`](https://github.com/daybrite/day/tree/main/parts/day-part-battery) in the Day repo, and
+For the full source, see [`parts/day-part-device/`](https://github.com/daybrite/day/tree/main/parts/day-part-device) in the Day repo, and
 [extending](/contributing/backend-contracts/extending) for the shared contribution mechanism that parts and pieces both use.
-[`parts/day-part-network`](https://github.com/daybrite/day/tree/main/parts/day-part-network) (SystemConfiguration + an iOS `frameworks` link + an Android permission) and
+[`parts/day-part-connectivity`](https://github.com/daybrite/day/tree/main/parts/day-part-connectivity) (SystemConfiguration + an iOS `frameworks` link + an Android permission) and
 [`parts/day-part-haptics`](https://github.com/daybrite/day/tree/main/parts/day-part-haptics) (objc2 feedback generators + an Android `Vibrator` shim) are two more parts
 to read as templates.

@@ -180,7 +180,7 @@ The recommendation is to name the new surface **`app_badge`** at every layer
 **Custom graphics.** macOS can host an arbitrary view on the Dock tile (`NSDockTile.contentView`)
 and Windows overlay icons are images by nature, so a `Badge::Image` is real on two targets. It needs
 a per-platform native image type and an encode path that Day does not have at this layer;
-[`day-piece-remote-image`](/docs/reference/images) decodes bytes into a *widget*, which is a different thing. A `Cap::BadgeImage`
+[`day-pieces`](/docs/reference/images) decodes bytes into a *widget*, which is a different thing. A `Cap::BadgeImage`
 would join the enum with it.
 
 **Progress** shipped as its own feature, `day::set_app_progress`

@@ -15,3 +15,9 @@ cargo clippy --locked -p day-cli -p day-script -p day-pieces \
 cargo clippy --locked -p day-model --all-targets "$@"
 # Validate both native/default routing and the opt-in HTTP/WebSocket provider.
 cargo clippy --locked -p day-part-http --features reqwest --all-targets "$@"
+
+# Retained optional pieces have conformance-only code; compile it even without a native SDK.
+cargo clippy --locked -p day-piece-settings -p day-piece-texteditor \
+    --features day-piece-settings/conformance,day-piece-texteditor/conformance --all-targets "$@"
+# The standalone conformance app links the whole provider set through the public facade.
+cargo clippy --locked --manifest-path apps/conformance/Cargo.toml --all-targets "$@"

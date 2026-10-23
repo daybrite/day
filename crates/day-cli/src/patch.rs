@@ -1903,7 +1903,7 @@ serde = "1"
 day-local = { path = "../elsewhere" }
 
 [target.'cfg(target_os = "android")'.dependencies]
-day-part-battery = { git = "https://github.com/daybrite/day.git" }
+day-part-device = { git = "https://github.com/daybrite/day.git" }
 "#,
         );
         // The manifest floor alone (no resolver: this fixture has no lockfile and no network).
@@ -1913,7 +1913,7 @@ day-part-battery = { git = "https://github.com/daybrite/day.git" }
             deps,
             [
                 ("day".to_string(), day.clone()),
-                ("day-part-battery".to_string(), day.clone()),
+                ("day-part-device".to_string(), day.clone()),
                 ("day-part-http".to_string(), day),
                 (
                     "day-piece-lottie".to_string(),

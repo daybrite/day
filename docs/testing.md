@@ -86,7 +86,7 @@ fn store_round_trip() -> Case {
   [`.proves(day_spec::kinds::BUTTON)`](https://daybrite.dev/api/day_core/conformance/struct.Case.html#method.proves); ordinary app tests need no coverage declaration.
 - **[`.requires(cap)`](https://daybrite.dev/api/day_core/conformance/struct.Case.html#method.requires)** skips the case with a recorded reason where the toolkit answers
   `Unsupported`; **[`.requires_support(name, f)`](https://daybrite.dev/api/day_core/conformance/struct.Case.html#method.requires_support)** does the same for a piece's own availability
-  answer, such as [`day_piece_datetime::support()`](https://daybrite.dev/api/day_piece_datetime/fn.support.html). A case never asks which toolkit it is on. A case is also skipped, not failed, when a
+  answer, such as [`day_pieces::datetime::support()`](https://daybrite.dev/api/day_pieces/datetime/fn.support.html). A case never asks which toolkit it is on. A case is also skipped, not failed, when a
   kind it proves renders a placeholder: the piece has no renderer on that toolkit (a native
   stepper on iOS, a map off the Apple platforms).
 - **[`.shot(name)`](https://daybrite.dev/api/day_core/conformance/struct.Case.html#method.shot)** takes a capture once the page shows, before the drive; [`d.shot(name)`](https://daybrite.dev/api/day_core/conformance/struct.Case.html#method.shot)

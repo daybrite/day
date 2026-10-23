@@ -12,7 +12,7 @@
 //!
 //! Everything below is a handful of class methods with scalar or block arguments, so this file uses
 //! `AnyClass::get` + `msg_send!` rather than pulling `objc2-core-location`, `objc2-av-foundation`,
-//! `objc2-photos` and `objc2-user-notifications` into the graph. `day-part-network` sets the
+//! `objc2-photos` and `objc2-user-notifications` into the graph. `day-part-connectivity` sets the
 //! precedent (raw `SystemConfiguration` FFI, zero wrapper crates). The frameworks still have to be
 //! LINKED: cargo does that on macOS through the `#[link]` blocks below, and on iOS through
 //! `[package.metadata.day.ios].frameworks`, because xcodebuild ignores Rust link metadata.

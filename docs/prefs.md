@@ -127,7 +127,7 @@ Platform guidance: [Apple: settings](https://developer.apple.com/design/human-in
 
 ## What it shows about the extension system
 
-Like [`day-part-battery`](/docs/reference/battery) and [`day-part-network`](/docs/reference/network), this is a headless external crate: it has no UI Piece
+Like [`day-part-device`](/docs/reference/battery) and [`day-part-connectivity`](/docs/reference/network), this is a headless external crate: it has no UI Piece
 and registers nothing in any toolkit's `RENDERERS` slice. On Android it stages its own Java shim
 through `[package.metadata.day.android]` (with no permission this time, since private storage needs
 none), which `day build` folds into the app's Gradle build without touching any core day crate. On
@@ -153,3 +153,24 @@ The example values above are synthetic fixtures, not UI translations. Compile-de
 is in the [storage recipe](/docs/how-to/guide-storage). See the
 [preferences API](../parts/day-part-prefs/src/lib.rs), including the memory feature and its
 `DAY_PREFS_DIR` test override.
+
+## Typed preferences without a settings surface
+
+[`Pref<T>`](https://daybrite.dev/api/day_part_prefs/struct.Pref.html), `PrefValue`, `Store`,
+`NativeStore`, `MemoryStore`, `install_store`, `persistence_failures`, and `pref_enum!` belong
+to `day-part-prefs`. The default facade exposes them through `day::prefs`. These APIs depend
+on the reactive runtime, but do not pull in the settings UI or a widget toolkit.
+
+Declare a preference once, with a stable key and a default function:
+
+```rust
+static SHOW_GRID: day::prefs::Pref<bool> = day::prefs::Pref::new("editor.grid", || true);
+```
+
+The first read seeds one process-lived signal per key. Writes update that signal and persist
+through the installed store; writing the default removes the stored override. Store failures
+leave the in-memory value intact and appear in [`persistence_failures()`](https://daybrite.dev/api/day_part_prefs/fn.persistence_failures.html). Install a custom
+store before reading preferences. Replacing the store does not reseed existing signals.
+
+The optional [settings surface](/docs/reference/settings) re-exports these types and adds
+rows, groups, providers, and presentation. Both entry points use the same store and signals.

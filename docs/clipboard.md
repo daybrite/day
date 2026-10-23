@@ -97,7 +97,7 @@ Platform access rules:
 
 ## What it shows about the extension system
 
-Like [`day-part-battery`](/docs/reference/battery) (see [battery](battery.md) and [extending](extending.md)), this is a
+Like [`day-part-device`](/docs/reference/battery) (see [battery](battery.md) and [extending](extending.md)), this is a
 headless external crate: it has no UI Piece and registers nothing into any toolkit's `RENDERERS`
 slice. Its Android side contributes its own `DayClipboard.java` through
 `[package.metadata.day.android]` exactly like the UI pieces but registers no renderer; on every

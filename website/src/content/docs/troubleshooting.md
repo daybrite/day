@@ -357,7 +357,7 @@ These emulator failures have specific causes:
   Older versions of `day` re-added the dayscript forward on every drive; hdc refuses a duplicate
   with `[Fail]TCP Port listen failed`, and `day` recycled the hdc server in response, which
   dropped every forward and ended the launch's log stream. Update `day`, then relaunch.
-- **The network status reading is unavailable on the emulator.** [`day_part_network::status()`](https://daybrite.dev/api/day_part_network/fn.status.html)
+- **The network status reading is unavailable on the emulator.** [`day_part_connectivity::status()`](https://daybrite.dev/api/day_part_connectivity/fn.status.html)
   returns `None`, and Day-Showcase reads "Connectivity unavailable". The device log (`hdc shell
   hilog -x`) shows `IPCObjectStub: OnRemoteRequest: unknown code:12 desc:*.INetConnService`
   at the same moment. The emulator image's network-management service does not answer the

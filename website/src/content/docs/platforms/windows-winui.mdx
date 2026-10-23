@@ -142,11 +142,11 @@ this table adds links and notes.
 | file dialogs | [`FileOpenPicker`](https://learn.microsoft.com/en-us/uwp/api/windows.storage.pickers.fileopenpicker) / `FileSavePicker` |
 | menu bar | [`MenuBar`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.menubar) |
 | context menus | [`MenuFlyout`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.menuflyout) |
-| *external* [`activity()`](https://daybrite.dev/api/day_piece_activity/fn.activity.html) | [`ProgressRing`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.progressring) |
+| *external* [`spinner()`](https://daybrite.dev/api/day_pieces/fn.spinner.html) | [`ProgressRing`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.progressring) |
 | *external* `combobox()` | editable [`ComboBox`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.combobox) |
-| *external* [`search_field()`](https://daybrite.dev/api/day_piece_searchfield/fn.search_field.html) | [`AutoSuggestBox`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.autosuggestbox) |
-| *external* [`date_picker()`](https://daybrite.dev/api/day_piece_datetime/fn.date_picker.html) | [`CalendarDatePicker`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.calendardatepicker), or [`CalendarView`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.calendarview) inline |
-| *external* [`time_picker()`](https://daybrite.dev/api/day_piece_datetime/fn.time_picker.html) | [`TimePicker`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.timepicker) |
+| *external* [`search_field()`](https://daybrite.dev/api/day_pieces/searchfield/fn.search_field.html) | [`AutoSuggestBox`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.autosuggestbox) |
+| *external* [`date_picker()`](https://daybrite.dev/api/day_pieces/datetime/fn.date_picker.html) | [`CalendarDatePicker`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.calendardatepicker), or [`CalendarView`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.calendarview) inline |
+| *external* [`time_picker()`](https://daybrite.dev/api/day_pieces/datetime/fn.time_picker.html) | [`TimePicker`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.timepicker) |
 | *external* `media()` | [`MediaPlayerElement`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.mediaplayerelement) |
 | *external* `webview()` | [`WebView2`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.webview2) |
 
@@ -247,8 +247,8 @@ compiled dependencies. Build times depend on the host, toolkit, and changed file
 - **Neither toolkit has a web engine on Windows.** MSYS2 packages neither Qt 6 WebEngine nor
   WebKitGTK 6, because both embed a browser engine that doesn't build under MinGW. So `webview()`
   shows its URL-label fallback on `windows-qt` and renders Day's placeholder leaf on `windows-gtk`.
-  Everything else, including the external `combobox()`, [`search_field()`](https://daybrite.dev/api/day_piece_searchfield/fn.search_field.html), [`date_picker()`](https://daybrite.dev/api/day_piece_datetime/fn.date_picker.html),
-  [`time_picker()`](https://daybrite.dev/api/day_piece_datetime/fn.time_picker.html), `media()`, and [`activity()`](https://daybrite.dev/api/day_piece_activity/fn.activity.html) pieces, draws a native widget.
+  Everything else, including the external `combobox()`, [`search_field()`](https://daybrite.dev/api/day_pieces/searchfield/fn.search_field.html), [`date_picker()`](https://daybrite.dev/api/day_pieces/datetime/fn.date_picker.html),
+  [`time_picker()`](https://daybrite.dev/api/day_pieces/datetime/fn.time_picker.html), `media()`, and [`spinner()`](https://daybrite.dev/api/day_pieces/fn.spinner.html) pieces, draws a native widget.
 - **Custom bundled fonts don't reach Pango on `windows-gtk`**, so labels asking for a bundled
   family fall back to the default face. The app logs each one at startup.
 - **Toolchains behave differently under the two linkers.** Day registers piece renderers through

@@ -13,7 +13,7 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 A **piece** is a reusable Day widget. Day ships built-in pieces ([`button`](https://daybrite.dev/api/day_pieces/fn.button.html), [`slider`](https://daybrite.dev/api/day_pieces/fn.slider.html), [`list`](https://daybrite.dev/api/day_pieces/fn.list.html), …), but
 anyone can publish a piece as an independent crate that adds both its cross-platform front-end
 (Rust) and its per-toolkit native backend (Objective-C via objc2, C++ shims, Android Java, …),
-with no edits to any core Day crate. [`day-piece-searchfield`](/docs/reference/searchfield) is the reference implementation.
+with no edits to any core Day crate. [`day-piece-texteditor`](/docs/reference/texteditor) is a maintained optional implementation.
 
 **Scaffold a new piece with `day new`.** Don't hand-assemble the crate: `day new piece <name>`
 generates a ready-to-build project (remote Day deps by default; `--local <path>` for a local Day
@@ -134,7 +134,7 @@ extension path so that code lives in the piece crate:
 > daybridge is the shape for a native **call**: one Rust declaration, an implementation per
 > platform written inline in the crate's own `.rs`, and generated glue on both sides.
 > [day-part-speech](https://github.com/daybrite/day-part-speech) does six languages in one file that way, and
-> `parts/day-part-battery` migrated its Android half off the `java = [...]` mechanism below.
+> `parts/day-part-device` migrated its Android half off the `java = [...]` mechanism below.
 
 ### Data assets a piece ships (`[package.metadata.day.piece].assets`)
 
@@ -196,7 +196,7 @@ shim is self-contained. XAML handles are a private boxed type owned by `day-xaml
 boxes its XAML element through the exported `day_xaml_box` / `day_xaml_unbox` functions (a
 stable WinRT COM-ABI). Both reuse the sys crate's generic `measure` (`day_qt_size_hint` /
 `day_xaml_measure`).
-See `pieces/day-piece-searchfield/{build.rs,src/lib-qt-shim.cpp,src/lib-xaml-shim.cpp}`.
+See `pieces/day-piece-texteditor/{build.rs,src/lib-qt-shim.cpp,src/lib-xaml-shim.cpp}`.
 
 ### Android Java + Gradle deps (`[package.metadata.day.android]`)
 
@@ -250,7 +250,7 @@ or drawables its Java needs (e.g. a theme overlay for a dialog). The app's `R` p
 app, so the piece's Java resolves its own resources by name at runtime:
 `ctx.getResources().getIdentifier("SomeStyleName", "style", ctx.getPackageName())`. Prefix names with
 the piece to avoid collisions (resource names are one flat namespace per app).
-`day-piece-datetime/android/res` is the reference.
+Core date-picker resources live under `toolkits/day-android/controls/datetime/platform/android/res`.
 
 **Manifest components.** A part whose Java half is a `BroadcastReceiver` or `Service` needs it
 declared in the manifest, or Android never instantiates it. `manifest-components` names files
@@ -325,16 +325,15 @@ Three sources of keep rules cover it.
 ```
 
 Day's Gradle plugin reads `dayProguardFile` and `proguardFiles` from
-`day-pieces.json` and applies them in the `release` build type. `pieces/day-piece-searchfield` (a
-binding) and App Fair's `platform/android/proguard-rules.pro` (reflection, app side) are the
+`day-pieces.json` and applies them in the `release` build type. App Fair's `platform/android/proguard-rules.pro` (reflection, app side) are the
 references.
 
 The piece's Java uses only day-android's public surface: `DayBridge.ctx` (the `Context`) and
 `DayBridge.nativeOnEvent(id, kind, num, str)` (the event trampoline, `4` = selection).
 The Rust side binds its Java class with `day_android::java_class!` and makes its View with
 `day_android::realize`, which falls back to the visible placeholder when the factory throws
-([docs/android-jni](android-jni.md)). `pieces/day-piece-searchfield/src/lib-android.rs` is the
-reference, with `src/DaySearch.java` beside it.
+([docs/android-jni](android-jni.md)). `toolkits/day-android/src/controls/searchfield.rs` is the
+reference; its Java factory lives in `toolkits/day-android/controls/searchfield/src/DaySearch.java`.
 
 > **Gradle configuration cache.** Day's Gradle plugin reads `day-pieces.json`, and the other files
 > `day build` generates under `build/day/android/`, at *configuration* time through
@@ -562,7 +561,7 @@ The app mirrors each: `my-piece/<backend>` in the matching feature. Adding a pie
 changes to `day`, the toolkit crates, the CLI, or the Gradle scaffold.
 
 **Dependency layering.** The extension graph stays acyclic by rule: **pieces may depend on
-parts** ([day-piece-remote-image](/docs/reference/images) → [day-part-http](/docs/reference/http) is the shipped example) **and on core crates;
+parts** **and on core crates;
 parts must not depend on `day-pieces` or any `day-piece-*`; tweaks may depend on `day-pieces`
 (the built-ins they configure) but not on any satellite `day-piece-*` or `day-part-*`.** A
 workspace test (`crates/day-cli/tests/layering.rs`) enforces this over `cargo metadata`, so a
@@ -574,7 +573,7 @@ A piece is not limited to leaves: it can be a **container** whose native view ho
 subtree. day-core mounts children **by handle, not by kind** (the tree walks to the nearest native
 ancestor and calls [`Toolkit::insert(ancestor_handle, child_handle, index)`](https://daybrite.dev/api/day_spec/trait.Toolkit.html#tymethod.insert) without consulting the
 ancestor's kind), so a piece-realized node is a valid insertion parent on every backend. The recipe
-(established by `pieces/day-piece-pullrefresh`, the reference container piece; see [docs/pullrefresh](pullrefresh.md)):
+(used by the core pull-to-refresh container; see [docs/pullrefresh](pullrefresh.md)):
 
 ```rust
 let node = cx.native(
@@ -660,30 +659,15 @@ What a declared target does **not** get:
 
 ## Reference
 
-`pieces/day-piece-searchfield` implements all of the above: a native search input on six backends,
-its own Qt + XAML C++ shims, and its own Android Java. It's verified on AppKit / GTK / Qt / iOS /
-Android and CI-built on XAML. Use it as a template. Its layout keeps the shared front-end and each
-toolkit backend in a separate file:
+[`day-piece-texteditor`](https://github.com/daybrite/day/tree/main/pieces/day-piece-texteditor)
+keeps its shared frontend, per-toolkit renderer modules, C++ shims, Android Java and HarmonyOS
+ArkTS in one optional package. Its Cargo manifest declares supported backend features and native
+contributions. Use the [native-piece tutorial](/contributing/tutorials/native-piece) to scaffold
+a new extension with the same ownership model.
 
-```text
-pieces/day-piece-searchfield/
-├── Cargo.toml               # features + [package.metadata.day.android]
-├── build.rs                 # compiles lib-qt-shim.cpp / lib-xaml-shim.cpp per feature
-└── src/
-    ├── lib.rs               # front-end (the `Piece`) + `day_pieces::glue_modules!(…)`
-    ├── lib-appkit.rs        # one file per toolkit renderer …
-    ├── lib-gtk.rs
-    ├── lib-qt.rs            (+ lib-qt-shim.cpp)
-    ├── lib-uikit.rs
-    ├── lib-android.rs      (+ DaySearch.java)
-    ├── lib-xaml.rs        (+ lib-xaml-shim.cpp)
-    ├── lib-qt-shim.cpp
-    └── lib-xaml-shim.cpp
-```
-
-`lib.rs` declares the backends with one `day_pieces::glue_modules!(appkit, gtk, qt, uikit, mdc,
-xaml)` line, so every `lib-<toolkit>.rs` is compiled only for its feature+target and the whole
-native surface for a toolkit lives in one place.
+Core search fields use the same registration mechanism, with ownership split across
+`crates/day-pieces/src/searchfield.rs`, `crates/day-spec/src/controls/searchfield.rs`, and
+`toolkits/day-*/src/controls/searchfield.rs`. Core frontends must not depend on toolkit crates.
 
 [day-piece-webview](https://github.com/daybrite/day-piece-webview) is a second reference, in its own
 repository since 2026-09 (its `docs/webview.md` covers the piece): a heavier native backend (an
@@ -719,14 +703,14 @@ crate's own `build.rs`) owns the session. It is also the first piece to declare
 As an external repository it follows the same rules as day-piece-lottie above: bare canonical day
 dependencies, a `compat` line, and a `demo/` app whose dayscript is the on-device test.
 
-`parts/day-part-battery` (see [battery](battery.md)) is a fourth reference, the first **part**:
+`parts/day-part-device` (see [battery](battery.md)) is a fourth reference, the first **part**:
 a headless crate with no UI Piece at all. Where `pieces/` holds UI-library extensions (each
 registers a renderer), `parts/` is the non-UI counterpart: capability crates (`day-part-*`) that extend
 Day apps with platform services. It shows the backend-contribution mechanism accommodates non-UI
 capabilities: it contributes Android Java (for `BatteryManager`, now through a
 [bridge](bridge.md) arm) but registers nothing into any `RENDERERS` slice, and selects its per-OS impl by
 `#[cfg(target_os)]` rather than a toolkit feature. Any Rust code can depend on it and call
-[`day_part_battery::status()`](https://daybrite.dev/api/day_part_battery/fn.status.html).
+[`day_part_device::battery::status()`](https://daybrite.dev/api/day_part_device/battery/fn.status.html).
 
 ## Named piece operations
 

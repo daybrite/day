@@ -1245,12 +1245,18 @@ impl<S: Binding<String>> Piece for TextField<S> {
 pub struct Progress {
     /// `None` = indeterminate (spinner); `Some` = a determinate fraction source.
     value: Option<FractionSource>,
+    animating: crate::Reactive<bool>,
+    large: bool,
 }
 
 /// An indeterminate, animated progress indicator (a spinner / busy bar) for work with no
 /// known extent.
 pub fn spinner() -> Progress {
-    Progress { value: None }
+    Progress {
+        value: None,
+        animating: crate::Reactive::Const(true),
+        large: false,
+    }
 }
 
 /// A determinate progress bar. `fraction` is the completed portion in `0.0..=1.0`; pass a
@@ -1259,6 +1265,22 @@ pub fn spinner() -> Progress {
 pub fn progress<M>(fraction: impl IntoFraction<M>) -> Progress {
     Progress {
         value: Some(fraction.into_fraction()),
+        animating: crate::Reactive::Const(true),
+        large: false,
+    }
+}
+
+#[day_macros::builder(ProgressBuilder)]
+impl Progress {
+    /// Start or stop an indeterminate indicator, keeping its layout space.
+    pub fn animating<M>(mut self, source: impl crate::IntoReactive<bool, M>) -> Self {
+        self.animating = source.into_reactive();
+        self
+    }
+    /// Use the platform's large indeterminate indicator.
+    pub fn large(mut self) -> Self {
+        self.large = true;
+        self
     }
 }
 
@@ -1268,7 +1290,11 @@ impl Piece for Progress {
         let initial = self.value.as_ref().map(|f| f.initial());
         let node = cx.leaf(
             kinds::PROGRESS,
-            &ProgressProps { value: initial },
+            &ProgressProps {
+                value: initial,
+                animating: self.animating.get_untracked(),
+                large: self.large,
+            },
             // A determinate bar fills the available width (like a slider); a spinner keeps its
             // fixed intrinsic size.
             Flex {
@@ -1276,6 +1302,17 @@ impl Piece for Progress {
                 ..Default::default()
             },
         );
+        if !determinate && let crate::Reactive::Dyn(f) = self.animating {
+            day_reactive::bind_seeded(
+                f(),
+                move || f(),
+                move |on| {
+                    day_core::with_tree(|t| {
+                        t.patch(node, Box::new(ProgressPatch::Animating(*on)), false)
+                    });
+                },
+            );
+        }
         if let Some(src) = self.value {
             src.bind_to(node);
         }
@@ -1993,6 +2030,53 @@ pub(crate) mod conformance {
                     },
                 )
                 .await
+            })
+    }
+
+    /// Synthetic fixture: large indicators retain their native size when animation stops.
+    #[day_macros::test(day_core)]
+    fn spinner_size_and_animation() -> Case {
+        Case::new()
+            .proves(kinds::PROGRESS)
+            .page(|| {
+                let running = Signal::new(true);
+                column((
+                    spinner()
+                        .animating(running)
+                        .id(day_core::id!(spinner_fixture::small)),
+                    spinner()
+                        .animating(running)
+                        .large()
+                        .id(day_core::id!(spinner_fixture::large)),
+                    button("Stop fixture")
+                        .action(move || running.set(false))
+                        .id(day_core::id!(spinner_fixture::stop)),
+                ))
+            })
+            .drive(|d: Drive| async move {
+                let sizes = match day_core::toolkit_key() {
+                    Some("appkit") => Some((20.0, 32.0)),
+                    Some("uikit") => Some((20.0, 37.0)),
+                    Some("gtk") => Some((24.0, 48.0)),
+                    Some("arkui") => Some((32.0, 64.0)),
+                    Some("xaml" | "winui") => Some((32.0, 48.0)),
+                    Some("dom") => Some((22.0, 48.0)),
+                    _ => None, // Qt uses a busy bar; Android uses its theme's dimensions.
+                };
+                for stopped in [false, true] {
+                    if stopped {
+                        d.tap("spinner_fixture::stop").await?;
+                    }
+                    d.assert_visible("spinner_fixture::small").await?;
+                    d.assert_visible("spinner_fixture::large").await?;
+                    if let Some((small, large)) = sizes {
+                        d.assert_size("spinner_fixture::small", small, small)
+                            .await?;
+                        d.assert_size("spinner_fixture::large", large, large)
+                            .await?;
+                    }
+                }
+                Ok(())
             })
     }
 

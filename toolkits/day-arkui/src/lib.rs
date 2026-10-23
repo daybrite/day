@@ -21,6 +21,9 @@
 pub use imp::*;
 
 #[cfg(target_env = "ohos")]
+mod controls;
+
+#[cfg(target_env = "ohos")]
 mod anim;
 #[cfg(target_env = "ohos")]
 mod bridge;
@@ -2860,6 +2863,9 @@ mod imp {
                     let Some(p) = day_spec::props_of::<ProgressProps>(kind, "arkui", props) else {
                         return new_node(node::STACK);
                     };
+                    if p.value.is_none() {
+                        return crate::controls::spinner::make(self, p, id);
+                    }
                     match p.value {
                         Some(v) => {
                             let n = new_node(node::PROGRESS);
@@ -3432,6 +3438,13 @@ mod imp {
                     None => {}
                 },
                 kinds::PROGRESS => {
+                    if let Some(p @ ProgressPatch::Animating(_)) =
+                        patch.downcast_ref::<ProgressPatch>()
+                    {
+                        crate::controls::spinner::update(self, h, p);
+                        return;
+                    }
+
                     if let Some(ProgressPatch::Value(Some(v))) =
                         patch.downcast_ref::<ProgressPatch>()
                     {
@@ -3850,7 +3863,10 @@ mod imp {
                 kinds::TOGGLE => Size::new(50.0, 30.0),
                 kinds::SLIDER => Size::new(p.width.unwrap_or(200.0), 40.0),
                 kinds::DIVIDER => Size::new(p.width.unwrap_or(0.0), 1.0),
-                kinds::PROGRESS => Size::new(p.width.unwrap_or(40.0), p.height.unwrap_or(20.0)),
+                kinds::PROGRESS => match crate::controls::spinner::side(h) {
+                    Some(side) => Size::new(side, side),
+                    None => Size::new(p.width.unwrap_or(40.0), p.height.unwrap_or(20.0)),
+                },
                 // These fill their container (host owns scroll/paging; content is laid out inside).
                 kinds::NAV_MENU => Size::new(p.width.unwrap_or(240.0), p.height.unwrap_or(400.0)),
                 kinds::LIST => Size::new(p.width.unwrap_or(0.0), p.height.unwrap_or(0.0)),
@@ -4388,6 +4404,14 @@ mod imp {
 
         fn capability(&self, cap: Cap) -> Support {
             match cap {
+                Cap::SearchField => Support::Native,
+                Cap::ComboBox => Support::Native,
+                Cap::Stepper => Support::Emulated,
+                Cap::DateTimePicker => Support::Native,
+                Cap::ColorPicker => Support::Emulated,
+                Cap::PullRefresh => Support::Native,
+                Cap::Pager => Support::Native,
+                Cap::PullRefreshGesture => Support::Native,
                 Cap::DragDrop
                 | Cap::DragExternalImport
                 | Cap::DragExternalExport

@@ -24,6 +24,7 @@ harness = false
 day-build = { workspace = true }
 
 [dependencies]
+day-reactive = { workspace = true }
 day-fluent = { workspace = true }
 log = { workspace = true }
 day-spec = { workspace = true }
@@ -41,11 +42,11 @@ dispatch2 = { workspace = true }
 objc2-core-foundation = { workspace = true, default-features = true, features = ["CFCGTypes"] }
 objc2-core-graphics = { workspace = true, features = ["CGImage", "CGBitmapContext", "CGColorSpace", "CGContext", "CGDataConsumer", "CGPDFContext"] }
 objc2-quartz-core = { workspace = true, features = ["CAMediaTimingFunction", "CATransaction", "CADisplayLink"] }
-objc2-foundation = { workspace = true, features = ["NSLocale",
+objc2-foundation = { workspace = true, features = ["NSCalendar", "NSDate", "NSTimeZone", "NSLocale",
     "NSString", "NSUndoManager", "NSGeometry", "NSNotification", "NSDistributedNotificationCenter", "NSDictionary", "NSData", "NSValue", "NSIndexSet",
     "NSObject", "NSArray", "NSURL", "NSProcessInfo", "NSUserDefaults",
 ] }
-objc2-app-kit = { workspace = true, features = [
+objc2-app-kit = { workspace = true, features = ["NSColorPanel", "NSColorWell", "NSComboBox", "NSDatePicker", "NSDatePickerCell", "NSStepper",
     "objc2-core-graphics", "objc2-uniform-type-identifiers", "NSRunningApplication",
     "NSApplication", "NSResponder", "NSWindow", "NSView", "NSControl", "NSButton", "NSScreen",
     "NSTextField", "NSSecureTextField", "NSTextContent", "NSSlider", "NSSwitch", "NSCell", "NSText", "NSGraphics", "NSBox",

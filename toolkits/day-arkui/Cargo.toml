@@ -50,3 +50,7 @@ day-build = { workspace = true }
 
 [dev-dependencies]
 libc = { workspace = true }
+
+[package.metadata.day.ohos]
+
+ets = ["controls/searchfield/platform/harmony/ets", "controls/combobox/platform/harmony/ets"]

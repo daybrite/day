@@ -103,7 +103,7 @@ Platform guidance: [Apple: playing haptics](https://developer.apple.com/design/h
 
 ## What it shows about the extension system
 
-Like [`day-part-battery`](/docs/reference/battery) and [`day-part-network`](/docs/reference/network), this is a headless external crate: it has no UI
+Like [`day-part-device`](/docs/reference/battery) and [`day-part-connectivity`](/docs/reference/network), this is a headless external crate: it has no UI
 Piece and registers nothing into any toolkit's `RENDERERS` slice. It exercises the
 **manifest-permission overlay** ([docs/extending](extending.md)): `[package.metadata.day.android]` stages its own
 Java shim and contributes `android.permission.VIBRATE`, which `day build` merges into the app

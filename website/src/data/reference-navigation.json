@@ -14,7 +14,15 @@
       "list",
       "tree",
       "scroll",
-      "split"
+      "split",
+      "activity",
+      "colorpicker",
+      "combobox",
+      "datepicker",
+      "pullrefresh",
+      "searchfield",
+      "stepper",
+      "pager"
     ]
   },
   {
@@ -74,15 +82,8 @@
   {
     "id": "ui-extensions",
     "name": "Optional UI components",
-    "description": "Add specialized controls, media, maps, and embedded views.",
+    "description": "Add styled-text editing, settings, media, and embedded views.",
     "pages": [
-      "activity",
-      "colorpicker",
-      "combobox",
-      "datepicker",
-      "pullrefresh",
-      "searchfield",
-      "stepper",
       "texteditor",
       "settings",
       "map",

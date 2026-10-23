@@ -13,6 +13,7 @@ license.workspace = true
 frameworks = ["MobileCoreServices"]
 
 [dependencies]
+day-reactive = { workspace = true }
 log = { workspace = true }
 day-spec = { workspace = true }
 # Tweaks (docs/tweaks.md): the ext module reads the realized tree (day-core) and
@@ -25,11 +26,11 @@ linkme = { workspace = true }
 objc2 = { workspace = true }
 block2 = { workspace = true }
 dispatch2 = { workspace = true }
-objc2-foundation = { workspace = true, features = ["NSLocale", "NSString", "NSUndoManager", "NSArray", "NSBundle", "NSDictionary", "NSPathUtilities", "NSURL", "NSIndexPath", "NSRunLoop", "NSDate", "NSObjCRuntime", "NSUserActivity", "NSSet", "NSEnumerator"] }
+objc2-foundation = { workspace = true, features = ["NSCalendar", "NSNotification", "NSObject", "NSTimeZone", "NSLocale", "NSString", "NSUndoManager", "NSArray", "NSBundle", "NSDictionary", "NSPathUtilities", "NSURL", "NSIndexPath", "NSRunLoop", "NSDate", "NSObjCRuntime", "NSUserActivity", "NSSet", "NSEnumerator"] }
 objc2-core-foundation = { workspace = true, default-features = true, features = ["CFCGTypes"] }
 objc2-core-graphics = { workspace = true, features = ["CGContext", "CGGradient", "CGColorSpace", "CGPDFContext"] }
 objc2-quartz-core = { workspace = true, features = ["CADisplayLink"] }
-objc2-ui-kit = { workspace = true, features = [
+objc2-ui-kit = { workspace = true, features = ["UIColorWell", "UIDatePicker", "UIPageViewController", "UISearchTextField",
     "UIApplication", "UIResponder", "UIView", "UIWindow", "UIScreen", "UIViewController",
     "UIScene", "UIWindowScene", "UISceneSession", "UISceneConfiguration", "UISceneOptions", "UISceneDefinitions",
     # The scene's own geometry (docs/size-classes.md) — iOS 26 deprecated

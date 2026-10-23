@@ -138,8 +138,7 @@ project. A custom host that does not apply Day's plugin must configure merging i
 - Accessibility annotations are partial; see [the current limits](/docs/how-to/accessibility#current-limits).
 - Process death is a cold start unless your app persists its own state. Day does not restore a
   navigation stack for you.
-- [`day-piece-map`](/docs/reference/map) has no Android arm (it would pull in a Google Play services dependency); it
-  renders as a placeholder.
+- Day has no built-in [map control](/docs/reference/map).
 - Runtime permissions are yours to request. Day generates the manifest entries from your
   `[permissions]` table, and [`day-part-permissions`](/docs/reference/permissions) performs the request, but Android's
   never-asked and permanently-denied states are indistinguishable without app-side persistence.
@@ -181,11 +180,11 @@ one each piece uses.
 | dialogs / alerts / prompts | [`MaterialAlertDialogBuilder`](https://developer.android.com/reference/com/google/android/material/dialog/MaterialAlertDialogBuilder) |
 | file dialogs | Storage Access Framework intents |
 | context menus | [`PopupMenu`](https://developer.android.com/reference/android/widget/PopupMenu) |
-| *external* [`activity()`](https://daybrite.dev/api/day_piece_activity/fn.activity.html) | [`ProgressBar`](https://developer.android.com/reference/android/widget/ProgressBar) (framework, circular) |
+| *external* [`spinner()`](https://daybrite.dev/api/day_pieces/fn.spinner.html) | [`ProgressBar`](https://developer.android.com/reference/android/widget/ProgressBar) (framework, circular) |
 | *external* `combobox()` | [`AutoCompleteTextView`](https://developer.android.com/reference/android/widget/AutoCompleteTextView) |
-| *external* [`search_field()`](https://daybrite.dev/api/day_piece_searchfield/fn.search_field.html) | [`EditText`](https://developer.android.com/reference/android/widget/EditText) with `IME_ACTION_SEARCH` |
-| *external* [`date_picker()`](https://daybrite.dev/api/day_piece_datetime/fn.date_picker.html) | [`MaterialDatePicker`](https://developer.android.com/reference/com/google/android/material/datepicker/MaterialDatePicker), or inline [`DatePicker`](https://developer.android.com/reference/android/widget/DatePicker) |
-| *external* [`time_picker()`](https://daybrite.dev/api/day_piece_datetime/fn.time_picker.html) | [`MaterialTimePicker`](https://developer.android.com/reference/com/google/android/material/timepicker/MaterialTimePicker), or inline [`TimePicker`](https://developer.android.com/reference/android/widget/TimePicker) |
+| *external* [`search_field()`](https://daybrite.dev/api/day_pieces/searchfield/fn.search_field.html) | [`EditText`](https://developer.android.com/reference/android/widget/EditText) with `IME_ACTION_SEARCH` |
+| *external* [`date_picker()`](https://daybrite.dev/api/day_pieces/datetime/fn.date_picker.html) | [`MaterialDatePicker`](https://developer.android.com/reference/com/google/android/material/datepicker/MaterialDatePicker), or inline [`DatePicker`](https://developer.android.com/reference/android/widget/DatePicker) |
+| *external* [`time_picker()`](https://daybrite.dev/api/day_pieces/datetime/fn.time_picker.html) | [`MaterialTimePicker`](https://developer.android.com/reference/com/google/android/material/timepicker/MaterialTimePicker), or inline [`TimePicker`](https://developer.android.com/reference/android/widget/TimePicker) |
 | *external* `pull_refresh()` | [`SwipeRefreshLayout`](https://developer.android.com/reference/androidx/swiperefreshlayout/widget/SwipeRefreshLayout) |
 | *external* `webview()` | [`WebView`](https://developer.android.com/reference/android/webkit/WebView) |
 | *external* `media()` | [`VideoView`](https://developer.android.com/reference/android/widget/VideoView) |

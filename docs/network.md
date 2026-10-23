@@ -1,7 +1,7 @@
 ---
 navTitle: "Network"
 title: "Network connectivity"
-description: "Reachability and connection-type signals via day-part-network."
+description: "Reachability and connection-type signals via day-part-connectivity."
 ---
 
 <!--
@@ -12,17 +12,17 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 # Network connectivity
 
 Show whether the device has a network connection and what kind it is, such as Wi-Fi or cellular.
-`day-part-network` returns a connectivity snapshot. For sending requests, use
+`day-part-connectivity` returns a connectivity snapshot. For sending requests, use
 [HTTP](/docs/reference/http).
 
 ## Add to your app
 
-Defined in [`day-part-network`](https://github.com/daybrite/day/tree/main/parts/day-part-network). Add this to your app’s `Cargo.toml`
+Defined in [`day-part-connectivity`](https://github.com/daybrite/day/tree/main/parts/day-part-connectivity). Add this to your app’s `Cargo.toml`
 `[dependencies]` table, using the same Day Git source as the rest of your app:
 
 ```toml
 [dependencies]
-day-part-network = { git = "https://github.com/daybrite/day.git" }
+day-part-connectivity = { git = "https://github.com/daybrite/day.git" }
 ```
 
 The implementation is selected by the compilation target; no toolkit feature flags
@@ -31,23 +31,23 @@ or dependency entry in `Day.toml` are needed.
 | Platforms / toolkits | Availability |
 | --- | --- |
 | macOS, iOS, Android, Windows, Linux (GTK / Qt), HarmonyOS | Connectivity information; available detail varies by OS. |
-| Web | Unavailable; [`status()`](https://daybrite.dev/api/day_part_network/fn.status.html) returns `None`. |
+| Web | Unavailable; [`status()`](https://daybrite.dev/api/day_part_connectivity/fn.status.html) returns `None`. |
 
 ## Authoring
 
 ```rust
-if let Some(n) = day_part_network::status() {
+if let Some(n) = day_part_connectivity::status() {
     println!("online: {}, kind: {:?}, expensive: {:?}", n.online, n.kind, n.expensive);
 }
 ```
 
-[`status() -> Option<NetworkStatus>`](https://daybrite.dev/api/day_part_network/fn.status.html) returns `None` where there's no connectivity API (or the reading
+[`status() -> Option<NetworkStatus>`](https://daybrite.dev/api/day_part_connectivity/fn.status.html) returns `None` where there's no connectivity API (or the reading
 failed), which is distinct from a successful reading that says offline (`Some` with `online: false`).
-[`NetworkStatus { online: bool, kind: NetworkKind, expensive: Option<bool> }`](https://daybrite.dev/api/day_part_network/struct.NetworkStatus.html); [`NetworkKind`](https://daybrite.dev/api/day_part_network/enum.NetworkKind.html) is
+[`NetworkStatus { online: bool, kind: NetworkKind, expensive: Option<bool> }`](https://daybrite.dev/api/day_part_connectivity/struct.NetworkStatus.html); [`NetworkKind`](https://daybrite.dev/api/day_part_connectivity/enum.NetworkKind.html) is
 `Wifi | Cellular | Ethernet | Other | None`.
 
 There are no crate features; platform selection is purely `#[cfg(target_os)]`, because connectivity is
-an OS concern rather than a widget-toolkit one. `parts/day-part-network/examples/network.rs` is a plain
+an OS concern rather than a widget-toolkit one. `parts/day-part-connectivity/examples/network.rs` is a plain
 `main` that uses it with no Day framework at all.
 
 ## Per-platform native realization
@@ -80,7 +80,7 @@ Every field is best-effort; the platforms report different amounts of detail:
 - **HarmonyOS**: `online` = a default network is activated; `kind` from the bearer type, `expensive`
   from `NETCONN_NET_CAPABILITY_NOT_METERED`. The app must declare `ohos.permission.GET_NETWORK_INFO`
   in its `module.json5` (`requestPermissions`; normal permission, no prompt) or the calls fail with
-  201 and [`status()`](https://daybrite.dev/api/day_part_network/fn.status.html) returns `None`.
+  201 and [`status()`](https://daybrite.dev/api/day_part_connectivity/fn.status.html) returns `None`.
 - **Linux**: no daemon-independent connectivity API is guaranteed (NetworkManager is optional), so
   the crate scans `/sys/class/net`: `online` = a non-loopback interface has operstate `up`
   (link-level, not validated internet); `kind` from the kernel's predictable name prefixes (`wl*`
@@ -89,7 +89,7 @@ Every field is best-effort; the platforms report different amounts of detail:
 - **Windows**: [`GetNetworkConnectivityHint`](https://learn.microsoft.com/en-us/windows/win32/api/netioapi/nf-netioapi-getnetworkconnectivityhint) (Windows 10 2004+, blind like the rest of the xaml
   toolkit) gives a connectivity level (`online` = internet or constrained-internet access) and a cost
   (`expensive`) but no transport, so `kind` is `Other` when online. The symbol is resolved at runtime
-  via `LoadLibrary`/`GetProcAddress`, so apps still start on older Windows; [`status()`](https://daybrite.dev/api/day_part_network/fn.status.html)
+  via `LoadLibrary`/`GetProcAddress`, so apps still start on older Windows; [`status()`](https://daybrite.dev/api/day_part_connectivity/fn.status.html)
   returns `None` there.
 
 A snapshot is a point-in-time poll; a change-notification rail ([`SCNetworkReachability`](https://developer.apple.com/documentation/systemconfiguration/scnetworkreachability) callbacks,
@@ -101,7 +101,7 @@ stack (proxies, VPN, platform TLS), see its sibling part [`day-part-http`](http.
 
 ## What it shows about the extension system
 
-Like [`day-part-battery`](/docs/reference/battery), this is a headless external crate: it has no UI Piece and registers nothing
+Like [`day-part-device`](/docs/reference/battery), this is a headless external crate: it has no UI Piece and registers nothing
 into any toolkit's `RENDERERS` slice. It additionally exercises the **manifest-permission overlay**
 (from the webview work, [docs/extending](extending.md)): `[package.metadata.day.android]` stages its own Java shim
 and contributes `android.permission.ACCESS_NETWORK_STATE`, which `day build` merges into the app

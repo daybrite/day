@@ -200,7 +200,7 @@ Use explicit platform permission setup or platform UI automation for those tests
 - **Fluent**: spec fields are `IntoText`.
 - **polyglot**: `PresentSpec`/results are an open per-kind set; a third-party crate can
   add a platform picker (contacts, photos, files, share) the same way
-  [`day-piece-combobox`](/docs/reference/combobox) adds a widget: a new spec variant + `Cap` + toolkit arms, with no
+  [`day-pieces`](/docs/reference/combobox) adds a widget: a new spec variant + `Cap` + toolkit arms, with no
   day-core edits.
 
 ## Deferred

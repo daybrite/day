@@ -27,6 +27,8 @@ implement them, and this table proves it.
 | [`set_selectable`](https://daybrite.dev/api/day_spec/trait.Toolkit.html#method.set_selectable) | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | [`set_input_traits`](https://daybrite.dev/api/day_spec/trait.Toolkit.html#tymethod.set_input_traits) | yes | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | [`set_cursor`](https://daybrite.dev/api/day_spec/trait.Toolkit.html#method.set_cursor) | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · | ✓ | ✓ |
+| [`set_presented`](https://daybrite.dev/api/day_spec/trait.Toolkit.html#method.set_presented) | · | ✓ | · | ✓ | ✓ | ✓ | · | · | ✓ | · |
+| [`attach_refresh`](https://daybrite.dev/api/day_spec/trait.Toolkit.html#method.attach_refresh) | · | ✓ | · | ✓ | · | · | · | · | · | · |
 | [`set_scroll_content`](https://daybrite.dev/api/day_spec/trait.Toolkit.html#method.set_scroll_content) | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | [`scroll_bar_inset`](https://daybrite.dev/api/day_spec/trait.Toolkit.html#method.scroll_bar_inset) | · | · | · | · | ✓ | · | · | · | · | ✓ |
 | [`list_row_metrics`](https://daybrite.dev/api/day_spec/trait.Toolkit.html#method.list_row_metrics) | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · |

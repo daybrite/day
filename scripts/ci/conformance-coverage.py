@@ -53,7 +53,18 @@ spec = read("crates", "day-spec", "src", "lib.rs")
 # Kinds: `Variant = CONST => "day.kind"` in the `builtin_kinds!` invocation.
 kinds_block = block(spec, "\nbuiltin_kinds! {")
 kind_of_const = dict(re.findall(r"=\s*([A-Z_]+)\s*=>\s*\"(day\.[a-z_]+)\"", kinds_block))
-kinds = sorted(kind_of_const.values())
+# Registered core controls keep protocol constants in their own modules. Include them in
+# the same kind gate so moving a piece into core cannot silently remove its coverage.
+control_kinds = {}
+for protocol in sorted(os.listdir(os.path.join(ROOT, "crates", "day-spec", "src", "controls"))):
+    if protocol.endswith(".rs"):
+        control_kinds[protocol] = dict(re.findall(
+            r'pub const (\w*KIND\w*): &str = "([^"]+)"',
+            read("crates", "day-spec", "src", "controls", protocol),
+        ))
+kinds = sorted(set(kind_of_const.values()) | {
+    kind for module in control_kinds.values() for kind in module.values()
+})
 
 # Caps: the variants of `pub enum Cap`.
 caps = sorted(set(re.findall(r"^\s{4}([A-Z][A-Za-z0-9]*)\b", block(spec, "pub enum Cap"), re.M)))
@@ -63,7 +74,7 @@ decorate = block(read("crates", "day-pieces", "src", "decorators.rs"), "pub trai
 modifiers = sorted(set(re.findall(r"^\s{4}fn\s+([a-z_0-9]+)", decorate, re.M)) - {"any"})
 
 # Duties: the first column of the generated duty matrix.
-duties = sorted(set(re.findall(r"^\| `([a-z_0-9]+)` \|", read("docs", "duty-matrix.md"), re.M)))
+duties = sorted(set(re.findall(r"^\| \[`([a-z_0-9]+)`\]\([^)]*\) \|", read("docs", "duty-matrix.md"), re.M)))
 
 # What the cases prove, read from every Rust file that can hold a case.
 proven = set()
@@ -79,6 +90,11 @@ for root in case_roots:
             for const in re.findall(r"\.proves\(\s*kinds::([A-Z_]+)\s*\)", text):
                 if const in kind_of_const:
                     proven.add("kind:" + kind_of_const[const])
+            if os.path.abspath(dirpath) == os.path.join(ROOT, "crates", "day-pieces", "src"):
+                module = control_kinds.get(name, {})
+                for const in re.findall(r"\.proves\(\s*(\w*KIND\w*)\s*\)", text):
+                    if const in module:
+                        proven.add("kind:" + module[const])
             proven |= {"cap:" + c for c in re.findall(r"\.proves_cap\(\s*Cap::(\w+)\s*\)", text)}
             proven |= {"duty:" + d for d in re.findall(r"\.proves_duty\(\s*\"(\w+)\"\s*\)", text)}
             proven |= {"modifier:" + m for m in re.findall(r"\.proves_modifier\(\s*\"(\w+)\"\s*\)", text)}

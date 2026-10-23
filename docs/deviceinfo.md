@@ -11,17 +11,17 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 # Device identity
 
 Read the device model, operating-system version, and simulator flag for an About screen or
-a diagnostic report. `day-part-deviceinfo` returns a snapshot and uses a fallback when a platform
+a diagnostic report. `day-part-device` returns a snapshot and uses a fallback when a platform
 cannot report a field.
 
 ## Add to your app
 
-Defined in [`day-part-deviceinfo`](https://github.com/daybrite/day/tree/main/parts/day-part-deviceinfo). Add this to your app’s `Cargo.toml`
+Defined in [`day-part-device`](https://github.com/daybrite/day/tree/main/parts/day-part-device). Add this to your app’s `Cargo.toml`
 `[dependencies]` table, using the same Day Git source as the rest of your app:
 
 ```toml
 [dependencies]
-day-part-deviceinfo = { git = "https://github.com/daybrite/day.git" }
+day-part-device = { git = "https://github.com/daybrite/day.git" }
 ```
 
 The implementation is selected by the compilation target; no toolkit feature flags
@@ -35,12 +35,12 @@ or dependency entry in `Day.toml` are needed.
 ## Authoring
 
 ```rust
-let d = day_part_deviceinfo::get();
+let d = day_part_device::info::get();
 println!("{} — {} {}{}", d.model, d.system_name, d.system_version,
     if d.is_simulator { " (simulator)" } else { "" });
 ```
 
-[`get() -> DeviceInfo`](https://daybrite.dev/api/day_part_deviceinfo/fn.get.html) never panics and never returns an error: every platform yields something, and
+[`get() -> DeviceInfo`](https://daybrite.dev/api/day_part_device/info/fn.get.html) never panics and never returns an error: every platform yields something, and
 fields a platform cannot report fall back to `"Unknown"` (or, for `system_name`, the OS family name). It
 is a point-in-time snapshot; device identity does not change at runtime, so there is no notification rail.
 
@@ -55,7 +55,7 @@ pub struct DeviceInfo {
 
 There are no cargo features; platform selection is purely `#[cfg(target_os)]`/`#[cfg(target_env)]`,
 because device identity is an OS concern rather than a toolkit one.
-`parts/day-part-deviceinfo/examples/deviceinfo.rs` is a plain `main` that uses it with no Day
+`parts/day-part-device/examples/deviceinfo.rs` is a plain `main` that uses it with no Day
 framework at all.
 
 ## Per-platform native realization
@@ -101,7 +101,7 @@ Every field is best-effort; each platform reports what it can:
 
 ## What it shows about the extension system
 
-Like [`day-part-battery`](/docs/reference/battery) and [`day-part-network`](/docs/reference/network), this is a headless external crate: it has no UI Piece
+Like [`day-part-device`](/docs/reference/battery) and [`day-part-connectivity`](/docs/reference/network), this is a headless external crate: it has no UI Piece
 and registers nothing into any toolkit's `RENDERERS` slice. On Android it rides the Day runtime only
 for its attached JNIEnv (via `day-android`); the Java shim is staged into the app's Gradle build by
 `[package.metadata.day.android]` without touching any core day crate, and it contributes no manifest

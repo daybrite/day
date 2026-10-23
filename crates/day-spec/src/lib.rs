@@ -11,6 +11,9 @@ use std::collections::HashMap;
 
 pub use day_geometry::*;
 
+pub mod controls;
+pub use controls::datetime::{DayDate, DayTime};
+
 pub mod applications;
 pub mod capture;
 /// Inline markdown → styled runs (docs/markdown.md). Lives here rather than in day-pieces
@@ -2231,6 +2234,23 @@ impl SizeClass {
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Cap {
+    /// Standard searchfield control.
+    SearchField,
+    /// Standard combobox control.
+    ComboBox,
+    /// Standard stepper control.
+    Stepper,
+    /// Standard datetime control.
+    DateTimePicker,
+    /// Standard colorpicker control.
+    ColorPicker,
+    /// Standard pullrefresh control.
+    PullRefresh,
+    /// Standard pager control.
+    Pager,
+    /// User-driven pull recognition, separate from a refresh indicator.
+    PullRefreshGesture,
+
     /// Native data-transfer source and destination callbacks.
     DragDrop,
     /// Transfers between independent native applications (inbound).
@@ -2650,7 +2670,7 @@ pub enum Cap {
 impl Cap {
     /// Every capability, in declaration order: what a conformance run asks the toolkit about,
     /// so the evidence can be held against the declared coverage matrix (docs/testing.md).
-    pub const ALL: [Cap; 80] = [
+    pub const ALL: [Cap; 88] = [
         Cap::DragDrop,
         Cap::DragExternalImport,
         Cap::DragExternalExport,
@@ -2731,6 +2751,14 @@ impl Cap {
         Cap::ListItem,
         Cap::CanvasBitmap,
         Cap::CanvasPdf,
+        Cap::SearchField,
+        Cap::ComboBox,
+        Cap::Stepper,
+        Cap::DateTimePicker,
+        Cap::ColorPicker,
+        Cap::PullRefresh,
+        Cap::Pager,
+        Cap::PullRefreshGesture,
     ];
 
     /// The capability's place in [`Cap::ALL`]. Exhaustive, so a new variant fails to compile
@@ -2817,6 +2845,14 @@ impl Cap {
             Cap::ListItem => 77,
             Cap::CanvasBitmap => 78,
             Cap::CanvasPdf => 79,
+            Cap::SearchField => 80,
+            Cap::ComboBox => 81,
+            Cap::Stepper => 82,
+            Cap::DateTimePicker => 83,
+            Cap::ColorPicker => 84,
+            Cap::PullRefresh => 85,
+            Cap::Pager => 86,
+            Cap::PullRefreshGesture => 87,
         }
     }
 }
@@ -5897,12 +5933,26 @@ pub mod props {
     /// Progress indicator. `value` is the completed fraction in `0.0..=1.0`; `None` means
     /// indeterminate (an animated spinner / busy bar, no known extent). Backends map this to
     /// their native determinate/indeterminate widgets (docs/progress.md).
-    #[derive(Clone, Debug, Default, PartialEq)]
+    #[derive(Clone, Debug, PartialEq)]
     pub struct ProgressProps {
         pub value: Option<f64>,
+        /// Whether an indeterminate indicator animates; ignored for a determinate bar.
+        pub animating: bool,
+        /// The platform's large indicator size.
+        pub large: bool,
+    }
+    impl Default for ProgressProps {
+        fn default() -> Self {
+            Self {
+                value: None,
+                animating: true,
+                large: false,
+            }
+        }
     }
     #[derive(Clone, Debug, PartialEq)]
     pub enum ProgressPatch {
+        Animating(bool),
         /// New completed fraction, or `None` to switch to indeterminate.
         Value(Option<f64>),
     }
@@ -6920,6 +6970,13 @@ pub trait Toolkit: Sized + 'static {
     // node. The default no-op is a backend with no pointer API to reach (`Cap::Cursor`
     // answers `Unsupported` there).
     fn set_cursor(&mut self, _h: &Self::Handle, _cursor: Cursor) {}
+
+    /// Show or hide a retained subtree, including its input and accessibility participation.
+    /// The layout and reactive scope stay alive while hidden.
+    fn set_presented(&mut self, _h: &Self::Handle, _visible: bool) {}
+
+    /// Attach overscroll delivery to a refresh host; the caller owns the mounted scope.
+    fn attach_refresh(&mut self, _h: &Self::Handle, _host: NodeId) {}
 
     // scroll (§7.6)
     fn set_scroll_content(&mut self, _h: &Self::Handle, _content: Size) {}
