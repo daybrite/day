@@ -1,0 +1,140 @@
+/* Copyright © The Daybrite Project
+ * SPDX-License-Identifier: CC-BY-SA-4.0
+ * Rustdoc adapts to the same compiled site stylesheet; keep palette/font values there. */
+:root[data-theme], :root:not([data-theme]) {
+  --font-family: var(--font);
+  --font-family-code: var(--mono);
+  --main-background-color: var(--bg);
+  --main-color: var(--text);
+  --sidebar-background-color: var(--bg);
+  --sidebar-background-color-hover: var(--hover);
+  --sidebar-border-color: var(--border-soft);
+  --sidebar-link-color: var(--muted);
+  --sidebar-current-link-background-color: var(--surface-2);
+  --code-block-background-color: var(--surface);
+  --headings-border-bottom-color: var(--border-soft);
+  --border-color: var(--border);
+  --button-background-color: var(--surface-2);
+  --right-side-color: var(--muted);
+  --link-color: var(--brand);
+  --type-link-color: var(--brand);
+  --trait-link-color: var(--brand);
+  --assoc-item-link-color: var(--brand);
+  --function-link-color: var(--brand);
+  --macro-link-color: var(--brand);
+  --keyword-link-color: var(--brand);
+  --attribute-link-color: var(--brand);
+  --mod-link-color: var(--brand);
+  --settings-input-color: var(--brand);
+  --settings-input-border-color: var(--border);
+  --settings-button-color: var(--text);
+  --settings-button-border-focus: var(--brand);
+  --search-input-focused-border-color: var(--brand);
+  --search-result-link-focus-background-color: var(--hover-strong);
+  --search-result-border-color: var(--border-soft);
+  --search-color: var(--text);
+  --search-error-code-background-color: var(--surface-2);
+  --search-results-alias-color: var(--text);
+  --search-results-grey-color: var(--muted);
+  --search-tab-title-count-color: var(--faint);
+  --search-tab-button-not-selected-border-top-color: var(--border);
+  --search-tab-button-not-selected-background: var(--surface-2);
+  --search-tab-button-selected-border-top-color: var(--brand);
+  --search-tab-button-selected-background: var(--bg);
+  --scrollbar-track-background-color: var(--bg);
+  --scrollbar-thumb-background-color: var(--border);
+  --scrollbar-color: var(--border) var(--bg);
+  --sidebar-resizer-hover: var(--brand);
+  --sidebar-resizer-active: var(--brand-strong);
+  --table-alt-row-background-color: var(--surface);
+  --codeblock-link-background: var(--surface-2);
+  --target-background-color: var(--surface-2);
+  --target-border-color: var(--brand);
+  --stab-background-color: var(--surface-2);
+  --stab-code-color: var(--text);
+  --kbd-color: var(--text);
+  --kbd-background: var(--surface-2);
+  --kbd-box-shadow-color: var(--border);
+  --code-highlight-kw-color: var(--tier);
+  --code-highlight-kw-2-color: var(--brand);
+  --code-highlight-lifetime-color: var(--accent);
+  --code-highlight-prelude-color: var(--brand);
+  --code-highlight-prelude-val-color: var(--adm-warning);
+  --code-highlight-number-color: var(--adm-tip);
+  --code-highlight-string-color: var(--adm-tip);
+  --code-highlight-literal-color: var(--adm-warning);
+  --code-highlight-attribute-color: var(--adm-warning);
+  --code-highlight-self-color: var(--adm-warning);
+  --code-highlight-macro-color: var(--adm-question);
+  --code-highlight-comment-color: var(--faint);
+  --code-highlight-doc-comment-color: var(--muted);
+  --day-header-height: 63px;
+}
+
+body.rustdoc {
+  display: block;
+  font-family: var(--font);
+  font-size: 17px;
+  line-height: 1.6;
+}
+.rustdoc > header.nav { z-index: 110; }
+.day-api-content { display: flex; align-items: start; }
+.day-api-content > .sidebar {
+  top: var(--day-header-height);
+  height: calc(100vh - var(--day-header-height));
+  width: var(--desktop-sidebar-width);
+  padding-top: 18px;
+  font-family: var(--font);
+}
+.day-api-content > main {
+  padding: 36px 40px 40px;
+  font-family: var(--font);
+}
+.rustdoc .docblock { font-family: var(--font); }
+.rustdoc h1, .rustdoc h2, .rustdoc h3, .rustdoc h4, .rustdoc h5, .rustdoc h6,
+.rustdoc rustdoc-toolbar, .rustdoc rustdoc-topbar, .rustdoc #crate-search,
+.rustdoc .search-input, .rustdoc .search-results .result-name, .rustdoc .item-table dt > a,
+.rustdoc .out-of-band, .rustdoc .sub-heading, .rustdoc span.since, .rustdoc a.src,
+.rustdoc summary.hideme, .rustdoc .scraped-example-list, .rustdoc .rustdoc-breadcrumbs,
+.rustdoc .search-switcher, .rustdoc ul.all-items, .rustdoc .deprecated-count { font-family: var(--font); }
+.rustdoc .sidebar-resizer {
+  top: var(--day-header-height);
+  height: calc(100vh - var(--day-header-height));
+}
+.sidebar-resizing > body.rustdoc { padding-left: 0; }
+.sidebar-resizing .day-api-content { padding-left: var(--resizing-sidebar-width); }
+.rustdoc .main-heading h1 { font-size: 1.8rem; font-weight: 700; }
+.rustdoc code, .rustdoc pre, .rustdoc .item-decl,
+.rustdoc .code-header, .rustdoc .type-signature { font-family: var(--mono); }
+.rustdoc .docblock pre, .rustdoc .item-decl {
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius);
+}
+.rustdoc .docblock a { text-decoration: underline; text-underline-offset: 3px; }
+.rustdoc [id] { scroll-margin-top: calc(var(--day-header-height) + 16px); }
+.rustdoc .day-api-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 24px;
+  padding-block: 16px;
+  font-size: 0.9rem;
+  background: var(--bg);
+}
+.rustdoc > .footer { margin-top: 0; }
+.rustdoc > .footer, .rustdoc > .day-api-links { position: relative; z-index: 105; }
+/* The shared header owns appearance; keep Rustdoc's API-specific settings available. */
+.rustdoc .setting-line:is(#theme, #preferred-light-theme, #preferred-dark-theme),
+.rustdoc .setting-line:has(#sans-serif-fonts) { display: none; }
+
+@media (max-width: 700px) {
+  .day-api-content { display: block; }
+  .rustdoc rustdoc-topbar { top: var(--day-header-height); }
+  .day-api-content > .sidebar {
+    top: calc(var(--day-header-height) + var(--topbar-height));
+    height: calc(100vh - var(--day-header-height) - var(--topbar-height));
+    width: 100%;
+  }
+  html:not(.hide-sidebar) .day-api-content > main { padding: 20px 16px; }
+  .rustdoc [id] { scroll-margin-top: calc(var(--day-header-height) + var(--topbar-height) + 16px); }
+  .rustdoc .main-heading h1 { font-size: 1.45rem; }
+}

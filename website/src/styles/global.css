@@ -96,7 +96,7 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 }
 
 /* Light palette. The applied theme (light/dark) is set on <html data-theme> before paint by the
-   inline script in BaseLayout; the footer's three-way selector chooses light / system / dark and
+   shared theme script in BaseLayout; the header's three-way selector chooses light / system / dark and
    remembers it in localStorage. "system" resolves to light or dark at runtime. */
 :root[data-theme='light'] {
   --bg: #ffffff;

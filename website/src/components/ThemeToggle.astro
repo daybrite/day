@@ -2,7 +2,7 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: CC-BY-SA-4.0
 // Three-way theme selector: light / system / dark, remembered in localStorage ('day-theme').
-// The applied theme is set on <html data-theme> before paint by the inline script in BaseLayout;
+// The applied theme is set on <html data-theme> before paint by the shared theme script in BaseLayout;
 // this control reflects the stored preference and updates it. "system" tracks prefers-color-scheme.
 const choices = [
   { id: 'light', label: 'Light' },
@@ -40,75 +40,6 @@ const { compact = false } = Astro.props;
   ))}
 </div>
 
-<script>
-  const KEY = 'day-theme';
-  const ORDER = ['light', 'system', 'dark'];
-  const root = document.documentElement;
-  const darkMq = matchMedia('(prefers-color-scheme: dark)');
-
-  const getPref = () => {
-    try {
-      return localStorage.getItem(KEY) || 'system';
-    } catch {
-      return 'system';
-    }
-  };
-  const resolve = (pref: string) =>
-    pref === 'dark' || (pref === 'system' && darkMq.matches) ? 'dark' : 'light';
-
-  document.querySelectorAll<HTMLElement>('[data-theme-toggle]').forEach((group) => {
-    const buttons = Array.from(group.querySelectorAll<HTMLButtonElement>('[data-theme-choice]'));
-
-    const reflect = (pref: string) => {
-      for (const b of buttons) {
-        const on = b.dataset.themeChoice === pref;
-        b.setAttribute('aria-checked', on ? 'true' : 'false');
-        b.tabIndex = on ? 0 : -1;
-        b.classList.toggle('on', on);
-      }
-    };
-    const choose = (pref: string, focus: boolean) => {
-      try {
-        localStorage.setItem(KEY, pref);
-      } catch {
-        /* private mode: still apply for this session */
-      }
-      root.dataset.theme = resolve(pref);
-      reflect(pref);
-      if (focus) group.querySelector<HTMLButtonElement>('[aria-checked="true"]')?.focus();
-    };
-
-    reflect(getPref());
-
-    for (const b of buttons) {
-      b.addEventListener('click', () => {
-        // Collapsed (compact, narrow screen): only the current choice shows, and a press moves on.
-        const collapsed = buttons.some((x) => x !== b && x.offsetParent === null);
-        const pref = b.dataset.themeChoice!;
-        if (collapsed && pref === getPref()) {
-          choose(ORDER[(ORDER.indexOf(pref) + 1) % ORDER.length], true);
-        } else {
-          choose(pref, false);
-        }
-      });
-      b.addEventListener('keydown', (e) => {
-        const i = ORDER.indexOf(getPref());
-        if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
-          e.preventDefault();
-          choose(ORDER[(i + 1) % ORDER.length], true);
-        } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
-          e.preventDefault();
-          choose(ORDER[(i + ORDER.length - 1) % ORDER.length], true);
-        }
-      });
-    }
-  });
-
-  // Follow the OS live while the preference is "system".
-  darkMq.addEventListener('change', () => {
-    if (getPref() === 'system') root.dataset.theme = resolve('system');
-  });
-</script>
 
 <style>
   .seg {

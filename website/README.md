@@ -73,6 +73,9 @@ Or directly with npm inside `website/`: `npm install`, then `npm run dev` / `npm
 it. They require the Rust toolchain, jq, and Python 3 in addition to Node.js. `npm run build:site`
 builds only the guide site, for a quick content check. To browse API links from the development
 server, run `npm run api:dev` before `npm run dev`; rerun it after changing Rust APIs.
+This builds the combined site and stages Rustdoc, its shared compiled styles, and the guide
+search index in ignored `public/` directories. Guide API links still open the published site;
+visit `/api/` directly to inspect the local Rustdoc pages.
 
 > Builds assemble the apps’ published gallery indexes and Day Showcase release metadata. A warm
 > checkout can reuse gallery indexes and hero images offline; unavailable release metadata produces
@@ -204,6 +207,13 @@ Rustdoc bundle into `dist/api` **after** the Astro build, because Astro clears `
 deploys one combined artifact. `node website/scripts/check-api-bundle.mjs` (from the repository
 root) checks the site, API bridge, and all crate entry pages before upload. A separate Python check validates item-level Rustdoc links, and Rustdoc builds with warnings
 denied. A local validation build does not run these deployment jobs.
+
+Rustdoc reuses the API bridge's rendered header/footer and the same compiled CSS files as the
+guides. `public/styles/rustdoc.css` maps Rustdoc's layout and colors to those shared design
+tokens. Both use `public/scripts/theme.js` for the saved light/system/dark preference.
+The API generator requires the site build first; use `--site-dir <built-site>` when the Astro
+output lives outside `website/dist`. Native Rustdoc search covers API items; header search
+covers the guides.
 
 To preview that combined artifact, run `npm --prefix website run build`, then
 `npm --prefix website run linkcheck` from the repository root. Serve with

@@ -5,7 +5,7 @@ The app `day test` runs Day's own piece tests in. Each `#[day::test]` case in
 toolkit and look at it, and the engine can drive it. See
 [docs/testing.md](../../docs/testing.md).
 
-Only the app's own files are committed: `Cargo.toml`, `src/`, `dayscript/`, `scripts/` and
+Only the app's own files are committed: `Cargo.toml`, `Cargo.lock`, `src/`, `dayscript/`, `scripts/` and
 `generate.sh`. The scaffold around them (`Day.toml`, `build.rs`, `resource/`, `platform/`) is
 `day new app` output that `generate.sh` writes from this checkout's template, so it never
 falls behind the template. Run it once after a clone, and again after a template change:
@@ -17,6 +17,9 @@ cargo run -q -p day-cli -- --project apps/conformance test -p macos-appkit
 cargo run -q -p day-cli -- --project apps/conformance test -p macos-appkit 'text-field-*'
 cargo run -q -p day-cli -- --project apps/conformance test -p ios-uikit --list
 ```
+
+The host Clippy gate runs `generate.sh` before checking this app. Its separate `Cargo.lock`
+pins the standalone workspace's dependencies for `--locked` builds in a fresh checkout.
 
 The built-in cases also run on the mock toolkit under `cargo test -p day-script --test conformance`.
 

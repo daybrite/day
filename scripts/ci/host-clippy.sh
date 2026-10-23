@@ -20,4 +20,6 @@ cargo clippy --locked -p day-part-http --features reqwest --all-targets "$@"
 cargo clippy --locked -p day-piece-settings -p day-piece-texteditor \
     --features day-piece-settings/conformance,day-piece-texteditor/conformance --all-targets "$@"
 # The standalone conformance app links the whole provider set through the public facade.
+# Its scaffold is generated, so a fresh checkout must prepare it before linting the app.
+bash apps/conformance/generate.sh
 cargo clippy --locked --manifest-path apps/conformance/Cargo.toml --all-targets "$@"

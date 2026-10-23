@@ -15,7 +15,7 @@
     "build:site": "astro build && pagefind --site dist",
     "build:site:force": "astro build --force && pagefind --site dist",
     "build:api": "bash ../scripts/build-api-docs.sh --out website/dist/api && node scripts/check-api-bundle.mjs && python3 -B ../scripts/docs/check-api-links.py && npm run docs:api-references",
-    "api:dev": "bash ../scripts/build-api-docs.sh --out website/public/api",
+    "api:dev": "node scripts/stage-api-dev.mjs --clean && npm run build && node scripts/stage-api-dev.mjs",
     "linkcheck": "node scripts/linkcheck.mjs",
     "preview": "astro preview",
     "assemble": "node scripts/assemble-gallery.mjs",

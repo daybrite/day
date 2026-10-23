@@ -1,6 +1,8 @@
 # Only the app's own files are source; generate.sh writes the rest from this checkout's app
-# template (docs/testing.md), and build/, target/ and Cargo.lock are build output.
+# template (docs/testing.md). Keep Cargo.lock for reproducible --locked CI builds;
+# build/ and target/ remain generated output.
 /*
+!/Cargo.lock
 !/.gitignore
 !/Cargo.toml
 !/README.md

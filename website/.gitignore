@@ -35,6 +35,9 @@ pnpm-debug.log*
 # day API reference: locally-generated rustdoc bundle for previewing /docs/api
 # (`scripts/build-api-docs.sh --out website/public/api`). In CI it lands in dist/api instead.
 /public/api/
+# Compiled shared styles and search assets staged by npm run api:dev.
+/public/_astro/
+/public/pagefind/
 
 # day showcase downloads: packaged apps + manifest assembled from showcase-dist-* CI artifacts
 # (scripts/assemble-downloads.mjs)

@@ -24,18 +24,8 @@ const ogImage = Astro.site ? new URL(url('og-card.png'), Astro.site).href : unde
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    {/* Apply the stored theme before first paint (no flash). Mirrors ThemeToggle's resolve logic. */}
-    <script is:inline>
-      (() => {
-        try {
-          const p = localStorage.getItem('day-theme') || 'system';
-          const dark = p === 'dark' || (p === 'system' && matchMedia('(prefers-color-scheme: dark)').matches);
-          document.documentElement.dataset.theme = dark ? 'dark' : 'light';
-        } catch (e) {
-          document.documentElement.dataset.theme = 'dark';
-        }
-      })();
-    </script>
+    {/* Shared with Rustdoc; apply the preference before paint and bind the header control. */}
+    <script is:inline data-day-theme src={url('scripts/theme.js')}></script>
     <title>{fullTitle}</title>
     <meta name="description" content={description} />
     <link rel="icon" type="image/svg+xml" href={url('favicon.svg')} />

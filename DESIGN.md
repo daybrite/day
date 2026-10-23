@@ -6039,7 +6039,10 @@ The `daybrite/actions` companion repository provides reusable workflows for exte
    registry, model/persistence (with its derive crate and the opt-in date and time codecs), and
    the HTTP part with its opt-in reqwest provider. Model/persistence are
    explicitly selected because they are outside `default-members`; app dependency checks
-   do not lint their regression tests. Platform-specific lint commands remain in the backend
+   do not lint their regression tests. The standalone conformance app also runs in this gate;
+   its own checked-in `Cargo.lock` pins dependencies, and `generate.sh` recreates its scaffold
+   from the checkout's template before Clippy runs. Local generated files are not prerequisites.
+   Platform-specific lint commands remain in the backend
    jobs. Run the host script before declaring Rust changes complete; builds and tests alone
    do not establish lint cleanliness.
    Clippy is a required status but NOT in
@@ -6216,6 +6219,12 @@ The `daybrite/actions` companion repository provides reusable workflows for exte
    makes it the does-rustdoc-still-build check on crate changes too; the separate `api-docs`
    job it replaced is gone. The `screenshots-<combo>` artifacts the platform legs upload stay, as
    each run's evidence of what its walkthrough rendered.
+   Rustdoc's stable HTML hooks reuse the Astro API bridge's rendered header and footer, plus
+   the exact compiled site stylesheets. A small adapter maps Rustdoc colors and typography to
+   the site's design tokens and offsets its sidebar below the responsive header. Both roots
+   use `scripts/theme.js` and the `day-theme` preference; Rustdoc retains its API search and
+   settings. The shared header's search continues to search the guides. Build the Astro site
+   before generating Rustdoc; `--site-dir` selects another assembled site for isolated builds.
 
    Documentation authoring standards and unpublished templates live in `website/authoring/`;
    the published guides retain their canonical-source symlinks and route-catalog entries.

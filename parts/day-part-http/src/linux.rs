@@ -739,7 +739,7 @@ extern "C" fn on_read(buffer: *mut c_char, size: usize, items: usize, data: *mut
     let (easy, out) = unsafe {
         (
             easy(data),
-            std::slice::from_raw_parts_mut(buffer as *mut u8, len),
+            std::slice::from_raw_parts_mut(buffer.cast::<u8>(), len),
         )
     };
     let read = match &mut easy.upload {

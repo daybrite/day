@@ -9,16 +9,18 @@
 # The crate list lives in website/src/data/api-crates.json (the same file the /docs/reference/api bridge page
 # reads), so the reference and the page never drift. Every crate documents portably, with no native
 # toolkit and no cross-compiler: optional `model` integrations are included and the `day` umbrella
-# uses its headless `mock` backend, so this runs on a stock Linux CI runner. A small "back to Day docs" pill
-# is injected into every rustdoc page via rustdoc's stable --html-in-header / --html-after-content.
+# uses its headless `mock` backend, so this runs on a stock Linux CI runner. Build the Astro site
+# first: its header, footer, theme control, and exact stylesheets are reused through Rustdoc HTML hooks.
 set -euo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 manifest="$here/website/src/data/api-crates.json"
 out=""
+site_dir="$here/website/dist"
 while [ $# -gt 0 ]; do
   case "$1" in
     --out) out="$2"; shift 2 ;;
+    --site-dir) site_dir="$2"; shift 2 ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
 done
@@ -28,35 +30,11 @@ for tool in cargo jq python3; do
 done
 [ -f "$manifest" ] || { echo "error: missing $manifest" >&2; exit 1; }
 
-# --- a back-to-Day link injected into every rustdoc page via rustdoc's stable html-in-header /
-# html-after-content hooks. It is `position: fixed`, so it is removed from rustdoc's CSS-grid body
-# layout (a flow element would land in a stray grid track) and floats as a small corner pill, which
-# holds across rustdoc versions. Links are root-relative → same origin the /api bundle is served
-# from.
-hdr="$(mktemp)"; after="$(mktemp)"
-trap 'rm -f "$hdr" "$after"' EXIT
-cat > "$hdr" <<'CSS'
-<style>
-  .day-api-bar{position:fixed;right:16px;bottom:16px;z-index:1000;
-    padding:.42rem .8rem;background:#123246;border:1px solid #E8541C;border-radius:999px;
-    display:flex;align-items:center;gap:.55rem;box-shadow:0 2px 12px rgba(0,0,0,.45);
-    font:600 .8rem/1 -apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;}
-  .day-api-bar a{color:#FFD84D;text-decoration:none;}
-  .day-api-bar a:hover{text-decoration:underline;}
-  .day-api-bar .day-api-home{color:#FFD84D;font-weight:800;letter-spacing:-.01em;}
-  .day-api-bar .sep{color:#E8541C;}
-  @media (max-width:700px){.day-api-bar{display:none;}}
-</style>
-CSS
-cat > "$after" <<'HTML'
-<div class="day-api-bar">
-  <a class="day-api-home" href="/docs/reference/api">Day API ↩</a>
-  <a href="/docs/explanation/overview">Guides</a><span class="sep">·</span>
-  <a href="/">daybrite.dev</a>
-</div>
-HTML
-
-export RUSTDOCFLAGS="--html-in-header $hdr --html-after-content $after -D warnings"
+# Reuse the already-built site's actual chrome instead of maintaining an API-only copy.
+shell_dir="$(mktemp -d)"
+trap 'rm -rf "$shell_dir"' EXIT
+python3 "$here/scripts/docs/rustdoc-shell.py" --site-dir "$site_dir" --out "$shell_dir"
+export RUSTDOCFLAGS="--html-in-header $shell_dir/head.html --html-before-content $shell_dir/before.html --html-after-content $shell_dir/after.html -D warnings"
 
 cd "$here"
 rm -rf target/doc
