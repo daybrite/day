@@ -1,0 +1,31 @@
+# Copyright © The Daybrite Project
+# SPDX-License-Identifier: MPL-2.0
+#
+# The repositories that take crates from this one over git, as CI checks them
+# (scripts/ci/downstream-check.py --clone, the `downstream` job in ci.yml). One `owner/name` per
+# line; each is cloned shallow at its default branch and resolved against the commit under test.
+# A repository that depends on daybrite/day and is not here can break on a push to main without
+# this repository noticing, so a new part, piece or app repository joins the list when it is
+# created. On a developer's machine the script needs no list: it finds the sibling checkouts.
+daybrite/Day-Showcase
+daybrite/day-part-auth
+daybrite/day-part-speech
+daybrite/day-part-zeroconf
+daybrite/day-persistence
+daybrite/day-piece-break
+daybrite/day-piece-camera
+daybrite/day-piece-charts
+daybrite/day-piece-lottie
+daybrite/day-piece-media
+daybrite/day-piece-selfupdate
+daybrite/day-piece-webview
+daybrite/Day-Games
+daybrite/Day-Hub
+daybrite/Day-Matrix
+daybrite/Day-News
+daybrite/Day-Rise
+daybrite/Day-Sketch
+daybrite/Day-Skies
+daybrite/Day-Trader
+daybrite/Day-Tunes
+daybrite/day-lite

@@ -6099,6 +6099,20 @@ The `daybrite/actions` companion repository provides reusable workflows for exte
    matrix's build/test signal (it once rode the linux-day artifact job, where a pure lint
    failure killed the CLI artifact and with it every Linux-descended combo). `spelling` and
    `deny` sit the same way.
+   Beside them, **`downstream`** (2026-10) clones every repository that takes crates from this
+   one over git (`scripts/ci/downstream-repos.txt`: the external parts, pieces and apps) and
+   resolves each against the commit under test with `day patch --local <checkout> --check`.
+   Those repositories depend on the bare `daybrite/day` URL with no revision pinned
+   ([§15](#15-extension-mechanisms)), so a push here is a change to each of their next CI runs,
+   and a crate renamed or removed without them following turned every one red — a failure
+   that surfaced hours later in the showcase legs or in the apps' own pipelines, after the
+   push. The job is resolution only, a few minutes, and names the crate and the repository.
+   The same script is the last step of `scripts/ci/check-ready.sh` and the tracked `pre-push`
+   hook, where it needs no list: it finds the sibling checkouts, exports each at its upstream
+   ref (the local patch tables point every checkout at every other, which is exactly what hides
+   a tree that is broken as pushed) and, for one that fails, says whether its HEAD or its
+   working tree carries the fix, so a cross-repository rename is pushed as one sequence rather
+   than discovered by CI.
 2. **CLI builds** — the `day` binary in release for 3 OSes × 2 arches; artifacts feed every
    later job (and the release lane). The Linux and Windows legs each run on hardware matching
    their arch (`ubuntu-24.04-arm` / `windows-11-arm` for aarch64, 2026-08); macOS x86_64 is

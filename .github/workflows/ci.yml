@@ -187,6 +187,26 @@ jobs:
       - name: Readiness gate regression tests
         run: python3 scripts/ci/test-readiness.py
 
+  # The repositories that take crates from this one over git (scripts/ci/downstream-repos.txt),
+  # each cloned at its default branch and resolved against this commit with `day patch --check`.
+  # Every external part, piece and app depends on the bare daybrite/day URL with no revision
+  # pinned, so a push here is a change to each of their next CI runs, and a crate renamed or
+  # removed without them following turns every one red — a failure that used to surface hours
+  # later, in the showcase legs or in the apps' own pipelines. This asks in minutes, on the
+  # push itself, and names the crate and the repository. Resolution only: no build.
+  downstream:
+    name: downstream repositories resolve
+    if: ${{ !inputs.website-only && github.event_name != 'repository_dispatch' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Build this commit's day CLI
+        run: cargo build -q -p day-cli
+      - name: Resolve the downstream repositories against this commit
+        run: python3 -B scripts/ci/downstream-check.py --clone
+
   # ===========================================================================
   # Per-combo FRAMEWORK jobs: one job per <platform>-<toolkit>. Each installs the toolkit's deps
   # and runs the checks that need that host — above all the scaffold check, which proves `day new`

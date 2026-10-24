@@ -38,11 +38,21 @@ Once a discussion lands on "yes, send a patch":
    stale tables using their `scripts/ci/*-matrix.sh` generators, then rerun the gate. The
    checks accept correct uncommitted tables and never rewrite them. Run `scripts/ci/lint.sh`
    for the full available platform Clippy matrix and `cargo test` for the crates you touched;
-   report skipped platform checks when handing off work. Install the tracked hook once per
-   clone with `bash scripts/install-hooks.sh`: it formats, checks the generated matrices, and
-   separately checks staged matrix inputs, so an unstaged correction cannot hide stale
-   generated content in the commit. The hook skips host Clippy to keep commits fast, so it
-   does not replace `check-ready.sh`. Builds and tests do not replace lint validation.
+   report skipped platform checks when handing off work. Install the tracked hooks once per
+   clone with `bash scripts/install-hooks.sh`: the `pre-commit` hook formats, checks the
+   generated matrices, and separately checks staged matrix inputs, so an unstaged correction
+   cannot hide stale generated content in the commit. The hook skips host Clippy to keep
+   commits fast, so it does not replace `check-ready.sh`. Builds and tests do not replace lint
+   validation.
+   The gate ends with `scripts/ci/downstream-check.py`, and the `pre-push` hook runs it before
+   a push to `main`: every external part, piece and app takes this repository's crates from
+   git with no revision pinned, so a crate, feature or Java class renamed or removed here breaks
+   each of them on its next CI run unless it follows in the same push sequence. The check
+   exports each sibling checkout at its upstream ref and resolves it against `HEAD` the way CI
+   will, and reports whether a failing one is fixed in its working tree, fixed in unpushed
+   commits, or not at all. A change that renames or removes anything another repository
+   depends on is not ready until that check passes, with the follow-up changes committed in
+   the sibling repositories and pushed right after this one.
 5. Update the documentation the change affects in the same PR: the relevant `docs/*.md` page,
    and the `DESIGN.md` section that describes what you changed.
 
