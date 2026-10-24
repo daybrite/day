@@ -430,6 +430,44 @@ fn a_min_width_control_overflows_a_starved_row_and_stacks() {
     assert_eq!(sliders[0].1.frame.size.width, 400.0);
 }
 
+/// The y of the label reading `text`.
+fn label_y(probe: &MockProbe, text: &str) -> f64 {
+    probe
+        .find_by_kind("day.label")
+        .into_iter()
+        .find(|(_, w)| w.text == text)
+        .map(|(_, w)| w.frame.origin.y)
+        .unwrap_or_else(|| panic!("no label {text:?}"))
+}
+
+/// A column holding a capped scroll: the title, the scroll, and the button under it.
+fn capped_column(cap: f64) -> AnyPiece {
+    let lines: Vec<AnyPiece> = (0..60).map(|i| label(format!("line {i}")).any()).collect();
+    column((
+        label("title"),
+        scroll(column(lines)).max_height(cap),
+        label("done"),
+    ))
+    .any()
+}
+
+#[test]
+fn a_max_height_scroll_yields_to_the_button_under_it() {
+    // A cap taller than the 600-point window: the scroll takes what the title and the button
+    // leave (600 - 16 - 16), so the button stays on screen at the bottom.
+    let probe = boot(|| capped_column(1000.0));
+    let scrolls = probe.find_by_kind("day.scroll");
+    assert_eq!(scrolls[0].1.frame.size.height, 568.0);
+    assert_eq!(label_y(&probe, "done"), 584.0);
+    // A cap with room to spare: the scroll stops at it, and the column hugs its children
+    // (16 + 100 + 16) instead of filling the window, so "below" sits right under it.
+    let probe = boot(|| column((capped_column(100.0), label("below"))).any());
+    let scrolls = probe.find_by_kind("day.scroll");
+    assert_eq!(scrolls[0].1.frame.size.height, 100.0);
+    assert_eq!(label_y(&probe, "done"), 116.0);
+    assert_eq!(label_y(&probe, "below"), 132.0);
+}
+
 #[test]
 fn layout_places_stack_children() {
     let probe = boot(|| {

@@ -611,6 +611,11 @@ impl StackLayout {
                 Axis::Horizontal => f.grow_w,
             }
     }
+    /// Sized after the rigid children, against what they leave, without growing the stack
+    /// (`Flex::yields_h`, a column only).
+    fn yields_main(&self, f: Flex) -> bool {
+        self.axis == Axis::Vertical && f.yields_h && !self.grows_main(f)
+    }
     fn grows_cross(&self, f: Flex) -> bool {
         match self.axis {
             Axis::Vertical => f.grow_w,
@@ -633,11 +638,14 @@ impl StackLayout {
         let (main_p, cross_p) = self.split(p);
         let mut sizes = vec![Size::ZERO; kids.len()];
         let mut flex_idx = Vec::new();
+        let mut yield_idx = Vec::new();
         let mut rigid_main = 0.0;
         for (i, &k) in kids.iter().enumerate() {
             let f = cx.flex_of(k);
             if self.grows_main(f) {
                 flex_idx.push(i);
+            } else if self.yields_main(f) {
+                yield_idx.push(i);
             } else {
                 let s = cx.measure_child(k, self.proposal(None, cross_p));
                 rigid_main += self.main(s);
@@ -657,7 +665,8 @@ impl StackLayout {
                 let mut budget = available;
                 rigid_main = 0.0;
                 for (i, &k) in kids.iter().enumerate() {
-                    if self.grows_main(cx.flex_of(k)) {
+                    let f = cx.flex_of(k);
+                    if self.grows_main(f) || self.yields_main(f) {
                         continue;
                     }
                     if self.main(sizes[i]) > budget {
@@ -668,6 +677,14 @@ impl StackLayout {
                     budget = (budget - m).max(0.0);
                 }
             }
+        }
+        // Yielding children, in order, against what the rigid ones (and any yielding one before
+        // them) left: a capped scroll shrinks before the button under it is pushed out.
+        for &i in &yield_idx {
+            let spacing_total = self.spacing * (kids.len().saturating_sub(1)) as f64;
+            let left = main_p.map(|mp| (mp - rigid_main - spacing_total).max(0.0));
+            sizes[i] = cx.measure_child(kids[i], self.proposal(left, cross_p));
+            rigid_main += self.main(sizes[i]);
         }
         if !flex_idx.is_empty() {
             let spacing_total = self.spacing * (kids.len().saturating_sub(1)) as f64;
@@ -1613,6 +1630,41 @@ impl Layout for MaxWidthLayout {
             let w = bounds.size.width.min(self.max);
             let s = cx.measure_child(c, Proposal::exact(Size::new(w, bounds.size.height)));
             cx.place_child(c, Rect::from_size(Size::new(s.width.min(w), s.height)));
+        }
+    }
+    fn baseline(&self, cx: &mut dyn LayoutOps, children: &[RNode], size: Size) -> Option<f64> {
+        PassThrough::forward(cx, children, size)
+    }
+}
+
+/// The `.max_height(h)` decorator, [`MaxWidthLayout`]'s vertical twin: proposes at most `h` to
+/// the child, so a scroll or anything else that takes the height it is offered stops at `h`,
+/// while shorter content still hugs. Where the parent offers less than `h` (a phone held
+/// sideways), the child gets that, so a capped box still fits a short screen. The horizontal
+/// axis passes through untouched.
+pub struct MaxHeightLayout {
+    pub max: f64,
+}
+
+impl Layout for MaxHeightLayout {
+    fn measure(&self, cx: &mut dyn LayoutOps, children: &[RNode], p: Proposal) -> Size {
+        let capped = Proposal::new(
+            p.width,
+            Some(p.height.map(|h| h.min(self.max)).unwrap_or(self.max)),
+        );
+        match children.first() {
+            Some(&c) => {
+                let s = cx.measure_child(c, capped);
+                Size::new(s.width, s.height.min(self.max))
+            }
+            None => Size::ZERO,
+        }
+    }
+    fn place(&self, cx: &mut dyn LayoutOps, children: &[RNode], bounds: Rect) {
+        if let Some(&c) = children.first() {
+            let h = bounds.size.height.min(self.max);
+            let s = cx.measure_child(c, Proposal::exact(Size::new(bounds.size.width, h)));
+            cx.place_child(c, Rect::from_size(Size::new(s.width, s.height.min(h))));
         }
     }
     fn baseline(&self, cx: &mut dyn LayoutOps, children: &[RNode], size: Size) -> Option<f64> {

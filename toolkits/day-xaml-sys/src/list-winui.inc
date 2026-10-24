@@ -24,6 +24,8 @@ struct WinuiList {
     std::set<int> selection;
     void* host = nullptr;
     int count = 0, focus = 0, pending = -2;
+    bool pending_nearest = false;
+    winrt::event_token reveal_frame{};
     std::weak_ptr<WinuiListCell> drag;
     uint64_t drag_generation = 0;
     double pitch = 44;
@@ -57,16 +59,53 @@ static bool winui_list_embedded(WF::IInspectable const& source, WinuiListCell co
     }
     return false;
 }
-static void winui_list_reveal(WinuiList& list, bool nearest = false) {
-    if (list.pending == -2 || list.count == 0 || list.scroll.ViewportHeight() <= 0) return;
+static bool winui_list_reveal_landed(WinuiList const& list, int row, bool nearest) {
+    auto element = list.repeater.TryGetElement(row).try_as<WUX::FrameworkElement>();
+    if (!element || element.ActualWidth() <= 0 || element.ActualHeight() <= 0) return false;
+    auto bounds = element.TransformToVisual(list.scroll).TransformBounds(
+        {0, 0, float(element.ActualWidth()), float(element.ActualHeight())});
+    double viewport = list.scroll.ViewportHeight();
+    if (nearest) {
+        return (bounds.Y >= -.5 && bounds.Y + bounds.Height <= viewport + .5) ||
+            (bounds.Y <= 0 && bounds.Y + bounds.Height >= viewport);
+    }
+    double alignment = list.pending < 0 ? viewport - bounds.Height : 0;
+    double offset = list.scroll.VerticalOffset();
+    double destination = std::clamp(offset + bounds.Y - alignment, 0.0,
+        list.scroll.ScrollableHeight());
+    return std::abs(destination - offset) <= .5;
+}
+static void winui_list_reveal(WinuiList& list) {
+    if (list.pending == -2 || list.reveal_frame.value || list.count == 0 ||
+        list.scroll.ViewportHeight() <= 0) return;
     int row = list.pending < 0 ? list.count - 1 : (std::min)(list.pending, list.count - 1);
     auto element = list.repeater.GetOrCreateElement(row);
     list.repeater.UpdateLayout();
     WUX::BringIntoViewOptions options;
     options.AnimationDesired(false);
-    if (!nearest) options.VerticalAlignmentRatio(list.pending < 0 ? 1.0 : 0.0);
+    if (!list.pending_nearest) options.VerticalAlignmentRatio(list.pending < 0 ? 1.0 : 0.0);
+    int request = list.pending;
+    bool nearest = list.pending_nearest;
     element.StartBringIntoView(options);
-    list.pending = -2;
+    // A queued keyboard jump may not have a container until this request runs.
+    if (nearest) element.as<WUXC::Control>().Focus(WUX::FocusState::Keyboard);
+    // ItemsRepeater retains its bring-into-view anchor until Rendering. Another request
+    // before that frame can replace the anchor while the first scroll is still pending.
+    // Keep the request until its target reaches the viewport. Rendering releases the
+    // repeater's anchor, but does not guarantee ScrollViewer has applied the offset yet.
+    // Retry on a later frame if it was lost; newer requests replace the queued target.
+    // Only post work from Rendering, since it can run inside Day's layout borrow.
+    std::weak_ptr<WinuiList> weak = winui_list(list.host);
+    list.reveal_frame = WUXM::CompositionTarget::Rendering([weak, request, row, nearest](auto const&, auto const&) {
+        if (auto l = weak.lock()) {
+            WUXM::CompositionTarget::Rendering(l->reveal_frame);
+            l->reveal_frame = {};
+            int target = request < 0 ? l->count - 1 : (std::min)(request, l->count - 1);
+            if (l->pending == request && l->pending_nearest == nearest && row == target &&
+                winui_list_reveal_landed(*l, row, nearest)) l->pending = -2;
+            if (l->host && l->pending != -2) l->notify();
+        }
+    });
     list.notify();
 }
 static std::shared_ptr<WinuiListCell> winui_list_make_cell(std::shared_ptr<WinuiList> const& list) {
@@ -253,8 +292,8 @@ void* day_winui_list_new(double pitch, int selectable, int activatable, int reor
             else if (key != WS::VirtualKey::Space || !l->selectable) return;
             target = std::clamp(target, 0, l->count - 1);
             l->focus = target; l->pending = target;
-            winui_list_reveal(*l, true);
-            if (auto element = l->repeater.TryGetElement(target)) element.as<WUXC::Control>().Focus(WUX::FocusState::Keyboard);
+            l->pending_nearest = true;
+            winui_list_reveal(*l);
             if (l->selectable && (!(mods & 1) || key == WS::VirtualKey::Space)) l->selected(l->host, target, mods);
         }
         e.Handled(true);
@@ -264,6 +303,10 @@ void* day_winui_list_new(double pitch, int selectable, int activatable, int reor
 void day_winui_list_forget(void* host) {
     guard([&] {
         auto l = winui_list(host); if (!l) return;
+        if (l->reveal_frame.value) {
+            WUXM::CompositionTarget::Rendering(l->reveal_frame);
+            l->reveal_frame = {};
+        }
         l->host = nullptr;
         l->repeater.ItemsSource(nullptr);
         l->repeater.ItemTemplate(nullptr);
@@ -315,7 +358,13 @@ void day_winui_list_cell_size(void* host, void* cell, uint64_t generation, doubl
     });
 }
 void day_winui_list_scroll(void* host, int row) {
-    guard([&] { if (auto l = winui_list(host)) { l->pending = row; winui_list_reveal(*l); } });
+    guard([&] {
+        if (auto l = winui_list(host)) {
+            l->pending = row;
+            l->pending_nearest = false;
+            winui_list_reveal(*l);
+        }
+    });
 }
 void day_winui_list_select(void* host, int const* rows, int len) {
     guard([&] {

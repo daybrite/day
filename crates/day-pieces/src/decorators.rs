@@ -416,6 +416,28 @@ fn op_max_width(max: f64) -> impl FnOnce(Build) -> Build {
     }
 }
 
+fn op_max_height(max: f64) -> impl FnOnce(Build) -> Build {
+    move |inner| {
+        Box::new(move |cx| {
+            // Yielding, so a column sizes its other children first and gives this one what is
+            // left, up to `max`: a capped scroll gives way to the button under it on a short
+            // screen instead of pushing it out of the column, and the column still hugs.
+            let h = cx.layout_only(
+                Rc::new(day_core::MaxHeightLayout { max }),
+                Flex {
+                    yields_h: true,
+                    ..Flex::default()
+                },
+                Boundary::No,
+            );
+            cx.under(h, |cx| {
+                let _ = inner(cx);
+            });
+            h
+        })
+    }
+}
+
 fn op_min_width(min: f64) -> impl FnOnce(Build) -> Build {
     move |inner| {
         Box::new(move |cx| {
@@ -1125,6 +1147,13 @@ impl<P: Piece> Decorated<P> {
     pub fn max_width(self, max: f64) -> Self {
         self.push(op_max_width(max))
     }
+    /// Never taller than `max`: the child is never proposed more height, so a scroll stops
+    /// growing at `max` and still shrinks where the screen is shorter. In a column it is sized
+    /// after its siblings and takes what they leave, up to `max`, so the controls around a
+    /// capped scroll stay on screen.
+    pub fn max_height(self, max: f64) -> Self {
+        self.push(op_max_height(max))
+    }
     /// Never narrower than `min`: a stretching control keeps a usable width, and a row that
     /// cannot give it that overflows, so a `labeled` row stacks the control under its label
     /// rather than squeezing it (docs/forms.md).
@@ -1494,6 +1523,12 @@ pub trait Decorate: Piece + Sized {
     /// wraps inside the cap (chat bubbles, readable columns) while narrower content hugs.
     fn max_width(self, max: f64) -> Decorated<Self> {
         Decorated::new(self).max_width(max)
+    }
+    /// Cap this piece's height at `max` points, the vertical twin of [`Decorate::max_width`]: a
+    /// scroll or another piece that takes the height it is offered stops at `max`, and still
+    /// gets less where its parent has less to give.
+    fn max_height(self, max: f64) -> Decorated<Self> {
+        Decorated::new(self).max_height(max)
     }
     /// See [`Decorated::min_width`].
     fn min_width(self, min: f64) -> Decorated<Self> {
@@ -2054,6 +2089,39 @@ pub(crate) mod conformance {
                     "max",
                     FrameExpect {
                         width: Some(80.0),
+                        ..Default::default()
+                    },
+                )
+                .await
+            })
+    }
+
+    /// A maximum height stops a scroll, which takes all the height it is offered, at the cap.
+    #[day_macros::test(day_core)]
+    fn max_height_caps_a_scroll() -> Case {
+        Case::new()
+            .proves_modifier("max_height")
+            .page(|| {
+                column((
+                    scroll(column((
+                        label("One"),
+                        label("Two"),
+                        label("Three"),
+                        label("Four"),
+                        label("Five"),
+                        label("Six"),
+                    )))
+                    .max_height(60.0)
+                    .wrapper_id(day_core::id!(capped)),
+                    spacer(),
+                ))
+                .align(HAlign::Leading)
+            })
+            .drive(|d: Drive| async move {
+                d.assert_frame(
+                    "capped",
+                    FrameExpect {
+                        height: Some(60.0),
                         ..Default::default()
                     },
                 )

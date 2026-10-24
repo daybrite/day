@@ -1068,7 +1068,9 @@ in [mock_e2e.rs](crates/day-pieces/tests/mock_e2e.rs) covers replacement, preser
 bare reopen, and returning to the root with one Back action on every toolkit.
 
 The **`Decorate`** extension trait carries the universal modifiers: `.id(id!(name))` / `.id(id!(family, key))`,
-`.padding()`, `.frame()` / `.width()` / `.height()`, `.grow()` variants, `.background()`,
+`.padding()`, `.frame()` / `.width()` / `.height()`, `.max_width()` / `.max_height()` /
+`.min_width()` (caps that let content shrink to a smaller screen), `.aspect_ratio()`,
+`.grow()` variants, `.background()`,
 `.corner_radius()`, `.overlay()` / `.overlay_aligned()`, `.grid_span()` / `.grid_align()`
 ([docs/grid.md](docs/grid.md); inert outside a grid), `.a11y()`, `.on_tap()` / `.on_drag()` /
 `.on_pinch()` / `.on_pan()` (the continuous zoom/scroll pair, [docs/canvas.md](docs/canvas.md)), `.focused()`,
@@ -1510,7 +1512,10 @@ pub trait Layout: 'static {
   *Shipped form:* the facts surface is the `Flex` struct (`grow_w`/`grow_h`/`is_spacer`/
   `is_group`), read via `LayoutOps::flex_of`; it grew a `grid: GridFacts` field (row marker,
   span, cell alignment) for `GridLayout` — the grid's cell metadata rides the same channel
-  ([docs/grid.md](docs/grid.md)). Numeric `priority()` remains unimplemented.
+  ([docs/grid.md](docs/grid.md)) — and a `yields_h` flag: a column sizes such a child after
+  its rigid siblings, against the height they leave, without itself filling its proposal
+  (what `.max_height()` sets, so a capped scroll gives way to the button under it on a short
+  screen). Numeric `priority()` remains unimplemented.
 - **The `Layout` trait is public and open** — a custom container (flow layout, masonry) is a piece
   whose node carries a user `Layout` impl. Built-ins use the same trait (no private privileges).
   This satisfies "flexible and extensible" without adopting Taffy; the web-flexbox model fights
@@ -2880,6 +2885,16 @@ The backend's list host owns scrolling and recycling; Day owns row *content*:
    discard cells on far jumps, and before this each discarded cell left a dead row behind in
    day-core; GTK and UIKit answer `Native` for `Cap::ListRecycling` on the strength of it, and
    the recycling conformance cases count rows alive rather than rows built.
+
+WinUI serializes list bring-into-view requests across XAML rendering frames. `ItemsRepeater`
+retains the current target as its layout anchor until `CompositionTarget.Rendering`; a new
+request arriving before that frame replaces the queued target and runs after the old anchor
+is released. A request is complete only when the target's bounds reach the requested viewport
+alignment; a rendering callback alone does not confirm that the scroll offset changed. Pending
+requests retry on subsequent frames. The one-shot callback only posts list work and is revoked
+when the host is disposed. This preserves the latest jump during rapid scrolling, shrinking,
+regrowth, and reordering, covered by `list-releases-discarded-rows` in
+`crates/day-pieces/src/structure.rs`.
 
 This was the single hardest backend feature, deferred past the MVP by design — and the
 pre-reserved spec hooks did their job: it landed later as a defaulted duty with no breaking
@@ -7757,7 +7772,7 @@ The Showcase walkthrough samples after groups of screens and ends with a `1G` bu
 | `assert_visible` | `id` | realized with a nonzero frame |
 | `assert_missing` | `id` | the id is NOT in the tree — the assertion for a subtree a `when` has not mounted (a property row that does not apply). `assert_visible` cannot express it: a missing id is an error there |
 | `assert_hidden` | `id` | the element is not on screen: missing, with an empty frame, or reported hidden by its native widget. For what a toolkit hides rather than removes (a collapsed inspector pane), where `assert_missing` would see it present |
-| `assert_text` | `id`, `text?` \| `key?` + `args?`, `timeout_secs?` | FSI/PDI-normalized ([§12.2](#122-api)); `timeout_secs` raises the implicit wait for text that changes after slow work |
+| `assert_text` | `id`, `text?` \| `key?` + `args?`, `timeout_secs?` | FSI/PDI-normalized ([§12.2](#122-api)); `timeout_secs` raises the implicit wait for text that changes after slow work; a canvas's text is its accessibility value, else its label |
 | `assert_value` | `id`, `value` | typed per piece kind: toggle = bool, slider = number, field = string |
 | `assert_focused` | `id`, `focused?` | reads the probe's focus mirror; retryable |
 | `dialog_mode` | `mode: scripted` or `native` | select presentation policy before opening Day dialogs/file pickers; switching with unanswered requests fails ([docs/dialogs.md](docs/dialogs.md)) |

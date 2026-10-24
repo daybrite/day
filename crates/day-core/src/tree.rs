@@ -35,6 +35,10 @@ pub struct Flex {
     /// Wants to fill the horizontal / vertical axis when offered space.
     pub grow_w: bool,
     pub grow_h: bool,
+    /// Sized after its rigid siblings in a column, against the height they leave (a
+    /// `.max_height` cap): it gives way to them on a short screen, but unlike `grow_h` it never
+    /// makes the column fill what it is offered.
+    pub yields_h: bool,
     /// Takes all remaining main-axis space in a stack.
     pub is_spacer: bool,
     /// Layout-transparent group (`when`/`each` anchors): stacks lay out its children inline.
@@ -1626,6 +1630,14 @@ impl<B: Toolkit> TreeOps for Tree<B> {
             // Merge onto whatever's already recorded (piece default role, an earlier `.a11y`/`.id`)
             // and re-apply the full picture; backends set each present field idempotently (§13).
             n.a11y.merge(&a11y);
+            // A canvas has no text of its own: what it tells a screen reader (its value, else
+            // its label) is its text, so `assert_text` reads a drawn readout the way it reads
+            // a label.
+            if n.kind == kinds::CANVAS
+                && let Some(text) = n.a11y.value.clone().or_else(|| n.a11y.label.clone())
+            {
+                n.probe.text = text;
+            }
             if let Some(h) = n.handle.clone() {
                 self.toolkit.set_a11y(&h, &n.a11y);
             }

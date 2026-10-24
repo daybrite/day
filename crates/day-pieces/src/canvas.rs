@@ -649,7 +649,8 @@ pub(crate) mod conformance {
     use crate::*;
 
     /// A canvas with an explicit role, label and a value that follows a signal reports all
-    /// three natively, after the value changes too (the showcase gauge's shape).
+    /// three natively, after the value changes too (the showcase gauge's shape). Its value is
+    /// also its text, so a drawn readout is checked with `assert_text` like a label.
     #[day_macros::test(day_core)]
     fn canvas_a11y_value() -> Case {
         let level = Signal::new(40.0f64);
@@ -680,8 +681,10 @@ pub(crate) mod conformance {
             })
             .drive(|d: Drive| async move {
                 d.a11y_audit(Some("meter")).await?;
+                d.assert_text("meter", "40").await?;
                 d.tap("raise").await?;
-                d.a11y_audit(Some("meter")).await
+                d.a11y_audit(Some("meter")).await?;
+                d.assert_text("meter", "80").await
             })
     }
 
