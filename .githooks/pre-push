@@ -11,9 +11,9 @@
 # siblings at their upstream refs and asks `day patch --check` the question CI will ask
 # (scripts/ci/downstream-check.py has the details and the verdicts).
 #
-# The hook passes when every sibling resolves, or when a failing one already carries a committed
-# fix to push right after this one; it stops on a fix that exists only in a working tree, and on
-# a sibling nothing on this machine fixes. Pushes of other branches and of tags are not checked.
+# The hook passes when every sibling resolves or has a fix in HEAD or its working tree. Pending
+# downstream commits and pushes produce warnings; only failures without a local fix block day.
+# Pushes of other branches and of tags are not checked.
 # Skip once with `git push --no-verify`, or with DAY_SKIP_DOWNSTREAM=1 in the environment.
 #
 # Tracked here and wired up with `git config core.hooksPath .githooks` (scripts/install-hooks.sh).

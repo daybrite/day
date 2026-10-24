@@ -23,15 +23,16 @@ exists and where:
 
     ok                   resolves as pushed
     FIXED, unpushed      broken as pushed; its HEAD resolves — push it right after day
-    FIXED, uncommitted   broken as pushed; only its working tree resolves — commit it first
+    FIXED, uncommitted   broken as pushed; its working tree resolves — warn about the pending fix
     BROKEN               broken as pushed, in HEAD and in the working tree: the change is incomplete
 
 **Clone mode** (`--clone`, CI): the repositories listed in `scripts/ci/downstream-repos.txt` are
 cloned shallow and checked against this checkout. There is no working tree to consult, so a
 failure is a failure.
 
-Exit status is 0 when every downstream resolves as pushed or has a committed, unpushed fix, and 1
-otherwise. `--strict` also fails on the committed-but-unpushed case. Nothing here touches the
+Exit status is 0 when every downstream resolves as pushed or has a fix in HEAD or its working tree,
+and 1 otherwise. `--strict` requires every published tree to resolve, even when a local fix exists.
+Uncommitted downstream fixes do not block a local push of day. Nothing here touches the
 sibling checkouts: every check runs on an export under a temporary directory, so no `.cargo/config.toml`
 or `Cargo.lock` of a real checkout is rewritten.
 
@@ -244,7 +245,7 @@ def main() -> int:
     ap.add_argument("--skip", action="append", default=[], metavar="NAME",
                     help="leave this repository out; repeatable")
     ap.add_argument("--strict", action="store_true",
-                    help="also fail when a downstream fix is committed but not pushed")
+                    help="also fail when a downstream fix exists only locally, committed or not")
     ap.add_argument("--jobs", type=int, default=4, help="checks to run at once (default 4)")
     ap.add_argument("--keep", action="store_true", help="keep the temporary exports and say where")
     args = ap.parse_args()
@@ -387,15 +388,18 @@ def main() -> int:
             print("  the change to day is incomplete until these repositories resolve against it")
             status = 1
         if uncommitted:
-            print(f"fixed only in the working tree: {', '.join(uncommitted)}")
-            print("  commit the fix, so it can be pushed right after day")
-            status = 1
+            print(f"warning: fixed only in the working tree: {', '.join(uncommitted)}")
+            print("  commit and push these fixes separately; published downstream trees still fail")
+            if args.strict:
+                status = 1
+            else:
+                print("  these uncommitted fixes do not block the day push")
         if unpushed:
             print(f"fixed in HEAD, not yet pushed: {', '.join(unpushed)}")
             print("  push these right after day; their CI is red until then")
             if args.strict:
                 status = 1
-        if status == 0 and not unpushed:
+        if status == 0 and not unpushed and not uncommitted:
             print(f"every downstream repository resolves against day {day_label}")
         return status
     finally:

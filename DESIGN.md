@@ -6111,8 +6111,11 @@ The `daybrite/actions` companion repository provides reusable workflows for exte
    hook, where it needs no list: it finds the sibling checkouts, exports each at its upstream
    ref (the local patch tables point every checkout at every other, which is exactly what hides
    a tree that is broken as pushed) and, for one that fails, says whether its HEAD or its
-   working tree carries the fix, so a cross-repository rename is pushed as one sequence rather
-   than discovered by CI.
+   working tree carries the fix. Both kinds of local fix allow the push and report the pending
+   downstream work; an uncommitted app fix does not block pushing day. A failure with no local
+   fix still blocks. `--strict` requires published trees to resolve, and CI's `--clone` mode
+   checks only published trees. The sibling warnings keep the remaining commits and pushes
+   visible without requiring downstream commits first.
 2. **CLI builds** — the `day` binary in release for 3 OSes × 2 arches; artifacts feed every
    later job (and the release lane). The Linux and Windows legs each run on hardware matching
    their arch (`ubuntu-24.04-arm` / `windows-11-arm` for aarch64, 2026-08); macOS x86_64 is
