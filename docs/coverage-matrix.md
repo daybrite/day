@@ -121,6 +121,7 @@ An app branches on this rather than on the target name.
 | `AppMenu` | N | – | N | N | N | – | – | E |
 | `Dialogs` | N | N | N | N | N | N | N | N |
 | `FileDialogs` | N | N | N | N | N | N | N | N |
+| `FolderDialog` | N | – | N | N | N | – | – | – |
 | `Animation` | N | N | N | N | N | N | N | N |
 | `Cover` | E | N | E | E | E | N | E | E |
 | `CoverSheet` | N | N | – | – | – | – | – | – |

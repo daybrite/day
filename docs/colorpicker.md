@@ -155,7 +155,7 @@ stray alpha channel cannot make an app's brand color half-transparent behind its
 A pick crosses back to Rust as the component form `Color`'s `Display` writes and
 [`Color::parse`](https://daybrite.dev/api/day_geometry/struct.Color.html#method.parse) reads, four floats rather than a packed 32-bit ARGB, so the toolkits
 whose pickers are float-precision ([`NSColor`](https://developer.apple.com/documentation/appkit/nscolor), [`GdkRGBA`](https://docs.gtk.org/gdk4/struct.RGBA.html), [`QColor::getRgbF`](https://doc.qt.io/qt-6/qcolor.html)) lose nothing on the
-way. Three arms are 8-bit at the source and quantize regardless: XAML's [`Windows.UI.Color`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.color),
+way. Three arms are 8-bit at the source and quantize regardless: WinUI's [`Windows.UI.Color`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.color),
 `<input type="color">`'s `#rrggbb` value, and anything that round-trips through
 [`android.graphics.Color`](https://developer.android.com/reference/android/graphics/Color).
 
@@ -190,7 +190,7 @@ the drawn controls. They take a `tap` at a point, which is how the walkthrough p
 ## What this piece does not promise
 
 - **Identical chrome across the native idiom.** AppKit's panel is a floating inspector, iOS's a
-  sheet, GTK's a dialog, XAML's a flyout. That difference is the platform's chrome; [`.composed()`](https://daybrite.dev/api/day_pieces/colorpicker/trait.ColorPickerBuilder.html#tymethod.composed) is the escape hatch when an app wants one look.
+  sheet, GTK's a dialog, WinUI's a flyout. That difference is the platform's chrome; [`.composed()`](https://daybrite.dev/api/day_pieces/colorpicker/trait.ColorPickerBuilder.html#tymethod.composed) is the escape hatch when an app wants one look.
 - **An embedded/inline style.** Three of the eight toolkits have nothing to embed, and a style that
   silently degrades on most toolkits is worse than one an app can reason about. The composed panel
   covers the case an inline picker was wanted for.

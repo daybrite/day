@@ -81,14 +81,14 @@ Each toolkit resolves the two variants to its usual native widget:
 | GTK 4   | [`GtkProgressBar`](https://docs.gtk.org/gtk4/class.ProgressBar.html) (`set_fraction`) | [`GtkSpinner`](https://docs.gtk.org/gtk4/class.Spinner.html) (`start`) |
 | Qt      | [`QProgressBar`](https://doc.qt.io/qt-6/qprogressbar.html) (0..1000) | [`QProgressBar`](https://doc.qt.io/qt-6/qprogressbar.html) in busy mode (`range(0,0)`) |
 | Android | `LinearProgressIndicator` (M3, 0..1000) | `LoadingIndicator` (M3 Expressive morphing spinner) |
-| XAML | [`ProgressBar`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.xaml.controls.progressbar) (0..1000) | [`ProgressRing`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.xaml.controls.progressring) (`IsActive`) |
+| WinUI | [`ProgressBar`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.progressbar) (0..1000) | [`ProgressRing`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.progressring) (`IsActive`) |
 
 Notes:
 
 - **Qt has no native spinner widget.** The conventional Qt indeterminate indicator is a busy
   [`QProgressBar`](https://doc.qt.io/qt-6/qprogressbar.html) (`min == max == 0`), so Day uses that rather than emulating a ring. It is a
   horizontal busy bar rather than a circular spinner, the one cross-platform divergence.
-- The determinate fraction crosses the C ABI (Qt/Android/XAML) as an integer tick in
+- The determinate fraction crosses the C ABI (Qt/Android/WinUI) as an integer tick in
   `0..1000`, the same encoding [`slider`](https://daybrite.dev/api/day_pieces/fn.slider.html) uses, so there is no float-ABI concern.
 
 ## Sizing

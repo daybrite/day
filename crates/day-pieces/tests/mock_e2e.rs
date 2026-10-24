@@ -4381,6 +4381,126 @@ fn open_file_reads_the_chosen_path() {
     let _ = std::fs::remove_file(&path);
 }
 
+#[test]
+fn open_files_reads_every_chosen_path() {
+    // Drive open_files → respond with two paths → the app reads both back, in picker order.
+    let dir = std::env::temp_dir();
+    let a = dir.join(format!("day-open-many-a-{}.txt", std::process::id()));
+    let b = dir.join(format!("day-open-many-b-{}.txt", std::process::id()));
+    std::fs::write(&a, b"first").unwrap();
+    std::fs::write(&b, b"second").unwrap();
+
+    let out: Rc<RefCell<Vec<String>>> = Rc::default();
+    let o2 = out.clone();
+    let probe = boot(move || {
+        let o2 = o2.clone();
+        button("open")
+            .action(move || {
+                let o2 = o2.clone();
+                day_core::task(async move {
+                    let files = open_files().filter("Text", &["txt"]).await;
+                    *o2.borrow_mut() = files
+                        .iter()
+                        .filter_map(|f| f.read_to_string().ok())
+                        .collect();
+                });
+            })
+            .id(day_core::id!(open_many))
+            .any()
+    });
+    probe.emit(node_id(&probe, "day.button", 0), Event::Pressed);
+    let (req, spec) = day_core::pending_presentation().expect("open picker pending");
+    assert!(
+        matches!(
+            spec,
+            day_spec::present::PresentSpec::OpenFile { multiple: true, .. }
+        ),
+        "open_files asks for a multiple-selection picker: {spec:?}"
+    );
+    assert!(spec.multiple());
+    day_core::respond_presentation(
+        req,
+        PresentResult::Files(vec![
+            a.to_string_lossy().into_owned(),
+            b.to_string_lossy().into_owned(),
+        ]),
+    );
+    flush_sync();
+    assert_eq!(
+        *out.borrow(),
+        vec!["first".to_string(), "second".to_string()]
+    );
+    let _ = std::fs::remove_file(&a);
+    let _ = std::fs::remove_file(&b);
+}
+
+#[test]
+fn open_files_cancel_is_an_empty_list() {
+    let out: Rc<RefCell<Option<usize>>> = Rc::default();
+    let o2 = out.clone();
+    let probe = boot(move || {
+        let o2 = o2.clone();
+        button("open")
+            .action(move || {
+                let o2 = o2.clone();
+                day_core::task(async move {
+                    *o2.borrow_mut() = Some(open_files().await.len());
+                });
+            })
+            .id(day_core::id!(open_many_cancel))
+            .any()
+    });
+    probe.emit(node_id(&probe, "day.button", 0), Event::Pressed);
+    let (req, _) = day_core::pending_presentation().expect("open picker pending");
+    day_core::respond_presentation(req, PresentResult::Dismissed);
+    flush_sync();
+    assert_eq!(
+        *out.borrow(),
+        Some(0),
+        "a dismissed multi-pick resolves to no files"
+    );
+}
+
+#[test]
+fn open_folder_resolves_to_the_chosen_directory() {
+    // Drive open_folder → respond with a directory → the app gets it as a local path.
+    let dir = std::env::temp_dir().join(format!("day-open-folder-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+
+    let out: Rc<RefCell<Option<std::path::PathBuf>>> = Rc::default();
+    let o2 = out.clone();
+    let probe = boot(move || {
+        let o2 = o2.clone();
+        button("folder")
+            .action(move || {
+                let o2 = o2.clone();
+                day_core::task(async move {
+                    if let Some(folder) = open_folder().title("Add Folder").await {
+                        *o2.borrow_mut() = folder.local_path();
+                    }
+                });
+            })
+            .id(day_core::id!(open_folder))
+            .any()
+    });
+    probe.emit(node_id(&probe, "day.button", 0), Event::Pressed);
+    let (req, spec) = day_core::pending_presentation().expect("folder picker pending");
+    assert!(matches!(
+        spec,
+        day_spec::present::PresentSpec::OpenFolder { .. }
+    ));
+    assert_eq!(spec.title(), "Add Folder");
+    assert!(spec.filters().is_empty() && !spec.multiple());
+    day_core::respond_presentation(
+        req,
+        PresentResult::Files(vec![dir.to_string_lossy().into_owned()]),
+    );
+    flush_sync();
+    assert_eq!(out.borrow().as_deref(), Some(dir.as_path()));
+    assert!(out.borrow().as_deref().is_some_and(|p| p.is_dir()));
+    let _ = std::fs::remove_dir(&dir);
+}
+
 // ---------------------------------------------------------------------------
 // Tier A.1 composition-first primitives: zstack / overlay / modifier / ButtonBuilder / @Environment.
 // ---------------------------------------------------------------------------

@@ -92,15 +92,15 @@ item/alternative coverage; multiple native file references can be encoded in one
 | AppKit | NSDraggingSession, [NSPasteboard](https://developer.apple.com/documentation/appkit/nspasteboard) | File URLs; synchronous receipt |
 | GTK | DragSource, DropTargetAsync, GIO streams | URI lists; reads cancel after 30 seconds |
 | Qt | [QDrag](https://doc.qt.io/qt-6/qdrag.html), QMimeData | URLs; synchronous receipt; source survives nested event-loop disposal safely |
-| XAML | CanDrag/AllowDrop in-app, host-window [`IDropTarget`](https://learn.microsoft.com/en-us/windows/win32/api/oleidl/nn-oleidl-idroptarget) for external drags, DataPackage | StorageItems; drag/drop deferrals; CF_HDROP imported as `text/uri-list` |
+| WinUI | CanDrag/AllowDrop in-app, host-window [`IDropTarget`](https://learn.microsoft.com/en-us/windows/win32/api/oleidl/nn-oleidl-idroptarget) for external drags, DataPackage | StorageItems; drag/drop deferrals; CF_HDROP imported as `text/uri-list` |
 | UIKit | UIDragInteraction, UIDropInteraction, NSItemProvider | Encoded byte providers; pending loads cancel after 30 seconds |
 | Android | startDragAndDrop, ClipData, ContentProvider | Read-only URI grants; bounded reads on a worker; permissions released at receipt/timeout |
 | ArkUI | native node drag events, UDMF | General byte records and file URI records; compile checked against API 18 |
 | Web | HTML draggable and DataTransfer | Files read at drop; HTML custom strings carry the Day bundle as base64 |
 
 macOS MIME/UTI conversion is shared with the system mapping used by GTK, so custom types
-survive AppKit/Qt/GTK process boundaries. Windows XAML uses named DataPackage streams; the
-XAML/Qt/GTK cross-process matrix still requires a Windows runtime check.
+survive AppKit/Qt/GTK process boundaries. Windows (WinUI) uses named DataPackage streams; the
+WinUI/Qt/GTK cross-process matrix still requires a Windows runtime check.
 
 HTML protected mode only exposes metadata during hover. File objects and string read requests
 are captured synchronously during drop, before awaiting bytes. Browser pages can exchange Day

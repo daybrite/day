@@ -100,7 +100,7 @@ reveal, and type-ahead options.
 | UIKit | Native collection-view list |
 | GTK | Native tree-list model and expander rows |
 | Qt | Native [`QTreeWidget`](https://doc.qt.io/qt-6/qtreewidget.html) |
-| WinUI / XAML | Native [`TreeView`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.treeview) hierarchy |
+| WinUI | Native [`TreeView`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.treeview) hierarchy |
 | Android | Composed list for arbitrary depth; native `ExpandableListView` for single-selection sections |
 | ArkUI / DOM | Composed tree built from list rows |
 

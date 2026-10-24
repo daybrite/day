@@ -82,7 +82,7 @@ Platform guidance: [Android: swipe-to-refresh](https://developer.android.com/dev
 | harmony-arkui | **Native** | [`ARKUI_NODE_REFRESH`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-arkui/capi-native-node-h.md) created by the toolkit's own NDK shim; pull events via `NODE_REFRESH_ON_REFRESH`, indicator via `NODE_REFRESH_REFRESHING`. |
 | macos-appkit | Emulated | Spinner-chip overlay + the pull gesture from elastic scrolling: the clip view's bounds go negative during a trackpad rubber-band; crossing ~60 pt begins a refresh. |
 | gtk | Emulated | Overlay + [`GtkScrolledWindow::edge-overshot`](https://docs.gtk.org/gtk4/class.ScrolledWindow.html) (Top), GTK's purpose-built overshoot signal. |
-| qt / xaml | Emulated | Overlay + programmatic only (desktop Qt has no elastic overscroll; XAML's `RefreshContainer` is touch-only; a native tier is a follow-up for touch devices). |
+| Qt / WinUI | Emulated | Overlay + programmatic only (desktop Qt has no elastic overscroll; WinUI's `RefreshContainer` is touch-only; a native tier is a follow-up for touch devices). |
 | mock | Emulated | Composition path; drives the piece's tests via `ToggleChanged`. |
 
 The emulated indicator is the built-in [`spinner()`](https://daybrite.dev/api/day_pieces/fn.spinner.html) in a floating chip, shown while `refreshing`:

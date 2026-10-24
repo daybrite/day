@@ -22,7 +22,7 @@
     "astro": "astro",
     "docs:check": "node scripts/docs-check.mjs",
     "docs:test": "node --test scripts/docs-check.test.mjs scripts/target-labels.test.mjs scripts/api-links.test.mjs scripts/api-reference-coverage.test.mjs",
-    "docs:architecture": "node scripts/check-content-routes.mjs && node --test scripts/content-routes.test.mjs",
+    "docs:architecture": "node scripts/check-content-routes.mjs && node scripts/check-sidebar-icons.mjs && node --test scripts/content-routes.test.mjs",
     "docs:api-references": "node scripts/check-api-references.mjs"
   },
   "dependencies": {

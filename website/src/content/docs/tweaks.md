@@ -11,7 +11,7 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
 A **tweak** configures the native widget behind a built-in [piece](/docs/reference/glossary#piece).
-For example, you can apply AppKit’s toolbar bezel to a button or enable tick marks on a XAML
+For example, you can apply AppKit’s toolbar bezel to a button or enable tick marks on a WinUI
 slider. Day continues to manage the widget’s layout and lifecycle. A **Tweaked Piece** uses
 the same widget and handle with additional configuration.
 
@@ -46,7 +46,7 @@ button(res::str::save()).appkit(|view, class, _mtm| {
 ```
 
 `.gtk(|widget, class| …)`, `.uikit(|view, class, mtm| …)`, and `.android(|view, class, jni_env| …)`
-follow the same shape with each platform's types. Qt, XAML, and ArkUI sit behind C shims, so
+follow the same shape with each platform's types. Qt, WinUI, and ArkUI sit behind C shims, so
 their accessors hand out the raw native pointer (plus the class) instead, with a short
 bring-your-own-C++ recipe (each tier is spelled out in the
 [tweaks reference](/docs/reference/tweaks)).

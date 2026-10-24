@@ -109,7 +109,7 @@ both places.
 | Qt | Qt rich text | `<code>`, which Qt maps to its own fixed font |
 | Android | `SpannableString` spans | `TypefaceSpan("monospace")` |
 | ArkUI | [`ARKUI_NODE_SPAN`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-arkui/capi-native-node-h.md) children | `HarmonyOS Sans Mono, monospace` |
-| XAML | `Run` inlines in [`TextBlock.Inlines`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.xaml.controls.textblock) | `Consolas, Courier New, monospace` |
+| WinUI | `Run` inlines in [`TextBlock.Inlines`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.textblock) | `Consolas, Courier New, monospace` |
 | Web | `<span class="day-run">` children | the `ui-monospace` stack |
 
 Ranges convert to UTF-16 for the Apple and Android toolkits, which index text that way; any emoji
@@ -122,7 +122,7 @@ or CJK in the string makes the two disagree.
 | `Underline::Double` | Qt draws a single rule; Android draws a single rule |
 | `Underline::Dotted` | GTK draws a single rule (Pango has no dotted); Android draws a single rule |
 | `Underline::Wavy` | GTK draws the spell-check squiggle (`Underline::Error`); Android draws a single rule |
-| `background` | everywhere except where noted below; XAML needs a [`TextHighlighter`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.xaml.documents.texthighlighter), since a `Run` has no background |
+| `background` | everywhere except where noted below; WinUI needs a [`TextHighlighter`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.documents.texthighlighter), since a `Run` has no background |
 | `scale` | GTK takes an absolute Pango size in 1/1024 pt; the relative `font_scale`/`size="N%"` attributes are Pango 1.50's, and a Pango that does not know an attribute fails the whole markup parse and renders the label empty. Qt takes points too: its CSS subset ignores a percentage |
 
 Everything else draws on all eight.
@@ -135,7 +135,7 @@ Link activation is `Cap::TextLinks`, and it is narrower than rendering:
 | Qt | `linkActivated` on the label |
 | UIKit | a text-view delegate (see below) |
 | Android | a `ClickableSpan` + `LinkMovementMethod` |
-| XAML | `Hyperlink.Click` |
+| WinUI | `Hyperlink.Click` |
 | Web | the anchor's click, with its navigation cancelled |
 | AppKit | the native field editor reports to the `DayLabel` text-field subclass |
 | ArkUI | native `NODE_ON_CLICK` on each link's `SPAN` |
@@ -199,7 +199,7 @@ string or something a user typed.
 ## What `Cap` answers
 
 `Cap::TextRuns` and `Cap::TextLinks` are Native on all eight toolkits (AppKit, GTK, Qt,
-UIKit, Android, XAML, ArkUI and Web).
+UIKit, Android, WinUI, ArkUI and Web).
 
 ## Platform guidance
 

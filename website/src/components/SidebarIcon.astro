@@ -1,0 +1,27 @@
+---
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: CC-BY-SA-4.0
+import icons from '../data/sidebar-icons.json';
+import { url } from '../lib/site';
+
+interface Props { item: string }
+const { item } = Astro.props;
+const name = (icons as Record<string, string>)[item];
+if (!name) throw new Error(`Missing sidebar icon for ${item}; update sidebar-icons.json`);
+---
+<span class="doc-nav-icon" aria-hidden="true" data-icon={name}
+  style={{ '--doc-nav-icon': `url("${url(`icons/docs/${name}.svg`)}")` }}></span>
+<style>
+  .doc-nav-icon {
+    display: inline-block;
+    flex: 0 0 18px;
+    width: 18px;
+    height: 18px;
+    background-color: currentColor;
+    -webkit-mask: var(--doc-nav-icon) center / contain no-repeat;
+    mask: var(--doc-nav-icon) center / contain no-repeat;
+  }
+  @media (forced-colors: active) {
+    .doc-nav-icon { forced-color-adjust: none; background-color: CanvasText; }
+  }
+</style>

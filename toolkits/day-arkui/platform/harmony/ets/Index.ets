@@ -233,32 +233,35 @@ struct Index {
   }
 
   // Day → ArkTS file picker. mode 0 = open (copy the pick into app cache, hand back a readable
-  // path); mode 1 = save (write the Day-staged temp file `src` into the chosen document). Every
-  // path answers `onFileResult(req, path)` — "" means the user cancelled.
+  // path); mode 2 = open several (`maxSelectNumber`, every copy's path joined by U+001F); mode 1
+  // = save (write the Day-staged temp file `src` into the chosen document). Every path answers
+  // `onFileResult(req, path)` — "" means the user cancelled.
   private async pickFile(req: number, mode: number, name: string, src: string, filters: string): Promise<void> {
     const ctx = this.getUIContext().getHostContext() as common.UIAbilityContext;
     try {
       const viewPicker: picker.DocumentViewPicker = new picker.DocumentViewPicker(ctx);
-      if (mode === 0) {
+      if (mode === 0 || mode === 2) {
         const options: picker.DocumentSelectOptions = new picker.DocumentSelectOptions();
         const suffixes: Array<string> = Index.suffixFilters(filters);
         if (suffixes.length > 0) {
           options.fileSuffixFilters = suffixes;
         }
+        // The picker's own ceiling; the default is one file.
+        options.maxSelectNumber = mode === 2 ? 500 : 1;
         const uris: Array<string> = await viewPicker.select(options);
-        if (uris.length > 0) {
-          const leaf: string = uris[0].split('/').pop() ?? ('day-open-' + req);
+        const copies: Array<string> = [];
+        for (let i = 0; i < uris.length; i++) {
+          const leaf: string = uris[i].split('/').pop() ?? ('day-open-' + req + '-' + i);
           const destPath: string = ctx.cacheDir + '/' + leaf;
-          const file = fs.openSync(uris[0], fs.OpenMode.READ_ONLY);
+          const file = fs.openSync(uris[i], fs.OpenMode.READ_ONLY);
           try {
             fs.copyFileSync(file.fd, destPath);
           } finally {
             fs.closeSync(file);
           }
-          nativeEntry.onFileResult(req, destPath);
-        } else {
-          nativeEntry.onFileResult(req, '');
+          copies.push(destPath);
         }
+        nativeEntry.onFileResult(req, copies.join('\u001f'));
       } else {
         const options: picker.DocumentSaveOptions = new picker.DocumentSaveOptions();
         if (name.length > 0) {

@@ -180,7 +180,7 @@ surface and the bar can sit under it. When they land, the per-toolkit mapping is
 | windows-winui | a [`ToggleButton`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.primitives.togglebutton) row | `Emulated` |
 
 `Emulated` covers two different situations there: a real native component doing this job (the
-chips, `SegmentButtonV2`, [`NSSegmentedControl`](https://developer.apple.com/documentation/appkit/nssegmentedcontrol)) and a bar composed from primitives (web, XAML).
+chips, `SegmentButtonV2`, [`NSSegmentedControl`](https://developer.apple.com/documentation/appkit/nssegmentedcontrol)) and a bar composed from primitives (web, WinUI).
 Neither claims to be the platform's scope bar.
 
 ## Suggestions complete the field

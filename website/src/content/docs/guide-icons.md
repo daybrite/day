@@ -114,7 +114,7 @@ where the backend can, [`.weight(VectorWeight::Light | Bold)`](https://daybrite.
 ## Rendering limits
 
 Interface icons are supported on every backend. Android uses VectorDrawable where possible;
-Apple targets, HarmonyOS, and web render SVG. GTK, Qt, and XAML use a 256 px raster generated
+Apple targets, HarmonyOS, and web render SVG. GTK, Qt, and WinUI use a 256 px raster generated
 at build time.
 
 - SVG text must be converted to outlines. Both app icons and interface icons reject `<text>` elements.
@@ -122,7 +122,7 @@ at build time.
   gradients, clips, masks, or filters falls back to the 256 px raster, and `day lint` flags it
   as `day::lint::vector-raster-fallback` when `android-mdc` is a declared target. `day lint`
   also catches unreadable art, empty `.symbolset` bundles, and glyph-embedded text.
-- Tint has coverage limits. AppKit, UIKit, Android, GTK, and ArkUI recolor; Qt, XAML, and
+- Tint has coverage limits. AppKit, UIKit, Android, GTK, and ArkUI recolor; Qt, WinUI, and
   web draw the authored colors. Use authored colors when the color must match across backends.
 - Weights need template sources. A plain SVG aliases Light and Bold to the same glyph, so
   [`.weight(…)`](https://daybrite.dev/api/day_pieces/trait.VectorBuilder.html#tymethod.weight) degrades to Regular rather than to a missing asset. True weight variants come

@@ -61,7 +61,7 @@ the size is a parameter rather than something the backend reads off the current 
 | UIKit | derived: the view's font ascent, centered in its height | Emulated |
 | Qt | derived: `QFontMetricsF::ascent()`, centered in its height | Emulated |
 | Web | derived: canvas `TextMetrics.fontBoundingBoxAscent`, offset by the element's border and padding | Emulated |
-| XAML | `TextBlock.BaselineOffset`; font-derived for templated controls | Emulated |
+| WinUI | `TextBlock.BaselineOffset`; font-derived for templated controls | Emulated |
 | ArkUI | derived from `NODE_FONT_SIZE` | Emulated |
 
 `Native` means the platform reports the baseline itself; `Emulated` means day derives it from the

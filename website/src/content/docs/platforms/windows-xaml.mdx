@@ -23,7 +23,7 @@ day project add-target windows-winui
 ```
 
 Then drop `windows-xaml` from `Day.toml`. The Rust code needs no changes: both targets build the
-same XAML toolkit and the same C++/WinRT shim. Development machines need the Windows App Runtime
+same Rust toolkit implementation and the same C++/WinRT shim. Development machines need the Windows App Runtime
 2.5.1 or newer; a packed `windows-winui` app is self-contained, so its users install nothing extra.
 The [Windows (WinUI 3)](/docs/reference/platforms/windows-winui) page covers setup, packing, caveats, and
 which control each Day piece becomes.

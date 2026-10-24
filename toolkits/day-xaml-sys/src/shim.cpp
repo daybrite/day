@@ -164,6 +164,7 @@ using DayCommandBarElement = winrt::Windows::UI::Xaml::Controls::ICommandBarElem
 
 using namespace winrt;
 namespace WF = winrt::Windows::Foundation;
+namespace WFC = winrt::Windows::Foundation::Collections; // IVectorView (multi-file picks)
 namespace WUI = winrt::Windows::UI;
 namespace WUX = DAY_XAML_NS;
 namespace WUXC = DAY_XAML_NS::Controls;

@@ -58,7 +58,7 @@ column((
 `FocusChanged` both ways, the keys through [`.on_key`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.on_key) while focused) behind the
 [`Toolkit::set_focusable`](https://daybrite.dev/api/day_spec/trait.Toolkit.html#method.set_focusable) duty. AppKit, UIKit, GTK, Qt, Android and DOM implement it for
 containers. Editable descendants retain their editing keys; a container can request focus with
-[`.focused(...)`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.focused) after navigation. XAML and ArkUI still require a canvas or native control as the
+[`.focused(...)`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.focused) after navigation. WinUI and ArkUI still require a canvas or native control as the
 keyboard focus target; their container duty remains a no-op. Reserved with names but not implemented: `default_focus(…)`
 on containers, `focus_order(n)`, and focus scopes for dialogs. Tab/Shift-Tab traversal stays
 native, with focus order following layout order.
@@ -94,7 +94,7 @@ On touch platforms, non-text controls generally do not take keyboard focus. A ca
 receive focus and key events; on Android, press-to-focus applies when it has an [`.on_key`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.on_key) handler.
 
 [`.focusable()`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.focusable) makes composed containers keyboard targets on AppKit, UIKit, GTK, Qt, Android,
-and DOM. On XAML and ArkUI, bind focus to a native control or canvas inside the container.
+and DOM. On WinUI and ArkUI, bind focus to a native control or canvas inside the container.
 
 ## Mobile keyboards
 

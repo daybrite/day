@@ -16,9 +16,9 @@ for the platform’s native packaging and loading tools.
 
 | Project dir | Kind | API (typed) | Native store |
 |---|---|---|---|
-| `resource/images/` | processed images | [`image(res::images::logo)`](https://daybrite.dev/api/day_pieces/fn.image.html) | SwiftPM `.process` → `Assets.car` (iOS) · bundle file (macOS) · `res/drawable` → `R` (Android) · GResource (GTK) · `.qrc` (Qt) · MRT / loose (XAML) · rawfile (ArkUI) |
-| `resource/assets/` | arbitrary data | [`resource(res::assets::stations_json)`](https://daybrite.dev/api/day_core/fn.resource.html) | bundle file + mmap (Apple) · [`AAssetManager`](https://developer.android.com/ndk/reference/group/asset) (Android) · [`g_resources_lookup_data`](https://docs.gtk.org/gio/func.resources_lookup_data.html) (GTK) · [`QResource`](https://doc.qt.io/qt-6/qresource.html) (Qt) · loose file (XAML) · rawfile fd (ArkUI) |
-| `resource/fonts/` | custom fonts | [`Font::custom(res::fonts::family, pt)`](https://daybrite.dev/api/day_spec/enum.Font.html#method.custom) | CoreText registration (Apple) · `res/font` → `R.font` (Android) · fontconfig/CoreText (GTK) · [`QFontDatabase`](https://doc.qt.io/qt-6/qfontdatabase.html) (Qt) · XAML `ms-appx:///fonts/<file>#family` (XAML) · rawfile + ArkTS `registerFont` (ArkUI) |
+| `resource/images/` | processed images | [`image(res::images::logo)`](https://daybrite.dev/api/day_pieces/fn.image.html) | SwiftPM `.process` → `Assets.car` (iOS) · bundle file (macOS) · `res/drawable` → `R` (Android) · GResource (GTK) · `.qrc` (Qt) · MRT / loose (WinUI) · rawfile (ArkUI) |
+| `resource/assets/` | arbitrary data | [`resource(res::assets::stations_json)`](https://daybrite.dev/api/day_core/fn.resource.html) | bundle file + mmap (Apple) · [`AAssetManager`](https://developer.android.com/ndk/reference/group/asset) (Android) · [`g_resources_lookup_data`](https://docs.gtk.org/gio/func.resources_lookup_data.html) (GTK) · [`QResource`](https://doc.qt.io/qt-6/qresource.html) (Qt) · loose file (WinUI) · rawfile fd (ArkUI) |
+| `resource/fonts/` | custom fonts | [`Font::custom(res::fonts::family, pt)`](https://daybrite.dev/api/day_spec/enum.Font.html#method.custom) | CoreText registration (Apple) · `res/font` → `R.font` (Android) · fontconfig/CoreText (GTK) · [`QFontDatabase`](https://doc.qt.io/qt-6/qfontdatabase.html) (Qt) · WinUI `ms-appx:///fonts/<file>#family` (WinUI) · rawfile + ArkTS `registerFont` (ArkUI) |
 
 ## Referencing resources: typed constants
 
@@ -99,7 +99,7 @@ the toolkit resolves the name.
   "drawable", pkg)` (cached) → `getDrawable`.
 - **GTK / Qt:** compiled into the binary as a GResource / `.qrc` and loaded by a stable virtual path
   (`/dev/<appid>/logo.png`, `:/logo.png`).
-- **XAML:** staged as `logo.scale-{100,200,400}.png`; MRT auto-selects by DPI when packaged, a
+- **WinUI:** staged as `logo.scale-{100,200,400}.png`; MRT auto-selects by DPI when packaged, a
   WIC/DPI resolver picks the file when unpackaged.
 - **ArkUI:** staged into `resources/rawfile/day/`; the native NodeAPI image node is set to
   `resource://RAWFILE/day/logo.png` (rawfile is the only store the OpenHarmony NDK can reach).
@@ -182,7 +182,7 @@ Images scale with `ContentMode::Fit` by default (preserve aspect, letterbox, nev
 with [`.content_mode(ContentMode::Fill)`](https://daybrite.dev/api/day_pieces/trait.ImageBuilder.html#tymethod.content_mode) (preserve aspect, crop), [`.stretch()`](https://daybrite.dev/api/day_pieces/trait.ImageBuilder.html#tymethod.stretch), or the shorthands
 [`.fit()`](https://daybrite.dev/api/day_pieces/trait.ImageBuilder.html#tymethod.fit)/[`.fill()`](https://daybrite.dev/api/day_pieces/trait.ImageBuilder.html#tymethod.fill); constrain the frame to a ratio with [`.aspect_ratio(16.0/9.0)`](https://daybrite.dev/api/day_pieces/trait.ImageBuilder.html#tymethod.aspect_ratio). Each maps to the
 native scaler: NSImageView `imageScaling`, [UIImageView](https://developer.apple.com/documentation/uikit/uiimageview) `contentMode`, [GtkPicture](https://docs.gtk.org/gtk4/class.Picture.html) `content-fit`, a
-Qt aspect-painting label, Android `ImageView.ScaleType`, XAML `Image.Stretch`, ArkUI
+Qt aspect-painting label, Android `ImageView.ScaleType`, WinUI `Image.Stretch`, ArkUI
 `NODE_IMAGE_OBJECT_FIT`.
 
 ## Build-time staging
@@ -200,6 +200,6 @@ optimizes.
 - ArkUI uses `rawfile` (native-reachable, uncompressed) with no per-density auto-selection yet; a
   `media/` + ArkTS-bridge path for density is a future enhancement.
 - macOS AppKit does not run actool (cargo build), so its images are unoptimized bundle files.
-- XAML is built unpackaged, so images/data load as loose files via WIC/the file opener (the
+- WinUI is built unpackaged, so images/data load as loose files via WIC/the file opener (the
   recommended unpackaged path); MRT `.pri` (`ms-appx:///`) applies only to MSIX-packaged apps.
-- XAML unpackaged uses loose scale-suffixed files + a DPI resolver (MRT/`.pri` needs MSIX).
+- WinUI unpackaged uses loose scale-suffixed files + a DPI resolver (MRT/`.pri` needs MSIX).

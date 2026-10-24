@@ -67,7 +67,7 @@ theming with no app code:
 | GTK | libadwaita's [`.card`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.card) style class |
 | Qt | translucent neutral fill via a scoped stylesheet + `WA_StyledBackground` (no grouped-card palette role exists; a 12% gray adapts to any palette) |
 | Android | `?attr/colorSurfaceContainer` (Material 3; falls back to `colorSurfaceVariant`) in a rounded `GradientDrawable` |
-| XAML | `CardBackgroundFillColorDefaultBrush` theme resource |
+| WinUI | `CardBackgroundFillColorDefaultBrush` theme resource |
 | ArkUI | translucent neutral fill + corner radius |
 
 ## Layout: how alignment works

@@ -2339,6 +2339,7 @@ mod tests {
         let mut future = Box::pin(day_core::present(PresentSpec::OpenFile {
             title: "Choose file".into(),
             filters: vec![],
+            multiple: false,
         }));
         let mut cx = Context::from_waker(Waker::noop());
         assert!(future.as_mut().poll(&mut cx).is_pending());

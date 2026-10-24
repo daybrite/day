@@ -167,7 +167,7 @@ Platform guidance: [Apple: sheets](https://developer.apple.com/design/human-inte
 | android | `DayCover` shell re-homed onto the activity content root, slide-up `ValueAnimator` | [`OnBackPressedCallback`](https://developer.android.com/reference/androidx/activity/OnBackPressedCallback) → `NavBack` | slide-out completion, shell becomes GONE |
 | arkui | Stack re-homed into a dedicated full-window NodeContent layer above Navigation and its NavDestinations (no transition) | native Back targets the top cover, honoring the dismissal shield | posted immediately on dismiss |
 | mock | patch recorded (`flag` = presented) | tests emit it | tests emit it |
-| appkit / gtk / qt / xaml / dom | topmost full-window child of the window content, opaque theme background by default (`Cap::Cover` = `Emulated`, no transition) | none | posted immediately on dismiss |
+| AppKit / GTK / Qt / WinUI / Web | topmost full-window child of the window content, opaque theme background by default (`Cap::Cover` = `Emulated`, no transition) | none | posted immediately on dismiss |
 
 The toolkit owns the presented cover’s frame, including during window resizing. GTK uses the
 window content area. On macOS, content lays out below the title bar while the background extends
@@ -185,7 +185,7 @@ fixed when the piece is built; omit [`.sheet()`](https://daybrite.dev/api/day_pi
 |---|---|
 | appkit | a native sheet attached to the primary window, the window less a margin, at most 640 by 620 |
 | uikit | `FormSheet` (a narrow modal panel on iPad, adapting to compact windows); its pull-down arrives as the cover's back request, so the bound signal follows what the user did |
-| android, arkui, gtk, qt, xaml, dom | composed (`Cap::CoverSheet` = `Unsupported`): on a window wider than compact, the cover turns clear and holds a dimmed fill (`SurfaceRole::Scrim`) with a rounded card in the window's own color (`SurfaceRole::Window`), centered at AppKit's proportions; on a compact window, the full-window cover |
+| Android, ArkUI, GTK, Qt, WinUI, Web | composed (`Cap::CoverSheet` = `Unsupported`): on a window wider than compact, the cover turns clear and holds a dimmed fill (`SurfaceRole::Scrim`) with a rounded card in the window's own color (`SurfaceRole::Window`), centered at AppKit's proportions; on a compact window, the full-window cover |
 
 On Web the fill frosts the page rather than dimming it: a light blur and tint that leave the
 page recognizable but plainly out of reach. A sheet with toolbar items (a Done button) carries
@@ -200,7 +200,7 @@ and HarmonyOS's back gesture still dismiss it, as they do any cover.
 Conformance: `cover-sheet-composes-a-card-on-wide` measures the card's content against the page
 on every toolkit that composes the sheet, and the mock.
 
-The composed wide-window sheet has not been verified on XAML, Android tablets, or HarmonyOS.
+The composed wide-window sheet has not been verified on WinUI, Android tablets, or HarmonyOS.
 
 ## Half sheet
 
@@ -214,10 +214,10 @@ as every cover does, so the content lays out inside the sheet.
 | uikit | `PageSheet` with the medium and large detents, medium selected and undimmed, so the content underneath stays interactive; a grabber | the pull-down gesture (reported as the cover's back request), programmatic |
 | android | the `DayCover` shell as a Material [`BottomSheetBehavior`](https://developer.android.com/reference/com/google/android/material/bottomsheet/BottomSheetBehavior) child of a [`CoordinatorLayout`](https://developer.android.com/reference/androidx/coordinatorlayout/widget/CoordinatorLayout) over the content root, sized to the bottom half, rounded with a drag handle; the host consumes no touch outside the sheet | pulled down past the hide threshold (the back request), system back, programmatic |
 | dom | the cover element anchored to the bottom at half the viewport (`.day-half`), rounded, lifted, with a grabber strip | programmatic |
-| arkui, gtk, qt, xaml | the emulated cover placed over the bottom half of its layer or content area | programmatic (Android-style back on HarmonyOS) |
+| ArkUI, GTK, Qt, WinUI | the emulated cover placed over the bottom half of its layer or content area | programmatic (Android-style back on HarmonyOS) |
 | appkit | the native-sheet tier: a window sheet as for [`.sheet()`](https://daybrite.dev/api/day_pieces/trait.CoverBuilder.html#tymethod.sheet), standing half the parent window's height | the sheet's own controls, programmatic |
 
 The [`interactive_dismiss_disabled`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.interactive_dismiss_disabled) shield holds on every tier that has a gesture. A half sheet
 has no toolbar strip of its own on Web; put the sheet's controls in its content.
 
-Half-sheet geometry has not been verified on HarmonyOS, GTK, Qt, or XAML.
+Half-sheet geometry has not been verified on HarmonyOS, GTK, Qt, or WinUI.

@@ -706,12 +706,17 @@ unsafe extern "C" {
         cancel: *const c_char,
         win: *mut c_void,
     );
+    /// `multiple` ≠ 0 picks several files (`PickMultipleFilesAsync`); the answer joins every
+    /// chosen path with the unit separator (tag 3, `PresentResult::decode`).
     pub fn day_xaml_present_file_open(
         req: u64,
         title: *const c_char,
         filters_joined: *const c_char,
+        multiple: c_int,
         win: *mut c_void,
     );
+    /// A WinRT `FolderPicker`, answered like a file.
+    pub fn day_xaml_present_folder_open(req: u64, title: *const c_char, win: *mut c_void);
     pub fn day_xaml_present_file_save(
         req: u64,
         title: *const c_char,

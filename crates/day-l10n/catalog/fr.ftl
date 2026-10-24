@@ -6,6 +6,7 @@ day_no = Non
 day_done = Terminé
 day_save = Enregistrer
 day_open = Ouvrir
+day_open_folder = Choisir un dossier
 day_close = Fermer
 day_delete = Supprimer
 day_cut = Couper

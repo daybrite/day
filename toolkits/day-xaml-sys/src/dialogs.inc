@@ -148,8 +148,46 @@ static void file_completed(uint64_t req,
     finish_file(req, path);
 }
 
+// A multiple-selection pick: every chosen path, joined by the unit separator (the tag-3 wire
+// form `PresentResult::decode` splits). An empty selection is a cancel.
+static void files_completed(uint64_t req,
+                            WF::IAsyncOperation<WFC::IVectorView<WSt::StorageFile>> const& op,
+                            WF::AsyncStatus status) noexcept {
+    std::string joined;
+    try {
+        if (status == WF::AsyncStatus::Completed) {
+            if (auto files = op.GetResults()) {
+                for (auto const& file : files) {
+                    if (!file) continue;
+                    std::string path = u8(file.Path());
+                    if (path.empty()) continue;
+                    if (!joined.empty()) joined += '\x1f';
+                    joined += path;
+                }
+            }
+        }
+    } catch (...) {
+        // As above: a provider error reads as a cancel, and never escapes the delegate.
+    }
+    finish_file(req, joined);
+}
+
+static void folder_completed(uint64_t req,
+                             WF::IAsyncOperation<WSt::StorageFolder> const& op,
+                             WF::AsyncStatus status) noexcept {
+    std::string path;
+    try {
+        if (status == WF::AsyncStatus::Completed) {
+            if (auto folder = op.GetResults()) path = u8(folder.Path());
+        }
+    } catch (...) {
+    }
+    finish_file(req, path);
+}
+
 extern "C" void day_xaml_present_file_open(uint64_t req, const char* title,
-                                            const char* filters_joined, void* win) try {
+                                            const char* filters_joined, int multiple,
+                                            void* win) try {
     (void)title; // FileOpenPicker has no title property in the WinRT API
     // Register before any WinRT activation/filter/owner setup that can fail.
     g_presents.try_emplace(req);
@@ -175,10 +213,39 @@ extern "C" void day_xaml_present_file_open(uint64_t req, const char* title,
     if (!any) picker.FileTypeFilter().Append(L"*");
     winrt::check_hresult(picker.as<::IInitializeWithWindow>()->Initialize(app->host));
 
+    if (multiple) {
+        auto op = picker.PickMultipleFilesAsync();
+        g_presents[req].op = op;
+        op.Completed([req](WF::IAsyncOperation<WFC::IVectorView<WSt::StorageFile>> const& a,
+                           WF::AsyncStatus st) { files_completed(req, a, st); });
+        return;
+    }
     auto op = picker.PickSingleFileAsync();
     g_presents[req].op = op;
     op.Completed([req](WF::IAsyncOperation<WSt::StorageFile> const& a, WF::AsyncStatus st) {
         file_completed(req, a, st);
+    });
+} catch (...) {
+    finish_file(req);
+}
+
+// The folder chooser: a WinRT FolderPicker parented like the file pickers. It too needs at
+// least one FileTypeFilter entry on the desktop or PickSingleFolderAsync throws; "*" is the
+// documented placeholder (docs/files.md).
+extern "C" void day_xaml_present_folder_open(uint64_t req, const char* title, void* win) try {
+    (void)title; // FolderPicker has no title property in the WinRT API
+    g_presents.try_emplace(req);
+    auto app = reinterpret_cast<AppWindow*>(win);
+    if (!app || !app->host) { finish_file(req); return; }
+    WStP::FolderPicker picker;
+    picker.SuggestedStartLocation(WStP::PickerLocationId::DocumentsLibrary);
+    picker.FileTypeFilter().Append(L"*");
+    winrt::check_hresult(picker.as<::IInitializeWithWindow>()->Initialize(app->host));
+
+    auto op = picker.PickSingleFolderAsync();
+    g_presents[req].op = op;
+    op.Completed([req](WF::IAsyncOperation<WSt::StorageFolder> const& a, WF::AsyncStatus st) {
+        folder_completed(req, a, st);
     });
 } catch (...) {
     finish_file(req);

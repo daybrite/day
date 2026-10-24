@@ -11,7 +11,7 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 # Tweaks: per-toolkit configuration of built-in pieces
 
 A **tweak** configures the native widget behind a Day-created piece: the extra [`NSButton`](https://developer.apple.com/documentation/appkit/nsbutton) or
-XAML [`Button`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.xaml.controls.button) method call that doesn't justify a whole custom piece. A piece with a tweak applied is
+WinUI [`Button`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.button) method call that doesn't justify a whole custom piece. A piece with a tweak applied is
 a **Tweaked Piece**. Day keeps owning the widget's lifecycle, layout, and managed properties; the
 tweak reaches in through the same handle Day manages.
 
@@ -62,11 +62,11 @@ then whatever context that toolkit needs:
 | GTK     | `day_gtk::with_native` / `.gtk(…)`       | `&gtk4::Widget`, `class` (`downcast_ref` to the class) | typed |
 | Android | `day_mdc::with_native` / `.android(…)` | `&GlobalRef`, `class`, attached `&mut JNIEnv` | typed (JNI) |
 | Qt      | `day_qt::with_native_raw` / `.qt_raw(…)` | the raw [`QWidget*`](https://doc.qt.io/qt-6/qwidget.html), `class`; bring your own C++ (below) | raw |
-| XAML   | `day_winui::with_native_raw` / `.xaml_raw(…)` | the **borrowed** `IUIElement*` ABI pointer, `class`; bring your own C++/WinRT (below) | raw |
+| WinUI   | `day_winui::with_native_raw` / `.xaml_raw(…)` | the **borrowed** `IUIElement*` ABI pointer, `class`; bring your own C++/WinRT (below) | raw |
 | ArkUI   | `day_arkui::with_native_raw` / `.arkui_raw(…)` | the raw `ArkUI_NodeHandle`, `class`; NDK C API | raw |
 
 The `windows` crate ships no XAML bindings (neither WinUI 3's `Microsoft.UI.Xaml` nor the system
-`Windows.UI.Xaml`), which is why XAML is a raw tier: the pointer is real and the C++/WinRT recipe
+`Windows.UI.Xaml`), which is why WinUI is a raw tier: the pointer is real and the C++/WinRT recipe
 below is short, but there is no typed Rust surface to hand you.
 
 ```rust
@@ -100,7 +100,7 @@ the accessor hands you that widget's concrete class name:
   });
   ```
 
-- **Raw tiers** (Qt/XAML/ArkUI) can't be introspected from Rust (the handle is an opaque
+- **Raw tiers** (Qt/WinUI/ArkUI) can't be introspected from Rust (the handle is an opaque
   pointer), so Day reports the class it realized for the node's kind (`"QSlider"`, `"Slider"`).
   This is the piece of metadata that lets your C++ cast the pointer *knowingly*: pass the class
   across the FFI and guard the cast instead of a blind `static_cast` (see the recipes below).
@@ -147,7 +147,7 @@ calls per toolkit and **no-ops where it has no coverage**; the consuming app wri
 |---|---|---|
 | `tweaks/day-tweak-button-bezel` | AppKit only | the minimal shape: one enum of symbolic constants, one setter |
 | `tweaks/day-tweak-tooltip` | AppKit, GTK, Android | one modifier across three access tiers (objc2 / gtk4-rs / JNI) |
-| `tweaks/day-tweak-slider-tickmarks` | AppKit, GTK, Android, Qt, XAML, ArkUI | a configurable feature (`Tickmarks { count, snap, position }`), including the crate's own Qt C++, WinRT C++, and NDK C++ |
+| `tweaks/day-tweak-slider-tickmarks` | AppKit, GTK, Android, Qt, WinUI, ArkUI | a configurable feature (`Tickmarks { count, snap, position }`), including the crate's own Qt C++, WinRT C++, and NDK C++ |
 | `tweaks/day-tweak-tree-style` | AppKit, GTK | styling a composite control's subcontrols (`with_native_subcontrol` reaches the [`NSOutlineView`](https://developer.apple.com/documentation/appkit/nsoutlineview) inside the tree's scroll host; GTK adds a CSS class to the [`GtkListView`](https://docs.gtk.org/gtk4/class.ListView.html)) |
 
 The Cargo shape mirrors piece crates: per-toolkit `[features]` gating optional deps, plus

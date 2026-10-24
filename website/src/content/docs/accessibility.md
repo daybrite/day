@@ -73,7 +73,7 @@ platform mapping is uneven:
 | Platform | Identifier surface |
 |---|---|
 | iOS / macOS | `accessibilityIdentifier` — full support (XCUITest etc.) |
-| Windows (XAML, Qt) | UIA `AutomationId` — full support |
+| Windows (WinUI, Qt) | UIA `AutomationId` — full support |
 | Android | `uniqueId` through the accessibility delegate on API 33+; compat extras below that |
 | GTK | no public settable AT-SPI id today — inspector-visible only |
 | Web | DOM `id` |

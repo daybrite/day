@@ -6,6 +6,7 @@ day_no = 否
 day_done = 完成
 day_save = 保存
 day_open = 打开
+day_open_folder = 选择文件夹
 day_close = 关闭
 day_delete = 删除
 day_cut = 剪切

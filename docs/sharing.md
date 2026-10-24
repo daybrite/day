@@ -14,7 +14,7 @@ cancellation as an error. Sharing targets and permissions belong to the operatin
 | macOS AppKit / GTK / Qt | NSSharingServicePicker |
 | iOS UIKit | UIActivityViewController, with an iPad popover anchor |
 | Android | ACTION_SEND system chooser |
-| Windows XAML / WinUI / GTK / Qt | DataTransferManager desktop share UI |
+| Windows (WinUI / GTK / Qt) | DataTransferManager desktop share UI |
 | Web | Web Share, when supported and called during user activation |
 | Linux GTK / Qt; OpenHarmony ArkUI; mock | Unsupported |
 

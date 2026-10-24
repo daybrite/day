@@ -177,7 +177,7 @@ to check visibility itself. The Apple targets read it from NSAccessibility /
 UIAccessibility (→ Day `Role`), the web from the ARIA attributes on the element (`role`,
 `aria-label`, `aria-valuetext` or else `aria-description`, `id`), Qt from the widget's
 [`QAccessibleInterface`](https://doc.qt.io/qt-6/qaccessibleinterface.html) and `objectName`, Windows from the automation peer and
-[`AutomationProperties`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.xaml.automation.automationproperties), and Android (API 30+) from the view's `AccessibilityNodeInfo`. GTK and
+[`AutomationProperties`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.automation.automationproperties), and Android (API 30+) from the view's `AccessibilityNodeInfo`. GTK and
 ArkUI answer `found=false`: GTK 4 has no public getters for an accessible's label and value, and
 ArkUI's accessibility text is empty unless Day set it, so neither can be read back faithfully. Role
 is diffed only for explicit roles Day applied, since native controls own their roles, which vary

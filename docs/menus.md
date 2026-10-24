@@ -15,7 +15,7 @@ Day uses each platform’s menu controls and action conventions.
 
 Day renders menus with each toolkit's native menu machinery: [`NSMenu`](https://developer.apple.com/documentation/appkit/nsmenu), [`GtkPopoverMenu`](https://docs.gtk.org/gtk4/class.PopoverMenu.html) /
 [`GtkPopoverMenuBar`](https://docs.gtk.org/gtk4/class.PopoverMenuBar.html), [`QMenu`](https://doc.qt.io/qt-6/qmenu.html) / [`QMenuBar`](https://doc.qt.io/qt-6/qmenubar.html), [`UIMenu`](https://developer.apple.com/documentation/uikit/uimenu) (via [`UIContextMenuInteraction`](https://developer.apple.com/documentation/uikit/uicontextmenuinteraction)), Android
-`PopupMenu` / the app-bar overflow, and XAML [`MenuFlyout`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.xaml.controls.menuflyout) / [`MenuBar`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.xaml.controls.menubar). There are two surfaces:
+`PopupMenu` / the app-bar overflow, and WinUI [`MenuFlyout`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.menuflyout) / [`MenuBar`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.menubar). There are two surfaces:
 
 - **Context menus**: per-Piece, shown on secondary-click (desktop) or long-press (touch), attached
   with the [`Decorate::context_menu`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.context_menu) modifier.
@@ -134,7 +134,7 @@ with what the app thinks, and an action that declines to change anything leaves 
 | uikit | [`UIAction.state`](https://developer.apple.com/documentation/uikit/uiaction) — the system ✓ |
 | gtk | a stateful boolean `GAction`; GTK renders the check from the action's state |
 | qt | a checkable [`QAction`](https://doc.qt.io/qt-6/qaction.html) |
-| xaml | [`ToggleMenuFlyoutItem`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.xaml.controls.togglemenuflyoutitem) |
+| WinUI | [`ToggleMenuFlyoutItem`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.togglemenuflyoutitem) |
 | android | `MenuItem.setCheckable` — Material's check |
 | dom | a ✓ in a fixed check column of the composed row |
 
@@ -159,7 +159,7 @@ platform's menus carry pictures:
 | **AppKit**, **UIKit** | yes — [`NSMenuItem.image`](https://developer.apple.com/documentation/appkit/nsmenuitem) / [`UIAction`](https://developer.apple.com/documentation/uikit/uiaction) image, from the shared SF Symbol table |
 | **GTK** | yes — the `GMenuModel` "icon" attribute, drawn by [`GtkPopoverMenu`](https://docs.gtk.org/gtk4/class.PopoverMenu.html) |
 | **Qt** | yes — [`QAction::setIcon`](https://doc.qt.io/qt-6/qaction.html), resolved like a toolbar icon (theme name, then Day's outline, then the [QStyle](https://doc.qt.io/qt-6/qstyle.html) standard set) |
-| **XAML** | symbols only — a `FontIcon` from the Segoe Fluent table; a bundled image would need the toolbar's three-field icon channel |
+| **WinUI** | symbols only — a `FontIcon` from the Segoe Fluent table; a bundled image would need the toolbar's three-field icon channel |
 | **Android** | ignored: Material's overflow menu is text-only, and an icon belongs on an app-bar action |
 | **Web** | yes — a template glyph beside the row of the app menu's popover (and a toolbar pull-down's), from the same outline table the toolbar draws |
 | **ArkUI** | no menus of this kind to put an icon in |
@@ -220,7 +220,7 @@ app_menu(vec![sub_menu(
 )])
 ```
 
-| Role | AppKit | GTK | Qt | UIKit | Android | XAML | Web |
+| Role | AppKit | GTK | Qt | UIKit | Android | WinUI | Web |
 |---|---|---|---|---|---|---|---|
 | Cut/Copy/Paste | `cut:`/`copy:`/`paste:` nav hosts — a focused text view answers first, then the app's edit bridge⁴ | `clipboard.*` actions | dispatched to the focused [`QLineEdit`](https://doc.qt.io/qt-6/qlineedit.html)/[`QTextEdit`](https://doc.qt.io/qt-6/qtextedit.html) | responder chain, then the edit bridge⁴ | edit bridge⁴ (text keeps its own selection toolbar¹) | accelerator² | popover row → edit bridge⁴; the keys stay the browser's own clipboard events |
 | SelectAll | `selectAll:` nav host — a focused text view answers first, then the edit bridge⁴ | `selection.select-all` | focused editor | responder chain, then the edit bridge⁴ | edit bridge⁴ | accelerator² | popover row → edit bridge⁴; ⌘A is the shim's document route |
@@ -279,7 +279,7 @@ arrive everywhere, and so do the ten digits, `"0"` through `"9"` from the main r
 numeric keypad ([`ev.digit()`](https://daybrite.dev/api/day_spec/struct.KeyEvent.html#method.digit) reads the value). A digit arrives only while neither primary nor
 alt is held (nor a Mac's Control), since ⌘1 and Ctrl+1 are accelerators. Most toolkits name
 the digit a keypress types, so a layout that needs Shift for digits reports `"1"` with
-[`ev.shift()`](https://daybrite.dev/api/day_spec/struct.Shortcut.html#method.shift) set; XAML and ArkUI read the physical key instead. `Delete` and `Backspace` arrive
+[`ev.shift()`](https://daybrite.dev/api/day_spec/struct.Shortcut.html#method.shift) set; WinUI and ArkUI read the physical key instead. `Delete` and `Backspace` arrive
 only where [`Cap::AppMenu`](duty-matrix.md) is unsupported, where there is no menu bar and so
 no accelerator that could own them.
 
@@ -331,7 +331,7 @@ role items come back as plain menu actions (Android's app bar, web context menus
 
 ¹ Android editable views raise the system selection toolbar for Cut/Copy/Paste; a role in a Day menu is
 shown for parity and dispatches nothing.
-² XAML carries the standard accelerator; the focused [`TextBox`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.xaml.controls.textbox) handles the keystroke itself.
+² WinUI carries the standard accelerator; the focused [`TextBox`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.textbox) handles the keystroke itself.
 
 ## The app menu
 
@@ -388,7 +388,7 @@ Where each toolkit puts the bar:
   through an `app.preferences` action wired to the Preferences dispatch id.
 - **Qt**: a [`QMenuBar`](https://doc.qt.io/qt-6/qmenubar.html) (the native global bar on macOS-qt).
 - **Android**: the app-bar overflow (⋮), built by `DayActivity.onCreateOptionsMenu`.
-- **XAML**: a [`MenuBar`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.xaml.controls.menubar) docked at the top of the window.
+- **WinUI**: a [`MenuBar`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.menubar) docked at the top of the window.
 - **iOS/iPhone**: a no-op, because touch platforms have no persistent global menu bar; the native
   affordances are the per-Piece context menu and the system edit menu. (iPad/Catalyst [`UIMenuBuilder`](https://developer.apple.com/documentation/uikit/uimenubuilder)
   wiring is a future addition.)

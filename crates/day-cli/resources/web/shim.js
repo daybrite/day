@@ -2982,18 +2982,24 @@ function present(req, spec) {
   if (spec.kind === 'open') {
     const input = document.createElement('input');
     input.type = 'file';
+    input.multiple = !!spec.multiple;
     if (spec.accept) input.accept = spec.accept;
     input.style.display = 'none';
     document.body.append(input);
     input.addEventListener('change', async () => {
-      const f = input.files[0];
+      const files = Array.from(input.files);
       input.remove();
-      if (!f) { wasm.day_dom_present_result(req, -1, 0, 0); return; }
-      const buf = new Uint8Array(await f.arrayBuffer());
-      const [np, nl] = intoWasm(f.name);
-      const bp = wasm.day_dom_alloc(buf.length);
-      mem().set(buf, bp);
-      wasm.day_dom_present_files(req, np, nl, bp, buf.length);
+      if (!files.length) { wasm.day_dom_present_result(req, -1, 0, 0); return; }
+      // Every file but the last is staged; the last one closes the pick with all of them.
+      for (let i = 0; i < files.length; i++) {
+        const f = files[i];
+        const buf = new Uint8Array(await f.arrayBuffer());
+        const [np, nl] = intoWasm(f.name);
+        const bp = wasm.day_dom_alloc(buf.length);
+        mem().set(buf, bp);
+        if (i < files.length - 1) wasm.day_dom_present_file_stage(req, np, nl, bp, buf.length);
+        else wasm.day_dom_present_files(req, np, nl, bp, buf.length);
+      }
     });
     input.addEventListener('cancel', () => { input.remove(); wasm.day_dom_present_result(req, -1, 0, 0); });
     input.click();

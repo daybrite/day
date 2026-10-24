@@ -344,8 +344,8 @@ native (and zero-copy wherever the store exposes a stable pointer):
 │ macOS    bundle file   │ │ Android  AAssetManager    │   .icns / mipmap /
 │ Android  res/drawable* │ │ GTK      GResource        │   .ico / xcassets
 │ GTK      GResource     │ │ Qt       QResource        │
-│ Qt       .qrc          │ │ XAML    loose file       │
-│ XAML    scale-*.png   │ │ ArkUI    rawfile fd+mmap  │
+│ Qt       .qrc          │ │ WinUI   loose file       │
+│ WinUI   scale-*.png   │ │ ArkUI    rawfile fd+mmap  │
 │ ArkUI    rawfile       │ └───────────┬───────────────┘
 └─────┬──────────────────┘             │
       ▼                                ▼

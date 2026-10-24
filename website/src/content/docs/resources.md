@@ -136,7 +136,7 @@ symbolic PNG cache; ordinary vector pieces and image widgets retain their SVG ge
 
 > [!NOTE]
 > Every [backend](/docs/reference/glossary#backend) recolors a template glyph, and on six of them (AppKit, UIKit, Android, GTK, Qt,
-> and web) a tint bound to a [signal](/docs/reference/glossary#signal) repaints the realized view instead of rebuilding it. XAML and
+> and web) a tint bound to a [signal](/docs/reference/glossary#signal) repaints the realized view instead of rebuilding it. WinUI and
 > ArkUI take the tint when the glyph is realized, so a [reactive](/docs/reference/glossary#reactive) tint there lands on the next
 > rebuild.
 

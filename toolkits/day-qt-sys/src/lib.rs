@@ -472,12 +472,17 @@ unsafe extern "C" {
         cancel: *const c_char,
         parent: *mut c_void,
     );
+    /// `multiple` ≠ 0 lets the user pick several files; the answer joins every chosen path
+    /// with the unit separator (tag 3, `PresentResult::decode`).
     pub fn day_qt_present_file_open(
         req: u64,
         title: *const c_char,
         filters_joined: *const c_char,
+        multiple: c_int,
         parent: *mut c_void,
     );
+    /// A directory chooser (`QFileDialog::Directory` + `ShowDirsOnly`), answered like a file.
+    pub fn day_qt_present_folder_open(req: u64, title: *const c_char, parent: *mut c_void);
     pub fn day_qt_present_file_save(
         req: u64,
         title: *const c_char,

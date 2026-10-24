@@ -8,6 +8,7 @@ day_no = لا
 day_done = تم
 day_save = حفظ
 day_open = فتح
+day_open_folder = اختيار مجلد
 day_close = إغلاق
 day_delete = حذف
 day_cut = قص

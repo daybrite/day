@@ -4320,9 +4320,20 @@ mod imp {
         fn present(&mut self, req: u64, spec: &day_spec::present::PresentSpec) {
             use day_spec::present::PresentSpec;
             match spec {
-                PresentSpec::OpenFile { .. } => {
-                    crate::host_api::present_file(req, 0, "", "", &spec.filters_joined());
+                // Mode 0 picks one file, mode 2 several (`DocumentSelectOptions.maxSelectNumber`).
+                PresentSpec::OpenFile { multiple, .. } => {
+                    let mode = if *multiple { 2 } else { 0 };
+                    crate::host_api::present_file(req, mode, "", "", &spec.filters_joined());
                 }
+                // No folder chooser on HarmonyOS (`Cap::FolderDialog` is Unsupported): the
+                // request resolves at once.
+                PresentSpec::OpenFolder { .. } => emit(
+                    day_spec::NodeId(req),
+                    Event::PresentResult {
+                        req,
+                        result: day_spec::present::PresentResult::Dismissed,
+                    },
+                ),
                 PresentSpec::SaveFile {
                     suggested_name,
                     src_path,

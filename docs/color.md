@@ -38,7 +38,7 @@ pub enum Paint { Solid(Color), Linear(LinearGradient), Radial(RadialGradient) }
 
 Gradient geometry is in [`UnitPoint`]s — fractions of the filled shape's bounding box — so one
 paint value works at any size. Both gradients replay through each toolkit's own native gradient
-([`NSGradient`](https://developer.apple.com/documentation/appkit/nsgradient), [`CGGradient`](https://developer.apple.com/documentation/coregraphics/cggradient), a cairo pattern, [`QLinearGradient`](https://doc.qt.io/qt-6/qlineargradient.html)/[`QRadialGradient`](https://doc.qt.io/qt-6/qradialgradient.html), a XAML brush,
+([`NSGradient`](https://developer.apple.com/documentation/appkit/nsgradient), [`CGGradient`](https://developer.apple.com/documentation/coregraphics/cggradient), a cairo pattern, [`QLinearGradient`](https://doc.qt.io/qt-6/qlineargradient.html)/[`QRadialGradient`](https://doc.qt.io/qt-6/qradialgradient.html), a WinUI brush,
 an ArkUI gradient, a CSS gradient): all eight canvas toolkits draw them.
 
 ## 2. Where each one is accepted
@@ -91,7 +91,7 @@ The picker prompted this document, so this section lists what each chooser produ
 | [`UIColorPickerViewController`](https://developer.apple.com/documentation/uikit/uicolorpickerviewcontroller) (iOS) | [`UIColor`](https://developer.apple.com/documentation/uikit/uicolor) | grid, spectrum, RGB/HSB sliders, hex | opt-in | yes — Display P3 on wide-gamut devices |
 | [`GtkColorDialog`](https://docs.gtk.org/gtk4/class.ColorDialog.html) | [`GdkRGBA`](https://docs.gtk.org/gdk4/struct.RGBA.html) (f32) | the GTK editor's HSV plane + hex | opt-in | no — sRGB |
 | [`QColorDialog`](https://doc.qt.io/qt-6/qcolordialog.html) | [`QColor`](https://doc.qt.io/qt-6/qcolor.html) (Rgb / Hsv / Hsl / Cmyk / ExtendedRgb specs) | basic + custom palettes, HSV picker, eyedropper | opt-in | ExtendedRgb allows out-of-range components |
-| XAML [`ColorPicker`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.xaml.controls.colorpicker) | [`Windows.UI.Color`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.color) (8-bit ARGB) | spectrum, channel sliders, hex | opt-in | no — sRGB |
+| WinUI [`ColorPicker`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.colorpicker) | [`Windows.UI.Color`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.color) (8-bit ARGB) | spectrum, channel sliders, hex | opt-in | no — sRGB |
 | `<input type="color">` | `#rrggbb` string | the browser's own UI | new `alpha` attribute, still shipping | new `colorspace="display-p3"` attribute, still shipping |
 
 There are four things in that table that `Color` cannot carry. Opacity is not one of them;
@@ -106,7 +106,7 @@ There are four things in that table that `Color` cannot carry. Opacity is not on
    as its own state to avoid this ([day-pieces](colorpicker.md)'s composed panel does
    exactly that, per presentation), but the *bound value* still cannot express it, so the state
    dies when the panel closes.
-3. **Dynamic system colors.** [`NSColor.controlAccentColor`](https://developer.apple.com/documentation/appkit/nscolor), `?attr/colorPrimary`, the XAML accent
+3. **Dynamic system colors.** [`NSColor.controlAccentColor`](https://developer.apple.com/documentation/appkit/nscolor), `?attr/colorPrimary`, the WinUI accent
    brushes: these are rules the OS re-evaluates on a theme change, an accent-color change, or an
    increase-contrast setting, rather than fixed values. Flattening one into four floats freezes
    it at the moment it was read. Today an app cannot bind to one at all.

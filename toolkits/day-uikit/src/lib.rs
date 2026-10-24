@@ -13883,7 +13883,7 @@ mod imp {
                 // Native file pickers: UIDocumentPickerViewController with a delegate. Open uses
                 // `.import` mode (the system hands back an app-local copy, readable via std::fs);
                 // save exports the Day-staged temp file to the chosen destination.
-                PresentSpec::OpenFile { .. } => {
+                PresentSpec::OpenFile { multiple, .. } => {
                     if dayscript_driven() {
                         return; // pending request resolved by the scripted `respond`
                     }
@@ -13899,7 +13899,24 @@ mod imp {
                             UIDocumentPickerMode::Import,
                         )
                     };
+                    // Import mode copies every selection into the sandbox; the delegate's
+                    // `didPickDocumentsAtURLs` reports each copy (docs/files.md).
+                    picker.setAllowsMultipleSelection(*multiple);
                     present_doc_picker(req, m, picker);
+                }
+                // No folder chooser on iOS (`Cap::FolderDialog` is Unsupported): a folder's
+                // security-scoped access is its own feature, so the request resolves at once.
+                PresentSpec::OpenFolder { .. } => {
+                    if dayscript_driven() {
+                        return; // a scripted `respond` may still answer it
+                    }
+                    emit(
+                        WINDOW_NODE,
+                        Event::PresentResult {
+                            req,
+                            result: PresentResult::Dismissed,
+                        },
+                    );
                 }
                 PresentSpec::SaveFile { src_path, .. } => {
                     if dayscript_driven() {

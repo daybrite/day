@@ -49,7 +49,7 @@ Each maps to the platform's native text style where one exists, so sizes and wei
 |---|---|---|
 | **UIKit** (iOS) | [`UIFont.preferredFont(forTextStyle:)`](https://developer.apple.com/documentation/uikit/uifont) (Dynamic Type) | Yes, live, via `adjustsFontForContentSizeCategory` (Settings ▸ Accessibility ▸ Larger Text) |
 | **AppKit** (macOS) | [`NSFont.preferredFont(forTextStyle:)`](https://developer.apple.com/documentation/appkit/nsfont) | Follows the system font settings |
-| **XAML** | point sizes (aligned to the desktop scale) | Yes, `FontSize` tracks the OS text-scale-factor |
+| **WinUI** | point sizes (aligned to the desktop scale) | Yes, `FontSize` tracks the OS text-scale-factor |
 | **Android** | `sp` sizes (mobile scale, aligned to iOS) | Yes, `sp` tracks Settings ▸ Display ▸ Font size |
 | **GTK** | Pango point sizes | Yes, Pango sizes track GNOME's text-scaling-factor |
 | **Qt** | QFont point sizes | Honors the system DPI/font (no separate large-text toggle) |
@@ -156,7 +156,7 @@ The modifier routes to [`Toolkit::set_selectable`](https://daybrite.dev/api/day_
 | UIKit | the label is rebuilt as a read-only, non-scrolling [`UITextView`](https://developer.apple.com/documentation/uikit/uitextview) (below) |
 | GTK | [`GtkLabel.set_selectable`](https://docs.gtk.org/gtk4/class.Label.html) |
 | Qt | [`QLabel`](https://doc.qt.io/qt-6/qlabel.html) `TextSelectableByMouse`/`ByKeyboard` |
-| XAML | [`TextBlock.IsTextSelectionEnabled`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.xaml.controls.textblock) |
+| WinUI | [`TextBlock.IsTextSelectionEnabled`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.textblock) |
 | HarmonyOS | `Text` `NODE_TEXT_COPY_OPTION` (long-press → copy) |
 | Android | [`TextView.setTextIsSelectable`](https://developer.android.com/reference/android/widget/TextView) (long-press → copy) |
 | Web | `user-select: text` (the `#day-root` default is `none`) |
@@ -181,7 +181,7 @@ that opts every text piece on the page in and out of [`.selectable()`](https://d
 
 [`label`](https://daybrite.dev/api/day_pieces/fn.label.html)`(title)`[`.single_line`](https://daybrite.dev/api/day_pieces/trait.LabelBuilder.html#tymethod.single_line)`()` keeps plain text on one line as its text changes, including
 recycled list rows. Constrain its width through the enclosing layout. The full text remains
-available to accessibility. UIKit, AppKit, Android, GTK, DOM, XAML and ArkUI request native
+available to accessibility. UIKit, AppKit, Android, GTK, DOM, WinUI and ArkUI request native
 trailing ellipsis; Qt disables wrapping and clips the excess. Styled link labels may use a
 text-view backing and do not guarantee this truncation behavior.
 

@@ -11,7 +11,7 @@ color, plus paragraph alignment, indent, spacing and list markers — bound two-
 
 `text_editor(doc)` is the platform's own rich-text view: `NSTextView` on macOS,
 `UITextView` on iOS, `GtkTextView` over a tag table, `QTextEdit`, an Android `EditText`
-over its live `SpannableStringBuilder`, a XAML `RichEditBox` driven through its Text
+over its live `SpannableStringBuilder`, a WinUI `RichEditBox` driven through its Text
 Object Model, the ArkTS `RichEditor` on HarmonyOS, and a `contenteditable` element on the
 web. There is no drawn fallback and there must not be one: IME composition, bidirectional
 cursor movement, the platform's undo stack, dictation, autocorrect, touch selection
@@ -65,7 +65,7 @@ with cargo features, and `day build` wires up the native side automatically.
 
 This crate is one piece of [Day](https://daybrite.dev), a Rust framework for building apps
 out of each platform's own widgets — AppKit, UIKit, Android's Material widgets, GTK 4, Qt 6,
-XAML, and ArkUI — from one codebase. When you write `button("Save")`, macOS shows an
+WinUI, and ArkUI — from one codebase. When you write `button("Save")`, macOS shows an
 `NSButton` and Android shows a Material button. The framework also ships the tooling around
 the app: the `day` CLI, a VS Code extension, GitHub CI workflows, localization,
 accessibility, and dayscript automation.

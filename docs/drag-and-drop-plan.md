@@ -50,7 +50,7 @@ The source investigation found these reusable paths:
 | UIKit | `toolkits/day-uikit/src/lib.rs`: table drag delegate, empty `NSItemProvider`, move-target delegate | Supports local row reordering, not reusable external image offers. |
 | GTK | `toolkits/day-gtk/src/lib.rs`: `DragSource`, row-token provider, drop guards | Reuse controller lifetime patterns; replace row-only payload assumptions. |
 | Qt | `toolkits/day-qt-sys/src/shim.cpp`: `DayList`, `QDrag`, guarded `dropEvent` | Current source/target state is a list selection. General adapters require MIME data and session identity. |
-| Windows XAML | `toolkits/day-xaml-sys/src/shim.cpp`: `day_xaml_list_enable_reorder`, `day_xaml_cell_drag` | Existing `CanDrag`, `AllowDrop`, `DataPackageOperation` wiring is local row bookkeeping. Add actual data packages. |
+| Windows (WinUI) | `toolkits/day-xaml-sys/src/shim.cpp`: `day_xaml_list_enable_reorder`, `day_xaml_cell_drag` | Existing `CanDrag`, `AllowDrop`, `DataPackageOperation` wiring is local row bookkeeping. Add actual data packages. |
 | Android MDC | `toolkits/day-mdc/java/dev/daybrite/day/bridge/DayBridge.java`: `ItemTouchHelper` | Incremental row swaps are not Android system data dragging. Add `View.OnDragListener` separately. |
 | Web | `crates/day-cli/resources/web/shim.js`: `day_dom_list_reorder` | Pointer capture and a CSS gap implement local reorder; there is no HTML transfer session in that path. |
 | Harmony ArkUI | `toolkits/day-arkui/src/transfer.rs` + `list.rs`: `NODE_ON_DRAG_START`, `NODE_ON_DROP`, draggable cells | Native drag events exist, but handlers are hard-wired to list state. Route by registered capability before list fallback. |
@@ -137,12 +137,12 @@ report native file-promise export separately until each OS backend has been veri
 
 ### Windows: windows-winui
 
-Use the XAML flavor already selected by `day-xaml-sys`: `CanDrag`, `DragStarting`,
+Use the WinUI flavor already selected by `day-xaml-sys`: `CanDrag`, `DragStarting`,
 `DropCompleted`, `AllowDrop`, and enter/over/leave/drop events. Populate `DataPackage` with
 standard image/text/storage items and custom byte streams; inspect `DataPackageView` on
 receipt. Set `AcceptedOperation`; acquire deferrals before returning from callbacks that
 need asynchronous work. Drop surfaces need a hit-testable background.
-[Microsoft XAML guide](https://learn.microsoft.com/en-us/windows/apps/develop/data/drag-and-drop)
+[Microsoft WinUI guide](https://learn.microsoft.com/en-us/windows/apps/develop/data/drag-and-drop)
 
 `SetDataProvider` can defer expensive representations. Explorer/Win32 interoperability must
 also cover file formats: `CF_HDROP` represents existing files; `FILEDESCRIPTOR` plus
@@ -153,7 +153,7 @@ virtual-file export; ordinary storage-item export should land first.
 
 Implementation: keep WinRT objects and deferrals in the C++ shim, expose owned IDs to Rust,
 finish/release on every branch, and test native desktop apps on Windows. Do not assume a
-successful Win32 clipboard byte write proves XAML DnD interoperability.
+successful Win32 clipboard byte write proves WinUI DnD interoperability.
 
 ### Android: android-mdc
 
@@ -353,7 +353,7 @@ stops being sufficient; generic Day transfer code must not understand Sketch's s
 |---|---|---|
 | 1: specification and mock | Transfer items/readers/leases, capability matrix, source/target attachments, lifecycle and arbitration | Mock tests cover cancellation, target disposal, reentrancy, multiple representations vs items, and exactly-once completion. |
 | 2: incoming files/images | AppKit reference adapter; Web in the same phase to force event-lifetime correctness; Sketch canvas import | Foreign PNG/JPEG/SVG and multi-file drop, malformed/oversize input, zoomed placement, one undo group, reopen from SQLite. |
-| 3: remaining import adapters | UIKit providers, GTK streams, Qt MIME, XAML deferrals, Android grants, ArkUI UDMF | Native source app → Sketch tests on each declared target; failure and grant cleanup tests. No blanket cross-platform support claim. |
+| 3: remaining import adapters | UIKit providers, GTK streams, Qt MIME, WinUI deferrals, Android grants, ArkUI UDMF | Native source app → Sketch tests on each declared target; failure and grant cleanup tests. No blanket cross-platform support claim. |
 | 4: outgoing and local transfer | Frozen selection offers, previews, local token registry, layer source, file promises/staging | Sketch → foreign image editor/file manager; two independent Day apps; cross-window copy; clipboard unchanged during drag. |
 | 5: collection and move integration | Stable keys, guarded reparenting, auto-scroll, spring-loading, supported move acknowledgment | Existing reorder tests still pass; rejected/canceled/failed moves retain source; undo semantics documented per document. |
 | 6: polish and expanded protocols | Touch/keyboard accessibility, large streams, directories if needed, richer previews, device-specific capabilities | Accessibility walkthroughs, leak/stress runs, browser matrix, real-device and CI acceptance. |

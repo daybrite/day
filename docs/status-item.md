@@ -153,7 +153,7 @@ Platform guidance: [Apple: the menu bar](https://developer.apple.com/design/huma
 | Toolkit | Status item | Progress | Dock visibility |
 |---|---|---|---|
 | AppKit | Native: [`NSStatusItem`](https://developer.apple.com/documentation/appkit/nsstatusitem) in the menu bar | Native: a bar drawn on the Dock tile | Native: the activation policy |
-| Windows XAML | Native: `Shell_NotifyIcon` (compile-checked; runtime pending) | Native: [`ITaskbarList3`](https://learn.microsoft.com/en-us/windows/win32/api/shobjidl_core/nn-shobjidl_core-itaskbarlist3) (compile-checked) | Unsupported |
+| Windows | Native: `Shell_NotifyIcon` (compile-checked; runtime pending) | Native: [`ITaskbarList3`](https://learn.microsoft.com/en-us/windows/win32/api/shobjidl_core/nn-shobjidl_core-itaskbarlist3) (compile-checked) | Unsupported |
 | GTK (Linux) | Native while a StatusNotifierItem host runs, through the `day-dbus` crate | Emulated: the Unity launcher protocol (KDE Plasma, Dash to Dock) | Unsupported |
 | Qt (Linux) | Native where [`QSystemTrayIcon`](https://doc.qt.io/qt-6/qsystemtrayicon.html) finds a tray | Emulated: the Unity launcher protocol | Unsupported |
 | iOS, Android, HarmonyOS, web | Unsupported | Unsupported | Unsupported |

@@ -1394,8 +1394,9 @@ impl Toolkit for Xaml {
             // but a narrowing window collapses its pane rather than growing one — the same rule
             // every other desktop follows.
             Cap::NavTabs => Support::Native,
-            // Native modals (ContentDialog) + WinRT file pickers (docs/dialogs.md, docs/files.md).
-            Cap::Dialogs | Cap::FileDialogs => Support::Native,
+            // Native modals (ContentDialog) + WinRT file and folder pickers (docs/dialogs.md,
+            // docs/files.md).
+            Cap::Dialogs | Cap::FileDialogs | Cap::FolderDialog => Support::Native,
             // The system light/dark setting, read live and re-reported when the user changes it
             // (docs/settings.md). XAML's own controls follow theme resources by themselves; this
             // is what makes DAY's palette follow too.
@@ -3011,13 +3012,17 @@ impl Toolkit for Xaml {
                     self.window,
                 )
             },
-            PresentSpec::OpenFile { .. } => unsafe {
+            PresentSpec::OpenFile { multiple, .. } => unsafe {
                 ffi::day_xaml_present_file_open(
                     req,
                     cstr(spec.title()).as_ptr(),
                     cstr(&spec.filters_joined()).as_ptr(),
+                    *multiple as c_int,
                     self.window,
                 )
+            },
+            PresentSpec::OpenFolder { .. } => unsafe {
+                ffi::day_xaml_present_folder_open(req, cstr(spec.title()).as_ptr(), self.window)
             },
             PresentSpec::SaveFile { suggested_name, .. } => unsafe {
                 // The pieces layer copies the staged bytes to the chosen path (docs/files.md).

@@ -179,7 +179,7 @@ Registering a preferences piece enables the following, without any menu code in 
 - **macOS**: "Settings…" + ⌘, in the App menu, directly under About, in both the default
   menu (apps that never call [`app_menu`](https://daybrite.dev/api/day_pieces/fn.app_menu.html)) and an installed one (the item is hoisted out of
   the model into its standard position).
-- **GTK/Qt/XAML**: a Preferences item with the platform accelerator (Ctrl+comma; Qt's
+- **GTK/Qt/WinUI**: a Preferences item with the platform accelerator (Ctrl+comma; Qt's
   menu-role relocates it into the app menu on macOS, and macOS-gtk additionally enables the
   stock GTK app menu's *Settings…* through an `app.preferences` action). day-core injects it
   into the first (File) menu when the app didn't place a [`menu_role(MenuRole::Preferences)`](https://daybrite.dev/api/day_pieces/fn.menu_role.html)
@@ -229,7 +229,7 @@ to no window and have to resolve the front one when they run. The same shell sho
 lists them.
 
 > [!NOTE]
-> A live retitle reaches AppKit, GTK, Qt, XAML, UIKit and Android, primary window included.
+> A live retitle reaches AppKit, GTK, Qt, WinUI, UIKit and Android, primary window included.
 > `day-arkui` takes the trait's default, so an OpenHarmony window keeps the title it was opened
 > with; the inherited launch title makes that correct rather than blank, but it does not follow
 > content yet.
@@ -324,7 +324,7 @@ and the frame options in [docs/window-chrome](window-chrome.md).
 | Toolkit | What it supports |
 |---|---|
 | AppKit | Everything above. Taskbar exclusion is the Window menu's, since macOS has no taskbar. |
-| Windows XAML | Everything except showing a window on every virtual desktop. Compile-checked; the Windows runtime pass is pending. |
+| Windows (WinUI) | Everything except showing a window on every virtual desktop. Compile-checked; the Windows runtime pass is pending. |
 | Qt | Everything except per-window appearance and every-desktop windows. Under Wayland the compositor places windows, so [`set_frame`](https://daybrite.dev/api/day_core/windows/struct.WindowHandle.html#method.set_frame)'s origin and `WindowPosition` are unsupported there. |
 | GTK | Size, minimum size, resizable, closable, visibility and the minimize/maximize controls. GTK 4 removed window positioning, stacking, the taskbar hint, the urgency hint and maximum sizes, and [`frame()`](https://daybrite.dev/api/day_core/windows/struct.WindowHandle.html#method.frame) answers `None`. On Linux the Qt toolkit covers those. |
 | iOS | Per-window appearance (`overrideUserInterfaceStyle`). |
@@ -420,7 +420,7 @@ before tagging; an app that sets only [`title`](https://daybrite.dev/api/day_spe
 
 `screenshot.window` resolves the key through the registry; on the cover tier it captures the
 primary window, whose fullscreen cover is the content, so the same pixels come back with no
-special case. (XAML
+special case. (WinUI
 currently also answers the primary for per-window captures, a noted follow-up.)
 
 ## The Toolkit duties (toolkits)
@@ -459,7 +459,7 @@ window's close like any other instead of ending the app itself.
 
 [`close_window`](https://daybrite.dev/api/day_spec/trait.Toolkit.html#method.close_window)/[`focus_window`](https://daybrite.dev/api/day_spec/trait.Toolkit.html#method.focus_window)/[`set_window_title`](https://daybrite.dev/api/day_spec/trait.Toolkit.html#method.set_window_title)/[`snapshot_window_of`](https://daybrite.dev/api/day_spec/trait.Toolkit.html#method.snapshot_window_of) round out the duties;
 day-core releases the content handle after teardown, which is each toolkit's signal to
-destroy the native window (Qt/XAML defer destruction to exactly this point so child-widget
+destroy the native window (Qt/WinUI defer destruction to exactly this point so child-widget
 releases stay sound).
 
 | Toolkit | Tier | Mechanism |
@@ -467,7 +467,7 @@ releases stay sound).
 | AppKit | Native | per-window [`NSWindow`](https://developer.apple.com/documentation/appkit/nswindow) + delegate (retained; windows are not released-when-closed); tabbing groups; Window menu |
 | GTK | Native | additional [`AdwApplicationWindow`](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/class.ApplicationWindow.html)s on the shared [`GtkApplication`](https://docs.gtk.org/gtk4/class.Application.html); app-level active-state debounced across windows. The panel kinds are dialogs, not windows: `Preferences` presents as an [`AdwPreferencesDialog`](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/class.PreferencesDialog.html) and `About` as an [`AdwDialog`](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/class.Dialog.html) with a header bar, over the active app window (a floating sheet in a wide window, a bottom sheet in a narrow one, Escape closes). The record keeps the window contract — [`close_window`](https://daybrite.dev/api/day_spec/trait.Toolkit.html#method.close_window) is `adw_dialog_close` and the dialog's `closed` signal is the `WindowClosed` confirm, [`focus_window`](https://daybrite.dev/api/day_spec/trait.Toolkit.html#method.focus_window) presents it again, [`set_window_title`](https://daybrite.dev/api/day_spec/trait.Toolkit.html#method.set_window_title) is its title, [`fit_window`](https://daybrite.dev/api/day_spec/trait.Toolkit.html#method.fit_window) is its content width and height, [`snapshot_window_of`](https://daybrite.dev/api/day_spec/trait.Toolkit.html#method.snapshot_window_of) renders its sheet, and [`apply_window`](https://daybrite.dev/api/day_spec/trait.Toolkit.html#method.apply_window) is ignored. A panel opened before any window exists is a window as before. On macOS the panel is always a window of its own (the same [`AdwPreferencesDialog`](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/class.PreferencesDialog.html), presented without a parent): that is where a Mac keeps Preferences, and a piece's Cocoa view in the GTK window's content view (day-piece-webview's [`WKWebView`](https://developer.apple.com/documentation/webkit/wkwebview)) draws above everything GTK draws there, so an in-window sheet could be covered whenever such a view is up. Alert dialogs stay in their window unless such a view would cover them, in which case they too present as windows. |
 | Qt | Native | shim `DayWindow` carrying its node id; explicit quit policy (`quitOnLastWindowClosed(false)`) |
-| XAML | Native (CI-verified) | second Win32 host + its own `DesktopWindowXamlSource` island; accelerators in secondary islands are a noted v1 limit |
+| WinUI | Native (CI-verified) | second Win32 host + its own `DesktopWindowXamlSource` island; accelerators in secondary islands are a noted v1 limit |
 | iOS | Native on iPad ([`UIScene`](https://developer.apple.com/documentation/uikit/uiscene) request/connect; the whole toolkit runs the scene lifecycle, and a scene the system opens on its own is filled from [`register_new_window`](https://daybrite.dev/api/day_core/windows/fn.register_new_window.html)) | iPhone answers Unsupported → cover; iPad runtime check pends a `day launch` device flag |
 | Android | Native | document-style `DayWindowActivity` per window (own recents entry; split-screen/freeform); `Preferences` → cover |
 | HarmonyOS | Native (when the ArkTS host registers the launchers) | multiton `DayWindowAbility` per window; `Preferences` → cover. Pre-existing toolkit quirk: presented covers pass asserts and receive taps but device captures show the page beneath (affects the cover piece identically — follow-up) |

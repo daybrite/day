@@ -171,7 +171,7 @@ a phone to a desktop. So `Automatic` and `Sidebar` behave identically on a deskt
 iOS, Android, HarmonyOS and the web.
 
 `Rail` is not gated by that capability: a narrow sidebar is an ordinary desktop shape, and on
-Windows it is what [`NavigationView`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.xaml.controls.navigationview) does at that width. A toolkit with no rail control rounds it
+Windows it is what [`NavigationView`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.navigationview) does at that width. A toolkit with no rail control rounds it
 to a neighbor of its own choosing: macOS has nothing that is a vertical strip of icon-only
 destinations, so appkit draws an ordinary sidebar there.
 
@@ -202,7 +202,7 @@ switches; the user picking natively writes it back (origin-tagged, no echo).
 |---|---|
 | `Split` | a NavigationSplitView: macOS [`NSSplitViewController`](https://developer.apple.com/documentation/appkit/nssplitviewcontroller) with a sidebar [`NSSplitViewItem`](https://developer.apple.com/documentation/appkit/nssplitviewitem) (system material, source-list [`NSOutlineView`](https://developer.apple.com/documentation/appkit/nsoutlineview), full-height under the titlebar) + detail; GTK two nested [`GtkPaned`](https://docs.gtk.org/gtk4/class.Paned.html)s (sidebar | list | detail, every divider draggable); Qt [`QSplitter`](https://doc.qt.io/qt-6/qsplitter.html); iOS [`UISplitViewController`](https://developer.apple.com/documentation/uikit/uisplitviewcontroller); Android `SlidingPaneLayout`. |
 | `Stack` | one page at a time, back-navigable: [`UINavigationController`](https://developer.apple.com/documentation/uikit/uinavigationcontroller), [`AdwNavigationView`](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/class.NavigationView.html), the Android back stack, or a desktop back-header above the pages. |
-| `Tabs` | the rows drawn as a tab bar: [`UITabBarController`](https://developer.apple.com/documentation/uikit/uitabbarcontroller) / Material [`NavigationBarView`](https://developer.android.com/reference/com/google/android/material/navigation/NavigationBarView) / [`NavigationView.PaneDisplayMode = Top`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.xaml.controls.navigationview) / an [`NSTabView`](https://developer.apple.com/documentation/appkit/nstabview) on macOS / an [`AdwViewSwitcher`](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/class.ViewSwitcher.html) on GTK / a [`QTabWidget`](https://doc.qt.io/qt-6/qtabwidget.html) on Qt / a composed bar on Web. |
+| `Tabs` | the rows drawn as a tab bar: [`UITabBarController`](https://developer.apple.com/documentation/uikit/uitabbarcontroller) / Material [`NavigationBarView`](https://developer.android.com/reference/com/google/android/material/navigation/NavigationBarView) / [`NavigationView.PaneDisplayMode = Top`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.navigationview) / an [`NSTabView`](https://developer.apple.com/documentation/appkit/nstabview) on macOS / an [`AdwViewSwitcher`](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/class.ViewSwitcher.html) on GTK / a [`QTabWidget`](https://doc.qt.io/qt-6/qtabwidget.html) on Qt / a composed bar on Web. |
 | `Rail` | the rows as a narrow strip: Material [`NavigationRailView`](https://developer.android.com/reference/com/google/android/material/navigationrail/NavigationRailView), `PaneDisplayMode = LeftCompact`, an ArkUI vertical `Tabs`; **roundable** where a toolkit has none. |
 
 [`nav`](https://daybrite.dev/api/day_pieces/fn.nav.html) is one primitive, a selection-bound switcher, and a presentation is chrome plus page
@@ -220,7 +220,7 @@ navigation existed.
 |---------|-------------------|----------|
 | macos-appkit | [`NSTabView`](https://developer.apple.com/documentation/appkit/nstabview) (top tabs on a bezel), the detail pages as its items; labels from the host's rows | no; a Mac narrows to a stack |
 | ios-uikit | [`UITabBarController`](https://developer.apple.com/documentation/uikit/uitabbarcontroller) in `.tabSidebar` mode, driven by [`UITab`](https://developer.apple.com/documentation/uikit/uitab) on iOS 18+ and by `viewControllers` below it (2026-09) — see below | yes |
-| android-mdc | navigation suite: `BottomNavigationView` → [`NavigationRailView`](https://developer.android.com/reference/com/google/android/material/navigationrail/NavigationRailView) → permanent [`NavigationView`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.xaml.controls.navigationview) drawer, by width. A `NavStyle::Sidebar` pane is a [`NavigationView`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.xaml.controls.navigationview) too (2026-09) — see below | yes |
+| android-mdc | navigation suite: `BottomNavigationView` → [`NavigationRailView`](https://developer.android.com/reference/com/google/android/material/navigationrail/NavigationRailView) → permanent [`NavigationView`](https://developer.android.com/reference/com/google/android/material/navigation/NavigationView) drawer, by width. A `NavStyle::Sidebar` pane is a [`NavigationView`](https://developer.android.com/reference/com/google/android/material/navigation/NavigationView) too (2026-09) — see below | yes |
 | linux-gtk | [`AdwViewSwitcher`](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/class.ViewSwitcher.html) over an [`AdwViewStack`](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/class.ViewStack.html) of resident pages, each in a filling `DayCell` | no |
 | linux-qt | [`QTabWidget`](https://doc.qt.io/qt-6/qtabwidget.html) — Qt's own one-of-N container | no |
 | web-dom | a composed tab bar (`.day-nav.tabs`) | yes |
@@ -258,7 +258,7 @@ desktop may pin one with `NavStyle::Tabs`, but narrowing hides its sidebar and p
 
 A sidebar walks with the arrow keys: ↑/↓ move to the next destination, Home and End to the first
 and last, and the selection reports exactly what a click on that row reports. The desktops get
-this from the widget the style maps to (an [`NSOutlineView`](https://developer.apple.com/documentation/appkit/nsoutlineview) source list, a [`NavigationView`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.xaml.controls.navigationview)) with
+this from the widget the style maps to (an [`NSOutlineView`](https://developer.apple.com/documentation/appkit/nsoutlineview) source list, a [`NavigationView`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.navigationview)) with
 nothing of Day's in front of it: keys go to whatever has focus and no route sits above them
 ([docs/menus](menus.md)).
 
@@ -396,7 +396,7 @@ Both are template glyphs, so an untinted one takes the toolkit's neutral row col
 the theme; a tinted one keeps its color because the color carries meaning. Every toolkit draws it:
 the trailing slot of the AppKit cell, the GTK row box, a [`QStyledItemDelegate`](https://doc.qt.io/qt-6/qstyleditemdelegate.html) on Qt (a
 [`QListWidgetItem`](https://doc.qt.io/qt-6/qlistwidgetitem.html) has only the leading icon slot), the `end` compound drawable on Android, the
-composed [`NavigationViewItem.Content`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.xaml.controls.navigationviewitem) on XAML, between label and chevron on ArkUI, a masked
+composed [`NavigationViewItem.Content`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.navigationviewitem) on WinUI, between label and chevron on ArkUI, a masked
 element on Web, and a trailing [`UIImageView`](https://developer.apple.com/documentation/uikit/uiimageview) on UIKit, which is also where the nav badge slot
 first appeared on that toolkit. A nav host used as a self-contained widget inside a
 page that already routes should call [`.local()`](https://daybrite.dev/api/day_pieces/trait.NavBuilder.html#tymethod.local) so it does not add a segment to [`current_route`](https://daybrite.dev/api/day_pieces/fn.current_route.html) or
@@ -419,7 +419,7 @@ row text never overlaps the heading. The semantic color follows light/dark appea
 apps do not need to add their own backgrounds. GTK draws them
 in its list box's header slot. Qt, whose [`QListWidget`](https://doc.qt.io/qt-6/qlistwidget.html) has no header slot, draws each as a small
 bold dimmed item of its own that takes no click, hover or selection, and Web as a heading
-element between the rows. Windows adds a [`NavigationViewItemHeader`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.xaml.controls.navigationviewitemheader) to the pane's items (a disabled
+element between the rows. Windows adds a [`NavigationViewItemHeader`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.navigationviewitemheader) to the pane's items (a disabled
 item in the plain `ListView` sidebar), collapsing them while the pane is a tab strip or an icon
 rail, and HarmonyOS a secondary-colored title above the group's first row. These four translate
 indices at the list, so a row keeps the index Day gave it however many headings sit above it.
@@ -439,7 +439,7 @@ combining a rich master list with native master-detail push is a separate, not-y
 
 **Toolkit support (2026-07):** dynamic add/remove/reselect renders on `macos-appkit`, `linux-gtk`,
 `linux-qt`, and `web-dom` (and their host variants), verified in the showcase walkthrough. The
-`ios-uikit` sidebar and tab selection are wired; dynamic rendering on the UIKit/Android/ArkUI/XAML
+`ios-uikit` sidebar and tab selection are wired; dynamic rendering on the UIKit/Android/ArkUI/WinUI
 tab widgets is in progress (those toolkits ignore the item-set patch until then, so the initial set
 still shows). The item logic is toolkit-independent and covered by
 `mock_e2e::nav_data_driven_items_reconcile`.
@@ -691,7 +691,7 @@ gesture and route the back through Day instead (`NavPatch::GuardTop`). What that
 | Android | a higher-priority [`OnBackPressedCallback`](https://developer.android.com/reference/androidx/activity/OnBackPressedCallback) routes the system/gesture back and the toolbar up-arrow to Day (the predictive-back preview is unavailable while armed) |
 | HarmonyOS (ArkUI) | the top `NavDestination`'s `onBackPressed` consumes the native back and defers to Day |
 | GTK | the top [`AdwNavigationPage`](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/class.NavigationPage.html) sets `can-pop = false` (swipe/Escape disabled; the app drives back through its own control, which is guarded) |
-| macOS / Qt / XAML / web | no-op — the back button already routes through Day, so the guard runs with no native arming needed |
+| macOS / Qt / WinUI / web | no-op — the back button already routes through Day, so the guard runs with no native arming needed |
 
 The guard's logic (intercept, defer, proceed, never-on-programmatic-write) is identical everywhere
 and covered by `mock_e2e::nav_stack_on_back_guard_intercepts_and_defers`.

@@ -85,7 +85,7 @@ Every field is best-effort; each platform reports what it can:
   the Win32 `GetVersionExW`, which reports an older version on Windows 8+ without a compatibility
   manifest. `system_name` is
   `"Windows"`; `model` is a best-effort `"PC"` (there is no cheap portable hardware-model source). Written
-  blind, like the rest of the xaml toolkit.
+  blind, like the rest of the WinUI toolkit.
 - **Linux**: no single portable API is guaranteed, so the crate reads the two files every desktop distro
   provides: [`/etc/os-release`](https://www.freedesktop.org/software/systemd/man/latest/os-release.html) (`NAME` / `PRETTY_NAME` for `system_name`, `VERSION_ID` for
   `system_version`) and the DMI node `/sys/devices/virtual/dmi/id/product_name` for `model` (falling back

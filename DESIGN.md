@@ -202,7 +202,7 @@ section would restate something a `docs/*.md` file owns, point to it instead of 
 applications on every platform — because they *are* native applications. UI is authored once, in
 idiomatic Rust, as a declarative tree of **Pieces** (what SwiftUI calls a View and Flutter calls a
 Widget). Each Piece is realized by **real native components** — `UILabel`, a Material `MaterialButton`,
-`NSTextField`, `GtkEntry`, `QSlider`, XAML `TextBox`, a DOM `<input>` — through a per-platform
+`NSTextField`, `GtkEntry`, `QSlider`, WinUI `TextBox`, a DOM `<input>` — through a per-platform
 **toolkit** backend. Day owns layout, reactivity, localization, accessibility policy, and scripting;
 the platform owns pixels, text input, scrolling physics, and assistive technology.
 
@@ -219,7 +219,7 @@ Seven **primary targets** (OS–toolkit combinations), all shipped:
 | `harmony-arkui` | HarmonyOS | ArkUI (NDK C API) | shipped; cross-compile through cargo-ohos in CI, `.hap` pack, `day devices boot -t harmony-arkui` emulator helpers ([docs/harmonyos.md](docs/harmonyos.md)) |
 | `web-dom` | any modern browser | the DOM (semantic HTML + ARIA) | experimental (2026-07); wasm32 cdylib + JS shim, `day launch` dev server ([docs/web.md](docs/web.md)) |
 
-`windows-xaml` is the same XAML backend built against system XAML (`Windows.UI.Xaml` in XAML
+`windows-xaml` is the same Windows backend built against system XAML (`Windows.UI.Xaml` in XAML
 Islands) instead of WinUI 3. It was the Windows target until `windows-winui` replaced it; it is
 now **deprecated** (Tier 5): it still builds, packs and runs for projects that have not moved
 (`day project add-target windows-winui`), and new projects do not get it. Since 2026-10 nothing
@@ -280,7 +280,7 @@ Day is not a greenfield guess. It consolidates several years of prior art in thi
 | **Piece** | Day's unit of UI composition (SwiftUI "View", Flutter "Widget"). Also the brand for UI extension packages: "a Day Piece" (`pieces/day-piece-*`). |
 | **Part** | A headless platform-service package — battery, network, clipboard, sensors, prefs, haptics, sound effects, keeping the screen on, device info, HTTP, OS permissions, location, app-local files, local notifications, wall clock & time zones — exposing signals/functions with per-OS native halves (`parts/day-part-*`, [§15](#15-extensibility-pieces-parts-and-tweaks)). |
 | **Tweak** | A per-toolkit configuration of the native widget behind an existing built-in piece (`Decorate::tweak`, `tweaks/day-tweak-*`; [Addendum](#addendum-2026-07-09--tweaks-per-toolkit-configuration-of-built-in-pieces), [docs/tweaks.md](docs/tweaks.md)). |
-| **Toolkit** | A native widget system: UIKit, Android Material, AppKit, GTK 4, Qt 6 Widgets, WinUI 3 (XAML), ArkUI (+ the headless mock). |
+| **Toolkit** | A native widget system: UIKit, Android Material, AppKit, GTK 4, Qt 6 Widgets, WinUI 3, ArkUI (+ the headless mock). |
 | **Target** | An (OS, toolkit) pair, written `<os>-<toolkit>`: `macos-appkit`, `macos-gtk`, `ios-uikit`, … One binary is built per target. |
 | **Backend crate** | The Rust crate implementing `day-spec` for one toolkit (`toolkits/day-appkit`, `toolkits/day-gtk`, …). One backend is linked per binary. |
 | **Realized tree** | The runtime tree of mounted pieces: each node owns a native handle (or is layout-only), a reactive scope, and layout state. |
@@ -450,7 +450,7 @@ Two structural rules carried over from pane, both still enforced:
   (`Platform::post_delayed`) over the same loop's timer (`dispatch_after` /
   `Handler.postDelayed` / `g_timeout_add` / `QTimer::singleShot` / `SetTimer` /
   `setTimeout`), so neither a post nor a sleep costs a thread. (The designed `day::task::spawn`
-  async executor shipped later as `day::task`, §4.5.) XAML and WinUI check a monotonic deadline
+  async executor shipped later as `day::task`, §4.5.) Both Windows backends check a monotonic deadline
   before completing a delayed post and rearm early Win32 timer signals for the remaining delay.
 - **One turn state machine**, referenced by every other section (ratification: DP-17):
 
@@ -1016,7 +1016,7 @@ split(first, second)               // two panes and the divider the user drags (
                                    //   splitter where Cap::Split is Native, Day's layout and
                                    //   a drawn, dragged divider elsewhere
 nav_link(…)   navigate_to(…)   current_route()   route_param(…)
-alert(…)   confirm(…)   prompt(…)   open_file(…)   save_file(…)
+alert(…)   confirm(…)   prompt(…)   open_file(…)   open_files(…)   open_folder(…)   save_file(…)
 app_menu(entries | derive_fn)   dock_menu(…)   // live: titles, enabled, checked re-read
 menu_item(t).enabled(e).checked(c)   sub_menu(t, …)   menu_role(…)   menu_separator()
 open_window(res::window_options().key(k).kind(WindowKind::X).size(w, h), build)
@@ -1201,7 +1201,7 @@ that a chooser started, not that a target received data. AppKit and macOS GTK us
 `NSSharingServicePicker`, retained by the backend until replacement/teardown; macOS Qt uses
 an Objective-C++ picker. UIKit presents `UIActivityViewController` from the current controller
 and anchors its iPad popover. Android launches an `ACTION_SEND` chooser. Windows GTK, Qt,
-XAML and WinUI share a DataTransferManager adapter; its previous DataRequested registration
+The two Windows targets share a DataTransferManager adapter; its previous DataRequested registration
 is removed before a new payload is installed. Missing active windows and missing event arguments
 return explicit `E_HANDLE` / `E_POINTER` errors; neither condition reads stale thread error state. Web Share checks user activation and suppresses
 cancellation rejection. Desktop Linux and the OpenHarmony SDK report Unsupported because
@@ -1426,12 +1426,12 @@ the recorded shape sugar could take if branching ever becomes common.
 > **Status: shipped differently.** There is no `theme::` token module. Native fidelity comes
 > from a different split: **default appearance is native by construction** — text, controls,
 > separators, form cards, and window grounds take the platform's own dynamic colors inside each
-> backend (`NSColor.labelColor`, `?attr/colorOnSurface`, QPalette roles, XAML theme resources),
+> backend (`NSColor.labelColor`, `?attr/colorOnSurface`, QPalette roles, WinUI theme resources),
 > so dark/light tracking needs no app-side tokens at all. Apps state only *deliberate* colors
 > (`Color::hex(…)` brand values, shape fills, gradients). Semantic *roles* that must cross the
 > spec do so as typed values: `SurfaceRole` for grouped-card surfaces, `Font` for typography.
 > Forced schemes for screenshots/CI ride the `DAY_THEME=light|dark` launch environment, which
-> every backend honors (per-element on the XAML root, palette on Qt ≤6.7, color-scheme
+> every backend honors (per-element on the WinUI root, palette on Qt ≤6.7, color-scheme
 > elsewhere). An app-wide token module remains possible later; no real app has needed one.
 
 ### §6.4 Typography
@@ -1563,8 +1563,8 @@ size stops propagation" is only valid **because the pass re-entered at a boundar
 proposal is unchanged** — a dirty child's size change alters its *siblings'* proposals inside a
 negotiated stack, so propagation stops at negotiation scopes, not at arbitrary nodes.
 
-On XAML/WinUI, a control's template can become ready after Day's initial synchronous measure.
-The shim applies control templates before measuring and invalidates XAML's own measure cache
+On WinUI, a control's template can become ready after Day's initial synchronous measure.
+The shim applies control templates before measuring and invalidates WinUI's own measure cache
 before retrying a zero result after forced layout. Built-in controls also report `Loaded`:
 the backend batches these reports on the next UI turn, invalidates each live node's measured
 path, and runs placement. Deferral avoids re-entering the tree from native layout; generational
@@ -1599,7 +1599,7 @@ hop needed a dedicated protocol — this cannot be retrofitted after the spec fr
   `.axis(Axis::Horizontal)`) flips it. The axis rides `realize` as
   `day_spec::props::ScrollProps { horizontal }`, and each backend maps it to its native scroller:
   `NSScrollView` horizontal/vertical scrollers, `GtkScrolledWindow` per-axis policy, `QScrollArea`
-  bar policy, Android `HorizontalScrollView` vs `ScrollView`, XAML `ScrollViewer` scroll modes,
+  bar policy, Android `HorizontalScrollView` vs `ScrollView`, WinUI `ScrollViewer` scroll modes,
   ArkUI `Scroll` direction. Content is measured unconstrained on the chosen axis.
 - The native side owns the viewport, physics, indicators, and emits `Event::ScrollChanged(Point)`.
   `Toolkit::scroll_to(handle, target_rect, animated)` and `scroll_offset(handle)` complete the
@@ -1731,7 +1731,7 @@ Title-size number has a taller ascent than the Caption beside it.
 - A **measurement**, not a layout mode. Day places every frame itself ([§7.1](#71-day-owns-layout)) and never hands a
   row to a native baseline-aligning container, so what it needs is where the text sits inside the
   box. That is also why nearly every toolkit can answer: AppKit, GTK and Android publish a
-  baseline directly; UIKit, Qt, XAML, ArkUI and the DOM derive one from the widget's font.
+  baseline directly; UIKit, Qt, WinUI, ArkUI and the DOM derive one from the widget's font.
 - `Layout::baseline` lets a container answer for its content, and every single-child wrapper
   forwards its child's. Without that, `.width(90)` on a label would silently remove it from the
   alignment — decorators are invisible at the call site.
@@ -1783,7 +1783,7 @@ pub trait Toolkit: Sized + 'static {
 
     // capabilities — feature detection for pieces (§10; Cap: ListRecycling, Lottie,
     // NativeSymbols, Snapshot, NavSplit, NavRepresent, NavContentList, NavHeader, Appearance,
-    // Dialogs, FileDialogs, Animation, Cover, TextEditable, TextSelectable, TextSpellCheck,
+    // Dialogs, FileDialogs, FolderDialog, Animation, Cover, TextEditable, TextSelectable, TextSpellCheck,
     // …, Cursor, FontList, Announce, ReduceMotion, CanvasBitmap, CanvasPdf)
     fn capability(&self, cap: Cap) -> Support { Support::Unsupported }
 
@@ -2497,7 +2497,7 @@ Shared mechanics came from pane's working code; every FFI choice below now runs 
 | `day-qt` | `cc`-built C++ shim (`day-qt-sys`) | bare `QWidget` | shipped (Linux + macOS host); headless CI walkthrough |
 | `day-mdc` | `jni` + a Java shim (`DayBridge`/`DayFixed`/`DayActivity`) | absolute-layout `ViewGroup` (`DayFixed`) | shipped; emulator walkthrough + pack in CI |
 | `day-android-runtime` | JVM, class loader, JNI bindings, context and main-thread handler | shared by Android backends and services | independent of widget backends |
-| `day-winui` | C++/WinRT shim (`day-xaml-sys`; a projection generated from the Windows App SDK's metadata under `winui`, the Windows SDK's cppwinrt headers otherwise) | XAML `Canvas` in a `DesktopWindowXamlSource` | shipped; Showcase walkthrough + self-contained pack on `windows-winui` ([docs/winui.md](docs/winui.md)); CI-verified build/walkthrough/pack as the deprecated `windows-xaml` |
+| `day-winui` | C++/WinRT shim (`day-xaml-sys`; a projection generated from the Windows App SDK's metadata under `winui`, the Windows SDK's cppwinrt headers otherwise) | WinUI `Canvas` in a `DesktopWindowXamlSource` | shipped; Showcase walkthrough + self-contained pack on `windows-winui` ([docs/winui.md](docs/winui.md)); CI-verified build/walkthrough/pack as the deprecated `windows-xaml` |
 | `day-arkui` | ArkUI **NDK C API** through openharmony-rs's `ohos-sys` bindings + ohos-rs's `napi-ohos` for the ArkTS module (`aarch64-unknown-linux-ohos`; no C++) | ArkUI stack node | shipped; cross-compile in CI, emulator via `day devices boot -t harmony-arkui` ([docs/harmonyos.md](docs/harmonyos.md)) |
 | `day-dom` | plain `extern "C"` imports to an ES-module JS shim (`crates/day-cli/resources/web/shim.js`, embedded in the CLI; `wasm32-unknown-unknown`, no wasm-bindgen) | `<div id="day-root">` | experimental ([docs/web.md](docs/web.md)); `day build\|launch -t web-dom` |
 | `day-mock` | — | — | shipped; the headless test double ([§3.2](#32-crates)) |
@@ -2519,7 +2519,7 @@ Per-toolkit notes beyond pane's baseline (the day-new duties):
   which is exactly why it is a *secondary* combination; `day doctor` probes the installed GTK for
   AccessKit and the build/env recipe is documented, not hidden). Qt: `QAccessible` (bridges to
   NSAccessibility/UIA/AT-SPI on all three OSes — Qt is the strongest cross-OS a11y story of the
-  portable toolkits). XAML: UIA, mostly free. Web: ARIA attributes.
+  portable toolkits). WinUI: UIA, mostly free. Web: ARIA attributes.
 - **canvas ([§11](#11-canvas)):** CGContext in `drawRect:`/`draw(_:)`; `android.graphics.Canvas` in `onDraw`
   (display list crosses JNI once per redraw as a packed buffer); `GtkDrawingArea` + cairo;
   `QPainter` in `paintEvent`; Win2D or Direct2D via the shim; DOM `<canvas>` 2D.
@@ -3084,7 +3084,7 @@ to update and are ignored; the selected destination's navigation host owns its t
 >   decision at pane width and breaks ([docs/navigation.md](docs/navigation.md), [docs/size-classes.md](docs/size-classes.md)).
 > - **Presentation** shipped as the `present`/`dismiss` duties (`PresentSpec` →
 >   `PresentResult`): alert/confirm/prompt/sheets and the open/save file pickers, all native,
->   all scriptable (`assert_presented` / `respond`). Windows XAML uses HWND-parented
+>   all scriptable (`assert_presented` / `respond`). Windows uses HWND-parented
 >   WinRT `FileOpenPicker`/`FileSavePicker` and advertises native file dialogs. Picker
 >   requests register before native setup; setup/result failures and cancellation resolve
 >   as dismissed, with duplicate completion suppressed. Chosen local paths feed the same
@@ -3140,12 +3140,12 @@ made native nav containers possible without a scaffold migration.
 > **2026-09 — canvas fonts.** `DrawOp::Text` carries a `CanvasFont` (family, weight, slant) and
 > the wire gained `OpCode::SetFont`; both anchors now position the line box on every backend
 > (five backends drew `Leading` at the baseline before). GTK moved from cairo's toy text API to
-> PangoCairo as this section always prescribed, and XAML text rotates with the CTM. Two
+> PangoCairo as this section always prescribed, and WinUI text rotates with the CTM. Two
 > defaulted duties arrived with it — `font_families()` (`Cap::FontList`) and `measure_text()` —
 > so a drawing app can offer the platform's font list and frame its text
 > ([docs/fonts.md](docs/fonts.md); Day Sketch's Text node is the reference consumer).
 >
-> XAML canvas images and image widgets share the encoded-byte registry and `BitmapImage`
+> WinUI canvas images and image widgets share the encoded-byte registry and `BitmapImage`
 > loader in `day-xaml-sys` ([docs/images.md](docs/images.md)). Each consumer creates its own
 > UI-thread image; releasing the bitmap removes its registry entry, so subsequent canvas replay
 > skips it. The shared helpers are declared before canvas replay in the same `extern "C"`
@@ -3207,7 +3207,7 @@ pub fn gauge(value: Signal<f64>) -> impl Piece {
   Day never rasterizes text. Per-toolkit shaping engines are pinned in the design because the
   defaults are traps: **PangoCairo** on GTK (cairo's "toy" text API has no shaping or BiDi),
   CoreText on apple targets, `QPainter::drawText` (harfbuzz underneath) on Qt,
-  `android.graphics.Canvas.drawText` (minikin), a `TextBlock` in the XAML shim. The op carries a
+  `android.graphics.Canvas.drawText` (minikin), a `TextBlock` in the WinUI shim. The op carries a
   `CanvasFont` — a family from the platform list (`font_families()`, [docs/fonts.md](docs/fonts.md)),
   a weight, a slant — at an absolute size, and `measure_text()` answers the line box the anchors
   position, from the same engine.
@@ -3414,7 +3414,7 @@ canvas(…).a11y(|a| a.role(Role::Meter).value(move || format!("{:.0}%", level.g
   | toolkit | native automation-id channel |
   |---|---|
   | UIKit / AppKit | `accessibilityIdentifier` ✓ |
-  | XAML | `AutomationId` ✓ |
+  | WinUI | `AutomationId` ✓ |
   | Qt | `QObject::setObjectName` (surfaces as UIA AutomationId on Windows) ✓ |
   | Android | `uniqueId` via `AccessibilityDelegate` on **API 33+** (shipped; the compat call keeps it in the node's extras below 33) — **no external automation id below 33** (`setTag` is invisible to UiAutomator/Appium; abusing `contentDescription` for ids is forbidden by lint because TalkBack reads it aloud) |
   | GTK | widget *name* is GtkInspector-only — **no public settable AT-SPI accessible-id today** (tracked upstream) |
@@ -3684,7 +3684,7 @@ back to 50 emits every value between). `ValueCommitted` fires once, with the val
 Every toolkit can tell them apart, though none the same way — Qt has `sliderReleased` and
 `isSliderDown`, ArkUI hands over the `SliderChangeMode` directly, Android has
 `onStopTrackingTouch`, UIKit the touch-up control events, the DOM separates `input` from `change`,
-and AppKit and XAML have neither signal so they read the interaction that provoked the callback
+and AppKit and WinUI have neither signal so they read the interaction that provoked the callback
 (the current `NSEvent`'s type; the thumb's pointer capture being lost). `Step::SetValue` synthesizes
 both, so a replayed `set_value` looks like a user who dragged and let go.
 
@@ -3914,7 +3914,7 @@ per capture tree sits beside the merged bundle, for someone who wants one platfo
 Anyone can publish an extension crate exposing a unified Rust API whose native halves, where
 needed, are written in the *platform's own language with its own conventional dependencies* —
 Swift (+ SwiftPM packages) for ios/macos, Java (+ Gradle/Maven deps) for Android, C++ shims for
-Qt/XAML/ArkUI — without touching Day or the app's platform scaffolds.
+Qt/WinUI/ArkUI — without touching Day or the app's platform scaffolds.
 
 The shipped ladder, cheapest first (a single package may mix rungs per toolkit):
 
@@ -4185,7 +4185,7 @@ needs, never the user-facing reason, which is app copy and lives in the app's `[
 in Day.toml. A contribution the app has given no reason for is a hard build error on iOS and
 HarmonyOS — the alternative is an app that builds and then terminates on a device.
 
-Qt/XAML/ArkUI native halves are C++ compiled by the crate's own `build.rs` (the `-sys`
+Qt/WinUI/ArkUI native halves are C++ compiled by the crate's own `build.rs` (the `-sys`
 convention, with `day-toolchain` locating SDKs) — no metadata needed. The exception is a HarmonyOS
 component that exists only in **ArkTS** (the C node API cannot construct a `Web` or a `Map` at all):
 those pieces declare `ets` dirs above, and day-arkui's generic piece bridge (`registerPiece` /
@@ -5860,7 +5860,7 @@ uncompressed where possible so `resource("name")` returns an efficient **zero-co
 view (`as_slice`/`read_at`/`len`), backed by the platform-native data API — mmap of a bundle file on
 Apple, `AAssetManager` on Android, `g_resources_lookup_data` on GTK, `QResource` on Qt, rawfile fd on
 ArkUI. Images map to SwiftPM `.process`→`Assets.car` (iOS), `res/drawable`→`R` (Android), GResource
-(GTK), `.qrc` (Qt), MRT (XAML), rawfile (ArkUI). `assets/` is staged as a TREE (names are
+(GTK), `.qrc` (Qt), MRT (WinUI), rawfile (ArkUI). `assets/` is staged as a TREE (names are
 `/`-relative paths — §18.5's nested modules), recreated in every store: recursive bundle/exe/dist
 copies, `assets/`-rooted APK srcDir, path-carrying gresource/qrc aliases, rawfile subdirs. Core
 API in `day-core::resource`; build-time staging in `crates/day-cli/src/resources/`. Full design +
@@ -5891,7 +5891,7 @@ Staging per platform: Android `res/font/<ident>.<ext>` (aapt2 → `R.font`; `Day
 manifest the scaffold's EntryAbility feeds to ArkTS `font.registerFont`, desktops loose files
 (`DAY_FONT_ROOT` under `day launch`; `Resources/fonts` / next-to-exe when packed). Backends
 register at startup: CoreText (AppKit/UIKit), fontconfig + CoreText (GTK, per-OS), `QFontDatabase`
-(Qt), XAML `path#family` (XAML — unpackaged apps have no registration API). Validation is
+(Qt), WinUI `path#family` (WinUI — unpackaged apps have no registration API). Validation is
 build-time and hard: only ttf/otf, a parseable name table, no family-ident collisions. An unknown
 family at runtime falls back to the system font with a log line, never a crash.
 
@@ -6256,6 +6256,14 @@ The `daybrite/actions` companion repository provides reusable workflows for exte
    the gallery and Showcase pages, search entry files, sitemap, and custom-domain file.
    The rendered-page audit checks metadata, headings, image descriptions, and sitemap coverage
    before the API bundle is added.
+   Documentation sidebars use local Material Symbols Outlined SVGs, mapped by canonical route
+   and reference-group ID in `website/src/data/sidebar-icons.json`. The shared `SidebarIcon`
+   component renders decorative CSS masks in the link's current color for both themes.
+   Sidebar labels stay on one line with ellipses; icons and disclosure chevrons are vertically
+   centered. Full labels remain available through hover titles and accessible link text.
+   `docs:architecture` checks complete navigation coverage, unique symbols and geometry, and
+   the vendored assets' pinned upstream hashes and license. The browser needs no icon font or
+   third-party icon requests; provenance lives beside the SVGs in `website/public/icons/docs/`.
    Normal local `npm run build` and `build:force` commands also assemble the site and Rustdoc,
    then validate the combined artifact. CI uses the separate `build:site` step before its
    explicit API build. Reference guides link API names to generated item pages and anchors;

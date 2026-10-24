@@ -149,7 +149,7 @@ image(move || match shown.get() {
 ```
 
 One limit worth stating: [`VectorBuilder::tint`](https://daybrite.dev/api/day_pieces/trait.VectorBuilder.html#tymethod.tint) applies to **named vector** sources only. A recolor re-reads the
-source art — an SVG's paths on ArkUI and XAML, the file on GTK — and bytes have no such art to
+source art — an SVG's paths on ArkUI and WinUI, the file on GTK — and bytes have no such art to
 re-read.
 
 For asynchronously loaded images in recycled rows, bind the source to a bundled placeholder

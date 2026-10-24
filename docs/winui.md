@@ -1,7 +1,7 @@
 ---
 navTitle: "WinUI"
 title: "WinUI 3 (windows-winui)"
-description: "The windows-winui target: the XAML backend built against WinUI 3 and the Windows App SDK."
+description: "The windows-winui target: the Windows backend built against WinUI 3 and the Windows App SDK."
 ---
 
 <!--
@@ -12,17 +12,17 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 # WinUI 3 (`windows-winui`)
 
 > **Status: Tier 2, the Windows target.** Day-Showcase's walkthrough passes on it, with every
-> piece that has a native XAML half built for WinUI too (see [Pieces](#pieces)). `day new` gives a
+> piece that has a native Windows implementation built for WinUI (see [Pieces](#pieces)). `day new` gives a
 > Windows project this target; `windows-xaml` (system XAML) is deprecated (Tier 5).
 
-`windows-winui` is Day's XAML backend compiled against WinUI 3 (`Microsoft.UI.Xaml`, shipped in
+`windows-winui` is Day's Windows backend compiled against WinUI 3 (`Microsoft.UI.Xaml`, shipped in
 the Windows App SDK) instead of system XAML (`Windows.UI.Xaml`, part of Windows), which the
 deprecated `windows-xaml` target still builds against.
 The two stacks expose nearly the same control set under two namespaces, so there is one
 backend and one shim, not two:
 
 - `day` feature `winui` implies `xaml` and turns on `day-winui/winui` → `day-xaml-sys/winui`.
-  Everything written for the XAML backend in Rust applies unchanged; [`day::toolkit_name()`](https://daybrite.dev/api/day/fn.toolkit_name.html)
+  The shared Rust backend implementation applies to both Windows targets; [`day::toolkit_name()`](https://daybrite.dev/api/day/fn.toolkit_name.html)
   reports `"WinUI"`.
 - `day-xaml-sys/src/shim.cpp` is written against namespace aliases (`WUX`, `WUXC`, …) that point
   at `Windows::UI::Xaml` or, under `DAY_WINUI`, `Microsoft::UI::Xaml`. What genuinely differs
@@ -81,7 +81,7 @@ the bootstrapper offers its download page when it is missing.
 
 ## Pieces
 
-A piece's XAML half is built for WinUI the same way the backend is: one shim, compiled against
+A piece's Windows implementation is built for WinUI the same way the backend is: one shim, compiled against
 whichever stack the build targets.
 
 - **Cargo.** A `winui` feature that implies the piece's `xaml` feature and turns on
@@ -105,7 +105,7 @@ evaluation and link policy are shared code. The control needs `WebView2Loader.dl
 `Microsoft.Web.WebView2.Core.dll`, which are the app's to supply rather than part of the Windows App
 SDK: a packed app carries both, and a development build preloads them from the WebView2 package.
 
-**dayscript.** A step gate naming the XAML backend (`only_on: [xaml]`, `skip_on: [windows-xaml]`)
+**dayscript.** A step gate naming the legacy system XAML backend (`only_on: [xaml]`, `skip_on: [windows-xaml]`)
 applies to `windows-winui` too, since it is that backend; `winui` / `windows-winui` single the
 WinUI build out.
 

@@ -91,6 +91,12 @@ and “Toolkit notes.” Keep actual API identifiers, feature names, source path
 In platform tables, headings, and notes, use the human-readable names (AppKit, UIKit, GTK, Qt,
 Android, WinUI, ArkUI, or Web). Keep `web-dom` when listing full target IDs alongside names such
 as `macos-appkit` or `android-mdc`, and in commands, configuration, paths, and URLs.
+Use **WinUI** for the current Windows UI toolkit and **Windows** for OS services shared across
+toolkits. Reserve **XAML** for markup, geometry, API terminology, and explicitly identified
+legacy system XAML. Preserve identifiers such as `day-xaml-sys`, `xaml`, and `Microsoft.UI.Xaml`.
+Link current WinUI controls to the Windows App SDK API reference (`Microsoft.UI.Xaml`), not
+the older UWP reference (`Windows.UI.Xaml`). Historical design records retain their original
+platform names and execution claims.
 The Markdown renderer adds the site's platform icons
 and light/dark tint colors throughout headings, table cells, bold labels, and inline target IDs,
 including lowercase feature labels and names inside links or mixed Markdown. It also marks the

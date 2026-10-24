@@ -93,7 +93,7 @@ no window on screen yet, a zero-size window, a compositor that declined.
 | macOS (GTK) | Window-server image cropped to the GTK widget, including Cocoa child views; GTK widget rendering when the window server declines |
 | Linux (GTK) | [`GtkWidgetPaintable`](https://docs.gtk.org/gtk4/class.WidgetPaintable.html) rendered through the window's own `GskRenderer` |
 | Qt | [`QWidget::grab()`](https://doc.qt.io/qt-6/qwidget.html) |
-| Windows (XAML) | `PrintWindow` with `PW_RENDERFULLCONTENT`, `BitBlt` from the screen as a fallback |
+| Windows (WinUI) | Windows Graphics Capture (WGC), including window chrome and compositor content; `RenderTargetBitmap` of the content tree when WGC is unavailable |
 | Android | [`View.draw(Canvas)`](https://developer.android.com/reference/android/view/View) into a [`Bitmap`](https://developer.android.com/reference/android/graphics/Bitmap), [`Bitmap.compress(PNG)`](https://developer.android.com/reference/android/graphics/Bitmap); a software canvas ignores outline clipping, so Day's containers clip their rounded corners by hand there |
 | HarmonyOS (ArkUI) | [`OH_ArkUI_GetNodeSnapshot`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-arkui/capi-arkui-nativemodule.md) + the native image packer |
 | Web | unsupported |
@@ -170,7 +170,7 @@ step; they do not authorize a stale capture.
 | Qt / Linux, macOS, Windows | Synchronous [`QWidget::render`](https://doc.qt.io/qt-6/qwidget.html) / `grab` in the capture itself |
 | AppKit / macOS | Layout, display and Core Animation flush in the window capture |
 | UIKit / iOS | In-process capture uses `afterScreenUpdates: true`; external `simctl` capture keeps its existing transition check and capture semantics |
-| XAML / Windows (XAML and WinUI) | Shared CompositionTarget/DwmFlush checkpoint; WinUI also selects a fresh WGC frame |
+| WinUI | CompositionTarget/DwmFlush checkpoint followed by selection of a fresh WGC frame |
 
 A host that paints outside the toolkit's frame on every platform — an offscreen engine
 presented through a Day canvas, whose frames arrive after an asynchronous read-back and

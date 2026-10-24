@@ -93,7 +93,7 @@ Platform guidance: [Apple: alerts](https://developer.apple.com/design/human-inte
 | android | `MaterialAlertDialogBuilder` (buttons / `setItems` for sheets) | M3 dialog + [`TextInputLayout`](https://developer.android.com/reference/com/google/android/material/textfield/TextInputLayout) |
 | arkui | ArkUI `PromptAction.openCustomDialog` modal with themed native `Text` / `Button` content; sheets align to the bottom | Same modal host with native `TextInput`, initial value, placeholder and IME submit |
 | mock | records the spec; resolved programmatically | same |
-| xaml | [`ContentDialog`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.xaml.controls.contentdialog) (unverified, no local Windows) | [`ContentDialog`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.xaml.controls.contentdialog) + [`TextBox`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.xaml.controls.textbox) |
+| WinUI | [`ContentDialog`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.contentdialog) | [`ContentDialog`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.contentdialog) + [`TextBox`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.textbox) |
 
 All toolkits use the non-blocking async APIs (sheets / `open()` / callbacks), so the
 main loop keeps running and dayscript stays live while a modal is up.

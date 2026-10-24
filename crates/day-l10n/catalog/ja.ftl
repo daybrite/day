@@ -6,6 +6,7 @@ day_no = いいえ
 day_done = 完了
 day_save = 保存
 day_open = 開く
+day_open_folder = フォルダを選択
 day_close = 閉じる
 day_delete = 削除
 day_cut = カット

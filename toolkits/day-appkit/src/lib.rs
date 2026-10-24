@@ -6880,6 +6880,8 @@ impl Toolkit for AppKit {
             | Cap::NavContentList
             | Cap::Dialogs
             | Cap::FileDialogs
+            // NSOpenPanel with `canChooseDirectories` (docs/files.md).
+            | Cap::FolderDialog
             | Cap::Animation
             // NSTextView natively honors all three text-area attributes.
             | Cap::TextEditable
@@ -10516,21 +10518,42 @@ impl Toolkit for AppKit {
         }
         // File pickers use a different native object (NSOpen/NSSavePanel), not an NSAlert.
         match spec {
-            PresentSpec::OpenFile { filters, .. } => {
+            PresentSpec::OpenFile {
+                filters, multiple, ..
+            } => {
                 let panel = unsafe { objc2_app_kit::NSOpenPanel::openPanel(mtm) };
                 unsafe {
                     panel.setCanChooseFiles(true);
                     panel.setCanChooseDirectories(false);
-                    panel.setAllowsMultipleSelection(false);
+                    panel.setAllowsMultipleSelection(*multiple);
                     panel.setMessage(Some(&NSString::from_str(spec.title())));
                 }
                 apply_allowed_file_types(&panel, filters);
                 let p = panel.clone();
                 // Completion blocks run inside a C ABI frame, so their bodies are contained
-                // like every other trampoline (§8.5) — this one and the three below.
+                // like every other trampoline (§8.5) — this one and the four below.
                 let handler: block2::RcBlock<dyn Fn(isize)> =
                     block2::RcBlock::new(move |resp: isize| {
-                        ffi_guard::contain((), || emit_panel_result(req, resp, &p));
+                        ffi_guard::contain((), || emit_open_panel_result(req, resp, &p));
+                    });
+                unsafe { panel.beginSheetModalForWindow_completionHandler(&window, &handler) };
+                PRESENT_PANELS.with(|m| m.borrow_mut().insert(req, Retained::into_super(panel)));
+                return;
+            }
+            // The folder chooser is the same NSOpenPanel with files and directories swapped.
+            PresentSpec::OpenFolder { .. } => {
+                let panel = unsafe { objc2_app_kit::NSOpenPanel::openPanel(mtm) };
+                unsafe {
+                    panel.setCanChooseFiles(false);
+                    panel.setCanChooseDirectories(true);
+                    panel.setCanCreateDirectories(true);
+                    panel.setAllowsMultipleSelection(false);
+                    panel.setMessage(Some(&NSString::from_str(spec.title())));
+                }
+                let p = panel.clone();
+                let handler: block2::RcBlock<dyn Fn(isize)> =
+                    block2::RcBlock::new(move |resp: isize| {
+                        ffi_guard::contain((), || emit_open_panel_result(req, resp, &p));
                     });
                 unsafe { panel.beginSheetModalForWindow_completionHandler(&window, &handler) };
                 PRESENT_PANELS.with(|m| m.borrow_mut().insert(req, Retained::into_super(panel)));
@@ -10625,7 +10648,9 @@ impl Toolkit for AppKit {
                 })
             }
             // File pickers returned early above.
-            PresentSpec::OpenFile { .. } | PresentSpec::SaveFile { .. } => unreachable!(),
+            PresentSpec::OpenFile { .. }
+            | PresentSpec::OpenFolder { .. }
+            | PresentSpec::SaveFile { .. } => unreachable!(),
         };
         unsafe {
             alert.beginSheetModalForWindow_completionHandler(&window, Some(&handler));
@@ -10734,7 +10759,30 @@ fn apply_allowed_file_types(
     }
 }
 
-/// Turn an open/save panel completion into a `PresentResult` and enqueue it (NSModalResponseOK = 1).
+/// Turn an open panel completion into a `PresentResult` and enqueue it (NSModalResponseOK = 1):
+/// every chosen URL, so a multiple-selection pick reports all of its files (and a folder
+/// chooser its one directory).
+fn emit_open_panel_result(req: u64, resp: isize, panel: &objc2_app_kit::NSOpenPanel) {
+    let mut paths = Vec::new();
+    if resp == 1 {
+        for url in unsafe { panel.URLs() }.iter() {
+            if let Some(p) = unsafe { url.path() } {
+                paths.push(p.to_string());
+            }
+        }
+    }
+    let result = if paths.is_empty() {
+        present::PresentResult::Dismissed
+    } else {
+        present::PresentResult::Files(paths)
+    };
+    emit(WINDOW_NODE, Event::PresentResult { req, result });
+    PRESENT_PANELS.with(|m| {
+        m.borrow_mut().remove(&req);
+    });
+}
+
+/// Turn a save panel completion into a `PresentResult` and enqueue it (NSModalResponseOK = 1).
 fn emit_panel_result(req: u64, resp: isize, panel: &objc2_app_kit::NSSavePanel) {
     let result = if resp == 1 {
         unsafe { panel.URL() }

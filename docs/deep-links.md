@@ -129,7 +129,7 @@ see two processes.
 | AppKit | Launch Services activates the running app and delivers URLs and files to its delegate | Shipped |
 | GTK | GApplication's own uniqueness: the second launch's files and URIs reach the first through its `open` signal | Shipped |
 | Qt (Linux) | `day_dbus::instance`: the first launch owns the app id on the session bus, a second calls its `Forward` method | Shipped |
-| Windows XAML | A named mutex per app id; a second launch sends its arguments to the first with `WM_COPYDATA` | Compile-checked; runtime pending |
+| Windows | A named mutex per app id; a second launch sends its arguments to the first with `WM_COPYDATA` | Compile-checked; runtime pending |
 
 Two development builds of one app id forward to each other, whichever started first.
 

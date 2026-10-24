@@ -81,7 +81,7 @@ Day's build command can select the matching feature.
 
 Native contributions belong to the extension that owns them:
 
-- Qt and XAML shims are compiled by its build script for the selected target.
+- Qt and WinUI shims are compiled by its build script for the selected target.
 - Android Java, resources, dependencies and manifest contributions use Day's Android metadata.
 - Apple Swift sources, frameworks and package dependencies use the relevant Apple metadata.
 - HarmonyOS ArkTS and native contributions use the HarmonyOS metadata.

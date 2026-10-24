@@ -100,11 +100,11 @@ because its posts run on the test thread ([`day_async::set_blocking_inline`](htt
 
 [`day::sleep(ms)`](https://daybrite.dev/api/day/fn.sleep.html) resolves after at least `ms` milliseconds, on the UI thread. It is the
 toolkit's own timer, not a parked thread: `dispatch_after` on Apple, `Handler.postDelayed` on
-Android, `g_timeout_add` on GTK, `QTimer::singleShot` on Qt, a Win32 `SetTimer` on XAML, and
+Android, `g_timeout_add` on GTK, `QTimer::singleShot` on Qt, a Win32 `SetTimer` on Windows, and
 `setTimeout` on ArkUI and the web. A loop that ticks every second, a debounce, or a timeout raced
 against a fetch costs nothing but the timer. Dropping the sleep (aborting its task) lets the
 native timer fire into nothing. The platform may round a short delay up: Windows timers tick
-every ten milliseconds or so. XAML and WinUI check a monotonic deadline when a timer signals
+every ten milliseconds or so. Both Windows backends check a monotonic deadline when a timer signals
 and rearm an early signal for the remaining time, so clock granularity cannot shorten a sleep.
 
 ## `Resource` and `Load` (day::reactive)

@@ -117,7 +117,7 @@ button(res::str::drafts())
 | Android | A checkable [`MaterialButton`](https://developer.android.com/reference/com/google/android/material/button/MaterialButton) in its checked state, plus the view's selected state for TalkBack |
 | GTK | The `:checked` state flag on the plain [`GtkButton`](https://docs.gtk.org/gtk4/class.Button.html), which the theme draws as a toggle's checked look |
 | Qt | A checkable [`QPushButton`](https://doc.qt.io/qt-6/qpushbutton.html) in its checked state |
-| XAML | The theme's accent fill on the [`Button`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.xaml.controls.button); automation carries no selected state |
+| WinUI | The theme's accent fill on the [`Button`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.button); automation carries no selected state |
 | ArkUI | The prominent fill over the button's own style; the bound NDK has no selected state attribute |
 | Web | `aria-pressed` and the `selected` class, drawn as the accent fill |
 
@@ -136,7 +136,7 @@ Platform guidance: [Apple: buttons](https://developer.apple.com/design/human-int
 | Android | [`MaterialButton`](https://developer.android.com/reference/com/google/android/material/button/MaterialButton) icon, gravity, padding, and content description; packaged drawables |
 | GTK | [`GtkButton`](https://docs.gtk.org/gtk4/class.Button.html) containing an image and optional label; icon-theme symbols with Day outlines as fallback |
 | Qt | [`QPushButton`](https://doc.qt.io/qt-6/qpushbutton.html) with a [`QIcon`](https://doc.qt.io/qt-6/qicon.html); theme icons, standard icons, Day outlines, or bundled files |
-| XAML | [`Button`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.xaml.controls.button) content containing an icon and optional text; symbol glyphs, vector paths, or bundled images |
+| WinUI | [`Button`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.button) content containing an icon and optional text; symbol glyphs, vector paths, or bundled images |
 | ArkUI | A native button containing an image and optional text; Day symbol outlines or packaged SVG/PNG assets |
 | Web | A native `<button>` with a CSS image mask using the current text color |
 
@@ -145,14 +145,14 @@ Symbols may look different between platforms. Bundled template images use the ex
 [toolbar icon loaders](toolbars.md), including their platform-specific tint behavior.
 
 AppKit's [`.prominent()`](https://daybrite.dev/api/day_pieces/trait.ButtonBuilder.html#tymethod.prominent) establishes the Return-key default action. GTK uses
-`suggested-action`, UIKit uses its bordered-prominent configuration, and XAML requests
+`suggested-action`, UIKit uses its bordered-prominent configuration, and WinUI requests
 `AccentButtonStyle` where available. Qt asks the current style to draw a default button;
 Android retains its stock filled treatment. ArkUI uses a transparent background for automatic
 and compact buttons, an outline for bordered buttons, and a filled background for prominent
 and tinted buttons. All remain native buttons with native focus, press, and disabled behavior.
 
 Tinting preserves native controls but can affect their feedback. Qt uses explicit hover,
-pressed, and disabled stylesheet rules. XAML's local background brush reduces the template's
+pressed, and disabled stylesheet rules. WinUI's local background brush reduces the template's
 usual pressed-color change. AppKit applies label contrast through an attributed title and
 icon contrast through `contentTintColor`; UIKit uses configuration foreground and background
 colors.
@@ -163,7 +163,7 @@ colors.
 accessories. AppKit removes the [NSButton](https://developer.apple.com/documentation/appkit/nsbutton) bezel; UIKit uses its system button; Android
 uses Material's theme-resolved text-button colors with compact horizontal insets;
 GTK applies `flat`. Native press, focus, accessibility and disabled behavior remain.
-Qt, XAML and web currently use their automatic style as a fallback; ArkUI's automatic
+Qt, WinUI and web currently use their automatic style as a fallback; ArkUI's automatic
 style is already transparent. [`.plain()`](https://daybrite.dev/api/day_pieces/trait.ButtonBuilder.html#tymethod.plain) and [`.compact()`](https://daybrite.dev/api/day_pieces/trait.ButtonBuilder.html#tymethod.compact) are mutually exclusive style
 requests: the last one wins. Android plain already includes compact horizontal sizing.
 Switching away from a tinted or plain style restores the original Material foreground

@@ -316,7 +316,8 @@ pub fn register_file_picker(env: Env, callback: Registered<FilePickerArgs>, cach
     }
 }
 
-/// `onFileResult(req, path)`: the picker's answer; an empty path is a cancel.
+/// `onFileResult(req, path)`: the picker's answer, several paths joined by the unit separator
+/// for a multiple-selection pick; an empty path is a cancel.
 #[napi(js_name = "onFileResult")]
 pub fn on_file_result(req: f64, path: String) {
     crate::on_event(req as u64, K::PresentFile as i32, 0.0, &path);
@@ -671,8 +672,9 @@ pub fn day_bridge_complete(
 
 // ---- Rust-facing calls into the host ------------------------------------------------------
 
-/// Ask the ArkTS picker to open/save a file (docs/files.md). A missing picker answers an
-/// immediate cancel.
+/// Ask the ArkTS picker to open/save a file (docs/files.md): `mode` 0 opens one file, 1 saves
+/// `src` under `name`, 2 opens several files (the answer joins their cache copies with the
+/// unit separator). A missing picker answers an immediate cancel.
 pub fn present_file(req: u64, mode: i32, name: &str, src: &str, filters: &str) {
     let sent = call(
         &FILE_PICKER,

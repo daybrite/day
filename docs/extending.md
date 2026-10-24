@@ -188,12 +188,12 @@ that brings everything its pages need. Its strings are a private catalog
 are data assets, staged under its crate name. Its backends are forwarded as above. The host adds
 one dependency and copies nothing.
 
-### C++ shims: Qt & XAML (`build.rs`)
+### C++ shims: Qt & WinUI (`build.rs`)
 
 The piece carries its own `src/lib-qt-shim.cpp` / `src/lib-xaml-shim.cpp` and compiles them in `build.rs`
 (gated on the feature). Qt widgets are plain C++ objects and the handle is a raw `QWidget*`, so a Qt
-shim is self-contained. XAML handles are a private boxed type owned by `day-xaml-sys`, so the piece
-boxes its XAML element through the exported `day_xaml_box` / `day_xaml_unbox` functions (a
+shim is self-contained. WinUI handles are a private boxed type owned by `day-xaml-sys`, so the piece
+boxes its WinUI element through the exported `day_xaml_box` / `day_xaml_unbox` functions (a
 stable WinRT COM-ABI). Both reuse the sys crate's generic `measure` (`day_qt_size_hint` /
 `day_xaml_measure`).
 See `pieces/day-piece-texteditor/{build.rs,src/lib-qt-shim.cpp,src/lib-xaml-shim.cpp}`.
@@ -590,7 +590,7 @@ cx.under(node, |cx| { let _ = child.build(cx); });               // mount the Da
   node measures/places through its layout, not through the renderer's `measure` fn.
 - Your per-backend `make` must return a **container-capable native view**: any `NSView`/`UIView`,
   any `QWidget`, any ArkUI FrameNode, but on GTK a `gtk4::Fixed`-backed view, on Android a
-  `ViewGroup`, and on XAML a `Panel`, or the generic `insert` silently drops the child.
+  `ViewGroup`, and on WinUI a `Panel`, or the generic `insert` silently drops the child.
   (Native wrappers like Android's `SwipeRefreshLayout` are ViewGroups.)
 - Events still flow through the single sink (`Event::Custom` for piece-defined ones) and commands
   through [`with_tree`](https://daybrite.dev/api/day_core/fn.with_tree.html)`(|t| t`[`.patch`](https://daybrite.dev/api/day_core/trait.TreeOps.html#tymethod.patch)`(node, …))`, identical to leaf pieces.

@@ -85,14 +85,14 @@ entry, and offers a silent `/S` mode for managed deployment. The Microsoft Store
   Windows 10. Day uses WinUI 3's own
   [`WebView2`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.webview2)
   control.
-- [`picker`](https://daybrite.dev/api/day_pieces/fn.picker.html)`()`[`.segmented`](https://daybrite.dev/api/day_pieces/trait.PickerBuilder.html#tymethod.segmented)`()` is a horizontal row of radio buttons, since XAML has no native segmented
+- [`picker`](https://daybrite.dev/api/day_pieces/fn.picker.html)`()`[`.segmented`](https://daybrite.dev/api/day_pieces/trait.PickerBuilder.html#tymethod.segmented)`()` is a horizontal row of radio buttons, since WinUI has no native segmented
   control.
-- The inline time picker falls back to a flyout, because XAML has no inline clock.
-- Text-area read-only and spell-check are native ([`TextBox.IsReadOnly`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.xaml.controls.textbox) /
-  `IsSpellCheckEnabled`). [`.selectable(false)`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.selectable) is emulated, because [`TextBox`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.xaml.controls.textbox) has no
+- The inline time picker falls back to a flyout, because WinUI has no inline clock.
+- Text-area read-only and spell-check are native ([`TextBox.IsReadOnly`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.textbox) /
+  `IsSpellCheckEnabled`). [`.selectable(false)`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.selectable) is emulated, because [`TextBox`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.textbox) has no
   selection-enable property: the shim collapses each selection as it is reported and suppresses
   the context menu.
-- Lottie plays through lottie-web in the web view. Map has no XAML arm and renders its placeholder.
+- Lottie plays through lottie-web in the web view. Map has no WinUI arm and renders its placeholder.
   [`cover()`](https://daybrite.dev/api/day_pieces/fn.cover.html) presents as a topmost window-sized child (no transition, programmatic dismissal only).
 - **Screenshots** read the window's real pixels, **frame included**, through
   Windows.Graphics.Capture, so they show web view and video content and work while the window is
@@ -133,7 +133,7 @@ this table adds links and notes.
 | [`scroll`](https://daybrite.dev/api/day_pieces/fn.scroll.html) | [`ScrollViewer`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.scrollviewer) |
 | [`list`](https://daybrite.dev/api/day_pieces/fn.list.html) | [`ScrollViewer`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.scrollviewer) with Day-side cell pooling |
 | [`nav`](https://daybrite.dev/api/day_pieces/fn.nav.html) (split and stack) | [`NavigationView`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.navigationview) |
-| `nav_menu` | [`NavigationViewItem`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.xaml.controls.navigationviewitem)s, or a [`ListView`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.listview) standalone |
+| `nav_menu` | [`NavigationViewItem`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.navigationviewitem)s, or a [`ListView`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.listview) standalone |
 | `tabs` | [`Pivot`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.pivot) |
 | [`image`](https://daybrite.dev/api/day_pieces/fn.image.html) | [`Image`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.image) |
 | [`vector`](https://daybrite.dev/api/day_pieces/fn.vector.html) | a [`Path`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.shapes.path) in a scaling [`Viewbox`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.viewbox) ([XAML geometry](/docs/how-to/resources#what-each-target-ships)); an [`Image`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.image) of the raster cache PNG for art outside the convertible subset |
@@ -150,7 +150,7 @@ this table adds links and notes.
 | *external* `media()` | [`MediaPlayerElement`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.mediaplayerelement) |
 | *external* `webview()` | [`WebView2`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.webview2) |
 
-**Text measurement** is XAML's measure pass (`Measure` → `DesiredSize`), with a re-measure
+**Text measurement** is WinUI's measure pass (`Measure` → `DesiredSize`), with a re-measure
 after forcing layout when a templated control reports zero before the first async layout pass.
 
 ## Qt and GTK on a Windows host

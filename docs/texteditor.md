@@ -77,7 +77,7 @@ text editor, including Web. Nothing here is drawn by Day.
 | gtk | [`GtkTextView`](https://docs.gtk.org/gtk4/class.TextView.html) in a [`GtkScrolledWindow`](https://docs.gtk.org/gtk4/class.ScrolledWindow.html) | [`GtkTextBuffer`](https://docs.gtk.org/gtk4/class.TextBuffer.html) + interned [`GtkTextTag`](https://docs.gtk.org/gtk4/class.TextTag.html)s | characters |
 | qt | [`QTextEdit`](https://doc.qt.io/qt-6/qtextedit.html) (not the [`QPlainTextEdit`](https://doc.qt.io/qt-6/qplaintextedit.html) [`text_area`](https://daybrite.dev/api/day_pieces/fn.text_area.html) uses) | [`QTextDocument`](https://doc.qt.io/qt-6/qtextdocument.html) through a [`QTextCursor`](https://doc.qt.io/qt-6/qtextcursor.html) | UTF-16 (QChar) |
 | mdc | an [`EditText`](https://developer.android.com/reference/android/widget/EditText) subclass | its live [`SpannableStringBuilder`](https://developer.android.com/reference/android/text/SpannableStringBuilder) | UTF-16 (Java `char`) |
-| xaml | [`RichEditBox`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.xaml.controls.richeditbox) | RichEdit's [`ITextDocument`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.text.itextdocument) (TOM) | UTF-16 |
+| WinUI | [`RichEditBox`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.richeditbox) | RichEdit's [`RichEditTextDocument`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.text.richedittextdocument) (TOM) | UTF-16 |
 | arkui | the ArkTS [`RichEditor`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-arkui/arkui-ts/ts-basic-components-richeditor.md) | [`RichEditorController`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-arkui/arkui-ts/ts-basic-components-richeditor.md) spans | UTF-16 (ArkTS string index) |
 | dom | a `contenteditable` element | the DOM subtree, flattened by the shim | bytes, converted in JS |
 
@@ -208,7 +208,7 @@ restoring the selection around the write.
 
 It carries the whole document even though only the attributes are new: the text is what an arm
 converts byte ranges against, and the four whose toolkit cannot hand back its own string cheaply
-(Qt, Android, HarmonyOS, XAML) would otherwise each need a cache that a keystroke could leave one
+(Qt, Android, HarmonyOS, WinUI) would otherwise each need a cache that a keystroke could leave one
 edit stale.
 
 ### The typing style
@@ -316,7 +316,7 @@ A rewrite during IME composition is skipped outright, and the selection is never
 a pointer drag is in progress, because `removeAllRanges` mid-drag collapses what the user is
 selecting.
 
-**xaml (unverified).** [`RichEditBox`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.xaml.controls.richeditbox) through its TOM [`ITextDocument`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.text.itextdocument). `GetRange(start, end)` takes
+**WinUI (unverified).** [`RichEditBox`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.richeditbox) through its TOM [`RichEditTextDocument`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.text.richedittextdocument). `GetRange(start, end)` takes
 UTF-16 positions, assigning an [`ITextCharacterFormat`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.text.itextcharacterformat) to a range applies it in one call, and a
 collapsed `Document.Selection`'s format is the typing style. `BatchDisplayUpdates` /
 `ApplyDisplayUpdates` bracket a sweep. This is the one arm whose underline vocabulary is complete:
@@ -431,7 +431,7 @@ editor by bounding the text container to the proposed width, and skips that for 
 whose container stays unbounded so that a value wider than the field stays on the line. Every arm turns the key off at
 the source and reports it: `insertNewline:` through `doCommandBySelector:` on AppKit,
 `shouldChangeTextInRange:` on UIKit, a capture-phase key controller on GTK, `keyPressEvent` in
-the Qt shim, the IME's Done action and a hardware Enter on Android, `KeyDown` on XAML
+the Qt shim, the IME's Done action and a hardware Enter on Android, `KeyDown` on WinUI
 (`AcceptsReturn` off), `onSubmit`/`onKeyEvent` on ArkUI, and a `keydown` on the web. The report
 is the `Event::Key` a dayscript `key` step delivers (`"key Enter"` on the custom channel for the
 ArkTS bridge and the web shim), so a scripted Enter and a typed one take the same path.

@@ -86,7 +86,7 @@ toolkit then applies the same "minimal scroll to make the rect visible" rule:
 | Android | offset math + [`ScrollView.smoothScrollTo`](https://developer.android.com/reference/android/widget/ScrollView) / `scrollTo` (per axis class) |
 | GTK | adjustment clamp + `set_value` (no animation; GTK adjusts immediately) |
 | Qt | scroll-bar clamp + `setValue` (no animation) |
-| XAML | [`ScrollViewer.ChangeView`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.xaml.controls.scrollviewer) (shim `day_xaml_scroll_to`) |
+| WinUI | [`ScrollViewer.ChangeView`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.scrollviewer) (shim `day_xaml_scroll_to`) |
 | ArkUI | `NODE_SCROLL_OFFSET` get/compute/set (300 ms animation when animated) |
 | mock | records the computed offset (`MockWidget::scroll_offset`), the unit-test probe |
 

@@ -126,7 +126,7 @@ property can't be honored by a toolkit, Day logs it once in debug rather than si
 it with custom drawing. Because Day doesn't redraw controls, they update with the OS like any native
 control.
 
-When a *specific platform* offers the knob you want (an AppKit bezel style, XAML tick marks),
+When a *specific platform* offers the knob you want (an AppKit bezel style, WinUI tick marks),
 [tweaks](/docs/how-to/tweaks) reach the native widget and set it, per toolkit. When you need fully custom
 visuals, draw your own leaf with [`canvas`](/docs/reference/shapes) or a [composite
 piece](/contributing/tutorials/composite-piece) and keep native behavior around it.

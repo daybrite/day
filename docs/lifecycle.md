@@ -91,7 +91,7 @@ of memory the way a phone does. The **universal** phases (`WillLaunch`, `DidLaun
 background/foreground/memory phases are delivered only by the mobile backends (UIKit, Android,
 ArkUI).
 
-| Phase | AppKit | GTK | Qt | UIKit | Android | ArkUI | XAML |
+| Phase | AppKit | GTK | Qt | UIKit | Android | ArkUI | WinUI |
 |---|:-:|:-:|:-:|:-:|:-:|:-:|:-:|
 | WillLaunch / DidLaunch | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | DidBecomeActive / WillResignActive | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
@@ -104,13 +104,13 @@ Native mapping: AppKit `NSApplication` notifications; UIKit `UIApplicationDelega
 `is-active` + GApplication `shutdown`; Qt `applicationStateChanged` + `aboutToQuit`; Android Activity
 lifecycle (`onResume`/`onPause`/`onStart`/`onStop`/`onTrimMemory`/`onDestroy`); ArkUI's entry
 `UIAbility` (`onForeground`/`onBackground`/`onMemoryLevel`/`onDestroy`, with the window stage's
-`ACTIVE`/`INACTIVE` events for the active pair); XAML window `WM_ACTIVATE`/`WM_CLOSE`.
+`ACTIVE`/`INACTIVE` events for the active pair); WinUI window `WM_ACTIVATE`/`WM_CLOSE`.
 
 The web backend delivers `WillLaunch`, `DidLaunch`, the active pair, and `DidExit` (on `pagehide`,
 the page's last moment).
 
 `DidExit` is the last moment each backend has: where the native loop returns to [`day::launch`](https://daybrite.dev/api/day/fn.launch.html)
-(GTK, Qt, XAML) it is emitted there; where the process ends inside the loop it follows
+(GTK, Qt, WinUI) it is emitted there; where the process ends inside the loop it follows
 `WillTerminate` at the same native moment (AppKit's and UIKit's `applicationWillTerminate`,
 Android's `onDestroy`, ArkUI's `onDestroy`); on the web it is `pagehide`. A backend whose host
 owns the loop, so that [`Platform::run`](https://daybrite.dev/api/day_spec/trait.Platform.html#tymethod.run) hands back at once with the app still to come (ArkUI,
@@ -154,7 +154,7 @@ day::require_lifecycle!(Lifecycle::DidEnterBackground);  // compile error on a d
 An orderly quit can deliver `WillTerminate`: the `Quit` menu command ([`menu_role(MenuRole::Quit)`](https://daybrite.dev/api/day_pieces/fn.menu_role.html)), the
 platform quit shortcut (⌘Q on macOS, Ctrl+Q elsewhere), and native shutdown callbacks. A forced kill or mobile process reclamation may deliver none. The `Quit`
 command exits the app. On GTK a standard `app.quit` action is registered so ⌘Q / Ctrl+Q and the menu
-item both work; on macOS the App-menu Quit is standard; Qt/XAML quit their event loops.
+item both work; on macOS the App-menu Quit is standard; Qt/WinUI quit their event loops.
 Use `WillTerminate` for synchronous cleanup, not as the sole durability point for user data.
 
 Mobile note: iOS/Android apps don't have a user-facing "quit". There, `WillTerminate` means the OS is

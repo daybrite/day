@@ -48,7 +48,7 @@ The raster cache is a build input, not a shipping form. A target's
 `build/day/vectors/fallback/<toolkit>/` contains only art its vector pipeline cannot express.
 GTK and Qt render the staged SVGs and ship no automatic raster copies.
 Bundling the rest would ship a second copy of every glyph and would let a broken
-vector path go unnoticed behind a raster that still looks right (two XAML bugs survived their
+vector path go unnoticed behind a raster that still looks right (two WinUI bugs survived their
 first review that way). `day build` reports the split per target
 (`Vectors xaml: 81/81 glyph(s) vector`). What ships on top:
 
@@ -119,7 +119,7 @@ its own Regular.
 Android, pixel recolor on GTK, a [`QPainter`](https://doc.qt.io/qt-6/qpainter.html) `SourceIn` fill over the rendered glyph on Qt, a CSS mask
 painted with the tint on web (a tinted glyph is a masked element, not an `<img>`, because the
 browser cannot recolor an image's own pixels), native SourceIn compositing on ArkUI,
-and a brush on the `Path` shapes on XAML, composed over the geometry when the glyph is realized.
+and a brush on the `Path` shapes on WinUI, composed over the geometry when the glyph is realized.
 One staged glyph therefore serves every tint at every size without a second asset.
 `None` (and every raster [`image(…)`](https://daybrite.dev/api/day_pieces/fn.image.html)) means "as authored".
 
@@ -156,7 +156,7 @@ vector tints multiply the authored fill/stroke alpha by the tint alpha.
 
 A tint follows the art it was authored with: the color fills where the glyph filled and strokes
 where it stroked, so an outline glyph stays an outline rather than becoming a silhouette. Where
-XAML has no geometry to draw (art outside the convertible subset) the tint degrades to a
+WinUI has no geometry to draw (art outside the convertible subset) the tint degrades to a
 monochrome `BitmapIcon` over the raster (still tinted, but from the 256 px cache).
 
 Windows navigation and toolbar slots use a filled `PathIcon`. Before assigning its geometry,
@@ -167,7 +167,7 @@ original centerlines would incorrectly fill outline icons into solid silhouettes
 Nav-menu rows have their own arm, [`item`](https://daybrite.dev/api/day_pieces/fn.item.html)`(…)`[`.icon_tint`](https://daybrite.dev/api/day_pieces/struct.NavItem.html#method.icon_tint)`(color)` ([docs/navigation](navigation.md)): per-row
 recolor on AppKit (`contentTintColor`), UIKit (`tintColor`), GTK (a render-node color matrix), Qt
 ([`QPainter`](https://doc.qt.io/qt-6/qpainter.html) SourceIn at the current paint resolution), Android (compound-drawable `setTint`, best-effort after
-the nav host mounts), ArkUI (SVG SourceIn compositing), XAML (`Foreground` on the row's `PathIcon`), and
+the nav host mounts), ArkUI (SVG SourceIn compositing), WinUI (`Foreground` on the row's `PathIcon`), and
 web (the mask painted with the tint instead of `currentColor`). Untinted rows keep each
 toolkit's template default (theme foreground / secondary label); ArkUI's untinted raster rows
 draw as authored (Day applies the tint layer only to SVG sources).
@@ -188,7 +188,7 @@ Per toolkit the foreground is AppKit's neutral template tint (`isTemplate` with 
 `contentTintColor`), the inherited `tintColor` on UIKit (a cell's, a bar's — the iOS idiom), the
 theme's primary text color on Android (`textColorPrimary`) and ArkUI (SVG only; a raster template
 draws as authored), the palette text color on Qt and the theme foreground on GTK (both re-rendered
-on a palette change), the island's `TextFillColorPrimaryBrush` on XAML (re-resolved when the
+on a palette change), the island's `TextFillColorPrimaryBrush` on WinUI (re-resolved when the
 theme changes), and `currentColor` on the web, so it also turns white on a selected row. A
 [`.tint(…)`](https://daybrite.dev/api/day_pieces/trait.VectorBuilder.html#tymethod.tint) still wins while it is set, and clearing it (`ImagePatch::Tint(None)`) returns a
 template to the foreground, not to the authored art. A source swap on a template or tinted glyph

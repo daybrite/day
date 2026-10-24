@@ -57,9 +57,9 @@ guarded per toolkit (see the table).
 
 Platform guidance: [Apple: search fields](https://developer.apple.com/design/human-interface-guidelines/search-fields); [Android: search interface](https://developer.android.com/develop/ui/views/search/search-dialog).
 
-| AppKit | UIKit | GTK | Qt | Android | XAML | ArkUI |
+| AppKit | UIKit | GTK | Qt | Android | WinUI | ArkUI |
 |---|---|---|---|---|---|---|
-| [`NSSearchField`](https://developer.apple.com/documentation/appkit/nssearchfield) | [`UISearchTextField`](https://developer.apple.com/documentation/uikit/uisearchtextfield) (iOS 13+) | [`GtkSearchEntry`](https://docs.gtk.org/gtk4/class.SearchEntry.html) | [`QLineEdit`](https://doc.qt.io/qt-6/qlineedit.html) search shim (clear button + leading magnifier) | [`EditText`](https://developer.android.com/reference/android/widget/EditText) (single-line, `IME_ACTION_SEARCH`) | [`AutoSuggestBox`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.xaml.controls.autosuggestbox) (query magnifier) | ArkTS `Search` (the toolkit's `controls/searchfield/platform/harmony/ets`; the C node API has no search kind) |
+| [`NSSearchField`](https://developer.apple.com/documentation/appkit/nssearchfield) | [`UISearchTextField`](https://developer.apple.com/documentation/uikit/uisearchtextfield) (iOS 13+) | [`GtkSearchEntry`](https://docs.gtk.org/gtk4/class.SearchEntry.html) | [`QLineEdit`](https://doc.qt.io/qt-6/qlineedit.html) search shim (clear button + leading magnifier) | [`EditText`](https://developer.android.com/reference/android/widget/EditText) (single-line, `IME_ACTION_SEARCH`) | [`AutoSuggestBox`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.autosuggestbox) (query magnifier) | ArkTS `Search` (the toolkit's `controls/searchfield/platform/harmony/ets`; the C node API has no search kind) |
 
 Each control reports edits through `Event::TextChanged(String)`, the same event a built-in text
 field emits, so `dayscript`'s `input:` step drives the piece on every toolkit without touching native
@@ -72,12 +72,12 @@ code. The change plumbing per toolkit:
   fire `EditingChanged`, so no suppression is needed.
 - **GTK**: [`GtkSearchEntry::"search-changed"`](https://docs.gtk.org/gtk4/class.SearchEntry.html). That signal *does* fire on programmatic `set_text`, so a
   per-node `suppress` cell guards the sync in `update`.
-- **Qt / XAML**: the native C++ shims live in `day-qt-sys` and `day-xaml-sys`,
+- **Qt / WinUI**: the native C++ shims live in `day-qt-sys` and `day-xaml-sys`,
   compiled by those toolkits. The Qt shim wraps a [`QLineEdit`](https://doc.qt.io/qt-6/qlineedit.html)
   (`setClearButtonEnabled(true)` + a leading `edit-find` action) and wraps programmatic `setText` in
-  `blockSignals`. The XAML shim boxes its [`AutoSuggestBox`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.xaml.controls.autosuggestbox) into a Day handle through the
+  `blockSignals`. The WinUI shim boxes its [`AutoSuggestBox`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.autosuggestbox) into a Day handle through the
   `day_xaml_box` / `day_xaml_unbox` functions that `day-xaml-sys` exports, the same mechanism the
-  picker/media XAML shims use, so a piece never touches day-winui's private handle wrapper.
+  picker/media WinUI shims use, so a piece never touches day-winui's private handle wrapper.
 - **Android**: carries its own Java factory
   (`controls/searchfield/src/DaySearch.java` in `day-mdc`), folded into the app's Gradle build automatically via `[package.metadata.day.android]` (see
   [docs/extending](extending.md)). A [`TextWatcher`](https://developer.android.com/reference/android/text/TextWatcher) calls `DayBridge.nativeOnEvent(id, 1, …)`
@@ -90,5 +90,5 @@ code. The change plumbing per toolkit:
 - A submit rail (`Event::Submitted` on the search-action key / return) for "search on enter" semantics.
 - Disabled/enabled state; scoped-search tokens (macOS [`NSSearchField`](https://developer.apple.com/documentation/appkit/nssearchfield) recent-searches menu).
 
-XAML is CI-only (built under `cfg(windows)` + the Windows SDK); it isn't buildable on the macOS/Linux
-dev hosts.
+WinUI builds on Windows with the Windows SDK and Windows App SDK; it cannot be built on
+macOS or Linux.

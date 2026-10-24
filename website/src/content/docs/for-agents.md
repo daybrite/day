@@ -30,7 +30,7 @@ The UI snippets use generated `res::str` accessors from an app's Fluent catalog;
 
 Day builds cross-platform desktop + mobile apps in Rust. You write one declarative UI as a tree of
 **Pieces**; each Piece is realized by a native widget ([`NSTextField`](https://developer.apple.com/documentation/appkit/nstextfield), [`UILabel`](https://developer.apple.com/documentation/uikit/uilabel), [`GtkEntry`](https://docs.gtk.org/gtk4/class.Entry.html),
-[`QSlider`](https://doc.qt.io/qt-6/qslider.html), XAML [`TextBox`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.xaml.controls.textbox), `android.widget.*`) through a per-platform toolkit toolkit. Day owns layout,
+[`QSlider`](https://doc.qt.io/qt-6/qslider.html), WinUI [`TextBox`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.textbox), `android.widget.*`) through a per-platform toolkit. Day owns layout,
 reactivity, localization, accessibility policy, and scripting; the OS owns pixels, text input, scrolling,
 and assistive tech. The native tree is built once and Signals bind straight to native attributes;
 nothing diffs or rebuilds it.

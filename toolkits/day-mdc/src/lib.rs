@@ -678,7 +678,7 @@ mod imp {
         static fn openWindow(node: jlong, title: JString),
         static fn prepareSnapshot(host: android.view.View, revision: jlong) -> jint,
         static fn present(req: jlong, sheet: jboolean, title: JString, message: JString, buttons_joined: JString, roles_joined: JString),
-        static fn presentFileOpen(req: jlong, title: JString, filters_joined: JString),
+        static fn presentFileOpen(req: jlong, title: JString, filters_joined: JString, multiple: jboolean),
         static fn presentFileSave(req: jlong, title: JString, suggested: JString, src_path: JString, filters_joined: JString),
         static fn presentPrompt(req: jlong, title: JString, message: JString, placeholder: JString, initial: JString, ok: JString, cancel: JString),
         static fn readNative(v: android.view.View) -> JString[],
@@ -2772,13 +2772,22 @@ mod imp {
                 // Storage Access Framework (docs/files.md). Java launches ACTION_OPEN_DOCUMENT /
                 // ACTION_CREATE_DOCUMENT and, on result, copies through the ContentResolver: open →
                 // an app cache file (readable path); save → the chosen content:// URI.
-                PresentSpec::OpenFile { .. } => with_env(|env| {
+                PresentSpec::OpenFile { multiple, .. } => with_env(|env| {
                     let title = jstr(env, spec.title());
                     let filters = jstr(env, &spec.filters_joined());
                     let _ = java_in(env, |env| {
-                        DayBridge::presentFileOpen(env, reqj, &title, &filters)
+                        DayBridge::presentFileOpen(env, reqj, &title, &filters, *multiple)
                     });
                 }),
+                // No folder chooser on Android (`Cap::FolderDialog` is Unsupported): a tree
+                // URI's persisted access is its own feature, so the request resolves at once.
+                PresentSpec::OpenFolder { .. } => emit(
+                    day_spec::WINDOW_NODE,
+                    Event::PresentResult {
+                        req,
+                        result: day_spec::present::PresentResult::Dismissed,
+                    },
+                ),
                 PresentSpec::SaveFile {
                     suggested_name,
                     src_path,

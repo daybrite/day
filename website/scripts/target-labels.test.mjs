@@ -41,7 +41,7 @@ test('lowercase, mixed markup, and mid-heading names receive marks without chang
   link.properties.href = 'https://developer.apple.com/documentation/appkit/nssplitview';
   const tree = element('div',
     element('h3', text('The iOS tabs host is driven by '), element('code', text('UITab'))),
-    element('td', text('gtk / qt / xaml')),
+    element('td', text('gtk / qt / winui')),
     element('strong', text('macOS '), link, text(' / Qt '), element('code', text('QSplitter'))),
     element('th', element('a', text('Android'))),
     element('td', element('code', text('arkui'))));
@@ -76,6 +76,21 @@ test('OS-wide labels retain both relevant target marks', () => {
     'linux-gtk linux-qt', 'macos-appkit ios-uikit',
   ]);
   for (const n of labels(tree)) assert.equal(n.children.filter(c => c.properties?.ariaHidden === 'true').length, 2);
+});
+
+test('WinUI and legacy system XAML labels do not relabel XAML markup or features', () => {
+  const tree = element('div',
+    element('td', text('WinUI')),
+    element('td', text('system XAML')),
+    element('td', text('XAML geometry')),
+    element('td', element('code', text('xaml'))),
+    element('td', element('code', text('Microsoft.UI.Xaml.Controls.TextBox'))));
+  const untouched = structuredClone(tree.children.slice(2));
+  accentTargets()(tree);
+  assert.deepEqual(labels(tree).map(n => n.properties['data-pf']), [
+    'windows-winui', 'windows-xaml',
+  ]);
+  assert.deepEqual(tree.children.slice(2), untouched);
 });
 
 

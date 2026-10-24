@@ -10,7 +10,7 @@ Native tick marks for Day's slider, with snap-to-tick where the platform support
 
 Six toolkits are covered, and the implementations span every way a tweak can reach native
 code — typed Rust bindings on AppKit and GTK, JNI on Android, and bring-your-own C++
-against raw Qt and XAML handles — which makes this crate the full reference example of the
+against raw Qt and WinUI handles — which makes this crate the full reference example of the
 pattern. UIKit has no native tick API, and this crate says so rather than imitating one.
 
 Tweaks are Day's smallest kind of extension: a little crate that adjusts the native widget
@@ -21,7 +21,7 @@ your app code stays free of platform checks.
 
 This crate is one piece of [Day](https://daybrite.dev), a Rust framework for building apps
 out of each platform's own widgets — AppKit, UIKit, Android's Material widgets, GTK 4, Qt 6,
-XAML, and ArkUI — from one codebase. When you write `button("Save")`, macOS shows an
+WinUI, and ArkUI — from one codebase. When you write `button("Save")`, macOS shows an
 `NSButton` and Android shows a Material button. The framework also ships the tooling around
 the app: the `day` CLI, a VS Code extension, GitHub CI workflows, localization,
 accessibility, and dayscript automation.

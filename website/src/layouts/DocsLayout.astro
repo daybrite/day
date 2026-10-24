@@ -2,6 +2,7 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: CC-BY-SA-4.0
 import BaseLayout from './BaseLayout.astro';
+import SidebarIcon from '../components/SidebarIcon.astro';
 import { url } from '../lib/site';
 import { contentPages } from '../lib/content';
 import { navigation, hubs } from '../lib/content-routes.mjs';
@@ -23,38 +24,38 @@ const home = audience === 'contributor' ? '/contributing' : '/docs';
   <div class="docs container">
     <aside class="sidebar" data-pagefind-ignore>
       <details class="docs-menu" open>
-        <summary class="docs-menu-toggle">Browse documentation</summary>
+        <summary class="docs-menu-toggle"><SidebarIcon item="control:browse" /><span class="side-label" title="Browse documentation">Browse documentation</span></summary>
       <nav aria-label={audience === 'contributor' ? 'Contributor documentation' : 'Documentation'}>
         {audience === 'evaluator' ? <>
-          <a class="side-link" href={url()}>Home</a>
-          <a class="side-link" href={url('features')}>Features</a>
-          <a class="side-link" href={url('examples')}>Examples</a>
-          {hubs.filter((h) => h.audience === 'evaluator').map((h) => <a class="side-link" href={url(h.route)} aria-current={h.route === route ? 'page' : undefined}>{h.title}</a>)}
-          <a class="side-link" href={url('docs')}>Documentation</a>
+          <a class="side-link" href={url()}><SidebarIcon item="/" /><span class="side-label" title="Home">Home</span></a>
+          <a class="side-link" href={url('features')}><SidebarIcon item="/features" /><span class="side-label" title="Features">Features</span></a>
+          <a class="side-link" href={url('examples')}><SidebarIcon item="/examples" /><span class="side-label" title="Examples">Examples</span></a>
+          {hubs.filter((h) => h.audience === 'evaluator').map((h) => <a class="side-link" href={url(h.route)} aria-current={h.route === route ? 'page' : undefined}><SidebarIcon item={h.route} /><span class="side-label" title={h.title}>{h.title}</span></a>)}
+          <a class="side-link" href={url('docs')}><SidebarIcon item="/docs" /><span class="side-label" title="Documentation">Documentation</span></a>
         </> : <>
-          <a class="side-link" href={url(home)}>{audience === 'contributor' ? 'Contributing home' : 'Start here'}</a>
+          <a class="side-link" href={url(home)} aria-current={route === home ? 'page' : undefined}><SidebarIcon item={home} /><span class="side-label" title={audience === 'contributor' ? 'Contributing home' : 'Start here'}>{audience === 'contributor' ? 'Contributing home' : 'Start here'}</span></a>
           {sections.map((section) => (
             <details open={route === section.route || section.pages.some((p) => p.route === route) || (section.name === 'Reference' && route === '/docs/reference/api')}>
-              <summary class="side-h">{section.name}</summary>
-              <a class="side-link" href={url(section.route)} aria-current={route === section.route ? 'page' : undefined}>{section.name} index</a>
-              {section.name === 'Reference' && <a class:list={['side-link', { on: route === '/docs/reference/api' }]} href={url('docs/reference/api')} aria-current={route === '/docs/reference/api' ? 'page' : undefined}>Rust API reference</a>}
+              <summary class="side-h"><SidebarIcon item={section.route} /><span class="side-label" title={section.name}>{section.name}</span></summary>
+              <a class="side-link" href={url(section.route)} aria-current={route === section.route ? 'page' : undefined}><SidebarIcon item={section.route} /><span class="side-label" title={`${section.name} index`}>{section.name} index</span></a>
+              {section.name === 'Reference' && <a class:list={['side-link', { on: route === '/docs/reference/api' }]} href={url('docs/reference/api')} aria-current={route === '/docs/reference/api' ? 'page' : undefined}><SidebarIcon item="/docs/reference/api" /><span class="side-label" title="Rust API reference">Rust API reference</span></a>}
               {section.sections.length ? section.sections.map((group) => (
                 <details class="reference-group" open={group.pages.some((p) => p.route === route)}>
-                  <summary class:list={['reference-group-title', { current: group.pages.some((p) => p.route === route) }]}>{group.name}</summary>
+                  <summary class:list={['reference-group-title', { current: group.pages.some((p) => p.route === route) }]}><SidebarIcon item={`group:${group.id}`} /><span class="side-label" title={group.name}>{group.name}</span></summary>
                   <div class="reference-group-pages">
                     {group.pages.map((page) => <a href={url(page.route)}
                       class:list={['side-link', { on: page.route === route }]}
                       aria-current={page.route === route ? 'page' : undefined}
-                      title={page.navTitle ? page.title : undefined}>{page.navTitle ?? page.title}</a>)}
+                      title={page.title}><SidebarIcon item={page.route} /><span class="side-label">{page.navTitle ?? page.title}</span></a>)}
                   </div>
                 </details>
               )) : section.pages.map((page) => <a href={url(page.route)}
                 class:list={['side-link', { on: page.route === route }]}
                 aria-current={page.route === route ? 'page' : undefined}
-                title={page.navTitle ? page.title : undefined}>{page.navTitle ?? page.title}</a>)}
+                title={page.title}><SidebarIcon item={page.route} /><span class="side-label">{page.navTitle ?? page.title}</span></a>)}
             </details>
           ))}
-          <a class="side-link" href={url(audience === 'contributor' ? 'docs' : 'contributing')}>{audience === 'contributor' ? 'App documentation' : 'Contributing'}</a>
+          <a class="side-link" href={url(audience === 'contributor' ? 'docs' : 'contributing')}><SidebarIcon item={audience === 'contributor' ? '/docs' : '/contributing'} /><span class="side-label" title={audience === 'contributor' ? 'App documentation' : 'Contributing'}>{audience === 'contributor' ? 'App documentation' : 'Contributing'}</span></a>
         </>}
 
       </nav>
@@ -88,6 +89,7 @@ const home = audience === 'contributor' ? '/contributing' : '/docs';
   /* The docs grid supplies its footer spacing, including the sticky sidebar's lower edge. */
   :global(main:has(> .docs) + .footer) { margin-top: 0; }
   .sidebar {
+    min-width: 0;
     position: sticky;
     top: 82px;
     align-self: start;
@@ -103,6 +105,21 @@ const home = audience === 'contributor' ? '/contributing' : '/docs';
     scrollbar-width: thin;
     padding-right: 6px;
   }
+  .sidebar summary { list-style: none; align-items: center; }
+  .sidebar summary::-webkit-details-marker { display: none; }
+  .sidebar summary::before {
+    content: '';
+    flex: 0 0 5px;
+    width: 5px;
+    height: 5px;
+    margin: 0 3px;
+    align-self: center;
+    border: solid currentColor;
+    border-width: 0 1.5px 1.5px 0;
+    transform: rotate(-45deg);
+  }
+  .sidebar details[open] > summary::before { transform: rotate(45deg); }
+  .sidebar summary.side-h, .reference-group-title { display: flex; gap: 8px; }
   .sidebar nav details { margin-top: 16px; }
   .sidebar nav details.reference-group { margin-top: 4px; }
   .reference-group-title {
@@ -130,7 +147,9 @@ const home = audience === 'contributor' ? '/contributing' : '/docs';
   }
   .side-h:not(:first-child) { margin-top: 20px; }
   .side-link {
-    display: block;
+    display: flex;
+    align-items: center;
+    gap: 9px;
     padding: 8px 12px;
     border-radius: 9px;
     color: var(--muted);
@@ -138,8 +157,17 @@ const home = audience === 'contributor' ? '/contributing' : '/docs';
     font-size: 0.95rem;
     border-left: 2px solid transparent;
   }
+  /* Keep row rhythm and icon alignment consistent; the complete text remains in the DOM. */
+  .side-label {
+    display: block;
+    flex: 1 1 auto;
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
   .side-link:hover { background: var(--hover); color: var(--text); }
-  .side-link.on {
+  .side-link.on, .side-link[aria-current="page"] {
     color: var(--text);
     background: rgba(106, 164, 255, 0.1);
     border-left-color: var(--brand);
@@ -180,7 +208,7 @@ const home = audience === 'contributor' ? '/contributing' : '/docs';
       overflow-y: visible;
     }
     .sidebar nav { display: block; }
-    .docs-menu-toggle { display: list-item; }
+    .docs-menu-toggle { display: flex; gap: 8px; }
     .docs-menu[open] > .docs-menu-toggle { margin-bottom: 16px; }
     .side-h { width: 100%; }
     .side-link { border-left: 0; }

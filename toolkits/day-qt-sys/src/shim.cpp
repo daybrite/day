@@ -2764,14 +2764,15 @@ static QString day_qt_name_filters(const char *filters_joined) {
     return out.join(";;");
 }
 
-// Report a file dialog result: tag 3 (files) with the chosen path, or tag 0 (dismissed).
+// Report a file dialog result: tag 3 (files) with every chosen path joined by the unit
+// separator (the `PresentResult::Files` wire form), or tag 0 (dismissed).
 static void day_qt_finish_file(uint64_t req, QFileDialog *dlg, int result) {
     g_presents.erase(req);
     if (g_present_cb) {
         QStringList sel = dlg->selectedFiles();
         if (result == QDialog::Accepted && !sel.isEmpty()) {
-            QByteArray path = sel.first().toUtf8();
-            g_present_cb(req, 3, 0, path.constData());
+            QByteArray paths = sel.join(QChar(0x1f)).toUtf8();
+            g_present_cb(req, 3, 0, paths.constData());
         } else {
             g_present_cb(req, 0, 0, "");
         }
@@ -2780,12 +2781,25 @@ static void day_qt_finish_file(uint64_t req, QFileDialog *dlg, int result) {
 }
 
 void day_qt_present_file_open(uint64_t req, const char *title, const char *filters_joined,
-                              void *parent) {
+                              int multiple, void *parent) {
     auto *dlg = new QFileDialog(static_cast<QWidget *>(parent), QString::fromUtf8(title));
-    dlg->setFileMode(QFileDialog::ExistingFile);
+    dlg->setFileMode(multiple ? QFileDialog::ExistingFiles : QFileDialog::ExistingFile);
     dlg->setAcceptMode(QFileDialog::AcceptOpen);
     QString nf = day_qt_name_filters(filters_joined);
     if (!nf.isEmpty()) dlg->setNameFilter(nf);
+    g_presents[req] = {dlg, {}};
+    QObject::connect(dlg, &QFileDialog::finished,
+                     [req, dlg](int result) { day_qt_finish_file(req, dlg, result); });
+    dlg->open();
+}
+
+// The folder chooser: a QFileDialog in Directory mode (the platform's own directory dialog
+// where Qt has one). Its one selected path crosses back like a file (docs/files.md).
+void day_qt_present_folder_open(uint64_t req, const char *title, void *parent) {
+    auto *dlg = new QFileDialog(static_cast<QWidget *>(parent), QString::fromUtf8(title));
+    dlg->setFileMode(QFileDialog::Directory);
+    dlg->setOption(QFileDialog::ShowDirsOnly, true);
+    dlg->setAcceptMode(QFileDialog::AcceptOpen);
     g_presents[req] = {dlg, {}};
     QObject::connect(dlg, &QFileDialog::finished,
                      [req, dlg](int result) { day_qt_finish_file(req, dlg, result); });

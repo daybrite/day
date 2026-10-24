@@ -80,26 +80,56 @@ target.
 ## The builders (`day-pieces`, in the prelude)
 
 - [`open_file()`](https://daybrite.dev/api/day_pieces/fn.open_file.html) → `OpenFile`: [`.title(..)`](https://daybrite.dev/api/day_pieces/struct.OpenFile.html#method.title), [`.filter(name, &["ext", …])`](https://daybrite.dev/api/day_pieces/struct.OpenFile.html#method.filter), `.await → Option<FileUrl>`.
+- [`open_files()`](https://daybrite.dev/api/day_pieces/fn.open_files.html) → `OpenFiles`: the same [`.title(..)`](https://daybrite.dev/api/day_pieces/struct.OpenFiles.html#method.title) and [`.filter(..)`](https://daybrite.dev/api/day_pieces/struct.OpenFiles.html#method.filter),
+  `.await → Vec<FileUrl>`: every file the user picked, in the picker's order, and an empty
+  `Vec` on cancel. The picker allows a multiple selection; a toolkit without one still answers
+  with the single pick.
+- [`open_folder()`](https://daybrite.dev/api/day_pieces/fn.open_folder.html) → `OpenFolder`: [`.title(..)`](https://daybrite.dev/api/day_pieces/struct.OpenFolder.html#method.title), `.await → Option<FileUrl>`: the chosen
+  directory, or `None` on cancel. Only toolkits that answer `Cap::FolderDialog` as `Native` show
+  a chooser; the others resolve `None` at once, so an app checks the capability before offering
+  an "Add Folder…" command (the phones answer `Unsupported`).
 - [`save_file(data)`](https://daybrite.dev/api/day_pieces/fn.save_file.html) → `SaveFile`: [`.title(..)`](https://daybrite.dev/api/day_pieces/struct.OpenFile.html#method.title), [`.suggested_name(..)`](https://daybrite.dev/api/day_pieces/struct.SaveFile.html#method.suggested_name), [`.filter(..)`](https://daybrite.dev/api/day_pieces/struct.OpenFile.html#method.filter),
   `.await → Option<FileUrl>`. The bytes are staged to an app-writable temp file that the toolkit
   hands to the native save UI; the pieces layer delivers them to a chosen local destination and
   cleans up.
 
+```rust
+// A music library's "Add Files…" and "Add Folder…" commands.
+let tracks: Vec<FileUrl> = open_files()
+    .filter(res::str::audio_files().format(), &["mp3", "flac", "m4a"])
+    .await;
+
+// Ask `capability(Cap::FolderDialog)` before offering the command (docs/cover.md shows the
+// same probe for the status bar); phones answer `Unsupported`.
+if capability(Cap::FolderDialog) == Support::Native
+    && let Some(folder) = open_folder().title(res::str::add_folder().format()).await
+{
+    scan(folder.local_path());
+}
+```
+
+Both probes and the enums are in the prelude ([`capability`](https://daybrite.dev/api/day_core/fn.capability.html), `Cap`, `Support`).
+
 ## Per-toolkit native mapping
 
 Platform guidance: [Apple: file management](https://developer.apple.com/design/human-interface-guidelines/file-management); [Android: accessing shared documents](https://developer.android.com/training/data-storage/shared/documents-files).
 
-| Toolkit | Open | Save |
-|---|---|---|
-| appkit | [`NSOpenPanel`](https://developer.apple.com/documentation/appkit/nsopenpanel) (sheet) | [`NSSavePanel`](https://developer.apple.com/documentation/appkit/nssavepanel) (sheet) |
-| uikit  | [`UIDocumentPickerViewController`](https://developer.apple.com/documentation/uikit/uidocumentpickerviewcontroller) (`.import`) | [`UIDocumentPickerViewController`](https://developer.apple.com/documentation/uikit/uidocumentpickerviewcontroller) (export) |
-| gtk    | [`GtkFileDialog.open`](https://docs.gtk.org/gtk4/class.FileDialog.html) (GTK 4.10+) | [`GtkFileDialog.save`](https://docs.gtk.org/gtk4/class.FileDialog.html) |
-| qt     | [`QFileDialog`](https://doc.qt.io/qt-6/qfiledialog.html) (`ExistingFile`) via the C++ shim | [`QFileDialog`](https://doc.qt.io/qt-6/qfiledialog.html) (`AnyFile`/`AcceptSave`) |
-| android | `ACTION_OPEN_DOCUMENT` + [`ContentResolver`](https://developer.android.com/reference/android/content/ContentResolver) (copy → cache) | `ACTION_CREATE_DOCUMENT` + [`ContentResolver`](https://developer.android.com/reference/android/content/ContentResolver) |
-| arkui (HarmonyOS) | ArkTS `DocumentViewPicker.select` + `@ohos.file.fs` (copy → cache) | `DocumentViewPicker.save` + `@ohos.file.fs` |
-| dom (web) | `<input type=file>` (the browser's picker) | a Blob download |
-| mock   | records the spec; resolved programmatically | same |
-| xaml  | WinRT `FileOpenPicker` | WinRT `FileSavePicker` |
+| Toolkit | Open (one or several) | Folder | Save |
+|---|---|---|---|
+| appkit | [`NSOpenPanel`](https://developer.apple.com/documentation/appkit/nsopenpanel) (sheet; `allowsMultipleSelection`, every `URLs` entry reported) | `NSOpenPanel` with `canChooseDirectories` | [`NSSavePanel`](https://developer.apple.com/documentation/appkit/nssavepanel) (sheet) |
+| uikit  | [`UIDocumentPickerViewController`](https://developer.apple.com/documentation/uikit/uidocumentpickerviewcontroller) (`.import`; `allowsMultipleSelection`, each pick copied into the sandbox) | none: resolves `None` | [`UIDocumentPickerViewController`](https://developer.apple.com/documentation/uikit/uidocumentpickerviewcontroller) (export) |
+| gtk    | [`GtkFileDialog.open` / `open_multiple`](https://docs.gtk.org/gtk4/class.FileDialog.html) (GTK 4.10+) | `GtkFileDialog.select_folder` | [`GtkFileDialog.save`](https://docs.gtk.org/gtk4/class.FileDialog.html) |
+| qt     | [`QFileDialog`](https://doc.qt.io/qt-6/qfiledialog.html) (`ExistingFile` / `ExistingFiles`) via the C++ shim | `QFileDialog` (`Directory` + `ShowDirsOnly`) | [`QFileDialog`](https://doc.qt.io/qt-6/qfiledialog.html) (`AnyFile`/`AcceptSave`) |
+| android | `ACTION_OPEN_DOCUMENT` (+ `EXTRA_ALLOW_MULTIPLE`, every `ClipData` item) + [`ContentResolver`](https://developer.android.com/reference/android/content/ContentResolver) (copy → cache) | none: resolves `None` | `ACTION_CREATE_DOCUMENT` + [`ContentResolver`](https://developer.android.com/reference/android/content/ContentResolver) |
+| arkui (HarmonyOS) | ArkTS `DocumentViewPicker.select` (`maxSelectNumber` for several) + `@ohos.file.fs` (copy → cache) | none: resolves `None` | `DocumentViewPicker.save` + `@ohos.file.fs` |
+| dom (web) | `<input type=file>` (`multiple` for several; the browser's picker) | none: resolves `None` | a Blob download |
+| mock   | records the spec; resolved programmatically | same | same |
+| WinUI  | WinRT `FileOpenPicker` (`PickSingleFileAsync` / `PickMultipleFilesAsync`) | WinRT `FolderPicker` | WinRT `FileSavePicker` |
+
+`Cap::FolderDialog` is `Native` exactly where the Folder column names a chooser: the four
+desktops. The phone and web toolkits answer `Unsupported` and resolve an `open_folder()` request
+as cancelled at once, so the await never hangs; an app that offers "Add Folder…" asks the
+capability first and hides the command elsewhere.
 
 On HarmonyOS the picker lives in the ArkTS `@kit.CoreFileKit` layer, not the native NodeAPI, so
 the `day-arkui` toolkit calls up into its ArkTS host over NAPI (safe: Day's loop runs on the
@@ -119,10 +149,13 @@ so the main loop keeps running and dayscript stays live while a picker is up.
 
 Files go through the existing [`present`](https://daybrite.dev/api/day_core/fn.present.html) path ([docs/dialogs](dialogs.md)) and add no `Toolkit` methods:
 
-- `day_spec::present::PresentSpec::{OpenFile, SaveFile}` + `FileFilter { name, extensions }`.
+- `day_spec::present::PresentSpec::{OpenFile, OpenFolder, SaveFile}` + `FileFilter { name, extensions }`.
+  `OpenFile { multiple }` is the one spec behind both `open_file()` (`false`) and
+  `open_files()` (`true`); `OpenFolder { title }` carries the folder chooser.
 - `PresentResult::Files(Vec<String>)`: the chosen locators, crossing the C ABI (Qt shim /
-  Android JNI) as tag `3` with the paths joined by the unit separator.
-- `Cap::FileDialogs` advertises native support.
+  Android JNI / WinUI shim / ArkTS host) as tag `3` with the paths joined by the unit separator.
+  A multiple-selection pick reports every path, in the picker's order.
+- `Cap::FileDialogs` advertises native open/save pickers; `Cap::FolderDialog` the folder chooser.
 - [`day_spec::present::app_temp_dir()`](https://daybrite.dev/api/day_spec/present/fn.app_temp_dir.html): the app-writable staging dir; Android sets it to
   `getCacheDir()` (the OS temp dir isn't app-writable there).
 
@@ -141,15 +174,20 @@ A file picker is a presentation, so a script answers it with a path ([docs/dialo
 
 This makes open/save flows headless-testable and screenshot-able on every toolkit without touching
 the machine's real filesystem. See `Day-Showcase` (the **Files & storage** page's Files section) and
-`Day-Showcase/dayscript/files.yaml`.
+`Day-Showcase/dayscript/files.yaml`. The same `respond: { path }` answers an `open_files()` pick
+(with that one file) and an `open_folder()` request (with that path as the directory), on every
+toolkit, including the ones without a native folder chooser.
 
 ## Windows picker behavior
 
-The XAML toolkit advertises `Cap::FileDialogs = Native`. It uses the system WinRT
-pickers, initialized with the host HWND through [`IInitializeWithWindow`](https://learn.microsoft.com/en-us/windows/win32/api/shobjidl_core/nn-shobjidl_core-iinitializewithwindow) (the
+The WinUI toolkit advertises `Cap::FileDialogs = Native` and `Cap::FolderDialog = Native`. It
+uses the system WinRT pickers (`FileOpenPicker`, `FolderPicker`, `FileSavePicker`), initialized
+with the host HWND through [`IInitializeWithWindow`](https://learn.microsoft.com/en-us/windows/win32/api/shobjidl_core/nn-shobjidl_core-iinitializewithwindow) (the
 [desktop picker interop contract](https://devblogs.microsoft.com/oldnewthing/20190412-00/?p=102413)).
-Open filters become `.ext` entries, with `*` when no filters are supplied; save filters
-retain their names. The WinRT API does not expose a custom dialog title.
+Open filters become `.ext` entries, with `*` when no filters are supplied (the folder picker
+always carries `*`, which the desktop requires); save filters retain their names. The WinRT API
+does not expose a custom dialog title. A several-files pick goes through
+`PickMultipleFilesAsync` and reports every chosen path.
 The selected local path becomes a `FileUrl`, so [`read()`](https://daybrite.dev/api/day_pieces/struct.FileUrl.html#method.read) returns the original bytes.
 
 Registration precedes native setup. Missing owners, activation/filter/initialization

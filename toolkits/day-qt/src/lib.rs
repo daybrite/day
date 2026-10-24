@@ -2211,6 +2211,8 @@ impl Toolkit for Qt {
             | Cap::NavContentList
             | Cap::Dialogs
             | Cap::FileDialogs
+            // QFileDialog in `Directory` mode (docs/files.md).
+            | Cap::FolderDialog
             | Cap::TextEditable
             | Cap::TextSelectable
             // Qt's own QDrag pipeline: grabbed-cell pixmap, insertion line, no-drop cursor.
@@ -3910,13 +3912,17 @@ impl Toolkit for Qt {
                     parent,
                 )
             },
-            PresentSpec::OpenFile { .. } => unsafe {
+            PresentSpec::OpenFile { multiple, .. } => unsafe {
                 ffi::day_qt_present_file_open(
                     req,
                     cstr(spec.title()).as_ptr(),
                     cstr(&spec.filters_joined()).as_ptr(),
+                    *multiple as c_int,
                     parent,
                 )
+            },
+            PresentSpec::OpenFolder { .. } => unsafe {
+                ffi::day_qt_present_folder_open(req, cstr(spec.title()).as_ptr(), parent)
             },
             PresentSpec::SaveFile { suggested_name, .. } => unsafe {
                 // The pieces layer copies the staged bytes to the chosen path.

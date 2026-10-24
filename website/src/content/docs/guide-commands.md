@@ -111,8 +111,8 @@ not expose a Qt `QAction` or Windows `ICommand`, introduce a new command palette
 OS-wide shortcuts. Shortcuts take effect through installed menu items, not a standalone button.
 Continue using [`menu_role`](https://daybrite.dev/api/day_pieces/fn.menu_role.html) for native Copy/Paste/Undo and responder-chain targeting.
 
-- AppKit, GTK, Qt, and XAML retain their native menu and toolbar presentation; primary modifiers
-  are Command on Apple and Ctrl elsewhere. GTK uses header-bar controls; XAML placement remains
+- AppKit, GTK, Qt, and WinUI retain their native menu and toolbar presentation; primary modifiers
+  are Command on Apple and Ctrl elsewhere. GTK uses header-bar controls; WinUI placement remains
   constrained by `CommandBar`.
 - UIKit contributes commands to navigation bars and context menus. An iPhone app must provide a
   visible route to operations instead of relying on the application menu.

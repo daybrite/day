@@ -20,7 +20,7 @@ that just needs to know what a font file calls itself.
 
 This crate is one piece of [Day](https://daybrite.dev), a Rust framework for building apps
 out of each platform's own widgets — AppKit, UIKit, Android's Material widgets, GTK 4, Qt 6,
-XAML, and ArkUI — from one codebase. When you write `button("Save")`, macOS shows an
+WinUI, and ArkUI — from one codebase. When you write `button("Save")`, macOS shows an
 `NSButton` and Android shows a Material button. The framework also ships the tooling around
 the app: the `day` CLI, a VS Code extension, GitHub CI workflows, localization,
 accessibility, and dayscript automation.

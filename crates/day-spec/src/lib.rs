@@ -2453,6 +2453,11 @@ pub enum Cap {
     Dialogs,
     /// The toolkit can present native open/save file pickers (docs/files.md).
     FileDialogs,
+    /// The toolkit can present a native folder chooser (`PresentSpec::OpenFolder`,
+    /// docs/files.md). `Native` on the four desktop toolkits (AppKit, GTK, Qt, WinUI); the
+    /// phone and web backends answer `Unsupported` and resolve the request as `Dismissed`, so
+    /// an app hides its "Add Folder…" command where this is not `Native`.
+    FolderDialog,
     /// The toolkit runs backend-executed animation for `AnimSpec` intents on
     /// `update`/`set_frame`/`set_opacity`/`set_transform` (§8.4). `Unsupported` ⇒ animated calls
     /// apply instantly (still correct, just not animated).
@@ -2670,7 +2675,7 @@ pub enum Cap {
 impl Cap {
     /// Every capability, in declaration order: what a conformance run asks the toolkit about,
     /// so the evidence can be held against the declared coverage matrix (docs/testing.md).
-    pub const ALL: [Cap; 88] = [
+    pub const ALL: [Cap; 89] = [
         Cap::DragDrop,
         Cap::DragExternalImport,
         Cap::DragExternalExport,
@@ -2759,6 +2764,7 @@ impl Cap {
         Cap::PullRefresh,
         Cap::Pager,
         Cap::PullRefreshGesture,
+        Cap::FolderDialog,
     ];
 
     /// The capability's place in [`Cap::ALL`]. Exhaustive, so a new variant fails to compile
@@ -2853,6 +2859,7 @@ impl Cap {
             Cap::PullRefresh => 85,
             Cap::Pager => 86,
             Cap::PullRefreshGesture => 87,
+            Cap::FolderDialog => 88,
         }
     }
 }
@@ -6618,11 +6625,20 @@ pub mod present {
         /// Native "open file" picker (docs/files.md). The backend must answer with
         /// `PresentResult::Files` whose entries are **readable local paths**: desktop returns
         /// the chosen path directly; iOS/Android copy the selection into app storage first, so
-        /// the pieces layer can read it with `std::fs` regardless of platform.
+        /// the pieces layer can read it with `std::fs` regardless of platform. `multiple` lets
+        /// the user pick several files at once; the answer then carries every chosen path, in
+        /// the picker's order. A backend that cannot select more than one file still answers
+        /// with the single pick.
         OpenFile {
             title: String,
             filters: Vec<FileFilter>,
+            multiple: bool,
         },
+        /// Native "choose folder" picker (docs/files.md). The backend answers with
+        /// `PresentResult::Files` holding the one chosen directory path, or `Dismissed`. Only
+        /// backends answering [`Cap::FolderDialog`] as `Native` show a chooser; the others
+        /// resolve the request as `Dismissed` at once, so the await never hangs.
+        OpenFolder { title: String },
         /// Native "save file" picker (docs/files.md). `src_path` is a Day-written temp file
         /// holding the bytes to save; iOS/Android deliver it to the chosen destination natively,
         /// and the pieces layer best-effort copies it to a chosen local path otherwise.
@@ -6744,6 +6760,7 @@ pub mod present {
                 PresentSpec::Dialog { title, .. }
                 | PresentSpec::Prompt { title, .. }
                 | PresentSpec::OpenFile { title, .. }
+                | PresentSpec::OpenFolder { title }
                 | PresentSpec::SaveFile { title, .. } => title,
             }
         }
@@ -6796,6 +6813,11 @@ pub mod present {
                 }
                 _ => &[],
             }
+        }
+        /// Whether an open-file dialog lets the user pick several files (`false` for every
+        /// other spec).
+        pub fn multiple(&self) -> bool {
+            matches!(self, PresentSpec::OpenFile { multiple: true, .. })
         }
         /// The suggested file name for a save dialog (empty otherwise).
         pub fn suggested_name(&self) -> &str {

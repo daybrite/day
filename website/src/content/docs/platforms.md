@@ -145,12 +145,12 @@ list:
 
 - **Animation**: partial. [`with_animation(spec, || …)`](https://daybrite.dev/api/day_core/fn.with_animation.html) ships, and five of the eight toolkits execute
   opacity, transform, and frame changes natively: AppKit, UIKit, Android, web, and ArkUI (where
-  frames move instantly). On GTK, Qt, and XAML the changes apply at commit with no animation
+  frames move instantly). On GTK, Qt, and WinUI the changes apply at commit with no animation
   (`Cap::Animation` reports unsupported), because Day never ticks its own frames for native
   widgets. An animated background *color* interpolates on UIKit and ArkUI only, and the enter/exit
   `.transition` surface is not implemented.
 - **Multi-window:** [secondary windows](/docs/reference/windows) work on every toolkit — native
-  windows on AppKit, GTK, Qt, XAML, and Android, UIScenes on iPad, a multiton ability on
+  windows on AppKit, GTK, Qt, WinUI, and Android, UIScenes on iPad, a multiton ability on
   HarmonyOS; iPhone and web present them as a fullscreen cover in the primary window. Probe
   `Cap::MultiWindow` to adapt chrome.
 - **Semantic color tokens**: custom colors have no automatic dark-mode variant

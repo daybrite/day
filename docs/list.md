@@ -31,9 +31,9 @@ The UI snippets use generated `res::str` accessors from an app's Fluent catalog;
 ## API: row sources, shared with [`each`](https://daybrite.dev/api/day_pieces/fn.each.html)
 
 On **windows-winui**, [`ItemsRepeater`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.itemsrepeater) and `StackLayout` own realization and scroll extents
-inside a native [`ScrollViewer`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.xaml.controls.scrollviewer). Its element factory reuses `ItemContainer` rows with Day
+inside a native [`ScrollViewer`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.scrollviewer). Its element factory reuses `ItemContainer` rows with Day
 content; it does not allocate a cell per source index. Selection, keyboard navigation,
-drag-and-drop, and content-sized rows follow the realized containers. A [`SwipeControl`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.xaml.controls.swipecontrol)
+drag-and-drop, and content-sized rows follow the realized containers. A [`SwipeControl`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.swipecontrol)
 offers declared leading/trailing actions and guarded deletion, with the same commands in
 a native row context menu for mouse and keyboard use. Row content can still declare its
 own context menu. Action callbacks validate the row token and cell generation before use.
@@ -242,7 +242,7 @@ Platform guidance: [Apple: lists and tables](https://developer.apple.com/design/
 | GTK 4   | [`GtkListView`](https://docs.gtk.org/gtk4/class.ListView.html) + [`GtkListItemFactory`](https://docs.gtk.org/gtk4/class.ListItemFactory.html); each cell a `DayCell`, a custom container that asks for no width and lays the row out at the width the themed `row` node grants it | native | factory `bind`/`unbind` → `bind_row`/`recycle`, `teardown` → `release`; the cell's `size_allocate` → `layout_cell`. [GtkListView](https://docs.gtk.org/gtk4/class.ListView.html) keeps up to 200 spare items by design and rebinds them, so a five-row viewport settles at about 205 rows alive; items beyond that are torn down and released. A `Reload` splices only the row-count difference and re-binds the bound cells in place, top to bottom: replacing every model item would make [GtkListView](https://docs.gtk.org/gtk4/class.ListView.html) destroy each row widget and build a second set |
 | Qt      | [`QListView`](https://doc.qt.io/qt-6/qlistview.html) over a count-only [`QAbstractListModel`](https://doc.qt.io/qt-6/qabstractlistmodel.html) and a delegate that paints only the item chrome; each cell a plain [`QWidget`](https://doc.qt.io/qt-6/qwidget.html) placed over its row as a viewport child | native — a bounded pool (the viewport plus overscan) the Rust side retargets on every window change: a row scrolling out parks its cell and `recycle`s it, a row scrolling in takes a spare and `bind_row` rebinds it | the view owns selection, keys, focus, drag; Day owns the rows. Cells are never index widgets: the view deletes those on removal. Every Qt callback into Day is posted |
 | ArkUI   | `List` + `NodeAdapter`; each cell a `ListItem` holding the row | native | adapter attach/detach → `bind_row`/`recycle`; item ids carry a generation so a reload never rebinds a stale cell |
-| WinUI   | [`ItemsRepeater`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.itemsrepeater) + `StackLayout`; each cell an `ItemContainer` holding a `Canvas` for the row | native | the repeater's realization callbacks post `bind_row`/`recycle` (calling the source inside XAML layout would re-enter Day) |
+| WinUI   | [`ItemsRepeater`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.itemsrepeater) + `StackLayout`; each cell an `ItemContainer` holding a `Canvas` for the row | native | the repeater's realization callbacks post `bind_row`/`recycle` (calling the source inside WinUI layout would re-enter Day) |
 | web     | a DOM scroller with a slot per row | emulated | rows in view plus an overscan are built; a row scrolled far away keeps its element |
 
 ## Row metrics
@@ -591,7 +591,7 @@ Probe `Cap::ListSwipeActions`: **Native** on macOS ([`NSTableView`](https://deve
 ([`UISwipeActionsConfiguration`](https://developer.apple.com/documentation/uikit/uiswipeactionsconfiguration), sharing one pipeline with swipe-to-delete: on the trailing
 edge a deletable list offers its delete action first, then the row's own trailing offer).
 It is also **Native** on WinUI ([`SwipeControl`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.swipecontrol), with labels, symbols and tints), which adds a
-mouse/keyboard [`MenuFlyout`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.xaml.controls.menuflyout) for the same actions. Everywhere else the answer is `Unsupported`
+mouse/keyboard [`MenuFlyout`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.menuflyout) for the same actions. Everywhere else the answer is `Unsupported`
 and no affordance is drawn, so pair each action
 with an explicit control (a menu item, a toolbar button) for the rest, as the delete section
 advises.

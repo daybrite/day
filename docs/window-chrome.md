@@ -113,7 +113,7 @@ Platform guidance: [Apple: windows](https://developer.apple.com/design/human-int
 | Toolkit | Frameless | Overlay | Transparent | Material | Drag region |
 |---|---|---|---|---|---|
 | AppKit | Native | Native | Native | Native | Native |
-| Windows XAML | Native | Native | Unsupported | Native on Windows 11 22H2+ | Native |
+| Windows (WinUI) | Native | Native | Unsupported | Native on Windows 11 22H2+ | Native |
 | GTK | Native | Native | Native on a compositing display | Unsupported | Native |
 | Qt | Native | Unsupported (keeps the standard frame) | Native on a compositing display | Unsupported | Native |
 | iOS, Android, HarmonyOS | Unsupported (ignored) | Unsupported | Unsupported | Unsupported | Unsupported |
@@ -130,11 +130,11 @@ back to the standard frame or the opaque background.
   behind the content. A drag region answers a press on its own background with
   `performWindowDragWithEvent:`, and reads the user's double-click setting
   (`AppleActionOnDoubleClick`).
-- **Windows XAML.** `Frameless` keeps the caption and sizing styles and returns 0 from
+- **Windows (WinUI).** `Frameless` keeps the caption and sizing styles and returns 0 from
   `WM_NCCALCSIZE`, so the shadow, rounded corners and Aero Snap stay. `Overlay` uses DWM's custom
   frame ([`DwmExtendFrameIntoClientArea`](https://learn.microsoft.com/en-us/windows/win32/api/dwmapi/nf-dwmapi-dwmextendframeintoclientarea), [`DwmDefWindowProc`](https://learn.microsoft.com/en-us/windows/win32/api/dwmapi/nf-dwmapi-dwmdefwindowproc)). Materials set
   `DWMWA_SYSTEMBACKDROP_TYPE`. Drag regions answer `HTCAPTION` from the window's hit test, which
-  brings the system's own move, snap and double-click maximize; the XAML island's windows pass
+  brings the system's own move, snap and double-click maximize; the WinUI island's windows pass
   those hits through. These paths are compile-checked; the Windows runtime pass is pending.
 - **GTK.** `Frameless` drops the header bar; with `shadow: false` the window is undecorated and
   Day resizes it from its edges with [`gdk::Toplevel::begin_resize`](https://docs.gtk.org/gdk4/method.Toplevel.begin_resize.html). `Overlay` replaces the header

@@ -174,7 +174,7 @@ Everything above works on every toolkit except where noted.
 | **android** | [`font_families()`](https://daybrite.dev/api/day_core/fn.font_families.html) is read from `/system/etc/fonts.xml`, the configuration `Typeface.create` resolves names from, so the system's alias families (`sans-serif-condensed`, `sans-serif-medium`, …) appear as families of their own. |
 | **arkui** | Canvas fonts and the font list compile against the SDK's `OH_Drawing_FontMgr` API and are exercised by CI on a device, not by a local emulator run. |
 | all | A weight or slant the family does not ship is synthesized where the platform does that (Skia, DirectWrite, CSS) and rounded to the nearest face elsewhere (Pango, CoreText). `face_for` on the family's `FontFamilyInfo` says which face will actually draw. |
-| **qt**, **android**, **xaml** | Dash patterns are specified in pixels by Day and converted to those APIs' stroke-width units on the way in. A zero-width stroke falls back to a width of 1 for the conversion. |
+| **Qt**, **Android**, **WinUI** | Dash patterns are specified in pixels by Day and converted to those APIs' stroke-width units on the way in. A zero-width stroke falls back to a width of 1 for the conversion. |
 
 Gradient strokes on Apple work by converting the stroke to the region it covers
 ([`CGContextReplacePathWithStrokedPath`](https://developer.apple.com/documentation/coregraphics/cgcontext/replacepathwithstrokedpath())) and drawing the gradient through that clip, which is exact.
@@ -296,7 +296,7 @@ For chart selection, handle [`on_tap_at`](https://daybrite.dev/api/day_pieces/tr
 | appkit | ✓ | an [`NSTrackingArea`](https://developer.apple.com/documentation/appkit/nstrackingarea) + `mouseEntered:`/`mouseMoved:`/`mouseExited:`. Like Pan, only `DayCanvas` overrides those, so a hover enabled on another view reports nothing |
 | gtk | ✓ | [`GtkEventControllerMotion`](https://docs.gtk.org/gtk4/class.EventControllerMotion.html) — enter, motion, leave |
 | qt | ✓ | `setMouseTracking(true)` plus `Enter`/`MouseMove`/`Leave` on the event filter |
-| xaml | ✓ | `PointerEntered`/`Moved`/`Exited`, gated to a Mouse or Pen device |
+| WinUI | ✓ | `PointerEntered`/`Moved`/`Exited`, gated to a Mouse or Pen device |
 | dom | ✓ | `pointerenter`/`move`/`leave`, gated on `pointerType !== 'touch'` |
 | uikit | ✓ (pointer) | [`UIHoverGestureRecognizer`](https://developer.apple.com/documentation/uikit/uihovergesturerecognizer) — an iPad with a trackpad, a mouse, or a hovering Pencil. A finger-only device reports nothing |
 | android | ✓ (pointer) | `setOnHoverListener` — a mouse or a stylus. A finger generates no `HOVER_*` action at all |
@@ -345,7 +345,7 @@ pointer-wheel pans. Pinch remains unavailable on those two toolkits.
 On AppKit, GTK, Qt and DOM, a non-canvas container with [`.on_pan`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.on_pan) receives horizontal wheel
 movement over its descendants, while vertical scrolling keeps its native behavior. Android
 containers likewise intercept horizontal pointer-wheel input. Accumulate deltas and suppress
-inertial repeats when using a gesture to navigate. Keep visible navigation buttons: XAML and
+inertial repeats when using a gesture to navigate. Keep visible navigation buttons: WinUI and
 ArkUI do not deliver these container pans, and touch-only devices may have no wheel input.
 
 ## Stamping

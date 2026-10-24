@@ -63,10 +63,10 @@ emit it: a native pick already arrives as text).
 
 Platform guidance: [Apple: pickers](https://developer.apple.com/design/human-interface-guidelines/pickers); [Android: spinners](https://developer.android.com/develop/ui/views/components/spinner); [Windows: combo boxes](https://learn.microsoft.com/en-us/windows/apps/design/controls/combo-box).
 
-| AppKit | GTK | Qt | Android | XAML | UIKit | Web | Browser input with a datalist. |
+| AppKit | GTK | Qt | Android | WinUI | UIKit | Web | Browser input with a datalist. |
 | ArkUI |
 |---|---|---|---|---|---|---|
-| [`NSComboBox`](https://developer.apple.com/documentation/appkit/nscombobox) | [`GtkComboBoxText`](https://docs.gtk.org/gtk4/class.ComboBoxText.html) with entry | editable [`QComboBox`](https://doc.qt.io/qt-6/qcombobox.html) | [`AutoCompleteTextView`](https://developer.android.com/reference/android/widget/AutoCompleteTextView) | editable [`ComboBox`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.xaml.controls.combobox) (1809+) | — placeholder | ArkTS `TextInput` + suggestions menu |
+| [`NSComboBox`](https://developer.apple.com/documentation/appkit/nscombobox) | [`GtkComboBoxText`](https://docs.gtk.org/gtk4/class.ComboBoxText.html) with entry | editable [`QComboBox`](https://doc.qt.io/qt-6/qcombobox.html) | [`AutoCompleteTextView`](https://developer.android.com/reference/android/widget/AutoCompleteTextView) | editable [`ComboBox`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.combobox) | — placeholder | ArkTS `TextInput` + suggestions menu |
 
 iOS has no native combo-box control, so the piece carries **no renderer** there: day renders its
 placeholder leaf, and the showcase adds a footnote saying why. Use [`picker`](https://daybrite.dev/api/day_pieces/fn.picker.html) or [`text_field`](https://daybrite.dev/api/day_pieces/fn.text_field.html) on
@@ -85,12 +85,12 @@ the items, and reports typing and picks alike as `Event::TextChanged`, as the na
   per-node `suppress` cell guards the sync. GTK 4.10 deprecated [`GtkComboBoxText`](https://docs.gtk.org/gtk4/class.ComboBoxText.html) without an
   editable replacement ([`GtkDropDown`](https://docs.gtk.org/gtk4/class.DropDown.html) has no entry), so the renderer keeps it under a commented
   `allow(deprecated)`.
-- **Qt / XAML**: the native C++ shims live in `day-qt-sys` and `day-xaml-sys`,
+- **Qt / WinUI**: the native C++ shims live in `day-qt-sys` and `day-xaml-sys`,
   compiled by those toolkits. The Qt shim is a
   [`QComboBox`](https://doc.qt.io/qt-6/qcombobox.html) with `setEditable(true)` + `NoInsert`; `editTextChanged` is the single change
-  path, and programmatic setters sit in `blockSignals`. The XAML shim boxes an editable
-  [`ComboBox`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.xaml.controls.combobox) through the `day_xaml_box` / `day_xaml_unbox` functions. Documented divergence: XAML's
-  [`ComboBox`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.xaml.controls.combobox) has no per-keystroke text event, so free-form text commits on Enter or focus loss
+  path, and programmatic setters sit in `blockSignals`. The WinUI shim boxes an editable
+  [`ComboBox`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.combobox) through the `day_xaml_box` / `day_xaml_unbox` functions. Documented divergence: WinUI's
+  [`ComboBox`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.combobox) has no per-keystroke text event, so free-form text commits on Enter or focus loss
   (`TextSubmitted` / `LostFocus`) while picks report immediately (`SelectionChanged`).
 - **Android**: carries its own Java factory
   (`controls/combobox/src/DayCombo.java` in `day-mdc`), folded into the app's Gradle
@@ -105,5 +105,5 @@ the items, and reports typing and picks alike as `Event::TextChanged`, as the na
 - `Event::Submitted` on Return for "commit" semantics distinct from per-keystroke changes.
 - Disabled/enabled state; a max-visible-items hint for the dropdown.
 
-XAML is CI-only (built under `cfg(windows)` + the Windows SDK); it isn't buildable on the
-macOS/Linux dev hosts.
+WinUI builds on Windows with the Windows SDK and Windows App SDK; it cannot be built on
+macOS or Linux.

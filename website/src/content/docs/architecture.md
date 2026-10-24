@@ -121,7 +121,7 @@ Each backend crosses into its toolkit using the narrowest viable mechanism:
 | AppKit / UIKit | `objc2` bindings: Rust calls the Objective-C runtime directly, no shim |
 | GTK | `gtk4-rs` (gobject bindings) |
 | Qt | a small hand-written C++ shim (`day-qt-sys`) compiled by `cc` at build time; Rust calls its C API |
-| XAML | same pattern with C++/WinRT (`day-xaml-sys`) |
+| WinUI | same pattern with C++/WinRT (`day-xaml-sys`) |
 | Android | JNI plus a small Java bridge class shipped with the framework; Rust holds `GlobalRef`s to widgets |
 | ArkUI | the ArkUI NDK C API through openharmony-rs's `ohos-sys` bindings; the ArkTS-facing module through ohos-rs's `napi-ohos` (no C++) |
 | DOM | a wasm32 `extern "C"` boundary implemented by a small JS shim the CLI embeds in the page |

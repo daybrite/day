@@ -32,7 +32,7 @@ Platform guidance: [Apple: notifications](https://developer.apple.com/design/hum
 | --- | --- | --- | --- | --- |
 | macOS / AppKit | Yes | Yes | Yes | Dock tile label; cleared when the process exits |
 | iOS / UIKit | Yes | No | No | Requires notification permission; the count survives app termination |
-| Windows / WinUI or XAML | Yes | No | Yes | Taskbar overlay; counts above 99 display as 99+ |
+| Windows | Yes | No | Yes | Taskbar overlay; counts above 99 display as 99+ |
 | Linux / GTK or Qt | Emulated | No | No | Unity launcher D-Bus signal; the desktop shell decides whether to display it |
 | Android | No | No | No | Use a local notification's badge instead |
 | HarmonyOS / ArkUI | Yes | No | No | Notification Kit badge number |

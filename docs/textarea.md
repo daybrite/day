@@ -78,7 +78,7 @@ attribute IS honored, just not by one native property, so the test to gray a con
 [`capability(…) == Support::Unsupported`](https://daybrite.dev/api/day_core/fn.capability.html), not `!= Support::Native` (the showcase's Text Areas page
 gates its three toggles that way):
 
-| attribute | Cap | AppKit | UIKit | GTK | Qt | Android | XAML | ArkUI |
+| attribute | Cap | AppKit | UIKit | GTK | Qt | Android | WinUI | ArkUI |
 |---|---|---|---|---|---|---|---|---|
 | editable | `Cap::TextEditable` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | emulated |
 | selectable | `Cap::TextSelectable` | ✓ | ✓ | — (always on) | ✓ | ✓ | emulated | emulated |
@@ -87,9 +87,9 @@ gates its three toggles that way):
 GTK's [`GtkTextView`](https://docs.gtk.org/gtk4/class.TextView.html) is always selectable (no toggle), and neither GTK nor Qt ships a built-in
 spell-checker (that needs libspelling/gspell or Hunspell).
 
-**XAML** honors editable and spell-check with the plain [`TextBox`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.xaml.controls.textbox) properties `IsReadOnly` and
-`IsSpellCheckEnabled`. Selection is the odd one out: `IsTextSelectionEnabled` is a [`TextBlock`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.xaml.controls.textblock) /
-[`RichTextBlock`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.xaml.controls.richtextblock) property and [`TextBox`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.xaml.controls.textbox) carries no equivalent, so [`.selectable(false)`](https://daybrite.dev/api/day_pieces/trait.TextAreaBuilder.html#tymethod.selectable) is EMULATED:
+**WinUI** honors editable and spell-check with the plain [`TextBox`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.textbox) properties `IsReadOnly` and
+`IsSpellCheckEnabled`. Selection is the odd one out: `IsTextSelectionEnabled` is a [`TextBlock`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.textblock) /
+[`RichTextBlock`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.richtextblock) property and [`TextBox`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.textbox) carries no equivalent, so [`.selectable(false)`](https://daybrite.dev/api/day_pieces/trait.TextAreaBuilder.html#tymethod.selectable) is EMULATED:
 the shim collapses each selection as `SelectionChanged` reports it and suppresses the context menu,
 which is the other route to Copy / Select All.
 
@@ -133,15 +133,15 @@ native editing pipeline. `day build` stages this callback automatically for stan
 
 Platform guidance: [Apple: text fields](https://developer.apple.com/design/human-interface-guidelines/text-fields); [Android: input methods](https://developer.android.com/develop/ui/views/touch-and-input/creating-input-method); [Windows: text controls](https://learn.microsoft.com/en-us/windows/apps/design/controls/text-controls).
 
-| AppKit | UIKit | GTK | Qt | Android | XAML | ArkUI |
+| AppKit | UIKit | GTK | Qt | Android | WinUI | ArkUI |
 |---|---|---|---|---|---|---|
-| [`NSTextView`](https://developer.apple.com/documentation/appkit/nstextview) in [`NSScrollView`](https://developer.apple.com/documentation/appkit/nsscrollview) | [`UITextView`](https://developer.apple.com/documentation/uikit/uitextview) | [`GtkTextView`](https://docs.gtk.org/gtk4/class.TextView.html) in [`GtkScrolledWindow`](https://docs.gtk.org/gtk4/class.ScrolledWindow.html) | [`QPlainTextEdit`](https://doc.qt.io/qt-6/qplaintextedit.html) | multi-line [`EditText`](https://developer.android.com/reference/android/widget/EditText) | wrapping [`TextBox`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.xaml.controls.textbox) | [`ARKUI_NODE_TEXT_AREA`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-arkui/capi-native-node-h.md) |
+| [`NSTextView`](https://developer.apple.com/documentation/appkit/nstextview) in [`NSScrollView`](https://developer.apple.com/documentation/appkit/nsscrollview) | [`UITextView`](https://developer.apple.com/documentation/uikit/uitextview) | [`GtkTextView`](https://docs.gtk.org/gtk4/class.TextView.html) in [`GtkScrolledWindow`](https://docs.gtk.org/gtk4/class.ScrolledWindow.html) | [`QPlainTextEdit`](https://doc.qt.io/qt-6/qplaintextedit.html) | multi-line [`EditText`](https://developer.android.com/reference/android/widget/EditText) | wrapping [`TextBox`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.textbox) | [`ARKUI_NODE_TEXT_AREA`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-arkui/capi-native-node-h.md) |
 
 Each toolkit keeps the `(min_lines, max_lines)` band and grows its `measure` height in a line band.
 Text changes report through `Event::TextChanged(String)`; programmatic sync (`TextAreaPatch::SetText`)
 is echo-guarded per toolkit, and the attribute patches (`SetEditable`/`SetSelectable`/`SetSpellCheck`)
-apply the native property. The Qt and XAML renderers carry C++ shims in the matching `-sys` crate
-(`shim-textarea.cpp`: Qt adds `day_textarea_set_attrs`/`set_read_only`/`set_selectable`; XAML adds
+apply the native property. The Qt and WinUI renderers carry C++ shims in the matching `-sys` crate
+(`shim-textarea.cpp`: Qt adds `day_textarea_set_attrs`/`set_read_only`/`set_selectable`; WinUI adds
 `day_textarea_xaml_set_editable`/`set_selectable`/`set_spellcheck`, applied at build as well as on
 patch so an editor that starts read-only comes up that way); Android's
 `DayTextArea.java` rides the framework shim (its `applyAttrs` maps editable→InputType/keyListener,

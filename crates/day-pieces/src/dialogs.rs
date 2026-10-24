@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: MPL-2.0
 
 //! Imperative, awaitable presentations: the `alert` / `confirm` / `prompt` dialogs and the
-//! `open_file` / `save_file` system file pickers (`FileUrl`). Each returns a future you await
-//! for the user's choice.
+//! `open_file` / `open_files` / `open_folder` / `save_file` system file pickers (`FileUrl`).
+//! Each returns a future you await for the user's choice.
 
 use std::hash::Hash;
 
@@ -448,6 +448,7 @@ impl OpenFile {
         let spec = PresentSpec::OpenFile {
             title: self.title,
             filters: self.filters,
+            multiple: false,
         };
         match day_core::present(spec).await {
             PresentResult::Files(mut v) if !v.is_empty() => Some(FileUrl(v.remove(0))),
@@ -457,6 +458,103 @@ impl OpenFile {
 }
 
 impl IntoFuture for OpenFile {
+    type Output = Option<FileUrl>;
+    type IntoFuture = Presenting<Option<FileUrl>>;
+    fn into_future(self) -> Self::IntoFuture {
+        Box::pin(self.present())
+    }
+}
+
+/// A native "open files" picker that lets the user choose several files at once. `.await`
+/// (or `.present().await`) resolves to the chosen [`FileUrl`]s in the picker's order, or an
+/// empty `Vec` if the user cancels.
+///
+/// ```ignore
+/// let tracks = open_files().filter("Audio", &["mp3", "flac"]).await;
+/// for track in &tracks { library.add(track.read()?); }
+/// ```
+pub struct OpenFiles {
+    title: String,
+    filters: Vec<FileFilter>,
+}
+
+/// Start a native multi-file open picker (docs/files.md).
+pub fn open_files() -> OpenFiles {
+    OpenFiles {
+        title: day_l10n::t(day_l10n::key::day_open),
+        filters: Vec::new(),
+    }
+}
+
+impl OpenFiles {
+    /// Override the picker's title (localizable via `tr()`).
+    pub fn title<M>(mut self, t: impl IntoText<M>) -> Self {
+        self.title = t.into_text().initial();
+        self
+    }
+    /// Add a named file-type filter, e.g. `.filter("Audio", &["mp3", "flac"])`. No filter = all files.
+    pub fn filter(mut self, name: impl Into<String>, extensions: &[&str]) -> Self {
+        self.filters.push(parse_filter(name, extensions));
+        self
+    }
+    pub async fn present(self) -> Vec<FileUrl> {
+        let spec = PresentSpec::OpenFile {
+            title: self.title,
+            filters: self.filters,
+            multiple: true,
+        };
+        match day_core::present(spec).await {
+            PresentResult::Files(v) => v.into_iter().map(FileUrl).collect(),
+            _ => Vec::new(),
+        }
+    }
+}
+
+impl IntoFuture for OpenFiles {
+    type Output = Vec<FileUrl>;
+    type IntoFuture = Presenting<Vec<FileUrl>>;
+    fn into_future(self) -> Self::IntoFuture {
+        Box::pin(self.present())
+    }
+}
+
+/// A native "choose folder" picker. `.await` (or `.present().await`) resolves to the chosen
+/// directory as a [`FileUrl`], or `None` if the user cancels — and `None` at once on a toolkit
+/// without a folder chooser, so ask [`Cap::FolderDialog`](day_spec::Cap::FolderDialog) before
+/// offering the command (phones answer `Unsupported`).
+///
+/// ```ignore
+/// if let Some(dir) = open_folder().title(res::str::add_folder()).await {
+///     scan(dir.local_path()?);
+/// }
+/// ```
+pub struct OpenFolder {
+    title: String,
+}
+
+/// Start a native folder chooser (docs/files.md).
+pub fn open_folder() -> OpenFolder {
+    OpenFolder {
+        title: day_l10n::t(day_l10n::key::day_open_folder),
+    }
+}
+
+impl OpenFolder {
+    /// Override the picker's title (localizable via `tr()`).
+    pub fn title<M>(mut self, t: impl IntoText<M>) -> Self {
+        self.title = t.into_text().initial();
+        self
+    }
+    pub async fn present(self) -> Option<FileUrl> {
+        let spec = PresentSpec::OpenFolder { title: self.title };
+        match day_core::present(spec).await {
+            PresentResult::Files(mut v) if !v.is_empty() => Some(FileUrl(v.remove(0))),
+            _ => None,
+        }
+    }
+}
+
+impl IntoFuture for OpenFolder {
     type Output = Option<FileUrl>;
     type IntoFuture = Presenting<Option<FileUrl>>;
     fn into_future(self) -> Self::IntoFuture {

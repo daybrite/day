@@ -4858,9 +4858,14 @@ fn present_json(spec: &PresentSpec) -> Option<String> {
             j.push_str(",\"cancel\":");
             json_str(&mut j, cancel);
         }
-        // The open picker: the shim clicks a hidden `<input type=file>` and answers with the
-        // chosen file's name and bytes through `day_dom_present_files`.
-        PresentSpec::OpenFile { title, filters } => {
+        // The open picker: the shim clicks a hidden `<input type=file>` (with `multiple` set
+        // for a several-files pick) and answers with each chosen file's name and bytes through
+        // `day_dom_present_file_stage` / `day_dom_present_files`.
+        PresentSpec::OpenFile {
+            title,
+            filters,
+            multiple,
+        } => {
             j.push_str("\"kind\":\"open\",\"title\":");
             json_str(&mut j, title);
             let accept: Vec<String> = filters
@@ -4870,7 +4875,15 @@ fn present_json(spec: &PresentSpec) -> Option<String> {
                 .collect();
             j.push_str(",\"accept\":");
             json_str(&mut j, &accept.join(","));
+            j.push_str(if *multiple {
+                ",\"multiple\":true"
+            } else {
+                ",\"multiple\":false"
+            });
         }
+        // A browser has no folder chooser that hands back a path (`Cap::FolderDialog` is
+        // Unsupported): the request resolves as Dismissed.
+        PresentSpec::OpenFolder { .. } => return None,
         // Save rides its own FFI arm (bytes attached); reaching here means a non-web build.
         PresentSpec::SaveFile { .. } => return None,
     }
@@ -5216,11 +5229,57 @@ pub extern "C" fn day_dom_present_result(req: u32, which: i32, ptr: *mut u8, len
     });
 }
 
+thread_local! {
+    /// The files of a several-files pick the shim has handed over so far, by request: each
+    /// `day_dom_present_file_stage` adds one, and the closing `day_dom_present_files` drains
+    /// them into the one `PresentResult::Files` answer (docs/files.md).
+    static STAGED_FILES: RefCell<HashMap<u32, Vec<String>>> = RefCell::new(HashMap::new());
+}
+
+/// Park a picked file's bytes in the `web_files` store under a fresh `/day-web/<id>/<leaf>`
+/// path and return that path. `bytes` is `None` for a save flow, whose bytes already left as a
+/// download.
+fn store_picked_file(name: &str, bytes: Option<Vec<u8>>) -> String {
+    // The last path component only — a hostile/odd name must not escape the store's prefix.
+    let leaf = name.rsplit(['/', '\\']).next().unwrap_or("file");
+    static NEXT_FILE: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(1);
+    let id = NEXT_FILE.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let path = format!("/day-web/{id}/{leaf}");
+    #[cfg(all(target_family = "wasm", target_os = "unknown"))]
+    if let Some(b) = bytes {
+        day_spec::present::web_files::write(&path, b);
+    }
+    #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
+    drop(bytes);
+    path
+}
+
+/// One file of a several-files pick, every one but the last: parked under its virtual path and
+/// held for `req` until `day_dom_present_files` closes the pick with the final file.
+#[allow(clippy::not_unsafe_ptr_arg_deref)] // both buffers are live `day_dom_alloc` allocations from the shim
+#[unsafe(no_mangle)]
+pub extern "C" fn day_dom_present_file_stage(
+    req: u32,
+    name_ptr: *mut u8,
+    name_len: usize,
+    bytes_ptr: *mut u8,
+    bytes_len: usize,
+) {
+    let name = take_string(name_ptr, name_len);
+    // SAFETY: the shim wrote exactly `bytes_len` bytes into a `day_dom_alloc` allocation.
+    let bytes =
+        (bytes_len > 0).then(|| unsafe { Vec::from_raw_parts(bytes_ptr, bytes_len, bytes_len) });
+    day_spec::ffi_guard::contain((), move || {
+        let path = store_picked_file(&name, bytes);
+        STAGED_FILES.with(|s| s.borrow_mut().entry(req).or_default().push(path));
+    });
+}
+
 /// A file picker's answer: `name` is the chosen file's display name; `bytes` its content for
 /// an open flow (len 0 for a save flow, whose bytes already left as a download). The bytes
-/// land in the `web_files` store under `/day-web/<name>`, and that virtual path answers the
-/// awaiting flow as `PresentResult::Files` — the pieces layer reads it back like a local path
-/// (docs/files.md).
+/// land in the `web_files` store under `/day-web/<name>`, and that virtual path — after any
+/// files staged for the same request — answers the awaiting flow as `PresentResult::Files`;
+/// the pieces layer reads each back like a local path (docs/files.md).
 #[allow(clippy::not_unsafe_ptr_arg_deref)] // both buffers are live `day_dom_alloc` allocations from the shim
 #[unsafe(no_mangle)]
 pub extern "C" fn day_dom_present_files(
@@ -5231,37 +5290,24 @@ pub extern "C" fn day_dom_present_files(
     bytes_len: usize,
 ) {
     let name = take_string(name_ptr, name_len);
-    let bytes = if bytes_len > 0 {
-        // SAFETY: the shim wrote exactly `bytes_len` bytes into a `day_dom_alloc` allocation.
-        Some(unsafe { Vec::from_raw_parts(bytes_ptr, bytes_len, bytes_len) })
-    } else {
-        None
-    };
+    // SAFETY: the shim wrote exactly `bytes_len` bytes into a `day_dom_alloc` allocation.
+    let bytes =
+        (bytes_len > 0).then(|| unsafe { Vec::from_raw_parts(bytes_ptr, bytes_len, bytes_len) });
     day_spec::ffi_guard::contain((), move || {
-        // The last path component only — a hostile/odd name must not escape the store's prefix.
-        let leaf = name
-            .rsplit(['/', '\\'])
-            .next()
-            .unwrap_or("file")
-            .to_string();
-        static NEXT_FILE: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(1);
-        let id = NEXT_FILE.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let path = format!("/day-web/{id}/{leaf}");
-        #[cfg(all(target_family = "wasm", target_os = "unknown"))]
-        if let Some(b) = bytes {
-            day_spec::present::web_files::write(&path, b);
-        }
-        #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
-        drop(bytes);
+        let path = store_picked_file(&name, bytes);
+        let mut paths = STAGED_FILES
+            .with(|s| s.borrow_mut().remove(&req))
+            .unwrap_or_default();
+        paths.push(path);
         if req == 0 {
-            day_core::request_open_files(vec![path]);
+            day_core::request_open_files(paths);
             return;
         }
         emit(
             day_spec::WINDOW_NODE,
             Event::PresentResult {
                 req: u64::from(req),
-                result: PresentResult::Files(vec![path]),
+                result: PresentResult::Files(paths),
             },
         );
     });

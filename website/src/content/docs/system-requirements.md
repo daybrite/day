@@ -61,7 +61,7 @@ Everything else depends on which targets you build.
 | `harmony-arkui` | ✅ | ✅ | ✅ |
 | `web-dom` | ✅ | ✅ | ✅ |
 
-Apple's toolkits build only on macOS, and WinUI and XAML only on Windows, because they compile
+Apple's toolkits build only on macOS, and WinUI and legacy system XAML only on Windows, because they compile
 against SDKs that exist only on the host OS. GTK and Qt are portable, so a macOS or Windows machine can build and
 run them for development even though you ship `linux-gtk` and `linux-qt`.
 

@@ -4810,6 +4810,8 @@ impl Toolkit for Gtk {
             | Cap::NavTabs
             | Cap::Dialogs
             | Cap::FileDialogs
+            // GtkFileDialog's `select_folder` (docs/files.md).
+            | Cap::FolderDialog
             | Cap::TextEditable
             // GTK's own DnD framework (DragSource/DropTarget) drives row reorder; the drop gap
             // indicator is the drag icon + forbidden cursor (docs/list.md has the nuance).
@@ -9011,7 +9013,11 @@ impl Toolkit for Gtk {
             // which aborts rather than unwinds. So DEFER the actual open/save to an idle: by then
             // `present()` has returned and the borrow is released, making any re-entry safe. (Same
             // reasoning as `schedule_list_resize`.)
-            PresentSpec::OpenFile { title, filters } => {
+            PresentSpec::OpenFile {
+                title,
+                filters,
+                multiple,
+            } => {
                 let dialog = gtk4::FileDialog::builder()
                     .title(title.as_str())
                     .modal(true)
@@ -9020,12 +9026,45 @@ impl Toolkit for Gtk {
                 let cancellable = gtk4::gio::Cancellable::new();
                 FILE_DIALOGS.with(|m| m.borrow_mut().insert(req));
                 let window = file_dialog_window(&parent);
+                let multiple = *multiple;
                 gtk4::glib::idle_add_local_once(move || {
                     if !claim_file_dialog(req) {
                         return;
                     }
-                    dialog.open(window.as_ref(), Some(&cancellable), move |res| {
-                        ffi_guard::contain((), || emit_file_result(req, res.map(|f| f.path())))
+                    if multiple {
+                        // `open_multiple` answers a GListModel of GFiles: every chosen path
+                        // crosses back, in the picker's order.
+                        dialog.open_multiple(window.as_ref(), Some(&cancellable), move |res| {
+                            ffi_guard::contain((), || {
+                                emit_file_result(req, res.map(|files| gfile_paths(&files)))
+                            })
+                        });
+                    } else {
+                        dialog.open(window.as_ref(), Some(&cancellable), move |res| {
+                            ffi_guard::contain((), || {
+                                emit_file_result(req, res.map(|f| f.path().into_iter().collect()))
+                            })
+                        });
+                    }
+                });
+            }
+            // The folder chooser: the same GtkFileDialog, in its `select_folder` mode.
+            PresentSpec::OpenFolder { title } => {
+                let dialog = gtk4::FileDialog::builder()
+                    .title(title.as_str())
+                    .modal(true)
+                    .build();
+                let cancellable = gtk4::gio::Cancellable::new();
+                FILE_DIALOGS.with(|m| m.borrow_mut().insert(req));
+                let window = file_dialog_window(&parent);
+                gtk4::glib::idle_add_local_once(move || {
+                    if !claim_file_dialog(req) {
+                        return;
+                    }
+                    dialog.select_folder(window.as_ref(), Some(&cancellable), move |res| {
+                        ffi_guard::contain((), || {
+                            emit_file_result(req, res.map(|f| f.path().into_iter().collect()))
+                        })
                     });
                 });
             }
@@ -9049,7 +9088,9 @@ impl Toolkit for Gtk {
                         return;
                     }
                     dialog.save(window.as_ref(), Some(&cancellable), move |res| {
-                        ffi_guard::contain((), || emit_file_result(req, res.map(|f| f.path())))
+                        ffi_guard::contain((), || {
+                            emit_file_result(req, res.map(|f| f.path().into_iter().collect()))
+                        })
                     });
                 });
             }
@@ -9186,18 +9227,31 @@ fn end_file_dialog(req: u64) {
 /// A result for a request that is no longer live has been answered already — `dismiss` removed
 /// the entry — so it is dropped rather than delivered: without that, a picker the app dismissed
 /// could still hand the app a file the user chose afterwards.
-fn emit_file_result(req: u64, res: Result<Option<std::path::PathBuf>, gtk4::glib::Error>) {
+fn emit_file_result(req: u64, res: Result<Vec<std::path::PathBuf>, gtk4::glib::Error>) {
     let live = FILE_DIALOGS.with(|m| m.borrow_mut().remove(&req));
     if !live {
         return;
     }
     let result = match res {
-        Ok(Some(path)) => {
-            day_spec::present::PresentResult::Files(vec![path.to_string_lossy().into_owned()])
-        }
+        Ok(paths) if !paths.is_empty() => day_spec::present::PresentResult::Files(
+            paths
+                .iter()
+                .map(|p| p.to_string_lossy().into_owned())
+                .collect(),
+        ),
         _ => day_spec::present::PresentResult::Dismissed,
     };
     emit(day_spec::WINDOW_NODE, Event::PresentResult { req, result });
+}
+
+/// The local paths of a `GtkFileDialog.open_multiple` answer: a GListModel of GFiles, in the
+/// picker's order. A file with no local path (a remote GVFS mount) is skipped.
+fn gfile_paths(files: &gtk4::gio::ListModel) -> Vec<std::path::PathBuf> {
+    (0..files.n_items())
+        .filter_map(|i| files.item(i))
+        .filter_map(|o| o.downcast::<gtk4::gio::File>().ok())
+        .filter_map(|f| f.path())
+        .collect()
 }
 
 /// A live modal's resolver: emits the first result only, then closes the AdwDialog (whose

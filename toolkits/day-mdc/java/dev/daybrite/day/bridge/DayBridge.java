@@ -3394,13 +3394,17 @@ public final class DayBridge extends DayRuntime {
     /** Reverse map (Day request id → requestCode) so dismissPresent can cancel a pending picker. */
     static final java.util.HashMap<Long, Integer> fileDayToReq = new java.util.HashMap<>();
 
-    public static void presentFileOpen(final long req, String title, String filtersJoined) {
+    /** `multiple` lets the document UI select several files; onFileResult then reads the
+     *  ClipData and reports every copy, joined by the unit separator (docs/files.md). */
+    public static void presentFileOpen(final long req, String title, String filtersJoined,
+            boolean multiple) {
         android.content.Intent intent =
             new android.content.Intent(android.content.Intent.ACTION_OPEN_DOCUMENT);
         intent.addCategory(android.content.Intent.CATEGORY_OPENABLE);
         intent.setType("*/*");
         String[] mimes = fileMimeTypes(filtersJoined);
         if (mimes.length > 0) intent.putExtra(android.content.Intent.EXTRA_MIME_TYPES, mimes);
+        if (multiple) intent.putExtra(android.content.Intent.EXTRA_ALLOW_MULTIPLE, true);
         launchFile(req, intent, null);
     }
 
@@ -3442,31 +3446,48 @@ public final class DayBridge extends DayRuntime {
         long req = slot[0];
         fileDayToReq.remove(req);
         String src = fileSaveSrc.remove(requestCode);
-        android.net.Uri uri = (resultCode == android.app.Activity.RESULT_OK && data != null) ? data.getData() : null;
-        if (uri == null) {
+        // A single pick arrives in getData(); a multiple-selection pick (EXTRA_ALLOW_MULTIPLE)
+        // arrives as ClipData items, in the user's order. Collect whichever the document UI sent.
+        final java.util.ArrayList<android.net.Uri> uris = new java.util.ArrayList<>();
+        if (resultCode == android.app.Activity.RESULT_OK && data != null) {
+            if (data.getData() != null) uris.add(data.getData());
+            android.content.ClipData clip = data.getClipData();
+            if (clip != null) {
+                for (int i = 0; i < clip.getItemCount(); i++) {
+                    android.net.Uri u = clip.getItemAt(i).getUri();
+                    if (u != null && !uris.contains(u)) uris.add(u);
+                }
+            }
+        }
+        if (uris.isEmpty()) {
             nativeOnEvent(req, K_PRESENT_DISMISSED, 0.0, null); // dismissed
             return;
         }
         final android.content.Context context = ctx;
         new Thread(() -> {
-            java.io.File staged = null;
-            String result;
-            try {
-                if (src != null) {
-                    copyStream(new java.io.FileInputStream(src), context.getContentResolver().openOutputStream(uri));
+            StringBuilder joined = new StringBuilder();
+            for (android.net.Uri uri : uris) {
+                java.io.File staged = null;
+                String result;
+                try {
+                    if (src != null) {
+                        copyStream(new java.io.FileInputStream(src), context.getContentResolver().openOutputStream(uri));
+                        result = uri.toString();
+                    } else {
+                        staged = java.io.File.createTempFile("day-open-", ".data", context.getCacheDir());
+                        copyStream(context.getContentResolver().openInputStream(uri), new java.io.FileOutputStream(staged));
+                        result = staged.getAbsolutePath();
+                    }
+                } catch (Exception e) {
+                    if (staged != null) staged.delete();
+                    android.util.Log.w("Day", "file open/save transfer failed", e);
                     result = uri.toString();
-                } else {
-                    staged = java.io.File.createTempFile("day-open-", ".data", context.getCacheDir());
-                    copyStream(context.getContentResolver().openInputStream(uri), new java.io.FileOutputStream(staged));
-                    result = staged.getAbsolutePath();
                 }
-                final String locator = result;
-                new android.os.Handler(android.os.Looper.getMainLooper()).post(() -> nativeOnEvent(req, K_PRESENT_FILE, 0.0, locator));
-            } catch (Exception e) {
-                if (staged != null) staged.delete();
-                android.util.Log.w("Day", "file open/save transfer failed", e);
-                new android.os.Handler(android.os.Looper.getMainLooper()).post(() -> nativeOnEvent(req, K_PRESENT_FILE, 0.0, uri.toString()));
+                if (joined.length() > 0) joined.append('\u001f');
+                joined.append(result);
             }
+            final String locators = joined.toString();
+            new android.os.Handler(android.os.Looper.getMainLooper()).post(() -> nativeOnEvent(req, K_PRESENT_FILE, 0.0, locators));
         }, "day-file-picker").start();
     }
 

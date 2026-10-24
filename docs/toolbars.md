@@ -115,7 +115,7 @@ out, the detail's taking the rest — the same packing within each. A window wit
 splitter (a settings window, a stack-only app) packs one flat bar by placement.
 
 Everywhere else the column is DROPPED, never the item: GTK draws one header bar with no divider
-to track, XAML's [`CommandBar`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.xaml.controls.commandbar) spans the window, and ArkUI's `.menus()` is a flat list.
+to track, WinUI's [`CommandBar`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.commandbar) spans the window, and ArkUI's `.menus()` is a flat list.
 Degradation always removes the specialization and keeps the command.
 
 ## The sidebar affordance
@@ -125,8 +125,8 @@ as an ordinary button under the reserved id `day_spec::SIDEBAR_TOGGLE_ID` whose 
 host it was built for ([`Toolkit::toggle_sidebar(host)`](https://daybrite.dev/api/day_spec/trait.Toolkit.html#method.toggle_sidebar)), so a second window's button collapses
 that window's sidebar and a dayscript `toolbar:` step presses it like any other item. Each
 toolkit does what its platform expects: AppKit swaps in `NSToolbarToggleSidebarItemIdentifier`,
-Qt keeps the button on the bar when its pane collapses (the track shrinks to it), XAML drops it because
-[`NavigationView`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.xaml.controls.navigationview) draws its own pane button, and **UIKit drops it entirely** — [`UISplitViewController`](https://developer.apple.com/documentation/uikit/uisplitviewcontroller)
+Qt keeps the button on the bar when its pane collapses (the track shrinks to it), WinUI drops it because
+[`NavigationView`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.navigationview) draws its own pane button, and **UIKit drops it entirely** — [`UISplitViewController`](https://developer.apple.com/documentation/uikit/uisplitviewcontroller)
 and `.tabSidebar` each supply one, and Day's copy was both dead on a phone and doubled on an iPad.
 Suppress it with [`.no_sidebar_toggle()`](https://daybrite.dev/api/day_pieces/trait.NavBuilder.html#tymethod.no_sidebar_toggle).
 
@@ -171,7 +171,7 @@ toolbar_segmented(
 
 Each toolkit draws the control its platform already has: [`NSSegmentedControl`](https://developer.apple.com/documentation/appkit/nssegmentedcontrol) in `selectOne`
 tracking on AppKit, a `.linked` box of grouped toggle buttons on GTK, an exclusive [`QButtonGroup`](https://doc.qt.io/qt-6/qbuttongroup.html)
-on Qt, a tight row of compact `AppBarToggleButton`s inside one `AppBarElementContainer` on XAML
+on Qt, a tight row of compact `AppBarToggleButton`s inside one `AppBarElementContainer` on WinUI
 (a checkable menu when it folds into the overflow), and the same `.day-segmented` element the
 picker piece uses on the web. The control enforces exclusivity; the signal only ever holds the
 chosen index.
@@ -326,18 +326,18 @@ that narrow.
 
 Platform guidance: [Apple: toolbars](https://developer.apple.com/design/human-interface-guidelines/toolbars); [Android: app bars](https://developer.android.com/develop/ui/views/components/appbar); [Windows: command bars](https://learn.microsoft.com/en-us/windows/apps/design/controls/command-bar).
 
-| | AppKit | GTK | Qt | XAML | UIKit | Android | ArkUI | Web |
+| | AppKit | GTK | Qt | WinUI | UIKit | Android | ArkUI | Web |
 |---|---|---|---|---|---|---|---|---|
 | placement | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | — | ✓ |
 | column | ✓ | — | ✓ | — | — | — | — | ✓ |
 
-| | AppKit | GTK | Qt | XAML |
+| | AppKit | GTK | Qt | WinUI |
 |---|---|---|---|---|
-| bar | [`NSToolbar`](https://developer.apple.com/documentation/appkit/nstoolbar), unified style | the window's [`AdwHeaderBar`](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/class.HeaderBar.html) | [`QToolBar`](https://doc.qt.io/qt-6/qtoolbar.html) | [`CommandBar`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.xaml.controls.commandbar) |
-| button | [`NSToolbarItem`](https://developer.apple.com/documentation/appkit/nstoolbaritem) (bordered) | flat [`GtkButton`](https://docs.gtk.org/gtk4/class.Button.html) | [`QAction`](https://doc.qt.io/qt-6/qaction.html) | [`AppBarButton`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.xaml.controls.appbarbutton) |
+| bar | [`NSToolbar`](https://developer.apple.com/documentation/appkit/nstoolbar), unified style | the window's [`AdwHeaderBar`](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/class.HeaderBar.html) | [`QToolBar`](https://doc.qt.io/qt-6/qtoolbar.html) | [`CommandBar`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.commandbar) |
+| button | [`NSToolbarItem`](https://developer.apple.com/documentation/appkit/nstoolbaritem) (bordered) | flat [`GtkButton`](https://docs.gtk.org/gtk4/class.Button.html) | [`QAction`](https://doc.qt.io/qt-6/qaction.html) | [`AppBarButton`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.appbarbutton) |
 | toggle | [`NSButton`](https://developer.apple.com/documentation/appkit/nsbutton) push-on/push-off | [`GtkToggleButton`](https://docs.gtk.org/gtk4/class.ToggleButton.html) | checkable [`QAction`](https://doc.qt.io/qt-6/qaction.html) | `AppBarToggleButton` |
-| menu | [`NSMenuToolbarItem`](https://developer.apple.com/documentation/appkit/nsmenutoolbaritem) | [`GtkMenuButton`](https://docs.gtk.org/gtk4/class.MenuButton.html) + `GMenu` | [`QToolButton`](https://doc.qt.io/qt-6/qtoolbutton.html) (InstantPopup) + [`QMenu`](https://doc.qt.io/qt-6/qmenu.html) | [`AppBarButton`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.xaml.controls.appbarbutton) + [`MenuFlyout`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.xaml.controls.menuflyout) |
-| search | [`NSSearchToolbarItem`](https://developer.apple.com/documentation/appkit/nssearchtoolbaritem) | [`GtkSearchEntry`](https://docs.gtk.org/gtk4/class.SearchEntry.html) | [`QLineEdit`](https://doc.qt.io/qt-6/qlineedit.html) (clear button + find action) | [`AutoSuggestBox`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.xaml.controls.autosuggestbox) |
+| menu | [`NSMenuToolbarItem`](https://developer.apple.com/documentation/appkit/nsmenutoolbaritem) | [`GtkMenuButton`](https://docs.gtk.org/gtk4/class.MenuButton.html) + `GMenu` | [`QToolButton`](https://doc.qt.io/qt-6/qtoolbutton.html) (InstantPopup) + [`QMenu`](https://doc.qt.io/qt-6/qmenu.html) | [`AppBarButton`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.appbarbutton) + [`MenuFlyout`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.menuflyout) |
+| search | [`NSSearchToolbarItem`](https://developer.apple.com/documentation/appkit/nssearchtoolbaritem) | [`GtkSearchEntry`](https://docs.gtk.org/gtk4/class.SearchEntry.html) | [`QLineEdit`](https://doc.qt.io/qt-6/qlineedit.html) (clear button + find action) | [`AutoSuggestBox`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.autosuggestbox) |
 | separator | *(none — a fixed space)* | [`GtkSeparator`](https://docs.gtk.org/gtk4/class.Separator.html) | [`QToolBar::addSeparator`](https://doc.qt.io/qt-6/qtoolbar.html) | `AppBarSeparator` |
 | icons | SF Symbols | freedesktop symbolic names | [`QIcon::fromTheme`](https://doc.qt.io/qt-6/qicon.html), then [`QStyle`](https://doc.qt.io/qt-6/qstyle.html) standard pixmaps | Segoe Fluent glyphs |
 
@@ -384,7 +384,7 @@ Notes that are not obvious from the table:
   agreed on a box, so every toolbar glyph is fitted by its ink to the same fraction of the bar's
   icon box and tinted to the palette text color; the box is 24 points on macOS (an [NSToolbar](https://developer.apple.com/documentation/appkit/nstoolbar)
   glyph's), and the user's setting on the Linux desktops.
-- **XAML**: [`CommandBar`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.xaml.controls.commandbar) right-aligns `PrimaryCommands`, left-aligns `Content` and folds
+- **WinUI**: [`CommandBar`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.commandbar) right-aligns `PrimaryCommands`, left-aligns `Content` and folds
   `SecondaryCommands` into its overflow — which is exactly the three groups Day's placements
   reduce to, so `Navigation`/`Principal` land in `Content`, `Automatic`/`Primary` in
   `PrimaryCommands` and `Secondary` in the overflow. A crowded bar folds its right-hand commands
@@ -398,7 +398,7 @@ Notes that are not obvious from the table:
   placed `Secondary`, it becomes one overflow command titled by the choice in force, whose flyout
   lists the choices as checkable rows. [`.label_style(…)`](https://daybrite.dev/api/day_pieces/struct.ToolbarEntry.html#method.label_style) is honored (`IconOnly` collapses the
   label, `TitleOnly` drops the icon); [`.prominent()`](https://daybrite.dev/api/day_pieces/struct.ToolbarEntry.html#method.prominent) is not drawn yet. The bar is docked only
-  while it draws something: the sidebar toggle alone (which [`NavigationView`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.xaml.controls.navigationview) draws itself) leaves
+  while it draws something: the sidebar toggle alone (which [`NavigationView`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.navigationview) draws itself) leaves
   no empty strip under the title bar. It comes first in tab order, before the content it acts
   on, and Tab wraps around the window rather than stopping at its last control. Secondary
   windows carry their own bar, like the primary.
@@ -410,7 +410,7 @@ position, so applying them in order to the bar's current items yields the new ba
 keeps a `day_spec::ToolbarMirror` of its bar and applies each op to it, and then does one of two
 things with its native bar:
 
-- **A bar of live widgets** (GTK, Qt, AppKit, XAML, Web) removes the one native item a
+- **A bar of live widgets** (GTK, Qt, AppKit, WinUI, Web) removes the one native item a
   `Remove` names and builds one for an `Insert`, placing it right after
   [`ToolbarMirror::prev_where`](https://daybrite.dev/api/day_spec/struct.ToolbarMirror.html#method.prev_where) its own group (an end of the header bar, a column's leading,
   principal or trailing group, a region of the CommandBar). Nothing already on the bar moves.

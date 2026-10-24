@@ -445,8 +445,23 @@ mod task_tests {
                 PresentSpec::OpenFile {
                     title: "open".into(),
                     filters: vec![],
+                    multiple: false,
                 },
                 PresentResult::Files(vec!["fixture.txt".into()]),
+            ),
+            (
+                PresentSpec::OpenFile {
+                    title: "open many".into(),
+                    filters: vec![],
+                    multiple: true,
+                },
+                PresentResult::Files(vec!["a.txt".into(), "b.txt".into()]),
+            ),
+            (
+                PresentSpec::OpenFolder {
+                    title: "folder".into(),
+                },
+                PresentResult::Files(vec!["music".into()]),
             ),
             (
                 PresentSpec::SaveFile {

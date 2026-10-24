@@ -16,7 +16,8 @@ const aliases = new Map([
   ['gtk 4', ['linux-gtk']], ['gtk4', ['linux-gtk']], ['gtk', ['linux-gtk']],
   ['qt 6', ['linux-qt']], ['qt6', ['linux-qt']], ['qt', ['linux-qt']],
   ['windows', ['windows-winui']], ['winui 3', ['windows-winui']], ['winui', ['windows-winui']],
-  ['system xaml', ['windows-xaml']], ['xaml', ['windows-winui']],
+  // XAML also names markup and shared feature identifiers, not the current toolkit.
+  ['system xaml', ['windows-xaml']],
   ['harmonyos', ['harmony-arkui']], ['openharmony', ['harmony-arkui']], ['arkui', ['harmony-arkui']],
   ['web dom', ['web-dom']], ['web', ['web-dom']], ['dom', ['web-dom']], ['browser', ['web-dom']],
   // An OS/family label must not silently select just one of its toolkits.

@@ -49,7 +49,7 @@ Ask [`capability(Cap::FontList)`](https://daybrite.dev/api/day_core/fn.capabilit
 | Qt | Native | [`QFontDatabase::families()`](https://doc.qt.io/qt-6/qfontdatabase.html) + `styles()` |
 | Android | Native | `/system/etc/fonts.xml` (the families `Typeface.create` resolves) plus the bundled `res/font/` families |
 | HarmonyOS | Native | `OH_Drawing_FontMgr` families and style sets, plus the bundled manifest (the bundled files are handed to the drawing layer as typefaces, since ArkTS `font.registerFont` reaches only the text engine labels use) |
-| Windows (XAML) | Native | DirectWrite's system font collection (a bundled family is addressed as `ms-appx:///fonts/<file>#<family>` on the way to the [`TextBlock`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.xaml.controls.textblock), the one form unpackaged XAML loads; the app keeps naming it by family) |
+| Windows (WinUI) | Native | DirectWrite's system font collection (a bundled family is addressed as `ms-appx:///fonts/<file>#<family>` on the way to the [`TextBlock`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.textblock), the one form unpackaged WinUI loads; the app keeps naming it by family) |
 | Web | **Emulated** | the CSS generic families (`system-ui`, `sans-serif`, `serif`, `monospace`, `cursive`, `fantasy`) with the four faces a browser synthesizes for any family, plus every bundled `FontFace` |
 
 The web answer is composed rather than read on purpose: a browser exposes the machine's fonts
@@ -139,7 +139,7 @@ never wrong. Cap height falls back to 0.7 × size.
 | Qt | [`QFontMetricsF`](https://doc.qt.io/qt-6/qfontmetricsf.html) | `capHeight()` | `tightBoundingRect()` |
 | Android | [`Paint.measureText`](https://developer.android.com/reference/android/graphics/Paint) + `FontMetrics` | the ink ascent of `H` — [`Paint`](https://developer.android.com/reference/android/graphics/Paint) has no cap metric | `getTextBounds` |
 | HarmonyOS | `OH_Drawing_FontMeasureText` + `OH_Drawing_FontGetMetrics` | the metrics' `capHeight` | **the line box** — no tight-bounds call in the C surface |
-| Windows (XAML) | a [`TextBlock`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.xaml.controls.textblock)'s desired size and `BaselineOffset` | **0.7 × size** — a [`TextBlock`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.xaml.controls.textblock) reports neither | **the line box** — likewise |
+| Windows (WinUI) | a [`TextBlock`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.textblock)'s desired size and `BaselineOffset` | **0.7 × size** — a [`TextBlock`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.textblock) reports neither | **the line box** — likewise |
 | Web | `measureText` with `fontBoundingBoxAscent` / `Descent` | the ink ascent of `H` | `actualBoundingBox*` |
 
 Toolkits measuring `H` pay one extra measurement of a one-character string,
