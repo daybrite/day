@@ -953,8 +953,15 @@ jobs:
           # walkthrough variants render every Chinese glyph as a tofu box on both toolkits.
           # libpulse0: the library day-part-sound loads at run time to reach the sound server;
           # without it the showcase's sound section reports no engine on this target.
+          # qt6-svg-plugins: Qt 6.9+ packaging (Ubuntu 25.04 and later) moved the SVG icon engine
+          # and image format plugins out of libqt6svg6; linuxdeploy-plugin-qt refuses to pack
+          # without the icon engine. Older releases have no such package (the plugins are still
+          # in libqt6svg6 there), hence the apt-cache guard.
           case "${{ matrix.toolkit }}" in
-            qt) sudo apt-get install -y --no-install-recommends qt6-base-dev qt6-svg-dev qt6-webengine-dev pkg-config fonts-noto-cjk libpulse0 ;;
+            qt)
+              sudo apt-get install -y --no-install-recommends qt6-base-dev qt6-svg-dev qt6-webengine-dev pkg-config fonts-noto-cjk libpulse0
+              if apt-cache show qt6-svg-plugins >/dev/null 2>&1; then sudo apt-get install -y --no-install-recommends qt6-svg-plugins; fi
+              ;;
             # dbus supplies `dbus-run-session`: GTK's file dialogs are portal-backed and a
             # runner has no session bus, so `day launch` starts a private one. Without it GTK
             # reaches the portal through a NULL GDBusConnection and segfaults on the 2nd dialog.
@@ -1026,6 +1033,13 @@ jobs:
               PLUGIN="$RUNNER_TEMP/linuxdeploy-plugin-gtk.sh"
               curl -fsSL --retry 5 --retry-all-errors -o "$PLUGIN" \
                 "https://raw.githubusercontent.com/linuxdeploy/linuxdeploy-plugin-gtk/7a3fbc31a9e5075073ff8790f26effbac5f84453/linuxdeploy-plugin-gtk.sh"
+              # The plugin copies `<libdir>/gtk-4.0` (the loadable-module directory) into the
+              # AppDir unconditionally, under `set -e`. GTK 4.20 built the print backends into
+              # the library, so a 4.20+ libgtk-4-1 (Ubuntu 26.04, GTK 4.22) ships no such
+              # directory and the copy fails the whole pack. An empty directory is what that
+              # GTK has to offer.
+              GTK4_MODULES="$(pkg-config --variable=libdir gtk4)/gtk-4.0"
+              [ -d "$GTK4_MODULES" ] || sudo mkdir -p "$GTK4_MODULES"
               ;;
             *)
               echo "::error::no linuxdeploy plugin known for toolkit '$TOOLKIT'"; exit 1 ;;

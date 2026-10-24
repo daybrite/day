@@ -506,7 +506,7 @@ fn gtk_group() -> Group {
             Probe::new(
                 "linuxdeploy-plugin-gtk",
                 crate::pack::appimage_tool_probe("linuxdeploy-plugin-gtk"),
-                "download linuxdeploy-plugin-gtk — without it the AppImage needs a machine that already has GTK",
+                "download linuxdeploy-plugin-gtk — without it the AppImage needs a machine that already has GTK (GTK 4.20+ ships no `<libdir>/gtk-4.0` module directory; the plugin needs it to exist, even empty)",
             )
             .need(Need::PackOptional),
         ],
@@ -575,7 +575,7 @@ fn qt_group() -> Group {
             Probe::new(
                 "linuxdeploy-plugin-qt",
                 crate::pack::appimage_tool_probe("linuxdeploy-plugin-qt"),
-                "download linuxdeploy-plugin-qt — without it the AppImage needs a machine that already has Qt",
+                "download linuxdeploy-plugin-qt — without it the AppImage needs a machine that already has Qt (Ubuntu 25.04+ also needs `apt install qt6-svg-plugins`, the SVG icon engine it packs)",
             )
             .need(Need::PackOptional),
         ],
