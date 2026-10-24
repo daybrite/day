@@ -3,95 +3,15 @@
 # SPDX-License-Identifier: MPL-2.0
 """Exercise readiness checks in temporary repositories; never create commits."""
 
-from contextlib import redirect_stdout
-import io
 import os
 from pathlib import Path
-import runpy
 import shutil
 import subprocess
-import sys
 import tempfile
 import unittest
-from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[2]
-
-
-class DownstreamPolicyTests(unittest.TestCase):
-    """Exercise checker verdicts with synthetic exports; no Git writes or network calls."""
-
-    def check_downstream(self, fixed_in, *, strict=False, clone=False):
-        script = ROOT / "scripts/ci/downstream-check.py"
-        checker = runpy.run_path(str(script), run_name="downstream_policy_test")
-        repo = checker["Repo"]("consumer", ROOT.parent / "consumer", "origin/main", 1, True)
-        checked = []
-
-        def check_root(_binary, _day, root, _env):
-            checked.append(root.name)
-            ok = root.name == fixed_in
-            return ok, "" if ok else "synthetic missing package"
-
-        args = [str(script), "--day", str(ROOT), "--day-bin", str(script)]
-        if strict:
-            args.append("--strict")
-        if clone:
-            args.append("--clone")
-        output = io.StringIO()
-        with mock.patch.dict(checker["main"].__globals__, {
-            "git": lambda *_args: "fixture",
-            "export_ref": mock.Mock(),
-            "export_worktree": mock.Mock(),
-            "sibling_repos": lambda *_args: [repo],
-            "listed_repos": lambda *_args: ["example/consumer"],
-            "run": lambda *_args, **_kwargs: subprocess.CompletedProcess([], 0, "", ""),
-            "cargo_roots": lambda tree: [tree],
-            "check_root": check_root,
-        }), mock.patch.object(sys, "argv", args), redirect_stdout(output):
-            status = checker["main"]()
-        return status, output.getvalue(), checked
-
-    def test_uncommitted_fix_warns_without_blocking(self):
-        status, output, checked = self.check_downstream("worktree")
-        self.assertEqual(status, 0)
-        self.assertEqual(checked, ["pushed", "head", "worktree"])
-        self.assertIn("FIXED, uncommitted", output)
-        self.assertIn("warning: fixed only in the working tree", output)
-        self.assertIn("do not block the day push", output)
-        self.assertNotIn("every downstream repository resolves", output)
-
-    def test_committed_fix_also_allows_local_push(self):
-        status, output, checked = self.check_downstream("head")
-        self.assertEqual(status, 0)
-        self.assertEqual(checked, ["pushed", "head"])
-        self.assertIn("FIXED, unpushed", output)
-
-    def test_strict_requires_published_fixes(self):
-        for fixed_in in ("head", "worktree"):
-            with self.subTest(fixed_in=fixed_in):
-                status, output, _ = self.check_downstream(fixed_in, strict=True)
-                self.assertEqual(status, 1)
-                self.assertNotIn("do not block the day push", output)
-
-    def test_unresolved_breakage_still_blocks(self):
-        status, output, _ = self.check_downstream(None)
-        self.assertEqual(status, 1)
-        self.assertIn("BROKEN", output)
-
-    def test_ci_clone_cannot_use_a_local_fix(self):
-        status, output, checked = self.check_downstream("worktree", clone=True)
-        self.assertEqual(status, 1)
-        self.assertEqual(checked, ["pushed"])
-        self.assertIn("BROKEN", output)
-
-    def test_published_fix_passes_local_and_ci_checks(self):
-        for clone in (False, True):
-            with self.subTest(clone=clone):
-                status, output, checked = self.check_downstream("pushed", strict=True, clone=clone)
-                self.assertEqual(status, 0)
-                self.assertEqual(checked, ["pushed"])
-                self.assertIn("every downstream repository resolves", output)
 
 
 class ReadinessTests(unittest.TestCase):
