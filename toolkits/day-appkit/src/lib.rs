@@ -5207,7 +5207,8 @@ fn apply_button_content(
         }
     });
     set_button_title(btn, title, style);
-    set_button_image(btn, style);
+    // The position first: the image setter pads a glyph that sits beside a title, and leaves
+    // an icon-only one alone, by reading it.
     unsafe {
         btn.setImagePosition(if image.is_none() {
             objc2_app_kit::NSCellImagePosition::NoImage
@@ -5216,6 +5217,9 @@ fn apply_button_content(
         } else {
             objc2_app_kit::NSCellImagePosition::ImageLeading
         });
+    }
+    set_button_image(btn, style);
+    unsafe {
         // The title is the spoken name (an icon-only button shows none), unless the app named
         // the button itself; overwriting that here replaced app labels on every title change.
         if !APP_LABELED.with(|t| t.contains(ptr_of(btn))) {
@@ -5260,14 +5264,17 @@ fn set_button_image(btn: &NSButton, style: day_spec::props::ButtonStyleSpec) {
         let position = btn.imagePosition();
         // Beside a title, the glyph gets a clear gap: AppKit draws a leading image flush
         // against the text, so the image carries the space itself (a template stays one, so
-        // the label color still tints it).
+        // the label color still tints it). The cell centers the image in its slot, so half
+        // the extra width lands on each side.
         let image = image.map(|source| {
-            if position != objc2_app_kit::NSCellImagePosition::ImageLeading {
+            // The position is set after this on a fresh button, so an unset one counts as
+            // "beside a title"; only an icon-only button keeps the glyph as drawn.
+            if position == objc2_app_kit::NSCellImagePosition::ImageOnly {
                 return source;
             }
             let size = source.size();
             let template = source.isTemplate();
-            let padded = NSSize::new(size.width + 5.0, size.height);
+            let padded = NSSize::new(size.width + 8.0, size.height);
             let draw = block2::RcBlock::new(move |_rect: NSRect| {
                 source.drawInRect_fromRect_operation_fraction(
                     NSRect::new(NSPoint::new(0.0, 0.0), size),
