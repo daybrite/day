@@ -30,7 +30,8 @@ struct LongPress {
     recognizer: NonNull<ArkUI_GestureRecognizer>,
 }
 
-thread_local! {
+day_reactive::tls_slots! {
+    gesture;
     static API: Cell<Option<NonNull<ArkUI_NativeGestureAPI_1>>> = const { Cell::new(None) };
     static LONG_PRESSES: RefCell<HashMap<usize, Vec<LongPress>>> = RefCell::new(HashMap::new());
 }

@@ -927,6 +927,18 @@ pub enum Event {
         from: usize,
         to: usize,
     },
+    /// A regrouping sidebar committed a drop (`props::NavMenuProps::regroup`, docs/navigation.md
+    /// "Moving rows between sections"), in item indices into the rows as they were before the
+    /// move: row `from` now sits in the section whose first row is item `section` (item 0 for
+    /// rows above the first header), before item `before`, or at that section's end for
+    /// `None`. `before` is never `from`. Emitted on the `NAV_MENU` node by a toolkit whose
+    /// `Cap::NavReorder` is `Native`, deferred through the event queue exactly as
+    /// [`Event::ListReorder`] is; the nav validates it against the app's rules before reporting.
+    NavRegroup {
+        from: usize,
+        section: usize,
+        before: Option<usize>,
+    },
     /// A native list committed a swipe-delete (docs/list.md): the row at this index is gone.
     /// Deferred through the event queue exactly as [`Event::ListReorder`] is.
     ListDelete(usize),
@@ -2298,9 +2310,10 @@ pub enum Cap {
     /// ItemTouchHelper, …), `Emulated` for a pointer-tracked fake (web-dom). `Unsupported` ⇒ the
     /// list renders normally but rows cannot be dragged (docs/list.md).
     ListReorder,
-    /// Sidebar destinations can be dragged to reorder (`NavBuilder::reorder_items`). `Native`
-    /// when the toolkit's own sidebar drags them (`NavMenuProps::movable`); `Emulated` when Day
-    /// stands a reorderable list in for the sidebar. Independent of `ListReorder`: UIKit
+    /// Sidebar destinations can be dragged to reorder (`NavBuilder::reorder_items`) and between
+    /// sections (`NavBuilder::regroup_items`). `Native` when the toolkit's own sidebar drags them
+    /// (`NavMenuProps::movable`, and across headers under `NavMenuProps::regroup`); `Emulated`
+    /// when Day stands a reorderable list in for the sidebar. Independent of `ListReorder`: UIKit
     /// supports draggable content lists but retains its native navigation collection for
     /// sidebars.
     NavReorder,
@@ -6417,6 +6430,16 @@ pub mod props {
         /// sidebar and reports a drop as [`crate::Event::ListReorder`] in item indices: `from`
         /// is the moved row, `to` the row whose position it takes, in the order before the move.
         pub movable: Vec<bool>,
+        /// The sidebar regroups (docs/navigation.md "Moving rows between sections"): a movable
+        /// row may also cross section headers, into any section whose rows are all movable. A
+        /// toolkit whose `Cap::NavReorder` is `Native` offers those drops too and reports every
+        /// drop as [`crate::Event::NavRegroup`] instead of [`crate::Event::ListReorder`]. `false`
+        /// keeps [`Self::movable`]'s run rule.
+        pub regroup: bool,
+        /// Which movable rows keep the app's sorted order within their own section, parallel to
+        /// `items`; empty when the sidebar does not regroup. Under [`Self::regroup`], a sorted
+        /// row drops only into another section: no gap in its own section is offered.
+        pub sorted: Vec<bool>,
         pub selected: Option<usize>,
     }
     #[derive(Clone, Debug, PartialEq)]
@@ -6453,6 +6476,9 @@ pub mod props {
             menus: Vec<Vec<crate::MenuItem>>,
             /// [`NavMenuProps::movable`] for the new rows.
             movable: Vec<bool>,
+            /// [`NavMenuProps::sorted`] for the new rows ([`NavMenuProps::regroup`] holds for
+            /// the sidebar's life).
+            sorted: Vec<bool>,
             selected: Option<usize>,
         },
     }

@@ -306,11 +306,15 @@ impl SectionSpan {
     }
 }
 
-thread_local! {
+day_reactive::tls_slots! {
+    list;
     /// Each sectioned list's map by node, for the event sink (which cannot borrow the tree).
     /// Weak: the list's state owns the map, and an entry outlives its list only until the next
     /// registration prunes it.
     static SECTION_MAPS: RefCell<HashMap<day_spec::NodeId, std::rc::Weak<SectionMap>>> =
+        RefCell::new(HashMap::new());
+    /// [`set_scripted_reorder`]'s routes by node.
+    static SCRIPTED_REORDERS: RefCell<HashMap<day_spec::NodeId, ScriptedReorder>> =
         RefCell::new(HashMap::new());
 }
 
@@ -467,11 +471,6 @@ pub fn list_try_reorder(node: RNode, from: usize, to: usize) -> Result<usize, &'
 /// A scripted reorder for a node that reorders without a list driver: a toolkit's own sidebar
 /// (`Cap::NavReorder` Native), whose rows the nav moves itself.
 type ScriptedReorder = Rc<dyn Fn(usize, usize) -> Result<usize, &'static str>>;
-
-thread_local! {
-    static SCRIPTED_REORDERS: RefCell<HashMap<day_spec::NodeId, ScriptedReorder>> =
-        RefCell::new(HashMap::new());
-}
 
 /// Route [`list_try_reorder`] at `node` (the dayscript `reorder` step) to `reorder`, for a piece
 /// that reorders rows with no list driver of its own. `reorder` gets the step's `from` and `to`

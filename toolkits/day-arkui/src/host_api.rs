@@ -43,7 +43,8 @@ type SearchArgs = FnArgs<(f64, i32, String, String)>;
 /// `setPageSearch(host, page, placeholder, text, focus)` (docs/search.md, "Page search").
 type PageSearchArgs = FnArgs<(f64, f64, String, String, bool)>;
 
-thread_local! {
+day_reactive::tls_slots! {
+    host_api;
     static TEXTAREA_KEY: Callback<FnArgs<(i32,)>> = const { RefCell::new(None) };
     /// `(revision, window)`: RenderService-backed capture checkpoints.
     static CAPTURE: Callback<FnArgs<(f64, f64)>> = const { RefCell::new(None) };
@@ -138,10 +139,13 @@ impl Drop for Scope {
     }
 }
 
+/// One registered callback among this module's thread-locals, picked by field.
+type Slot<Args> = fn(&TlsGroupSlots) -> &Callback<Args>;
+
 /// Call a registered callback with `args`, handing its return value to `with` inside a handle
 /// scope. `None` when nothing is registered (the host predates the seam) or the call failed.
 fn call<Args, R>(
-    slot: &'static std::thread::LocalKey<Callback<Args>>,
+    slot: Slot<Args>,
     args: Args,
     with: impl FnOnce(&Env, Unknown<'_>) -> R,
 ) -> Option<R>
@@ -150,8 +154,8 @@ where
 {
     let env = env()?;
     let _scope = Scope::open(&env);
-    slot.with(|s| {
-        let s = s.borrow();
+    crate::tls_root(|r| {
+        let s = slot(&r.host_api).borrow();
         let f = s.as_ref()?;
         let f = f.borrow_back(&env).ok()?;
         match f.call(args) {
@@ -164,13 +168,11 @@ where
     })
 }
 
-fn store<Args>(
-    slot: &'static std::thread::LocalKey<Callback<Args>>,
-    f: FunctionRef<Args, Unknown<'static>>,
-) where
+fn store<Args>(slot: Slot<Args>, f: FunctionRef<Args, Unknown<'static>>)
+where
     Args: napi_ohos::bindgen_prelude::JsValuesTupleIntoVec,
 {
-    slot.with(|s| *s.borrow_mut() = Some(f));
+    crate::tls_root(|r| *slot(&r.host_api).borrow_mut() = Some(f));
 }
 
 /// The bridge record, for `bridge::call_here`.
@@ -183,19 +185,23 @@ pub(crate) fn bridges<'env>(env: &'env Env) -> Option<Object<'env>> {
 #[napi(js_name = "registerTextAreaKey")]
 pub fn register_textarea_key(env: Env, callback: Registered<FnArgs<(i32,)>>) {
     remember(&env);
-    store(&TEXTAREA_KEY, callback);
+    store(|t| &t.TEXTAREA_KEY, callback);
 }
 
 /// Dispatch native Enter to a TextArea by its native unique ID (not a Day NodeId).
 /// Missing custom/older hosts report false; callers must not replace the text as a fallback
 /// because doing so would bypass the editor's undo and composition handling.
 pub(crate) fn textarea_enter(id: i32) -> bool {
-    call(&TEXTAREA_KEY, (id,).into(), |env, value| {
-        let mut handled = false;
-        // SAFETY: the live callback result is read inside its handle scope.
-        unsafe { sys::napi_get_value_bool(env.raw(), value.raw(), &mut handled) };
-        handled
-    })
+    call(
+        |t| &t.TEXTAREA_KEY,
+        (id,).into(),
+        |env, value| {
+            let mut handled = false;
+            // SAFETY: the live callback result is read inside its handle scope.
+            unsafe { sys::napi_get_value_bool(env.raw(), value.raw(), &mut handled) };
+            handled
+        },
+    )
     .unwrap_or(false)
 }
 
@@ -206,7 +212,7 @@ pub fn register_cover_layer(env: Env, content: Unknown, callback: Registered<FnA
     unsafe {
         OH_ArkUI_GetNodeContentFromNapiValue(env.raw().cast(), content.raw().cast(), &mut handle)
     };
-    store(&COVER_LAYER, callback);
+    store(|t| &t.COVER_LAYER, callback);
     crate::cover_layer_init(handle);
 }
 
@@ -217,7 +223,7 @@ pub fn cover_layer_resized(env: Env, width_vp: f64, height_vp: f64) {
 }
 
 pub fn show_cover_layer(shown: bool) {
-    call(&COVER_LAYER, FnArgs::from((shown,)), |_, _| ());
+    call(|t| &t.COVER_LAYER, FnArgs::from((shown,)), |_, _| ());
 }
 
 #[napi(js_name = "coverBackRequested")]
@@ -276,7 +282,7 @@ pub fn deep_link(env: Env, uri: String) {
 #[napi(js_name = "registerCapture")]
 pub fn register_capture(env: Env, callback: Registered<FnArgs<(f64, f64)>>) {
     remember(&env);
-    store(&CAPTURE, callback);
+    store(|t| &t.CAPTURE, callback);
 }
 
 #[napi(js_name = "captureReady")]
@@ -292,7 +298,7 @@ pub fn prepare_capture(revision: u32, window: u64) -> Result<day_spec::capture::
     let fence = CAPTURE_FENCES.with(|f| f.borrow_mut().entry(window).or_default().clone());
     if fence.begin(revision)
         && call(
-            &CAPTURE,
+            |t| &t.CAPTURE,
             FnArgs::from((f64::from(revision), window as f64)),
             |_, _| (),
         )
@@ -310,7 +316,7 @@ pub fn prepare_capture(revision: u32, window: u64) -> Result<day_spec::capture::
 #[napi(js_name = "registerFilePicker")]
 pub fn register_file_picker(env: Env, callback: Registered<FilePickerArgs>, cache_dir: String) {
     remember(&env);
-    store(&FILE_PICKER, callback);
+    store(|t| &t.FILE_PICKER, callback);
     if !cache_dir.is_empty() {
         crate::set_cache_dir(&cache_dir);
     }
@@ -331,8 +337,8 @@ pub fn register_dialogs(
     dismiss: Registered<FnArgs<(f64,)>>,
 ) {
     remember(&env);
-    store(&DIALOG, present);
-    store(&DISMISS_DIALOG, dismiss);
+    store(|t| &t.DIALOG, present);
+    store(|t| &t.DISMISS_DIALOG, dismiss);
 }
 
 /// Exactly one native answer per request, including close/failure callbacks arriving late.
@@ -381,7 +387,7 @@ pub fn present_dialog(req: u64, spec: &day_spec::present::PresentSpec) {
     };
     DIALOG_REQUESTS.with(|r| r.borrow_mut().insert(req));
     if call(
-        &DIALOG,
+        |t| &t.DIALOG,
         FnArgs::from((req as f64, payload.to_string())),
         |_, _| (),
     )
@@ -393,7 +399,11 @@ pub fn present_dialog(req: u64, spec: &day_spec::present::PresentSpec) {
 
 pub fn dismiss_dialog(req: u64) {
     if DIALOG_REQUESTS.with(|r| r.borrow_mut().remove(&req)) {
-        call(&DISMISS_DIALOG, FnArgs::from((req as f64,)), |_, _| ());
+        call(
+            |t| &t.DISMISS_DIALOG,
+            FnArgs::from((req as f64,)),
+            |_, _| (),
+        );
     }
 }
 
@@ -404,7 +414,7 @@ pub fn register_permissions(
     callback: FunctionRef<FnArgs<(f64, String)>, Unknown<'static>>,
 ) {
     remember(&env);
-    store(&PERMISSIONS, callback);
+    store(|t| &t.PERMISSIONS, callback);
 }
 
 /// `onPermissionResult(req, mask)`: bit i set when the i-th name was granted.
@@ -420,7 +430,7 @@ pub fn on_permission_result(req: f64, mask: f64) {
 #[napi(js_name = "registerOpenUrl")]
 pub fn register_open_url(env: Env, callback: FunctionRef<FnArgs<(String,)>, Unknown<'static>>) {
     remember(&env);
-    store(&OPEN_URL, callback);
+    store(|t| &t.OPEN_URL, callback);
 }
 
 /// `registerStatusBar(cb)`: the window's status bar (docs/cover.md). A request made before the
@@ -428,7 +438,7 @@ pub fn register_open_url(env: Env, callback: FunctionRef<FnArgs<(String,)>, Unkn
 #[napi(js_name = "registerStatusBar")]
 pub fn register_status_bar(env: Env, callback: FunctionRef<FnArgs<(bool,)>, Unknown<'static>>) {
     remember(&env);
-    store(&STATUS_BAR, callback);
+    store(|t| &t.STATUS_BAR, callback);
     if STATUS_BAR_HIDDEN.with(|h| h.get()) {
         set_status_bar_hidden(true);
     }
@@ -442,8 +452,8 @@ pub fn register_windows(
     close: FunctionRef<FnArgs<(f64,)>, Unknown<'static>>,
 ) {
     remember(&env);
-    store(&WINDOW_OPEN, open);
-    store(&WINDOW_CLOSE, close);
+    store(|t| &t.WINDOW_OPEN, open);
+    store(|t| &t.WINDOW_CLOSE, close);
 }
 
 /// `registerWindowControl(cb, privacy)` (docs/windows.md "Window properties"): the ArkTS half of
@@ -456,7 +466,7 @@ pub fn register_window_control(
     privacy: Option<bool>,
 ) {
     remember(&env);
-    store(&WINDOW_CONTROL, callback);
+    store(|t| &t.WINDOW_CONTROL, callback);
     PRIVACY_GRANTED.with(|p| p.set(privacy.unwrap_or(false)));
 }
 
@@ -532,20 +542,20 @@ pub fn register_nav(
     set_page_search: Option<Registered<PageSearchArgs>>,
 ) {
     remember(&env);
-    store(&NAV_PUSH, push);
-    store(&NAV_POP, pop);
-    store(&NAV_TITLE, set_title);
+    store(|t| &t.NAV_PUSH, push);
+    store(|t| &t.NAV_POP, pop);
+    store(|t| &t.NAV_TITLE, set_title);
     if let Some(f) = set_guard {
-        store(&NAV_GUARD, f);
+        store(|t| &t.NAV_GUARD, f);
     }
     if let Some(f) = set_menu {
-        store(&NAV_MENU, f);
+        store(|t| &t.NAV_MENU, f);
     }
     if let Some(f) = set_search {
-        store(&NAV_SEARCH, f);
+        store(|t| &t.NAV_SEARCH, f);
     }
     if let Some(f) = set_page_search {
-        store(&NAV_PAGE_SEARCH, f);
+        store(|t| &t.NAV_PAGE_SEARCH, f);
     }
 }
 
@@ -608,9 +618,9 @@ pub fn register_piece(
     dispose: FunctionRef<FnArgs<(f64,)>, Unknown<'static>>,
 ) {
     remember(&env);
-    store(&PIECE_MAKE, make);
-    store(&PIECE_UPDATE, update);
-    store(&PIECE_DISPOSE, dispose);
+    store(|t| &t.PIECE_MAKE, make);
+    store(|t| &t.PIECE_UPDATE, update);
+    store(|t| &t.PIECE_DISPOSE, dispose);
 }
 
 /// `pieceEvent(id, text, num?, kind?)`: an ArkTS-built component reporting back to its piece.
@@ -677,7 +687,7 @@ pub fn day_bridge_complete(
 /// unit separator). A missing picker answers an immediate cancel.
 pub fn present_file(req: u64, mode: i32, name: &str, src: &str, filters: &str) {
     let sent = call(
-        &FILE_PICKER,
+        |t| &t.FILE_PICKER,
         FnArgs::from((
             req as f64,
             mode,
@@ -701,7 +711,7 @@ pub fn request_permissions(req: u64, names: &str, cb: extern "C" fn(u64, u64)) -
     }
     PERMISSION_WAITERS.with(|w| w.borrow_mut().insert(req, cb));
     let sent = call(
-        &PERMISSIONS,
+        |t| &t.PERMISSIONS,
         FnArgs::from((req as f64, names.to_owned())),
         |_, _| (),
     );
@@ -714,13 +724,13 @@ pub fn request_permissions(req: u64, names: &str, cb: extern "C" fn(u64, u64)) -
 
 /// Open `url` in the system's default handler. A no-op when the host registered no opener.
 pub fn open_url(url: &str) {
-    call(&OPEN_URL, FnArgs::from((url.to_owned(),)), |_, _| ());
+    call(|t| &t.OPEN_URL, FnArgs::from((url.to_owned(),)), |_, _| ());
 }
 
 /// Hide or show the window's status bar. Remembered when no host is registered yet.
 pub fn set_status_bar_hidden(hidden: bool) {
     STATUS_BAR_HIDDEN.with(|h| h.set(hidden));
-    call(&STATUS_BAR, FnArgs::from((hidden,)), |_, _| ());
+    call(|t| &t.STATUS_BAR, FnArgs::from((hidden,)), |_, _| ());
 }
 
 /// Whether the host registered the window launchers (drives `Cap::MultiWindow`).
@@ -732,7 +742,7 @@ pub fn has_windows() -> bool {
 /// the open).
 pub fn open_window(node: u64, title: &str) -> bool {
     call(
-        &WINDOW_OPEN,
+        |t| &t.WINDOW_OPEN,
         FnArgs::from((node as f64, title.to_owned())),
         |_, _| (),
     )
@@ -740,7 +750,7 @@ pub fn open_window(node: u64, title: &str) -> bool {
 }
 
 pub fn close_window(node: u64) {
-    call(&WINDOW_CLOSE, FnArgs::from((node as f64,)), |_, _| ());
+    call(|t| &t.WINDOW_CLOSE, FnArgs::from((node as f64,)), |_, _| ());
 }
 
 /// A window property the ArkTS host sets through `registerWindowControl`'s callback.
@@ -768,7 +778,7 @@ pub fn can_protect_content() -> bool {
 /// request went out.
 pub fn window_control(node: u64, op: WindowOp, on: bool) -> bool {
     call(
-        &WINDOW_CONTROL,
+        |t| &t.WINDOW_CONTROL,
         FnArgs::from((node as f64, op as i32, on)),
         |_, _| (),
     )
@@ -780,7 +790,7 @@ pub fn window_control(node: u64, op: WindowOp, on: bool) -> bool {
 /// success.
 pub fn nav_push(owner: u64, page: Handle, key: u64, title: &str, pushed: bool) -> i32 {
     let mounted = call(
-        &NAV_PUSH,
+        |t| &t.NAV_PUSH,
         FnArgs::from((owner as f64, key as f64, title.to_owned(), pushed)),
         |env, ret| {
             let mut content: ArkUI_NodeContentHandle = ptr::null_mut();
@@ -816,12 +826,12 @@ pub fn nav_push(owner: u64, page: Handle, key: u64, title: &str, pushed: bool) -
 
 /// Pop the top NavDestination (a Day-initiated route change).
 pub fn nav_pop(owner: u64) {
-    call(&NAV_POP, FnArgs::from((owner as f64,)), |_, _| ());
+    call(|t| &t.NAV_POP, FnArgs::from((owner as f64,)), |_, _| ());
 }
 
 pub fn nav_set_title(owner: u64, title: &str) {
     call(
-        &NAV_TITLE,
+        |t| &t.NAV_TITLE,
         FnArgs::from((owner as f64, title.to_owned())),
         |_, _| (),
     );
@@ -829,14 +839,18 @@ pub fn nav_set_title(owner: u64, title: &str) {
 
 /// Arm/disarm the top destination's back guard. A host that predates the seam gets no guard.
 pub fn nav_set_guard(owner: u64, on: bool) {
-    call(&NAV_GUARD, FnArgs::from((owner as f64, on)), |_, _| ());
+    call(
+        |t| &t.NAV_GUARD,
+        FnArgs::from((owner as f64, on)),
+        |_, _| (),
+    );
 }
 
 /// The window toolbar's title-bar actions (docs/toolbars.md), five `\n`-joined parallel
 /// fields.
 pub fn nav_set_menu(icons: &str, labels: &str, actions: &str, scopes: &str, enabled: &str) {
     call(
-        &NAV_MENU,
+        |t| &t.NAV_MENU,
         FnArgs::from((
             icons.to_owned(),
             labels.to_owned(),
@@ -851,7 +865,7 @@ pub fn nav_set_menu(icons: &str, labels: &str, actions: &str, scopes: &str, enab
 /// Show (1), hide (0) or only re-text (-1) the navigation surface's search field.
 pub fn nav_set_search(owner: u64, shown: i32, prompt: &str, text: &str) {
     call(
-        &NAV_SEARCH,
+        |t| &t.NAV_SEARCH,
         FnArgs::from((owner as f64, shown, prompt.to_owned(), text.to_owned())),
         |_, _| (),
     );
@@ -861,7 +875,7 @@ pub fn nav_set_search(owner: u64, shown: i32, prompt: &str, text: &str) {
 /// root page) or take it down (0), with `focus` asking for focus once it shows.
 pub fn nav_set_page_search(owner: u64, page: i64, prompt: &str, text: &str, focus: bool) {
     call(
-        &NAV_PAGE_SEARCH,
+        |t| &t.NAV_PAGE_SEARCH,
         FnArgs::from((
             owner as f64,
             page as f64,
@@ -902,7 +916,7 @@ pub fn nav_forget(key: u64) {
 /// nothing is registered or the factory declined the kind.
 pub fn piece_make(kind: &str, id: u64, props: &str) -> Handle {
     call(
-        &PIECE_MAKE,
+        |t| &t.PIECE_MAKE,
         FnArgs::from((kind.to_owned(), id as f64, props.to_owned())),
         |env, ret| {
             let mut n: Handle = ptr::null_mut();
@@ -921,7 +935,7 @@ pub fn piece_make(kind: &str, id: u64, props: &str) -> Handle {
 /// Send a piece command to its ArkTS side.
 pub fn piece_update(id: u64, cmd: &str, arg: &str) {
     call(
-        &PIECE_UPDATE,
+        |t| &t.PIECE_UPDATE,
         FnArgs::from((id as f64, cmd.to_owned(), arg.to_owned())),
         |_, _| (),
     );
@@ -929,5 +943,5 @@ pub fn piece_update(id: u64, cmd: &str, arg: &str) {
 
 /// Release the ArkTS BuilderNode behind a piece node.
 pub fn piece_dispose(id: u64) {
-    call(&PIECE_DISPOSE, FnArgs::from((id as f64,)), |_, _| ());
+    call(|t| &t.PIECE_DISPOSE, FnArgs::from((id as f64,)), |_, _| ());
 }

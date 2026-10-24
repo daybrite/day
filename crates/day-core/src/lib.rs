@@ -15,6 +15,7 @@ day_reactive::tls_root! {
     conformance: crate::conformance::TlsGroupSlots,
     frame: crate::frame::TlsGroupSlots,
     image: crate::image::TlsGroupSlots,
+    list: crate::list::TlsGroupSlots,
     lifecycle: crate::lifecycle::TlsGroupSlots,
     menu: crate::menu::TlsGroupSlots,
     nav: crate::nav::TlsGroupSlots,

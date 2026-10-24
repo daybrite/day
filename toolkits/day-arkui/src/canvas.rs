@@ -63,7 +63,8 @@ struct Ops {
     texts: Vec<String>,
 }
 
-thread_local! {
+day_reactive::tls_slots! {
+    canvas;
     static CANVASES: RefCell<HashMap<usize, Ops>> = RefCell::new(HashMap::new());
     /// Decoded geometry, keyed by the encoder's content key (`day_spec::geometry_key`). Paths
     /// and polygons are the only ops whose geometry arrives as TEXT, and re-parsing every
@@ -71,16 +72,13 @@ thread_local! {
     /// the content, so an entry can never go stale, and one entry is safely shared by every
     /// canvas: drawing and clipping only READ a path.
     static PATH_CACHE: RefCell<HashMap<i64, *mut OH_Drawing_Path>> = RefCell::new(HashMap::new());
+    /// Day owns the Stack host; its drawing surface and focus button are private children.
+    static SURFACES: RefCell<HashMap<usize, CanvasNodes>> = RefCell::new(HashMap::new());
 }
 
 struct CanvasNodes {
     surface: Handle,
     focus: Handle,
-}
-
-thread_local! {
-    /// Day owns the Stack host; its drawing surface and focus button are private children.
-    static SURFACES: RefCell<HashMap<usize, CanvasNodes>> = RefCell::new(HashMap::new());
 }
 
 /// Build a canvas for day node `id`, returning its Stack host (null on allocation failure).

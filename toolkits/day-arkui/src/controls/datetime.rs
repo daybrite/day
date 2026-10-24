@@ -32,7 +32,8 @@ use day_spec::{NodeId, Proposal, Size};
 /// wheel shows at that height: the selected value and nothing to scroll to.
 const WHEELS_H: f64 = 200.0;
 
-std::thread_local! {
+day_reactive::tls_slots! {
+    datetime;
     /// The date nodes built as wheels (the inline style); the rest are the compact field.
     static DATE_WHEELS: std::cell::RefCell<std::collections::HashSet<usize>> =
         std::cell::RefCell::new(std::collections::HashSet::new());

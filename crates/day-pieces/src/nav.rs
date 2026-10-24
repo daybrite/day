@@ -1006,11 +1006,192 @@ struct NavReorder<K> {
     eligible: Rc<dyn Fn(&K) -> bool>,
     moved: Rc<dyn Fn(K, K)>,
 }
+
+/// How a sidebar row drags under [`Nav::regroup_items`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum NavDrag {
+    /// Doesn't drag, and nothing drops into its section.
+    Fixed,
+    /// Drags to another place in its own section or into another section.
+    Reorder,
+    /// Drags into another section only: its own section keeps the app's sorted order.
+    Regroup,
+}
+
+/// Where a dragged sidebar row landed ([`Nav::regroup_items`]).
+#[derive(Clone, Debug, PartialEq)]
+pub struct NavDrop<K> {
+    /// The dragged row.
+    pub moved: K,
+    /// The destination section's id (`section_id`), `None` for a section declared without one
+    /// and for the rows above the first header.
+    pub section: Option<String>,
+    /// The row it now sits before in that section; `None` at the section's end. Never `moved`.
+    pub before: Option<K>,
+}
+
+#[derive(Clone)]
+struct NavRegroup<K> {
+    drag: Rc<dyn Fn(&K) -> NavDrag>,
+    dropped: Rc<dyn Fn(NavDrop<K>)>,
+}
+
+/// A nav's sidebar dragging: [`Nav::reorder_items`] or [`Nav::regroup_items`], whichever was
+/// declared last.
+#[derive(Clone)]
+enum SidebarDrag<K> {
+    Reorder(NavReorder<K>),
+    Regroup(NavRegroup<K>),
+}
+
+impl<K> SidebarDrag<K> {
+    /// How the row with this key drags; a reorder's eligible row reorders.
+    fn drag(&self, key: &K) -> NavDrag {
+        match self {
+            SidebarDrag::Reorder(r) if (r.eligible)(key) => NavDrag::Reorder,
+            SidebarDrag::Reorder(_) => NavDrag::Fixed,
+            SidebarDrag::Regroup(g) => (g.drag)(key),
+        }
+    }
+}
+
+/// One nav's rows as a regroup sees them, in item order: each key, whether a section header
+/// opens before it, and that header's `section_id`. Rows above the first header form one
+/// unnamed section.
+struct RegroupRows<K> {
+    keys: Vec<K>,
+    opens: Vec<bool>,
+    ids: Vec<Option<String>>,
+}
+
+impl<K: Route> RegroupRows<K> {
+    fn from_nav(rows: NavRows<K>) -> Self {
+        RegroupRows {
+            opens: rows.sections.iter().map(Option::is_some).collect(),
+            ids: rows.section_ids,
+            keys: rows.keys,
+        }
+    }
+
+    /// From the stand-in list's rows, where each header is a row of its own.
+    fn from_sidebar(rows: &[SidebarRow<K>]) -> Self {
+        let mut r = RegroupRows {
+            keys: Vec::new(),
+            opens: Vec::new(),
+            ids: Vec::new(),
+        };
+        let mut header = None;
+        for row in rows {
+            match &row.key {
+                None => header = Some(row.section_id.clone()),
+                Some(key) => {
+                    r.keys.push(key.clone());
+                    r.opens.push(header.is_some());
+                    r.ids.push(header.take().flatten());
+                }
+            }
+        }
+        r
+    }
+
+    /// The rows [`reorder_sidebar`]'s list has: `None` for a header, `Some(i)` for item `i`.
+    fn display(&self) -> Vec<Option<usize>> {
+        let mut rows = Vec::with_capacity(self.keys.len() * 2);
+        for (i, opens) in self.opens.iter().enumerate() {
+            if *opens {
+                rows.push(None);
+            }
+            rows.push(Some(i));
+        }
+        rows
+    }
+
+    /// The first item of the section holding item `i`.
+    fn section_of(&self, i: usize) -> usize {
+        (1..=i).rev().find(|s| self.opens[*s]).unwrap_or(0)
+    }
+
+    /// A drop in item indices (`Event::NavRegroup`'s terms) checked against the regroup rules:
+    /// `Ok(None)` for a drop back where the row started, which reports nothing.
+    fn drop_at(
+        &self,
+        regroup: &NavRegroup<K>,
+        from: usize,
+        section: usize,
+        before: Option<usize>,
+    ) -> Result<Option<NavDrop<K>>, &'static str> {
+        let len = self.keys.len();
+        let drag = |i: usize| (regroup.drag)(&self.keys[i]);
+        if from >= len || drag(from) == NavDrag::Fixed {
+            return Err("regroup denied: the row is fixed or out of range");
+        }
+        if section >= len || (section > 0 && !self.opens[section]) {
+            return Err("regroup denied: no section starts at that row");
+        }
+        let end = (section + 1..len).find(|i| self.opens[*i]).unwrap_or(len);
+        if before.is_some_and(|b| b < section || b >= end || b == from) {
+            return Err("regroup denied: the row it lands before is not in that section");
+        }
+        if (section..end).any(|i| drag(i) == NavDrag::Fixed) {
+            return Err("regroup denied: a fixed row holds that section");
+        }
+        if self.section_of(from) == section {
+            if drag(from) == NavDrag::Regroup {
+                return Err("regroup denied: the row keeps its section's sorted order");
+            }
+            let next = (from + 1 < end).then_some(from + 1);
+            if before == next {
+                return Ok(None);
+            }
+        }
+        Ok(Some(NavDrop {
+            moved: self.keys[from].clone(),
+            section: if self.opens[section] {
+                self.ids[section].clone()
+            } else {
+                None
+            },
+            before: before.map(|b| self.keys[b].clone()),
+        }))
+    }
+
+    /// A move of display row `from` to display row `to` (the stand-in list's rotation: the
+    /// row ends up at index `to`), as a checked drop. Moving down onto a header lands on that
+    /// section's first row; moving up onto one lands at the end of the section above it.
+    fn display_drop(
+        &self,
+        regroup: &NavRegroup<K>,
+        from: usize,
+        to: usize,
+    ) -> Result<Option<NavDrop<K>>, &'static str> {
+        let rows = self.display();
+        let Some(Some(moved)) = rows.get(from).copied() else {
+            return Err("regroup denied: the row is a section header or out of range");
+        };
+        if to >= rows.len() {
+            return Err("regroup denied: the target is out of range");
+        }
+        // Display rows in their order after the move, named by their index before it.
+        let mut order: Vec<usize> = (0..rows.len()).filter(|r| *r != from).collect();
+        order.insert(to, from);
+        let section = match order[..to].iter().rev().find(|r| rows[**r].is_none()) {
+            // A header is always followed by its section's first row.
+            Some(header) => rows.get(header + 1).copied().flatten(),
+            None => rows[0],
+        }
+        .ok_or("regroup denied: no section above the first header")?;
+        let before = order.get(to + 1).and_then(|r| rows[*r]);
+        self.drop_at(regroup, moved, section, before)
+    }
+}
+
 #[derive(Clone, PartialEq)]
 struct SidebarRow<K> {
     id: String,
     parent: Option<String>,
     key: Option<K>,
+    /// A header row's `section_id`; `None` on item rows and on headers declared without one.
+    section_id: Option<String>,
     title: String,
     icon: Option<String>,
     tint: Option<day_spec::Color>,
@@ -1031,6 +1212,7 @@ fn sidebar_rows<K: Route>(rows: NavRows<K>) -> Vec<SidebarRow<K>> {
                 id: header,
                 parent: None,
                 key: None,
+                section_id: rows.section_ids[i].clone(),
                 title: title.clone(),
                 icon: None,
                 tint: None,
@@ -1044,6 +1226,7 @@ fn sidebar_rows<K: Route>(rows: NavRows<K>) -> Vec<SidebarRow<K>> {
             id: format!("item:{}", key.key()),
             parent: parent.clone(),
             key: Some(key),
+            section_id: None,
             title: rows.titles[i].clone(),
             icon: rows.icons[i].clone(),
             tint: rows.tints[i],
@@ -1293,7 +1476,8 @@ fn section_sidebar<K: Route, S: Binding<K>>(
 /// A dayscript `reorder` of a toolkit's own sidebar (`Cap::NavReorder` Native), in the rows
 /// [`reorder_sidebar`]'s list would have: a header row before each section, so one script
 /// drives both. A row moves within the run of movable rows around it; `to` is where it lands,
-/// the row whose place it takes in the order before the move.
+/// the row whose place it takes in the order before the move. A regrouping nav's script goes
+/// through [`RegroupRows::display_drop`] instead, the stand-in list's rule.
 fn script_nav_reorder<K: Route>(
     keys: &[K],
     sections: &[Option<String>],
@@ -1332,7 +1516,7 @@ fn script_nav_reorder<K: Route>(
 fn reorder_sidebar<K: Route, S: Binding<K>>(
     rows: Rc<SelItems<K>>,
     selection: S,
-    reorder: NavReorder<K>,
+    drag: SidebarDrag<K>,
     progress: Option<IconProgressSource<K>>,
 ) -> AnyPiece {
     // Pure drag callbacks read the committed snapshot, never re-run application row builders.
@@ -1431,8 +1615,8 @@ fn reorder_sidebar<K: Route, S: Binding<K>>(
             .into_iter()
             .collect()
     })
-    .reorderable(
-        crate::Reorder::new(move |from, to| {
+    .reorderable(match drag {
+        SidebarDrag::Reorder(reorder) => crate::Reorder::new(move |from, to| {
             let rows = commit();
             if let (Some(a), Some(b)) = (
                 rows.get(from).and_then(|r| r.key.clone()),
@@ -1454,7 +1638,24 @@ fn reorder_sidebar<K: Route, S: Binding<K>>(
                 ReorderVerdict::Allow
             }
         }),
-    )
+        // Headers are rows here, so the list's move names a destination section by where the
+        // row lands among them (`RegroupRows::display_drop`).
+        SidebarDrag::Regroup(regroup) => {
+            let check = regroup.clone();
+            crate::Reorder::new(move |from, to| {
+                let rows = RegroupRows::from_sidebar(&commit());
+                if let Ok(Some(drop)) = rows.display_drop(&regroup, from, to) {
+                    (regroup.dropped)(drop);
+                }
+            })
+            .guard(move |from, to| {
+                match RegroupRows::from_sidebar(&guard()).display_drop(&check, from, to) {
+                    Ok(_) => ReorderVerdict::Allow,
+                    Err(_) => ReorderVerdict::Deny,
+                }
+            })
+        }
+    })
     .id(day_core::id!(nav_reorder_list))
     .grow()
     .any()
@@ -1662,7 +1863,8 @@ pub struct Nav<S: Binding<K>, K: Route = String> {
     restore: Option<String>,
     /// Keep a filtered-out selection while its underlying record still exists.
     retain_selection: Option<ListPred<K>>,
-    reorder_items: Option<NavReorder<K>>,
+    /// Sidebar dragging ([`Nav::reorder_items`] or [`Nav::regroup_items`], the later wins).
+    reorder_items: Option<SidebarDrag<K>>,
     collapsed_sections: Option<AnyBinding<std::collections::HashSet<String>>>,
     on_section_expansion: Option<Rc<dyn Fn(String, bool)>>,
     /// Items declared on this host's own chrome ([`Nav::toolbar`]).
@@ -2065,7 +2267,8 @@ impl<T: Clone + 'static> Binding<bool> for Presence<T> {
 /// state is the set of COLLAPSED section ids; missing ids default to expanded, and temporarily
 /// filtered-out ids are retained. Pair with [`Nav::section_id`] for stable identities; unkeyed
 /// headings use their first route as a fallback identity. Takes precedence over
-/// [`Nav::reorder_items`]; combined collapse/reordering is not supported.
+/// [`Nav::reorder_items`] and [`Nav::regroup_items`]; combined collapse/reordering is not
+/// supported.
 pub struct Sections {
     collapsed: AnyBinding<std::collections::HashSet<String>>,
     on_change: Option<Rc<dyn Fn(String, bool)>>,
@@ -2470,10 +2673,33 @@ impl<K: Route, S: Binding<K>> Nav<S, K> {
         eligible: impl Fn(&K) -> bool + 'static,
         moved: impl Fn(K, K) + 'static,
     ) -> Self {
-        self.reorder_items = Some(NavReorder {
+        self.reorder_items = Some(SidebarDrag::Reorder(NavReorder {
             eligible: Rc::new(eligible),
             moved: Rc::new(moved),
-        });
+        }));
+        self
+    }
+
+    /// Like [`Self::reorder_items`], but rows may also cross section headers: drag a feed from
+    /// one collection's section into another's (docs/navigation.md "Moving rows between
+    /// sections"). `drag` says how each row drags, re-asked whenever the rows change:
+    /// [`NavDrag::Reorder`] rows move within their section and into others,
+    /// [`NavDrag::Regroup`] rows only into others (their own section keeps the app's sorted
+    /// order), and a section holding a [`NavDrag::Fixed`] row takes no drop at all. Rows above
+    /// the first header form one unnamed section. `dropped` gets the moved key, the
+    /// destination section's `section_id` and the row it now sits before; a drop back where
+    /// the row started reports nothing. Apply the move to the app's data, which brings the new
+    /// rows back. Declaring this and [`Self::reorder_items`] on one nav keeps the later one;
+    /// collapsible [`Self::sections`] take precedence over both. Probe `Cap::NavReorder`.
+    pub fn regroup_items(
+        mut self,
+        drag: impl Fn(&K) -> NavDrag + 'static,
+        dropped: impl Fn(NavDrop<K>) + 'static,
+    ) -> Self {
+        self.reorder_items = Some(SidebarDrag::Regroup(NavRegroup {
+            drag: Rc::new(drag),
+            dropped: Rc::new(dropped),
+        }));
         self
     }
 
@@ -3499,8 +3725,23 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Nav<S, K>, cx: &mut BuildCx) -> 
         let rows_script = items.clone();
         let movable_init: Vec<bool> = movable_of
             .as_ref()
-            .map(|r| typed.borrow().iter().map(|k| (r.eligible)(k)).collect())
+            .map(|r| {
+                typed
+                    .borrow()
+                    .iter()
+                    .map(|k| r.drag(k) != NavDrag::Fixed)
+                    .collect()
+            })
             .unwrap_or_default();
+        let regroup_init = matches!(movable_of, Some(SidebarDrag::Regroup(_)));
+        let sorted_init: Vec<bool> = match &movable_of {
+            Some(r @ SidebarDrag::Regroup(_)) => typed
+                .borrow()
+                .iter()
+                .map(|k| r.drag(k) == NavDrag::Regroup)
+                .collect(),
+            _ => Vec::new(),
+        };
         let document_keys = if sel.documents.is_some() {
             typed.borrow().iter().map(Route::key).collect()
         } else {
@@ -3544,6 +3785,8 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Nav<S, K>, cx: &mut BuildCx) -> 
                         tints: tints_init,
                         menus: menus_init,
                         movable: movable_init,
+                        regroup: regroup_init,
+                        sorted: sorted_init,
                         selected: selected_init,
                     },
                     Rc::new(LeafLayout),
@@ -3557,13 +3800,27 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Nav<S, K>, cx: &mut BuildCx) -> 
                 mh.set(Some(node));
                 // The dayscript `reorder` step drives this sidebar in the rows the stand-in list
                 // has, section headers counted, so one script reorders both.
-                if let Some(reorder) = native_reorder.clone() {
-                    let rows = rows_script.clone();
-                    day_core::set_scripted_reorder(node, move |from, to| {
-                        let NavRows { keys, sections, .. } =
-                            day_reactive::untrack(|| rows.derive());
-                        script_nav_reorder(&keys, &sections, &reorder, from, to)
-                    });
+                match native_reorder.clone() {
+                    Some(SidebarDrag::Reorder(reorder)) => {
+                        let rows = rows_script.clone();
+                        day_core::set_scripted_reorder(node, move |from, to| {
+                            let NavRows { keys, sections, .. } =
+                                day_reactive::untrack(|| rows.derive());
+                            script_nav_reorder(&keys, &sections, &reorder, from, to)
+                        });
+                    }
+                    Some(SidebarDrag::Regroup(regroup)) => {
+                        let rows = rows_script.clone();
+                        day_core::set_scripted_reorder(node, move |from, to| {
+                            let rows =
+                                RegroupRows::from_nav(day_reactive::untrack(|| rows.derive()));
+                            if let Some(drop) = rows.display_drop(&regroup, from, to)? {
+                                (regroup.dropped)(drop);
+                            }
+                            Ok(to)
+                        });
+                    }
+                    None => {}
                 }
                 if let Some((refreshing, action)) = refresh {
                     let refreshing = Rc::new(refreshing);
@@ -3603,7 +3860,26 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Nav<S, K>, cx: &mut BuildCx) -> 
                 }
                 // A row the sidebar itself dragged: `from` moved to where `to` stood, both
                 // item indices into the keys as they were before the move.
-                if let Some(reorder) = native_reorder {
+                // A drop a regrouping sidebar committed, checked against the app's rules here,
+                // whatever the toolkit offered.
+                if let Some(SidebarDrag::Regroup(regroup)) = native_reorder.clone() {
+                    let rows = rows_script.clone();
+                    mcx.on(node, move |ev| {
+                        if let Event::NavRegroup {
+                            from,
+                            section,
+                            before,
+                        } = *ev
+                        {
+                            let rows =
+                                RegroupRows::from_nav(day_reactive::untrack(|| rows.derive()));
+                            if let Ok(Some(drop)) = rows.drop_at(&regroup, from, section, before) {
+                                (regroup.dropped)(drop);
+                            }
+                        }
+                    });
+                }
+                if let Some(SidebarDrag::Reorder(reorder)) = native_reorder {
                     let keys = ks.clone();
                     mcx.on(node, move |ev| {
                         if let Event::ListReorder { from, to } = *ev {
@@ -4613,8 +4889,16 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Nav<S, K>, cx: &mut BuildCx) -> 
                                 menus: mns.clone(),
                                 movable: movable_e
                                     .as_ref()
-                                    .map(|r| keys.iter().map(|k| (r.eligible)(k)).collect())
+                                    .map(|r| {
+                                        keys.iter().map(|k| r.drag(k) != NavDrag::Fixed).collect()
+                                    })
                                     .unwrap_or_default(),
+                                sorted: match &movable_e {
+                                    Some(r @ SidebarDrag::Regroup(_)) => {
+                                        keys.iter().map(|k| r.drag(k) == NavDrag::Regroup).collect()
+                                    }
+                                    _ => Vec::new(),
+                                },
                                 selected,
                             }),
                             false,

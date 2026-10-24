@@ -126,7 +126,8 @@ struct SwipeCell {
     cell: Handle,
 }
 
-thread_local! {
+day_reactive::tls_slots! {
+    list;
     /// List node → its adapter binding. Boxed, so the adapter's user-data pointer is stable.
     static LISTS: RefCell<HashMap<usize, Box<List>>> = RefCell::new(HashMap::new());
     /// The in-flight reorder drag (one at a time; Day lists accept only their OWN rows).

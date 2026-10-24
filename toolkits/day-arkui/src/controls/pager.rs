@@ -19,7 +19,10 @@ struct State {
     pending: Option<PagerState>,
     serial: u64,
 }
-thread_local! {static STATES: RefCell<HashMap<usize,State>> = RefCell::new(HashMap::new());}
+day_reactive::tls_slots! {
+    pager;
+    static STATES: RefCell<HashMap<usize, State>> = RefCell::new(HashMap::new());
+}
 fn apply(handle: node::Handle, config: PagerState) {
     let pages = STATES.with(|states| {
         let mut states = states.borrow_mut();

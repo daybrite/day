@@ -68,6 +68,28 @@ pub use ext::*;
 #[cfg(target_env = "ohos")]
 pub use ohos_sys::arkui as arkui_sys;
 
+// One pthread key for the whole crate (`day_reactive::tls_root!`): OpenHarmony's musl, like
+// Android's bionic, allows a process 128, and Rust spends one per `thread_local!` static on
+// these targets. Each module keeps its statics in a `tls_slots!` block named here.
+#[cfg(target_env = "ohos")]
+day_reactive::tls_root! {
+    anim: crate::anim::TlsGroupSlots,
+    canvas: crate::canvas::TlsGroupSlots,
+    datetime: crate::controls::datetime::TlsGroupSlots,
+    fonts: crate::fonts::TlsGroupSlots,
+    gesture: crate::gesture::TlsGroupSlots,
+    host_api: crate::host_api::TlsGroupSlots,
+    images: crate::images::TlsGroupSlots,
+    imp: crate::imp::TlsGroupSlots,
+    list: crate::list::TlsGroupSlots,
+    main_thread: crate::main_thread::TlsGroupSlots,
+    node: crate::node::TlsGroupSlots,
+    pager: crate::controls::pager::TlsGroupSlots,
+    spinner: crate::controls::spinner::TlsGroupSlots,
+    transfer: crate::transfer::TlsGroupSlots,
+    vsync: crate::vsync::TlsGroupSlots,
+}
+
 #[cfg(target_env = "ohos")]
 mod imp {
     use std::cell::{Cell, RefCell};
@@ -91,7 +113,8 @@ mod imp {
 
     type Sink = Rc<dyn Fn(NodeId, Event)>;
 
-    day_core::tls_group! {
+    day_reactive::tls_slots! {
+        imp;
         static BUTTON_INK: day_spec::sidetable::SideTable<u32> = day_spec::sidetable::SideTable::new();
         static BUTTON_CHILDREN: RefCell<HashMap<usize, Vec<AHandle>>> = RefCell::new(HashMap::new());
         /// Each button's style and selected state (`ButtonProps::selected`), so the selected
@@ -271,6 +294,12 @@ mod imp {
         /// `WindowStateChanged` goes to (`WINDOW_NODE` for the primary): what a declined
         /// request reports back (docs/windows.md "Window properties").
         static WINDOW_STATES: RefCell<HashMap<u64, day_spec::WindowState>> = RefCell::new(HashMap::new());
+        /// `BitmapId` → what the decode reported (docs/images.md). Only the METADATA lives here;
+        /// the pixels are the image module's, in a pixelmap registry under the same id.
+        static BITMAP_INFO: RefCell<HashMap<u64, day_spec::BitmapInfo>> =
+            RefCell::new(HashMap::new());
+        /// Whether `ensure_canvas_fonts` has run in this process.
+        static CANVAS_FONTS_REGISTERED: Cell<bool> = const { Cell::new(false) };
     }
 
     /// Height of the composed bottom bar, in vp (HarmonyOS's tab-bar metric).
@@ -708,13 +737,6 @@ mod imp {
             }
         }
         col
-    }
-
-    thread_local! {
-        /// `BitmapId` → what the decode reported (docs/images.md). Only the METADATA lives here;
-        /// the pixels are the image module's, in a pixelmap registry under the same id.
-        static BITMAP_INFO: RefCell<HashMap<u64, day_spec::BitmapInfo>> =
-            RefCell::new(HashMap::new());
     }
 
     /// Re-encode a decoded bitmap (docs/images.md).
@@ -4788,10 +4810,7 @@ mod imp {
     /// text engine that labels use and not `OH_Drawing`'s font manager, which is why the
     /// showcase's canvas came out in the system face while its labels were right.
     fn ensure_canvas_fonts() {
-        thread_local! {
-            static DONE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
-        }
-        if DONE.with(|d| d.replace(true)) {
+        if CANVAS_FONTS_REGISTERED.with(|d| d.replace(true)) {
             return;
         }
         let Some(manifest) = open_resource("fonts.json") else {

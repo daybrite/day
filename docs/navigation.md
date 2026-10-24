@@ -1196,6 +1196,61 @@ addressable as `sidebar:item:<key>` and `sidebar:header:<id>`; a native sidebar'
 Day elements, so a script reaches them through the sidebar itself (`select`, `reorder`). Tabs
 and rails remain fixed. Without the option, the existing native sidebar widget is unchanged.
 
+### Moving rows between sections
+
+[`.regroup_items(drag, dropped)`](https://daybrite.dev/api/day_pieces/trait.NavBuilder.html#tymethod.regroup_items) lets a row cross section headers as well, so a reader can
+drag a feed from one collection's section into another's. `drag` returns a
+[`NavDrag`](https://daybrite.dev/api/day_pieces/enum.NavDrag.html) for each row, and Day asks again whenever the rows change:
+
+- `NavDrag::Reorder` rows move within their section and into other sections.
+- `NavDrag::Regroup` rows move only into other sections. Use it when a section keeps the app's
+  sorted order, so a drop inside it would be undone by the next sort.
+- `NavDrag::Fixed` rows don't drag, and their section takes no drops.
+
+A section takes a drop only when every row in it is `Reorder` or `Regroup`. Rows above the first
+header form one unnamed section. `dropped` receives a
+[`NavDrop`](https://daybrite.dev/api/day_pieces/struct.NavDrop.html): the moved key, the destination's `section_id` (`None` for a section
+declared without one and for the unnamed section), and `before`, the key the row now sits before
+(`None` at the section's end). Day reports `before` for a sorted destination too; ignore it there
+and insert at the sorted position. A drop back where the row started reports nothing. Apply the
+move to the app's data; the sidebar then shows the new rows.
+
+```rust
+nav(selected)
+    .items(nav_items(move || feed_rows(), |row| {
+        let item = item(row.key.clone(), row.title.clone());
+        if row.first_in_collection {
+            item.section_id(format!("collection:{}", row.collection), row.collection_title.clone())
+        } else {
+            item
+        }
+    }))
+    .regroup_items(
+        |key| if is_feed(key) { NavDrag::Regroup } else { NavDrag::Fixed },
+        move |drop| store.move_feed(drop.moved, drop.section, drop.before),
+    )
+```
+
+`reorder_items` and `regroup_items` are alternatives. A nav that declares both keeps the one
+declared last. `Cap::NavReorder` decides the path here too:
+
+- **Native** (AppKit): the source-list outline offers the gaps of every section that takes a drop,
+  with Finder's gap look. It offers no gap in a section that holds a fixed row, none above the
+  first header unless rows sit there, and none in a sorted row's own section. A gap belongs to the
+  nearest header above it, so the gap just above a header ends the previous section. A drop onto a
+  header lands in that section's first gap. The outline reports the drop as
+  `Event::NavRegroup { from, section, before }` in item indices, and the nav checks it against
+  the rules above before it calls `dropped`.
+- **Emulated** (GTK, Qt, WinUI, web, ArkUI): the stand-in list lets a row cross header rows, and
+  its guard applies the same rules.
+- **Unsupported** (UIKit, Android): unchanged, the sidebar doesn't drag.
+
+A dayscript `reorder` step drives both paths with the same display rows, headers counted. The row
+at `from` ends up at index `to`, as in any list reorder, and its section is the nearest header
+above that place. Moving a row down onto a header row lands it as that section's first row;
+moving it up onto a header row lands it at the end of the section above. A step the rules deny
+fails, as a denied reorder does.
+
 ## Collapsible sidebar sections
 
 Give each group a stable, unlocalized identity with [`.section_id("owner:daybrite", title,
@@ -1218,6 +1273,6 @@ Day-Hub saves groups per GitHub account; Day-Showcase saves stable group IDs in 
 The sidebar uses a two-level tree. AppKit retains genuine floating source-list group headers
 and system disclosure controls; UIKit, GTK, Qt, WinUI and Android use their native tree/group
 controls. DOM and ArkUI use composed disclosure. Tabs and rails do not gain disclosure.
-When both options are supplied, collapsible sections take precedence over [`reorder_items`](https://daybrite.dev/api/day_pieces/trait.NavBuilder.html#tymethod.reorder_items);
+When both options are supplied, collapsible sections take precedence over [`reorder_items`](https://daybrite.dev/api/day_pieces/trait.NavBuilder.html#tymethod.reorder_items) and [`regroup_items`](https://daybrite.dev/api/day_pieces/trait.NavBuilder.html#tymethod.regroup_items);
 reordering and collapsing in the same sidebar is not currently supported. Apps such as
 Day-News retain reordering until that combination is implemented.

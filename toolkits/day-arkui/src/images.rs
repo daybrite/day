@@ -39,7 +39,8 @@ pub use ohos_sys_opaque_types::OH_PixelmapNative;
 
 use crate::node::Handle;
 
-thread_local! {
+day_reactive::tls_slots! {
+    images;
     static BITMAPS: RefCell<HashMap<u64, *mut OH_PixelmapNative>> = RefCell::new(HashMap::new());
     // NODE_IMAGE_SRC borrows its descriptor. Keep it alive until the source is replaced or
     // the node disposed, rather than leaking a descriptor on every reactive image update.

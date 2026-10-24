@@ -46,7 +46,8 @@ pub struct FontReq {
     pub family: String,
 }
 
-thread_local! {
+day_reactive::tls_slots! {
+    fonts;
     static MANAGER: Cell<*mut OH_Drawing_FontMgr> = const { Cell::new(ptr::null_mut()) };
     /// The bundled families, by lower-cased name, as typefaces built from the font files'
     /// bytes; kept for the process, shared by every font that uses them.

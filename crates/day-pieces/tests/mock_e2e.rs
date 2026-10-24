@@ -10538,6 +10538,10 @@ fn native_nav_reorder_keeps_the_sidebar_and_moves_by_its_event() {
         "{:?}",
         probe.log()
     );
+    assert!(
+        !probe.log().iter().any(|l| l.contains("regroup")),
+        "reorder_items alone never regroups"
+    );
     // The toolkit's drop: item 1 (feed:a) takes item 3's place (feed:c).
     let node = node_id(&probe, "day.nav_menu", 0);
     probe.emit(node, Event::ListReorder { from: 1, to: 3 });
@@ -10561,6 +10565,328 @@ fn native_nav_reorder_keeps_the_sidebar_and_moves_by_its_event() {
     assert!(
         day_core::list_try_reorder(menu, 2, 1).is_err(),
         "the header stays put"
+    );
+}
+
+/// One feed of the regroup fixtures: its key and the collection it sits in.
+type FixtureFeed = (&'static str, &'static str);
+
+/// What a regroup fixture saw: every reported drop, in order.
+type Drops = std::rc::Rc<std::cell::RefCell<Vec<NavDrop<Option<String>>>>>;
+
+/// Day-News's sidebar shape: `today` above the first header, one `nav_items` block opening a
+/// section per collection (`section_id` on each run's first row), and a fixed `Smart` section.
+/// A drop moves the feed into the reported collection, before the reported row or at the
+/// collection's end, so the next step sees the rows the app would show.
+fn regroup_nav(
+    selected: Signal<Option<String>>,
+    feeds: Signal<Vec<FixtureFeed>>,
+    drag: fn(&Option<String>) -> NavDrag,
+    drops: Drops,
+) -> AnyPiece {
+    nav(selected)
+        .style(NavStyle::Sidebar)
+        .item("today".to_string(), "Fixture today", || label("Today page"))
+        .items(nav_items(
+            move || {
+                let rows = feeds.get();
+                (0..rows.len())
+                    .map(|i| (rows[i], i == 0 || rows[i - 1].1 != rows[i].1))
+                    .collect::<Vec<_>>()
+            },
+            |((key, collection), first): &(FixtureFeed, bool)| {
+                let row = item(key.to_string(), key.to_string());
+                if *first {
+                    row.section_id(format!("collection:{collection}"), collection.to_string())
+                } else {
+                    row
+                }
+            },
+        ))
+        .section_id(
+            "smart",
+            "Fixture smart",
+            item("starred".to_string(), "Fixture starred").page(|| label("Starred page")),
+        )
+        .destination(|_| label("Fixture feed page"))
+        .regroup_items(drag, move |drop: NavDrop<Option<String>>| {
+            drops.borrow_mut().push(drop.clone());
+            feeds.update(|rows| {
+                let at = |rows: &Vec<FixtureFeed>, key: &Option<String>| {
+                    rows.iter().position(|(k, _)| key.as_deref() == Some(*k))
+                };
+                let Some(from) = at(rows, &drop.moved) else {
+                    return;
+                };
+                let (key, _) = rows.remove(from);
+                let collection = match drop.section.as_deref() {
+                    Some("collection:news") => "news",
+                    Some("collection:tech") => "tech",
+                    other => panic!("no such collection: {other:?}"),
+                };
+                let to = match &drop.before {
+                    Some(before) => at(rows, before).unwrap(),
+                    None => rows
+                        .iter()
+                        .rposition(|(_, c)| *c == collection)
+                        .map_or(rows.len(), |i| i + 1),
+                };
+                rows.insert(to, (key, collection));
+            });
+        })
+        .any()
+}
+
+fn feed_drag_sorted(key: &Option<String>) -> NavDrag {
+    if key.as_deref().is_some_and(|k| k.starts_with("feed:")) {
+        NavDrag::Regroup
+    } else {
+        NavDrag::Fixed
+    }
+}
+
+fn feed_drag_free(key: &Option<String>) -> NavDrag {
+    if key.as_deref().is_some_and(|k| k.starts_with("feed:")) {
+        NavDrag::Reorder
+    } else {
+        NavDrag::Fixed
+    }
+}
+
+fn regroup_feeds() -> Vec<FixtureFeed> {
+    vec![
+        ("feed:a", "news"),
+        ("feed:b", "news"),
+        ("feed:e", "news"),
+        ("feed:c", "tech"),
+        ("feed:d", "tech"),
+    ]
+}
+
+fn fixture_drop(moved: &str, section: &str, before: Option<&str>) -> NavDrop<Option<String>> {
+    NavDrop {
+        moved: Some(moved.to_string()),
+        section: Some(section.to_string()),
+        before: before.map(|b| Some(b.to_string())),
+    }
+}
+
+#[test]
+fn nav_regroup_moves_rows_between_sections_on_the_stand_in_list() {
+    let selected = Signal::new(Some("feed:b".to_string()));
+    let feeds = Signal::new(regroup_feeds());
+    let drops: Drops = Default::default();
+    let seen = drops.clone();
+    let probe = boot(move || regroup_nav(selected, feeds, feed_drag_sorted, seen));
+    let host = probe.find_by_kind("day.list")[0].0;
+    let list = day_core::with_tree(|t| t.find_by_id("nav_reorder_list")).expect("addressable");
+    // 0 today, 1 [news], 2 a, 3 b, 4 e, 5 [tech], 6 c, 7 d, 8 [smart], 9 starred.
+    // The stand-in list's own guard offers the same drops a script makes.
+    assert_eq!(probe.list_can_move(host, 2, 5), 5, "into tech");
+    assert_eq!(probe.list_can_move(host, 2, 3), -1, "news keeps its order");
+    // Down onto a header: that section's first row.
+    assert_eq!(day_core::list_try_reorder(list, 2, 5), Ok(5));
+    flush_sync();
+    assert_eq!(
+        drops.borrow().last(),
+        Some(&fixture_drop("feed:a", "collection:tech", Some("feed:c")))
+    );
+    // 0 today, 1 [news], 2 b, 3 e, 4 [tech], 5 a, 6 c, 7 d, 8 [smart], 9 starred.
+    // Into the middle of a section: b now sits between a and c.
+    assert_eq!(day_core::list_try_reorder(list, 2, 5), Ok(5));
+    flush_sync();
+    assert_eq!(
+        drops.borrow().last(),
+        Some(&fixture_drop("feed:b", "collection:tech", Some("feed:c")))
+    );
+    // 0 today, 1 [news], 2 e, 3 [tech], 4 a, 5 b, 6 c, 7 d, 8 [smart], 9 starred.
+    // Up onto a header: the end of the section above it.
+    assert_eq!(day_core::list_try_reorder(list, 7, 3), Ok(3));
+    flush_sync();
+    assert_eq!(
+        drops.borrow().last(),
+        Some(&fixture_drop("feed:d", "collection:news", None))
+    );
+    assert_eq!(
+        feeds.get_untracked(),
+        [
+            ("feed:e", "news"),
+            ("feed:d", "news"),
+            ("feed:a", "tech"),
+            ("feed:b", "tech"),
+            ("feed:c", "tech"),
+        ]
+    );
+    assert_eq!(drops.borrow().len(), 3);
+    assert_eq!(selected.get_untracked().as_deref(), Some("feed:b"));
+}
+
+#[test]
+fn nav_regroup_denies_sorted_moves_fixed_sections_and_fixed_rows() {
+    let selected = Signal::new(Some("feed:b".to_string()));
+    let feeds = Signal::new(regroup_feeds());
+    let drops: Drops = Default::default();
+    let seen = drops.clone();
+    boot(move || regroup_nav(selected, feeds, feed_drag_sorted, seen));
+    let list = day_core::with_tree(|t| t.find_by_id("nav_reorder_list")).expect("addressable");
+    // 0 today, 1 [news], 2 a, 3 b, 4 e, 5 [tech], 6 c, 7 d, 8 [smart], 9 starred.
+    for (from, to, why) in [
+        (2, 3, "a sorted row stays out of its own section's order"),
+        (2, 2, "nor is it dropped back in place"),
+        (2, 8, "the smart section holds a fixed row"),
+        (2, 9, "nor between its rows"),
+        (2, 0, "the rows above the first header hold a fixed row"),
+        (0, 3, "a fixed row never drags"),
+        (1, 3, "a header never drags"),
+        (2, 10, "out of range"),
+    ] {
+        assert!(day_core::list_try_reorder(list, from, to).is_err(), "{why}");
+        flush_sync();
+    }
+    assert!(drops.borrow().is_empty());
+    assert_eq!(feeds.get_untracked(), regroup_feeds());
+}
+
+#[test]
+fn nav_regroup_reorder_rows_move_within_their_section() {
+    let selected = Signal::new(Some("feed:b".to_string()));
+    let feeds = Signal::new(regroup_feeds());
+    let drops: Drops = Default::default();
+    let seen = drops.clone();
+    boot(move || regroup_nav(selected, feeds, feed_drag_free, seen));
+    let list = day_core::with_tree(|t| t.find_by_id("nav_reorder_list")).expect("addressable");
+    // 0 today, 1 [news], 2 a, 3 b, 4 e, 5 [tech], 6 c, 7 d, 8 [smart], 9 starred.
+    assert_eq!(day_core::list_try_reorder(list, 2, 3), Ok(3));
+    flush_sync();
+    assert_eq!(
+        drops.borrow().as_slice(),
+        [fixture_drop("feed:a", "collection:news", Some("feed:e"))]
+    );
+    // Dropped back where it started: allowed, and nothing to report.
+    assert_eq!(day_core::list_try_reorder(list, 2, 2), Ok(2));
+    flush_sync();
+    assert_eq!(drops.borrow().len(), 1);
+    assert_eq!(
+        feeds.get_untracked()[..3],
+        [("feed:b", "news"), ("feed:a", "news"), ("feed:e", "news")]
+    );
+}
+
+#[test]
+fn nav_regroup_items_overrides_an_earlier_reorder_items() {
+    let selected = Signal::new(Some("feed:b".to_string()));
+    let drops: Drops = Default::default();
+    let seen = drops.clone();
+    boot(move || {
+        nav(selected)
+            .style(NavStyle::Sidebar)
+            .section_id(
+                "collection:news",
+                "News",
+                item("feed:a".to_string(), "a").page(|| label("a")),
+            )
+            .section_id(
+                "collection:tech",
+                "Tech",
+                item("feed:b".to_string(), "b").page(|| label("b")),
+            )
+            .reorder_items(|_| true, |_, _| panic!("regroup_items came later"))
+            .regroup_items(feed_drag_sorted, move |drop| seen.borrow_mut().push(drop))
+    });
+    let list = day_core::with_tree(|t| t.find_by_id("nav_reorder_list")).expect("addressable");
+    // 0 [news], 1 a, 2 [tech], 3 b: down onto tech's header is tech's first row.
+    assert_eq!(day_core::list_try_reorder(list, 1, 2), Ok(2));
+    flush_sync();
+    assert_eq!(
+        drops.borrow().as_slice(),
+        [fixture_drop("feed:a", "collection:tech", Some("feed:b"))]
+    );
+    // Nothing above the first header: no section to drop into there.
+    assert!(day_core::list_try_reorder(list, 3, 0).is_err());
+}
+
+#[test]
+fn native_nav_regroup_marks_sorted_rows_and_moves_by_its_event() {
+    day_core::uninstall_tree();
+    let (mock, probe) = MockToolkit::new();
+    probe.set_native_nav_reorder(true);
+    let selected = Signal::new(Some("feed:b".to_string()));
+    let feeds = Signal::new(regroup_feeds());
+    let drops: Drops = Default::default();
+    let seen = drops.clone();
+    day_core::launch_with(mock, WindowOptions::default(), move || {
+        regroup_nav(selected, feeds, feed_drag_sorted, seen)
+    });
+    assert!(probe.find_by_kind("day.list").is_empty());
+    assert!(
+        probe.log().iter().any(|l| l.contains(
+            "movable=[false, true, true, true, true, true, false] regroup \
+             sorted=[false, true, true, true, true, true, false]"
+        )),
+        "{:?}",
+        probe.log()
+    );
+    // Items: 0 today, 1 a, 2 b, 3 e, 4 c, 5 d, 6 starred; sections open at 1, 4 and 6.
+    let node = node_id(&probe, "day.nav_menu", 0);
+    probe.emit(
+        node,
+        Event::NavRegroup {
+            from: 1,
+            section: 4,
+            before: Some(5),
+        },
+    );
+    flush_sync();
+    assert_eq!(
+        drops.borrow().as_slice(),
+        [fixture_drop("feed:a", "collection:tech", Some("feed:d"))]
+    );
+    // Items: 0 today, 1 b, 2 e, 3 c, 4 a, 5 d, 6 starred. Whatever a toolkit reports, the
+    // nav holds it to the rules.
+    for (from, section, before) in [
+        (1, 6, None),    // the smart section holds a fixed row
+        (1, 2, None),    // no section starts at e
+        (1, 1, Some(2)), // b keeps news's sorted order
+        (0, 3, None),    // today never drags
+        (1, 3, Some(1)), // `before` is never the moved row
+        (1, 3, Some(6)), // nor a row of another section
+    ] {
+        probe.emit(
+            node,
+            Event::NavRegroup {
+                from,
+                section,
+                before,
+            },
+        );
+        flush_sync();
+    }
+    assert_eq!(drops.borrow().len(), 1);
+    // dayscript's `reorder` reaches it under the stand-in list's name and rows:
+    // 0 today, 1 [news], 2 b, 3 e, 4 [tech], 5 c, 6 a, 7 d, 8 [smart], 9 starred.
+    let menu = day_core::with_tree(|t| t.find_by_id("nav_reorder_list")).expect("addressable");
+    assert_eq!(day_core::list_try_reorder(menu, 3, 4), Ok(4));
+    flush_sync();
+    assert_eq!(
+        drops.borrow().last(),
+        Some(&fixture_drop("feed:e", "collection:tech", Some("feed:c")))
+    );
+    // 0 today, 1 [news], 2 b, 3 [tech], 4 e, 5 c, 6 a, 7 d, 8 [smart], 9 starred.
+    assert!(day_core::list_try_reorder(menu, 4, 5).is_err(), "sorted");
+    assert!(
+        day_core::list_try_reorder(menu, 4, 8).is_err(),
+        "fixed section"
+    );
+    assert_eq!(drops.borrow().len(), 2);
+    assert_eq!(
+        feeds.get_untracked(),
+        [
+            ("feed:b", "news"),
+            ("feed:e", "tech"),
+            ("feed:c", "tech"),
+            ("feed:a", "tech"),
+            ("feed:d", "tech"),
+        ]
     );
 }
 

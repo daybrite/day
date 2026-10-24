@@ -989,6 +989,9 @@ nav(section)                       // sidebar / tabs / segmented, per NavStyle
                                    //   data-driven block; .item(k, t, f) is the shorthand
     .section(title, content)       //   a header over any of the above; .section_id(id, t, c)
     .sections(Sections::restored(key).on_change(f))   // collapsible headings, one value
+    .reorder_items(eligible, moved) // drag rows within runs (Cap::NavReorder); or
+    .regroup_items(drag, dropped)  //   across headers: NavDrag per row, NavDrop { moved,
+                                   //   section, before } back; the later of the two wins
     .searchable(Search::new(q).prompt(p).reveal(SearchReveal::OnPull))   // docs/search.md
     .refreshable(busy, refresh)    //   native UIKit/Android sidebar pull; app-owned busy state
     .content_list(ContentList::new(build)   // the Mail shape's middle column (2026-08): a
@@ -2296,6 +2299,8 @@ pub enum Event {
     Lifecycle(Lifecycle),                     // docs/lifecycle.md; DidExit is the last phase,
                                               // after which day-core writes its exit line
     ListReorder { from: usize, to: usize },   // committed native row drag (docs/list.md)
+    NavRegroup { from, section, before },     // a regrouping sidebar's drop across headers,
+                                              // item indices (docs/navigation.md)
     ListDelete(usize),                        // committed swipe-delete (docs/list.md)
     ListSwipe { index, edge, action },        // activated swipe action (docs/list.md)
     TreeExpanded { token, expanded },         // native disclosure (docs/tree.md)
@@ -7766,7 +7771,7 @@ The Showcase walkthrough samples after groups of screens and ends with a `1G` bu
 | `toggle` | `id`, `value?` | omitted value = flip |
 | `select` | `id`, `index`, `if_present?` | pickers/tabs/list selection; `if_present: true` skips an absent element once UI transitions settle, for a control only some layouts have (a phone's pane switcher) |
 | `activate` | `id`, `index` | invoke a list row without changing selection; out-of-range indices are ignored |
-| `reorder` | `id`, `from`, `to` | drag-reorder a list row through the guard → commit seam ([docs/list.md](docs/list.md)); a guard denial fails the step, non-retryably |
+| `reorder` | `id`, `from`, `to` | drag-reorder a list row through the guard → commit seam ([docs/list.md](docs/list.md)); a guard denial fails the step, non-retryably. On a regrouping sidebar the row may cross header rows: down onto a header is that section's first row, up onto one the end of the section above ([docs/navigation.md](docs/navigation.md#moving-rows-between-sections)) |
 | `delete_row` | `id`, `row` | delete a list row through the same guard → commit path a native swipe takes ([docs/list.md](docs/list.md)); a guard refusal fails the step, non-retryably |
 | `swipe_row` | `id`, `row`, `edge?`, `action?`, `label?`/`key?` | activate a row's swipe action through the offer → commit seam ([docs/list.md](docs/list.md)): `edge` defaults to `trailing`, `action` to 0 (the full-swipe button); `label:`/`key:` (Fluent, run-locale) pins which button may be pressed — a mismatched offer refuses the press, leaving state untouched |
 | `web_eval` | `id`, `script`, `contains?`, `text?`, `timeout_secs?` | evaluate JavaScript in a web-view node and assert on the result ([docs/webview-eval.md](docs/webview-eval.md)) — proves a page RENDERED where `assert_visible` only proves the native view exists; retryable while pending/throwing/mismatching; `timeout_secs` raises the engine and runner wait budgets for cold browser startup or slow page loads (tested by `web_eval_honors_its_own_timeout`); gate with `only_on:` to the backends whose eval arm exists |
@@ -8296,6 +8301,21 @@ and retains its native UICollectionView sidebar with system labels, disclosure i
 selection appearance; declaring reordering never replaces that navigation surface. The opt-in rows and their reactive subscriptions live under the
 navigation page scope and are disposed with it. Regression: `nav_sidebar_reorder` in
 `crates/day-pieces/tests/mock_e2e.rs`.
+
+`Nav::regroup_items(drag, dropped)` (2026-10) is the alternative that lets rows cross section
+headers ([docs/navigation.md](docs/navigation.md#moving-rows-between-sections)). Each row answers
+a `NavDrag` (`Fixed`, `Reorder`, or `Regroup` for a row whose section keeps the app's sorted
+order); a section takes a drop only when none of its rows is `Fixed`, and rows above the first
+header form one unnamed section. A drop reports `NavDrop { moved, section, before }` with the
+destination's `section_id`. One `RegroupRows` check in day-pieces holds every path to these rules:
+the stand-in list's guard and commit and the dayscript `reorder` step convert a display-row move
+(the row lands at `to`; its section is the nearest header above) into item indices, and the
+native path receives them directly. No new `Cap`: `Cap::NavReorder` Native means the toolkit's
+sidebar regroups too. `NavMenuProps` carries `regroup` and a per-row `sorted` beside `movable`
+(`NavMenuPatch::Items` carries `sorted`), and AppKit's outline offers the gaps of every section
+that takes a drop (the pure `regroup_gap`, unit-tested in day-appkit) and reports
+`Event::NavRegroup { from, section, before }`. Regressions: `nav_regroup_*` and
+`native_nav_regroup_*` in `crates/day-pieces/tests/mock_e2e.rs`.
 
 `Prompt::ok_label` and `cancel_label` let an application supply localized command labels for
 native URL/input sheets while retaining the existing awaitable cancel/dismiss contract.

@@ -71,7 +71,8 @@ pub const EV_KEY: ArkUI_NodeEventType = ArkUI_NodeEventType::NODE_ON_KEY_EVENT;
 pub const EV_SLIDER_CHANGE: ArkUI_NodeEventType = ArkUI_NodeEventType::NODE_SLIDER_EVENT_ON_CHANGE;
 pub const EV_SWIPER_CHANGE: ArkUI_NodeEventType = ArkUI_NodeEventType::NODE_SWIPER_EVENT_ON_CHANGE;
 
-thread_local! {
+day_reactive::tls_slots! {
+    node;
     static API: Cell<Option<NonNull<ArkUI_NativeNodeAPI_1>>> = const { Cell::new(None) };
     /// Display density (px per vp): ArkUI attributes are vp, measure and layout are px.
     static DENSITY: Cell<f64> = const { Cell::new(1.0) };
@@ -82,6 +83,20 @@ thread_local! {
     /// swapping back restores it without requiring another tint patch.
     static IMAGE_NODES: RefCell<HashMap<usize, ImageNodes>> =
         RefCell::new(HashMap::new());
+    /// `measure_label`'s reusable text node (see there).
+    static PROBE: Cell<Handle> = const { Cell::new(ptr::null_mut()) };
+    /// The capsule around one line of button text: (pad_w, pad_h, min_h), calibrated once.
+    static BUTTON_CHROME: Cell<Option<(f64, f64, f64)>> = const { Cell::new(None) };
+    /// Each styled Text's SPAN children, in order (docs/text-runs.md). ArkUI takes a span
+    /// through `addChild` but never hands it back: on OpenHarmony 6.1 (API 18)
+    /// `getTotalChildCount` answers 0 for a Text holding spans and `getChildAt` returns null,
+    /// while the spans render. So the backend keeps the handles it attached. Clearing a label's
+    /// runs reaches the old spans through this list (a child walk found none, so a changed run
+    /// list stacked its spans after the old ones), and `native_text` reads each span's own
+    /// NODE_SPAN_CONTENT through it.
+    static LABEL_SPANS: RefCell<HashMap<usize, Vec<Handle>>> = RefCell::new(HashMap::new());
+    /// Native span handle -> owning Day label and original link target.
+    static SPAN_LINKS: RefCell<HashMap<usize, (u64, String)>> = RefCell::new(HashMap::new());
 }
 
 #[derive(Clone, Copy)]
@@ -522,9 +537,6 @@ pub fn measure_label(n: Handle, max_w: f64, max_h: f64) -> (f64, f64) {
     // previous label (`copy_attr` skips an attribute the source leaves unset), and marks it for
     // measurement, which is what makes `measureNode` answer for the new attributes rather than
     // the old ones, the reason this used a fresh copy.
-    thread_local! {
-        static PROBE: Cell<Handle> = const { Cell::new(ptr::null_mut()) };
-    }
     let probe = PROBE.with(|p| {
         if p.get().is_null() {
             p.set(create(TEXT));
@@ -564,11 +576,6 @@ fn measure_text_box(n: Handle, max_w: f64, max_h: f64) -> (f64, f64) {
         w
     };
     (w, h)
-}
-
-thread_local! {
-    /// The capsule around one line of button text: (pad_w, pad_h, min_h), calibrated once.
-    static BUTTON_CHROME: Cell<Option<(f64, f64, f64)>> = const { Cell::new(None) };
 }
 
 /// Measure a button. A title button measures a fresh copy, for the reason a label does: after
@@ -699,19 +706,6 @@ pub fn label_set_selectable(n: Handle, on: bool) {
 pub fn label_runs_begin(n: Handle) {
     set_text(n, "");
     label_runs_clear(n);
-}
-
-thread_local! {
-    /// Each styled Text's SPAN children, in order (docs/text-runs.md). ArkUI takes a span
-    /// through `addChild` but never hands it back: on OpenHarmony 6.1 (API 18)
-    /// `getTotalChildCount` answers 0 for a Text holding spans and `getChildAt` returns null,
-    /// while the spans render. So the backend keeps the handles it attached. Clearing a label's
-    /// runs reaches the old spans through this list (a child walk found none, so a changed run
-    /// list stacked its spans after the old ones), and `native_text` reads each span's own
-    /// NODE_SPAN_CONTENT through it.
-    static LABEL_SPANS: RefCell<HashMap<usize, Vec<Handle>>> = RefCell::new(HashMap::new());
-    /// Native span handle -> owning Day label and original link target.
-    static SPAN_LINKS: RefCell<HashMap<usize, (u64, String)>> = RefCell::new(HashMap::new());
 }
 
 /// Remove and dispose a label's spans, last to first: before new runs, and when the label goes

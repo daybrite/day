@@ -31,7 +31,8 @@ use ohos_sys::arkui::native_type::{
 
 use crate::node::Handle;
 
-thread_local! {
+day_reactive::tls_slots! {
+    anim;
     static API: Cell<Option<NonNull<ArkUI_NativeAnimateAPI_1>>> = const { Cell::new(None) };
 }
 

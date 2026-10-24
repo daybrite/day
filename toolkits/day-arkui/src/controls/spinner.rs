@@ -13,7 +13,8 @@ use crate::{AHandle, ArkUi};
 use day_spec::NodeId;
 use day_spec::props::{ProgressPatch as ActivityPatch, ProgressProps as ActivityProps};
 
-std::thread_local! {
+day_reactive::tls_slots! {
+    spinner;
     // Entries are reclaimed by the toolkit's release sweep.
     static SIDES: day_spec::sidetable::SideTable<f64> = day_spec::sidetable::SideTable::new();
 }

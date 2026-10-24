@@ -1388,6 +1388,10 @@ impl Toolkit for MockToolkit {
                 " items={:?} selected={:?} movable={:?}",
                 p.items, p.selected, p.movable
             );
+            // Only a regrouping sidebar carries these, so other logs read as they always have.
+            if p.regroup {
+                detail.push_str(&format!(" regroup sorted={:?}", p.sorted));
+            }
         } else if let Some(p) = props.downcast_ref::<PickerProps>() {
             w.text = p.options.join("|");
             w.value = p.selected as f64;
@@ -1573,14 +1577,19 @@ impl Toolkit for MockToolkit {
                         badges,
                         rows_changed,
                         movable,
+                        sorted,
                         ..
                     } => {
                         w.text = items.join("|");
                         w.value = selected.map(|i| i as f64).unwrap_or(-1.0);
-                        format!(
+                        let mut line = format!(
                             "menu items={items:?} selected={selected:?} badges={badges:?} \
                              rows_changed={rows_changed:?} movable={movable:?}"
-                        )
+                        );
+                        if !sorted.is_empty() {
+                            line.push_str(&format!(" sorted={sorted:?}"));
+                        }
+                        line
                     }
                 }
             } else if let Some(p) = patch.downcast_ref::<NavPatch>() {

@@ -48,7 +48,8 @@ use ohos_sys_opaque_types::OH_UdmfData;
 use crate::AHandle;
 use crate::node::{self, Handle};
 
-day_core::tls_group! {
+day_reactive::tls_slots! {
+    transfer;
     static SOURCES: SideTable<Source> = SideTable::new();
     static TARGETS: SideTable<Target> = SideTable::new();
     /// The node whose drag is in flight, so a drop knows it is local.

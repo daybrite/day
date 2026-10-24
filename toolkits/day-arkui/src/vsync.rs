@@ -31,7 +31,8 @@ impl Drop for Source {
     }
 }
 
-thread_local! {
+day_reactive::tls_slots! {
+    vsync;
     /// Host node pointer → its live VSync source.
     static SOURCES: RefCell<HashMap<usize, Rc<RefCell<Source>>>> = RefCell::new(HashMap::new());
     /// Ticket → (host, callback) for requests not yet delivered.

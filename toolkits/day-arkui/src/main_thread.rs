@@ -60,7 +60,8 @@ pub fn post(job: Job) {
     }
 }
 
-thread_local! {
+day_reactive::tls_slots! {
+    main_thread;
     /// Jobs waiting on a `setTimeout`, by ticket: the JS callback carries the ticket only.
     static DELAYED: std::cell::RefCell<std::collections::HashMap<u64, Job>> =
         std::cell::RefCell::new(std::collections::HashMap::new());

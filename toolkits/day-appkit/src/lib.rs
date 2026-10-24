@@ -2787,6 +2787,10 @@ struct NavMenuIvars {
     menus: RefCell<Vec<Vec<day_spec::MenuItem>>>,
     /// Which items drag to reorder (`NavMenuProps::movable`); empty when none do.
     movable: RefCell<Vec<bool>>,
+    /// Movable rows may cross section headers (`NavMenuProps::regroup`); set at creation.
+    regroup: std::cell::Cell<bool>,
+    /// Which movable items keep their section's sorted order (`NavMenuProps::sorted`).
+    sorted: RefCell<Vec<bool>>,
     /// The outline's rows, in display order: `Some(i)` is item `i`, `None` is a section
     /// header. Day addresses rows by ITEM index, so every selection crossing the boundary
     /// goes through this map — a header must never shift what index 3 means.
@@ -3046,8 +3050,9 @@ define_class!(
 
         // --- drag-to-reorder (docs/navigation.md "Reordering sidebar destinations"): the
         // outline's own drag pipeline, with the Gap placeholder Finder's sidebar shows. A row
-        // moves within the run of movable rows around it; the app's data change brings the
-        // new order back as `NavMenuPatch::Items`.
+        // moves within the run of movable rows around it, or, regrouping, into any section of
+        // movable rows (`regroup_gap`); the app's data change brings the new order back as
+        // `NavMenuPatch::Items`.
 
         #[unsafe(method_id(outlineView:pasteboardWriterForItem:))]
         fn pasteboard_writer_for_item(
@@ -3105,10 +3110,25 @@ define_class!(
                 let Some(drop) = self.nav_drop(ov, info, item, child_index) else {
                     return false;
                 };
-                if let Some((from, to)) = drop.moves {
-                    // Deferred through the event queue: the app's callback never runs inside
-                    // AppKit's drop, and its data change reloads the rows in the new order.
-                    emit(self.ivars().node, Event::ListReorder { from, to });
+                // Deferred through the event queue: the app's callback never runs inside
+                // AppKit's drop, and its data change reloads the rows in the new order.
+                match drop.moves {
+                    Some(NavMove::Reorder { from, to }) => {
+                        emit(self.ivars().node, Event::ListReorder { from, to });
+                    }
+                    Some(NavMove::Regroup {
+                        from,
+                        section,
+                        before,
+                    }) => emit(
+                        self.ivars().node,
+                        Event::NavRegroup {
+                            from,
+                            section,
+                            before,
+                        },
+                    ),
+                    None => {}
                 }
                 true
             })
@@ -3455,6 +3475,8 @@ impl DayNavMenuData {
             tints: RefCell::new(tints.to_vec()),
             menus: RefCell::new(menus.to_vec()),
             movable: RefCell::new(Vec::new()),
+            regroup: std::cell::Cell::new(false),
+            sorted: RefCell::new(Vec::new()),
             badges: RefCell::new(ns_badges(badges)),
             icon_progress: RefCell::new(Vec::new()),
             badge_icons: RefCell::new(resolve_nav_icons(badge_icons)),
@@ -3559,8 +3581,9 @@ impl DayNavMenuData {
     }
 
     /// What a drop proposal means for a reorder, or `None` when it is no drop of ours: a drag
-    /// from another view, or of a row that cannot move. The gap clamps to the run of movable
-    /// rows around the dragged one, which section headers and fixed rows end.
+    /// from another view, of a row that cannot move, or (regrouping) to a gap no rule allows.
+    /// Reordering, the gap clamps to the run of movable rows around the dragged one, which
+    /// section headers and fixed rows end ([`reorder_gap`]); regrouping, see [`regroup_gap`].
     fn nav_drop(
         &self,
         ov: &objc2_app_kit::NSOutlineView,
@@ -3580,46 +3603,285 @@ impl DayNavMenuData {
             .parse::<usize>()
             .ok()?;
         let rows = self.ivars().rows.borrow();
-        let from = (*rows.get(from_row)?).filter(|i| self.is_movable(*i))?;
-        let in_run = |r: usize| rows[r].is_some_and(|i| self.is_movable(i));
-        let first = (0..from_row)
-            .rev()
-            .take_while(|r| in_run(*r))
-            .last()
-            .unwrap_or(from_row);
-        let last = (from_row + 1..rows.len())
-            .take_while(|r| in_run(*r))
-            .last()
-            .unwrap_or(from_row);
         // The flat outline proposes a gap among the root's children, or a row itself (a drop
-        // ONTO it, index -1), which reads as the gap above that row.
+        // ONTO it, index -1).
         let proposed = match item {
             Some(item) => Self::outline_row(item),
             None => child_index,
         };
         let proposed = usize::try_from(proposed).unwrap_or(rows.len());
-        let gap = proposed.clamp(first, last + 1);
-        // The row's place once it has left its own: the row whose position it takes.
-        let target_row = if gap > from_row { gap - 1 } else { gap };
-        let moves = (target_row != from_row)
-            .then(|| rows[target_row].map(|to| (from, to)))
-            .flatten();
-        Some(NavDrop {
-            gap,
-            retarget: gap != proposed || item.is_some(),
-            moves,
-        })
+        if self.ivars().regroup.get() {
+            regroup_gap(
+                &rows,
+                &self.ivars().movable.borrow(),
+                &self.ivars().sorted.borrow(),
+                from_row,
+                proposed,
+                item.is_some(),
+            )
+        } else {
+            reorder_gap(
+                &rows,
+                &self.ivars().movable.borrow(),
+                from_row,
+                proposed,
+                item.is_some(),
+            )
+        }
     }
 }
 
-/// A reorder drop in a sidebar outline (`DayNavMenuData::nav_drop`).
+/// A drop in a sidebar outline (`DayNavMenuData::nav_drop`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct NavDrop {
     /// The gap the row drops into, among the outline's rows.
     gap: usize,
     /// The proposal named some other place, and the gap moves here.
     retarget: bool,
-    /// `(from, to)` in item indices, or `None` for a drop back in place.
-    moves: Option<(usize, usize)>,
+    /// What the drop reports, or `None` for a drop back in place.
+    moves: Option<NavMove>,
+}
+
+/// What a sidebar drop reports, in item indices (the rows before the move).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum NavMove {
+    /// `Event::ListReorder`: `from` takes `to`'s place.
+    Reorder { from: usize, to: usize },
+    /// `Event::NavRegroup`: `from` joins the section whose first row is `section`, before
+    /// `before` or at the section's end.
+    Regroup {
+        from: usize,
+        section: usize,
+        before: Option<usize>,
+    },
+}
+
+/// A reorder drop at `proposed`, a gap among the outline's `rows` (`None` a header, `Some(i)`
+/// item `i`), for the row at `from_row`; `onto` when the proposal named a row itself, which
+/// reads as the gap above it. The gap clamps to the run of movable rows around the dragged
+/// one, which section headers and fixed rows end. `None` when that row cannot move.
+fn reorder_gap(
+    rows: &[Option<usize>],
+    movable: &[bool],
+    from_row: usize,
+    proposed: usize,
+    onto: bool,
+) -> Option<NavDrop> {
+    let is_movable = |i: usize| movable.get(i).copied().unwrap_or(false);
+    let from = (*rows.get(from_row)?).filter(|i| is_movable(*i))?;
+    let in_run = |r: usize| rows[r].is_some_and(is_movable);
+    let first = (0..from_row)
+        .rev()
+        .take_while(|r| in_run(*r))
+        .last()
+        .unwrap_or(from_row);
+    let last = (from_row + 1..rows.len())
+        .take_while(|r| in_run(*r))
+        .last()
+        .unwrap_or(from_row);
+    let gap = proposed.clamp(first, last + 1);
+    // The row's place once it has left its own: the row whose position it takes.
+    let target_row = if gap > from_row { gap - 1 } else { gap };
+    let moves = (target_row != from_row)
+        .then(|| rows[target_row].map(|to| NavMove::Reorder { from, to }))
+        .flatten();
+    Some(NavDrop {
+        gap,
+        retarget: gap != proposed || onto,
+        moves,
+    })
+}
+
+/// A regroup drop at `proposed`, a gap among the outline's `rows` (as [`reorder_gap`]'s), for
+/// the row at `from_row` (docs/navigation.md "Moving rows between sections"). The gap's section
+/// is the nearest header above it, or the rows above the first header; `before` is the item
+/// right below the gap when that row is in the same section. A drop ONTO a header reads as
+/// that section's first gap, onto an item as the gap above it. `None` when the row cannot
+/// move, the gap is above the first header with no rows there, the section holds a fixed row,
+/// or the gap is in the row's own section and the row is sorted. Gaps are never clamped.
+fn regroup_gap(
+    rows: &[Option<usize>],
+    movable: &[bool],
+    sorted: &[bool],
+    from_row: usize,
+    proposed: usize,
+    onto: bool,
+) -> Option<NavDrop> {
+    let flag = |v: &[bool], i: usize| v.get(i).copied().unwrap_or(false);
+    let from = (*rows.get(from_row)?).filter(|i| flag(movable, *i))?;
+    let gap = match rows.get(proposed) {
+        Some(None) if onto => proposed + 1,
+        _ => proposed.min(rows.len()),
+    };
+    // The first outline row of the section a gap (or a row, as the gap above it) sits in.
+    let section_start = |gap: usize| match (0..gap).rev().find(|r| rows[*r].is_none()) {
+        Some(header) => Some(header + 1),
+        None => rows.first().copied().flatten().map(|_| 0),
+    };
+    let first = section_start(gap)?;
+    let end = (first..rows.len())
+        .find(|r| rows[*r].is_none())
+        .unwrap_or(rows.len());
+    let section = rows.get(first).copied().flatten()?;
+    if !rows[first..end]
+        .iter()
+        .all(|r| r.is_some_and(|i| flag(movable, i)))
+    {
+        return None;
+    }
+    let own = section_start(from_row) == Some(first);
+    if own && flag(sorted, from) {
+        return None;
+    }
+    let moves = (!own || (gap != from_row && gap != from_row + 1)).then(|| NavMove::Regroup {
+        from,
+        section,
+        before: rows.get(gap).copied().flatten(),
+    });
+    Some(NavDrop {
+        gap,
+        retarget: gap != proposed || onto,
+        moves,
+    })
+}
+
+#[cfg(test)]
+mod nav_gap_tests {
+    use super::{NavDrop, NavMove, regroup_gap, reorder_gap};
+
+    /// 0 today, 1 [news], 2 a, 3 b, 4 e, 5 [tech], 6 c, 7 d, 8 [smart], 9 starred: items 0..=6.
+    const ROWS: [Option<usize>; 10] = [
+        Some(0),
+        None,
+        Some(1),
+        Some(2),
+        Some(3),
+        None,
+        Some(4),
+        Some(5),
+        None,
+        Some(6),
+    ];
+    /// The feeds move; today and starred are fixed.
+    const MOVABLE: [bool; 7] = [false, true, true, true, true, true, false];
+    const SORTED: [bool; 7] = [false, true, true, true, true, true, false];
+    const UNSORTED: [bool; 7] = [false; 7];
+
+    fn regroup(from: usize, section: usize, before: Option<usize>) -> Option<NavMove> {
+        Some(NavMove::Regroup {
+            from,
+            section,
+            before,
+        })
+    }
+
+    #[test]
+    fn regroup_gaps_name_the_section_above_and_the_row_below() {
+        let at = |from_row, gap| regroup_gap(&ROWS, &MOVABLE, &SORTED, from_row, gap, false);
+        // a, into tech's first gap: before c.
+        assert_eq!(
+            at(2, 6),
+            Some(NavDrop {
+                gap: 6,
+                retarget: false,
+                moves: regroup(1, 4, Some(4)),
+            })
+        );
+        // c, into the gap above tech's header: the end of news.
+        assert_eq!(at(6, 5).and_then(|d| d.moves), regroup(4, 1, None));
+        // a, between c and d, and at tech's end above smart's header.
+        assert_eq!(at(2, 7).and_then(|d| d.moves), regroup(1, 4, Some(5)));
+        assert_eq!(at(2, 8).and_then(|d| d.moves), regroup(1, 4, None));
+    }
+
+    #[test]
+    fn regroup_gaps_skip_fixed_sections_fixed_rows_and_a_sorted_rows_own_section() {
+        let at = |from_row, gap| regroup_gap(&ROWS, &MOVABLE, &SORTED, from_row, gap, false);
+        // Smart holds starred, and the rows above the first header hold today.
+        for gap in [0, 1, 9, 10] {
+            assert_eq!(at(2, gap), None, "gap {gap}");
+        }
+        // A sorted row's own section offers no gap, its own place included.
+        for gap in [2, 3, 4, 5] {
+            assert_eq!(at(2, gap), None, "gap {gap}");
+        }
+        // Fixed rows and headers never drag.
+        assert_eq!(at(0, 6), None);
+        assert_eq!(at(1, 6), None);
+        assert_eq!(at(9, 6), None);
+    }
+
+    #[test]
+    fn regroup_gaps_reorder_an_unsorted_row_in_its_own_section() {
+        let at = |from_row, gap| regroup_gap(&ROWS, &MOVABLE, &UNSORTED, from_row, gap, false);
+        // a, between b and e.
+        assert_eq!(at(2, 4).and_then(|d| d.moves), regroup(1, 1, Some(3)));
+        // a, at news's end above tech's header.
+        assert_eq!(at(2, 5).and_then(|d| d.moves), regroup(1, 1, None));
+        // Back in place, either side of itself: a drop that reports nothing.
+        for gap in [2, 3] {
+            let drop = at(2, gap).expect("offered");
+            assert_eq!(drop.moves, None, "gap {gap}");
+        }
+    }
+
+    #[test]
+    fn regroup_drops_onto_a_row_move_to_a_gap() {
+        // Onto tech's header: its first gap. Onto d: the gap above d.
+        assert_eq!(
+            regroup_gap(&ROWS, &MOVABLE, &SORTED, 2, 5, true),
+            Some(NavDrop {
+                gap: 6,
+                retarget: true,
+                moves: regroup(1, 4, Some(4)),
+            })
+        );
+        assert_eq!(
+            regroup_gap(&ROWS, &MOVABLE, &SORTED, 2, 7, true),
+            Some(NavDrop {
+                gap: 7,
+                retarget: true,
+                moves: regroup(1, 4, Some(5)),
+            })
+        );
+    }
+
+    #[test]
+    fn regroup_offers_nothing_above_a_leading_header() {
+        // 0 [news], 1 a, 2 [tech], 3 b.
+        let rows = [None, Some(0), None, Some(1)];
+        let movable = [true, true];
+        let at = |gap| regroup_gap(&rows, &movable, &[false, false], 1, gap, false);
+        assert_eq!(at(0), None);
+        assert_eq!(at(1).map(|d| d.moves), Some(None));
+        assert_eq!(at(2).map(|d| d.moves), Some(None));
+        assert_eq!(at(3).and_then(|d| d.moves), regroup(0, 1, Some(1)));
+        assert_eq!(at(4).and_then(|d| d.moves), regroup(0, 1, None));
+    }
+
+    #[test]
+    fn reorder_gaps_clamp_to_the_run() {
+        // a past the run's end lands at its end: e's place.
+        assert_eq!(
+            reorder_gap(&ROWS, &MOVABLE, 2, 9, false),
+            Some(NavDrop {
+                gap: 5,
+                retarget: true,
+                moves: Some(NavMove::Reorder { from: 1, to: 3 }),
+            })
+        );
+        // Back in place.
+        assert_eq!(
+            reorder_gap(&ROWS, &MOVABLE, 2, 3, false).map(|d| d.moves),
+            Some(None)
+        );
+        // b above the run's start lands at a's place; a fixed row offers nothing.
+        assert_eq!(
+            reorder_gap(&ROWS, &MOVABLE, 3, 0, false).and_then(|d| d.moves),
+            Some(NavMove::Reorder { from: 2, to: 1 })
+        );
+        assert_eq!(reorder_gap(&ROWS, &MOVABLE, 0, 3, false), None);
+    }
 }
 
 /// The private pasteboard type carrying a dragged sidebar row (local reorder only).
@@ -7980,6 +8242,8 @@ impl Toolkit for AppKit {
                     &p.menus,
                 );
                 *data.ivars().movable.borrow_mut() = p.movable.clone();
+                data.ivars().regroup.set(p.regroup);
+                *data.ivars().sorted.borrow_mut() = p.sorted.clone();
                 // The Day subclass serves per-row context menus via menuForEvent:.
                 let outline: Retained<objc2_app_kit::NSOutlineView> = {
                     let o: Retained<DayNavOutlineView> =
@@ -8582,6 +8846,7 @@ impl Toolkit for AppKit {
                     tints,
                     menus,
                     movable,
+                    sorted,
                     selected,
                     rows_changed,
                     ..
@@ -8593,6 +8858,7 @@ impl Toolkit for AppKit {
                             return;
                         };
                         *data.ivars().movable.borrow_mut() = movable.clone();
+                        *data.ivars().sorted.borrow_mut() = sorted.clone();
                         data.set_items(
                             items,
                             icons,
