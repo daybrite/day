@@ -1153,6 +1153,10 @@ public final class DayBridge extends DayRuntime {
         buttonMetrics.put(b, new int[] {
                 b.getMinWidth(), b.getMinimumWidth(), b.getPaddingStart(), b.getPaddingEnd() });
         b.setText(title);
+        // One line, like every other toolkit's button: in a tight row Material would wrap the
+        // title and the pill's fixed height would cut the second line off.
+        b.setMaxLines(1);
+        b.setEllipsize(android.text.TextUtils.TruncateAt.END);
         b.setOnClickListener(new View.OnClickListener() {
             public void onClick(View x) {
                 nativeOnEvent(id, K_PRESSED, 0, null);

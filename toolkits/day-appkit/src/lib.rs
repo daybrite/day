@@ -5258,8 +5258,33 @@ fn set_button_image(btn: &NSButton, style: day_spec::props::ButtonStyleSpec) {
     });
     unsafe {
         let position = btn.imagePosition();
+        // Beside a title, the glyph gets a clear gap: AppKit draws a leading image flush
+        // against the text, so the image carries the space itself (a template stays one, so
+        // the label color still tints it).
+        let image = image.map(|source| {
+            if position != objc2_app_kit::NSCellImagePosition::ImageLeading {
+                return source;
+            }
+            let size = source.size();
+            let template = source.isTemplate();
+            let padded = NSSize::new(size.width + 5.0, size.height);
+            let draw = block2::RcBlock::new(move |_rect: NSRect| {
+                source.drawInRect_fromRect_operation_fraction(
+                    NSRect::new(NSPoint::new(0.0, 0.0), size),
+                    NSRect::ZERO,
+                    objc2_app_kit::NSCompositingOperation::SourceOver,
+                    1.0,
+                );
+                objc2::runtime::Bool::YES
+            });
+            let out =
+                objc2_app_kit::NSImage::imageWithSize_flipped_drawingHandler(padded, false, &draw);
+            out.setTemplate(template);
+            out
+        });
         btn.setImage(image.as_deref());
         btn.setImagePosition(position);
+        btn.setImageHugsTitle(true);
     }
 }
 
