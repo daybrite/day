@@ -1927,10 +1927,22 @@ pub struct ListSource {
     pub first_visible: Option<std::rc::Rc<dyn Fn(usize)>>,
     /// Current row count.
     pub len: std::rc::Rc<dyn Fn() -> usize>,
+    /// Present on a sectioned list (`ListProps::sections`, docs/list.md "Sections"): whether
+    /// row `index` is a section header. Every row index the host sees counts headers, and
+    /// day-core translates to the app's items. A header row is not selectable, activatable or
+    /// swipeable; the host draws it in its platform's group-header style, sized to its content
+    /// even in a `Uniform` list, and floats it where the platform does (macOS group rows,
+    /// UIKit plain-table section headers).
+    pub is_header: Option<std::rc::Rc<dyn Fn(usize) -> bool>>,
     /// Stable identity token for the row at `index` (for native diffing / animation).
     pub token_at: std::rc::Rc<dyn Fn(usize) -> u64>,
     /// Build (first use of this cell) or rebind (recycled cell) row `index` into the native cell.
     pub bind_row: std::rc::Rc<dyn Fn(usize, RawHandle)>,
+    /// A host that emulates `Cap::ListSections` binds the header it pins over the top of the
+    /// list with this instead of `bind_row` (docs/list.md "Sections"): the same build or
+    /// rebind, but the copy carries no element ids, so a dayscript or accessibility lookup of a
+    /// header finds the header row in the list, never its pinned copy.
+    pub bind_pinned: std::rc::Rc<dyn Fn(usize, RawHandle)>,
     /// The native cell left the viewport; Day may drop per-cell bookkeeping (optional).
     pub recycle: std::rc::Rc<dyn Fn(RawHandle)>,
     /// The native host is done with this cell for good (a `GtkListItemFactory::teardown`, a
@@ -2670,12 +2682,20 @@ pub enum Cap {
     /// The toolkit shows launcher shortcuts the app sets while it runs
     /// ([`Toolkit::set_launcher_shortcuts`]).
     DynamicShortcuts,
+    /// How the toolkit draws a sectioned list's headers (`ListProps::sections`, docs/list.md
+    /// "Sections"). `Native` where the platform's list has group headers that pin to the top
+    /// while their section scrolls under them: macos-appkit (`NSTableView` group rows with
+    /// `floatsGroupRows`) and ios-uikit (plain-style `UITableView` section headers).
+    /// `Emulated` where the host pins a copy of the current header over the top of the list
+    /// itself. Headers are unselectable rows on every toolkit, so an app needs this only to
+    /// describe the difference, never to decide whether to call `.sections`.
+    ListSections,
 }
 
 impl Cap {
     /// Every capability, in declaration order: what a conformance run asks the toolkit about,
     /// so the evidence can be held against the declared coverage matrix (docs/testing.md).
-    pub const ALL: [Cap; 89] = [
+    pub const ALL: [Cap; 90] = [
         Cap::DragDrop,
         Cap::DragExternalImport,
         Cap::DragExternalExport,
@@ -2765,6 +2785,7 @@ impl Cap {
         Cap::Pager,
         Cap::PullRefreshGesture,
         Cap::FolderDialog,
+        Cap::ListSections,
     ];
 
     /// The capability's place in [`Cap::ALL`]. Exhaustive, so a new variant fails to compile
@@ -2860,6 +2881,7 @@ impl Cap {
             Cap::Pager => 86,
             Cap::PullRefreshGesture => 87,
             Cap::FolderDialog => 88,
+            Cap::ListSections => 89,
         }
     }
 }
@@ -6491,6 +6513,10 @@ pub mod props {
         /// tap that still activates. Later changes arrive as [`ListPatch::Editing`]. Probe
         /// [`crate::Cap::ListEditing`]; a backend without an editing mode ignores it.
         pub editing: bool,
+        /// The rows fall into sections, each opened by a header row (docs/list.md
+        /// "Sections"): `ListSource::is_header` says which rows. Probe
+        /// [`crate::Cap::ListSections`] for whether headers float natively.
+        pub sections: bool,
     }
 
     /// One row-level result-set change. Indexes are sequential (each delta describes the

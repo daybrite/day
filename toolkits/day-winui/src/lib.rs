@@ -1335,6 +1335,11 @@ impl Toolkit for Xaml {
             Cap::ListRecycling | Cap::ListDelete | Cap::ListSwipeActions => Support::Native,
             #[cfg(not(feature = "winui"))]
             Cap::ListRecycling => Support::Emulated,
+            // ItemsRepeater has no group headers: header rows are plain unselectable elements,
+            // and the shim pins a bound copy of the current one over the viewport, pushed up by
+            // the next (docs/list.md "Sections").
+            #[cfg(feature = "winui")]
+            Cap::ListSections => Support::Emulated,
             // The real WinRT drag pipeline (CanDrag/DragOver/Drop) over the emulated list —
             // system drag visuals + live no-drop cursor from the app's guard (docs/list.md).
             Cap::NavReorder | Cap::ListReorder => Support::Native,

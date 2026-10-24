@@ -553,6 +553,20 @@ impl MockProbe {
         }
     }
 
+    /// Simulate an emulated-pin host binding display row `index` into its pinned-header `cell`
+    /// (`ListSource::bind_pinned`, docs/list.md "Sections").
+    pub fn list_bind_pinned(&self, host: MockHandle, index: usize, cell: MockHandle) {
+        let f = self
+            .state
+            .borrow()
+            .list_sources
+            .get(&host.0)
+            .map(|s| s.bind_pinned.clone());
+        if let Some(f) = f {
+            f(index, cell.0 as RawHandle);
+        }
+    }
+
     /// Simulate the native list pooling a physical `cell` that scrolled out of view, the
     /// `onViewRecycled` / prepare-for-reuse moment. Day parks the cell subtree's ids so the
     /// hidden row stops answering lookups; the next [`Self::list_bind`] of that cell restores

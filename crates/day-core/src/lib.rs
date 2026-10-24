@@ -96,9 +96,9 @@ pub use image::{
 pub use layout::*;
 pub use lifecycle::{dispatch_lifecycle, lifecycle_supported, on_lifecycle};
 pub use list::{
-    BuiltRow, ListDeleteDriver, ListDriver, ListReorderDriver, ListSwipeDriver, install_list,
-    list_reload, list_scroll_to_end, list_scroll_to_row, list_set_editing, list_set_selected,
-    list_splice, list_try_delete, list_try_reorder, list_try_swipe,
+    BuiltRow, ListDeleteDriver, ListDriver, ListReorderDriver, ListSectionsDriver, ListSwipeDriver,
+    install_list, list_reload, list_scroll_to_end, list_scroll_to_row, list_set_editing,
+    list_set_selected, list_splice, list_try_delete, list_try_reorder, list_try_swipe,
 };
 pub use menu::{
     dispatch_menu_action, has_app_menu, register_menu_action, register_scoped_menu_action,
@@ -753,7 +753,7 @@ pub fn launch_with<P: Platform>(
         backend,
         options,
         Box::new(move |mut toolkit, root_handle, size| {
-            day_spec::Toolkit::set_event_sink(&mut toolkit, Box::new(tree::enqueue_event));
+            day_spec::Toolkit::set_event_sink(&mut toolkit, Box::new(tree::enqueue_native_event));
             let tree = Tree::new(toolkit, root_handle, size);
             let root = tree.root();
             tree::install_tree(Box::new(tree));

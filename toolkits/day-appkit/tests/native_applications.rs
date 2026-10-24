@@ -118,6 +118,8 @@ fn main() {
         &list,
         day_spec::ListSource {
             first_visible: None,
+            is_header: None,
+            bind_pinned: Rc::new(|_, _| {}),
             len: Rc::new(move || rows_for_count.borrow().len()),
             token_at: Rc::new(move |i| rows_for_token.borrow()[i]),
             bind_row: Rc::new(|_, _| {}),
@@ -218,6 +220,8 @@ fn main() {
         &cold_list,
         day_spec::ListSource {
             first_visible: None,
+            is_header: None,
+            bind_pinned: Rc::new(|_, _| {}),
             len: Rc::new(|| 1),
             token_at: Rc::new(|_| 1),
             bind_row: Rc::new(move |_, raw| {

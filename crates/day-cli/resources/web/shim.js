@@ -1112,11 +1112,16 @@ const env = {
   // transitions on the other cells, autoscroll near the edges) while the decisions stay
   // Day's: every hovered slot is vetted synchronously through wasm.day_dom_list_can_move (the
   // app's guard), and the drop commits through wasm.day_dom_list_move, which re-binds the cells.
+  // Rows come from wasm.day_dom_list_row_at, which knows each row's height, so rows of different
+  // heights and section headers land where they look. A header (and the pinned copy of one)
+  // never lifts and never shifts: a row drags only within its own section.
   day_dom_list_reorder(id) {
     const host = E(id);
     host.classList.add('day-reorder');
     let d = null; // in-flight drag
-    const cells = () => [...host.querySelectorAll('.day-cell')];
+    const header = (c) => c.getAttribute('role') === 'heading';
+    const cells = () => [...host.querySelectorAll('.day-cell')].filter((c) => !header(c));
+    const rowOf = (c) => wasm.day_dom_list_row_at(id, c.offsetTop + c.offsetHeight / 2);
     const cleanup = () => {
       if (!d) return;
       for (const c of cells()) { c.style.transform = ''; c.classList.remove('day-drag'); }
@@ -1126,11 +1131,12 @@ const env = {
     };
     host.addEventListener('pointerdown', (e) => {
       const cell = e.target.closest('.day-cell');
-      if (!cell || d) return;
+      if (!cell || header(cell) || d) return;
       const rowH = cell.offsetHeight || 1;
+      const from = rowOf(cell);
+      if (from < 0) return;
       d = {
-        cell, rowH,
-        from: Math.round(cell.offsetTop / rowH),
+        cell, rowH, from,
         startY: e.clientY, startScroll: host.scrollTop,
         engaged: false, accepted: null, pid: e.pointerId,
         // Touch engages after a hold (so plain swipes still scroll); mouse/pen on first move.
@@ -1158,14 +1164,13 @@ const env = {
       else if (e.clientY > r.bottom - 24) host.scrollTop += 12;
       // The slot under the dragged cell's center, vetted by the app's guard.
       const center = d.cell.offsetTop + dy + d.rowH / 2;
-      const n = cells().length;
-      const slot = Math.max(0, Math.min(n - 1, Math.floor(center / d.rowH)));
+      const slot = wasm.day_dom_list_row_at(id, center);
       const verdict = wasm.day_dom_list_can_move(id, d.from, slot);
       d.accepted = verdict < 0 ? null : verdict;
       host.classList.toggle('day-no-drop', d.accepted === null);
       for (const c of cells()) {
         if (c === d.cell) continue;
-        const row = Math.round(c.offsetTop / d.rowH);
+        const row = rowOf(c);
         let shift = 0;
         if (d.accepted !== null) {
           if (d.from < d.accepted && row > d.from && row <= d.accepted) shift = -d.rowH;

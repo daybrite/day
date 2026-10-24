@@ -793,9 +793,54 @@ struct ListEntry {
     /// the anchor because a range has two ends and `shift+↓ ↓ ↑` has to grow twice and shrink
     /// once — one field cannot both stay put and move.
     lead: Option<usize>,
+    /// A sectioned list's pinned header (docs/list.md "Sections"): a sticky wrapper at the top
+    /// of the scroll content holding ONE extra cell, bound to the header of the section under
+    /// the top edge. `(wrapper, cell)`, both 0 until a header first scrolls off.
+    pin: (u32, u32),
+    /// The header row bound into the pinned cell, so it rebinds only when the section changes.
+    pin_row: Option<usize>,
 }
 
 impl ListEntry {
+    /// Whether row `row` is a section header (docs/list.md "Sections"); always false on an
+    /// unsectioned list.
+    fn is_header(&self, row: usize) -> bool {
+        self.source
+            .as_ref()
+            .and_then(|src| src.is_header.as_ref())
+            .is_some_and(|is_header| is_header(row))
+    }
+
+    fn sectioned(&self) -> bool {
+        self.source
+            .as_ref()
+            .is_some_and(|src| src.is_header.is_some())
+    }
+
+    /// Rows stand at their own heights rather than a pitch: a self-sizing list, or a sectioned
+    /// one, whose headers take their laid height even when the list is `Uniform`.
+    fn stacked(&self) -> bool {
+        self.automatic || self.sectioned()
+    }
+
+    /// The header of the section holding `row`: the row itself, or the nearest header above.
+    fn header_of(&self, row: usize) -> Option<usize> {
+        (0..=row).rev().find(|i| self.is_header(*i))
+    }
+
+    /// What the pinned header covers above `row`: the height of its section's header, so a
+    /// row brought into view lands below the pin instead of under it. 0 for a header row or
+    /// an unsectioned list.
+    fn pinned_above(&self, row: usize) -> f64 {
+        if !self.sectioned() || self.is_header(row) {
+            return 0.0;
+        }
+        self.header_of(row).map_or(0.0, |h| {
+            let (top, bottom) = self.row_span(h);
+            bottom - top
+        })
+    }
+
     /// What an unmeasured row of a self-sizing list stands at: the mean of the rows measured
     /// so far, so the scroll extent tracks the real rows, or the declared fallback before any.
     fn estimate(&self) -> f64 {
@@ -826,9 +871,10 @@ impl ListEntry {
         tops
     }
 
-    /// Row `i`'s height: the pitch, or its measured height, or `estimate`.
+    /// Row `i`'s height: the pitch, or its measured height, or `estimate`. A section header
+    /// is measured even in a uniform list, whose `heights` then hold only headers.
     fn height_of(&self, i: usize, estimate: f64) -> f64 {
-        if !self.automatic {
+        if !self.automatic && !self.is_header(i) {
             return self.row_height.max(1.0);
         }
         match self.heights.get(i) {
@@ -839,7 +885,7 @@ impl ListEntry {
 
     /// Row `row`'s top and bottom edge in the list's content.
     fn row_span(&self, row: usize) -> (f64, f64) {
-        if !self.automatic {
+        if !self.stacked() {
             let h = self.row_height.max(1.0);
             return (row as f64 * h, (row + 1) as f64 * h);
         }
@@ -1970,6 +2016,10 @@ impl Toolkit for Dom {
             Cap::Announce => Support::Emulated,
             Cap::TextEditable | Cap::TextSelectable | Cap::TextSpellCheck => Support::Native,
             Cap::ListRecycling => Support::Emulated,
+            // The rows are absolutely framed, so a header row cannot be `position: sticky`
+            // itself: the host keeps one extra cell in a sticky strip at the top of the list
+            // and binds the current section's header into it (docs/list.md "Sections").
+            Cap::ListSections => Support::Emulated,
             // The COMPOSED tree (docs/tree.md M2): the piece flattens onto the emulated
             // list; disclosure, indentation, and row menus are day pieces. No native drag,
             // so `Cap::TreeMove` stays Unsupported.
@@ -2357,6 +2407,8 @@ impl Toolkit for Dom {
                             selected: BTreeSet::new(),
                             anchor: None,
                             lead: None,
+                            pin: (0, 0),
+                            pin_row: None,
                         },
                     )
                 });
@@ -2784,6 +2836,13 @@ impl Toolkit for Dom {
                     m.remove(&c);
                 }
             });
+            // The pinned header's cell is the host's alone (no row slot holds it), so nothing
+            // else tells day-core to dispose the header built there.
+            if list.pin.1 != 0
+                && let Some(source) = &list.source
+            {
+                (source.release)(list.pin.1 as usize as day_spec::RawHandle);
+            }
         }
         unsafe { day_dom_release(el) };
     }
@@ -4099,6 +4158,8 @@ fn list_populate(host: u32) {
             return;
         };
         st.bound.iter_mut().for_each(|b| *b = false);
+        // The pinned header may now be a different section's, or an item's row.
+        st.pin_row = None;
         // A source that SHRANK leaves realized cells past its end. They stay in the pool (index
         // == row, so a source that grows back reuses each for the row it always held) and are
         // simply hidden — the same append-only pool, minus the eager building.
@@ -4127,8 +4188,8 @@ fn list_populate(host: u32) {
 /// Build the rows the viewport shows and that are not built already. Idempotent and cheap when
 /// nothing moved, which is what lets every scroll event call it.
 fn list_fill_window(host: u32) {
-    let Some((content, rowh, source, work, n, width, separators, first_visible, tops)) = LISTS
-        .with(|m| {
+    let Some((content, rowh, source, work, n, width, separators, selectable, first_visible, tops)) =
+        LISTS.with(|m| {
             let mut m = m.borrow_mut();
             let st = m.get_mut(&host)?;
             let source = st.source.clone()?;
@@ -4143,7 +4204,7 @@ fn list_fill_window(host: u32) {
             let (offset, vh) = (view[0], if view[1] > 0.0 { view[1] } else { 600.0 });
             // A self-sizing list's rows stand where their heights add up to; a uniform list's
             // at multiples of the pitch, with no per-row table to build.
-            let tops = st.automatic.then(|| st.tops(n));
+            let tops = st.stacked().then(|| st.tops(n));
             let (first_visible, first, last) = match &tops {
                 Some(tops) => {
                     // The row whose span holds `offset`, and the first row starting below the
@@ -4170,10 +4231,12 @@ fn list_fill_window(host: u32) {
                 st.cells.resize(n, 0);
                 st.bound.resize(n, false);
             }
-            if st.automatic && st.heights.len() < n {
+            if st.stacked() && st.heights.len() < n {
                 st.heights.resize(n, 0.0);
             }
-            let mut work: Vec<(usize, u32)> = Vec::new();
+            // (row, cell, is a section header): a header takes its laid height even in a
+            // uniform list, and is drawn and wired as a header rather than an item.
+            let mut work: Vec<(usize, u32, bool)> = Vec::new();
             for i in first..last {
                 if st.cells[i] == 0 {
                     let cell = unsafe { day_dom_create(EL_CELL) };
@@ -4193,7 +4256,7 @@ fn list_fill_window(host: u32) {
                 }
                 if !st.bound[i] {
                     st.bound[i] = true;
-                    work.push((i, st.cells[i]));
+                    work.push((i, st.cells[i], st.is_header(i)));
                 }
             }
             st.last_width = width;
@@ -4205,6 +4268,7 @@ fn list_fill_window(host: u32) {
                 n,
                 width,
                 separators,
+                selectable,
                 first_visible,
                 tops,
             ))
@@ -4227,7 +4291,8 @@ fn list_fill_window(host: u32) {
         });
     }
     let mut measured = false;
-    for &(i, cell) in &work {
+    let automatic = LISTS.with(|m| m.borrow().get(&host).is_some_and(|st| st.automatic));
+    for &(i, cell, header) in &work {
         let (top, height) = match &tops {
             Some(t) => (t[i], t[i + 1] - t[i]),
             None => (i as f64 * rowh, rowh),
@@ -4236,7 +4301,12 @@ fn list_fill_window(host: u32) {
             day_dom_set_frame(cell, 0.0, top, width, height);
         }
         s(cell, "display", "block");
-        if separators {
+        // Cell index is row index, so a reload that moves the section breaks can turn an
+        // item's cell into a header's and back: set (or clear) the header treatment every bind.
+        if source.is_header.is_some() {
+            list_style_header(cell, header, selectable);
+        }
+        if separators && !header {
             // Inside the frame (border-box), so the line lands exactly on the row boundary
             // without growing the cell past its pitch.
             s(cell, "box-sizing", "border-box");
@@ -4248,8 +4318,9 @@ fn list_fill_window(host: u32) {
         }
         (source.bind_row)(i, cell as usize as day_spec::RawHandle);
         // A self-sizing row takes the height Day just laid it at. `0.0` means the tree was
-        // busy; the row keeps its estimate until a resize reaches it.
-        if tops.is_some() {
+        // busy; the row keeps its estimate until a resize reaches it. A uniform list's items
+        // keep the pitch, so only its headers are measured.
+        if tops.is_some() && (automatic || header) {
             let laid = (source.cell_height)(cell as usize as day_spec::RawHandle);
             if laid > 0.0 {
                 measured |= LISTS.with(|m| {
@@ -4296,6 +4367,111 @@ fn list_fill_window(host: u32) {
             list_paint_selection(st);
         }
     });
+    list_pin_header(host);
+}
+
+/// The look and wiring of a sectioned list's row: a header reads as a group heading (an opaque
+/// band in the sidebar tone, which also beats the stylesheet's row hover), carries the heading
+/// role instead of `option`, and draws no separator; an item gets its row role back.
+fn list_style_header(cell: u32, header: bool, selectable: bool) {
+    if header {
+        s(cell, "background", "var(--day-sidebar-bg)");
+        s(cell, "border-bottom", "");
+        attr(cell, "role", "heading");
+        attr(cell, "aria-level", "2");
+        attr(cell, "aria-selected", "");
+    } else {
+        s(cell, "background", "");
+        attr(cell, "role", if selectable { "option" } else { "" });
+        attr(cell, "aria-level", "");
+    }
+}
+
+/// Pin the header of the section under the list's top edge (docs/list.md "Sections"). The
+/// rows are absolutely framed inside the content, so the real header row cannot stick; the
+/// host keeps one extra cell in a strip that does: `position: sticky` at the top of the scroll
+/// content, with a negative bottom margin so it takes no room from the rows. The browser
+/// keeps the strip pinned while scrolling, so only a change of section, and the push-up as the
+/// next header arrives, wait for this pass (a microtask after the scroll event, before paint).
+fn list_pin_header(host: u32) {
+    // Read the placement under the borrow; create, bind and style after it, since a bind
+    // re-enters day-core and its patches can come back here.
+    let Some(plan) = LISTS.with(|m| {
+        let m = m.borrow();
+        let st = m.get(&host)?;
+        let pin = st.pin;
+        let hidden = Some((pin, None));
+        if !st.sectioned() {
+            return if pin.0 != 0 { hidden } else { None };
+        }
+        let n = st.source.as_ref().map_or(0, |src| (src.len)());
+        if n == 0 {
+            return hidden;
+        }
+        let mut view = [0.0_f64; 2];
+        unsafe { day_dom_list_viewport(host, view.as_mut_ptr()) };
+        let offset = view[0];
+        let tops = st.tops(n);
+        let at = tops[..n]
+            .partition_point(|t| *t <= offset)
+            .saturating_sub(1)
+            .min(n - 1);
+        let Some(h) = st.header_of(at) else {
+            return hidden;
+        };
+        // The real header is still at (or below) the top edge: it shows itself.
+        if tops[h] >= offset - 0.5 {
+            return hidden;
+        }
+        let height = tops[h + 1] - tops[h];
+        // The next section's header pushes the pin up rather than sliding under it.
+        let next = (h + 1..n).find(|i| st.is_header(*i));
+        let push = next.map_or(0.0, |k| (tops[k] - offset - height).min(0.0));
+        let source = st.source.clone()?;
+        let rebind = st.pin_row != Some(h);
+        Some((pin, Some((source, h, height, push, rebind))))
+    }) else {
+        return;
+    };
+    let ((mut wrapper, mut cell), show) = plan;
+    let Some((source, h, height, push, rebind)) = show else {
+        if wrapper != 0 {
+            s(wrapper, "display", "none");
+        }
+        return;
+    };
+    if wrapper == 0 {
+        wrapper = unsafe { day_dom_create(EL_DIV) };
+        cell = unsafe { day_dom_create(EL_CELL) };
+        unsafe { day_dom_insert(wrapper, cell, 0) };
+        // Before the rows' content, so the sticky strip's natural place is the list's top.
+        unsafe { day_dom_insert(host, wrapper, 0) };
+        s(wrapper, "position", "sticky");
+        s(wrapper, "top", "0");
+        s(wrapper, "z-index", "2");
+        // A copy of a header the list already has: assistive tech reads the real one.
+        attr(wrapper, "aria-hidden", "true");
+        list_style_header(cell, true, false);
+        LISTS.with(|m| {
+            if let Some(st) = m.borrow_mut().get_mut(&host) {
+                st.pin = (wrapper, cell);
+            }
+        });
+    }
+    let width = unsafe { day_dom_width(host) }.max(1.0);
+    s(wrapper, "display", "block");
+    s(wrapper, "height", &format!("{height}px"));
+    s(wrapper, "margin-bottom", &format!("{}px", -height));
+    s(wrapper, "transform", &format!("translateY({push}px)"));
+    unsafe { day_dom_set_frame(cell, 0.0, 0.0, width, height) };
+    if rebind {
+        LISTS.with(|m| {
+            if let Some(st) = m.borrow_mut().get_mut(&host) {
+                st.pin_row = Some(h);
+            }
+        });
+        (source.bind_pinned)(h, cell as usize as day_spec::RawHandle);
+    }
 }
 
 /// A self-sizing list's rows moved: frame every realized row at the top its predecessors' heights
@@ -4307,7 +4483,7 @@ fn list_restack(host: u32) {
         let Some(st) = m.get(&host) else {
             return;
         };
-        let Some(source) = st.source.as_ref().filter(|_| st.automatic) else {
+        let Some(source) = st.source.as_ref().filter(|_| st.stacked()) else {
             return;
         };
         let n = (source.len)();
@@ -4424,13 +4600,17 @@ pub extern "C" fn day_dom_list_key(host: u32, dir: u32, mods: u32) -> u32 {
                 return None;
             }
             // Entering an unselected list picks the row the arrow points AT: down lands on the
-            // first row, up on the last, which is what every desktop list does.
-            let cursor = list_cursor(st);
-            let row = match dir {
-                0 => cursor.map_or(n - 1, |c| c.saturating_sub(1)),
-                1 => cursor.map_or(0, |c| (c + 1).min(n - 1)),
-                2 => 0,
-                3 => n - 1,
+            // first row, up on the last, which is what every desktop list does. Section headers
+            // are not rows the keyboard can stand on, so every move steps over them
+            // (docs/list.md "Sections").
+            let is_header = st.source.as_ref().and_then(|src| src.is_header.clone());
+            let item = |i: &usize| !is_header.as_ref().is_some_and(|f| f(*i));
+            let cursor = list_cursor(st).map(|c| c.min(n - 1));
+            let row = match (dir, cursor) {
+                (0, Some(c)) => (0..c).rev().find(item).unwrap_or(c),
+                (1, Some(c)) => (c + 1..n).find(item).unwrap_or(c),
+                (0 | 3, None) | (3, _) => (0..n).rev().find(item)?,
+                (1 | 2, None) | (2, _) => (0..n).find(item)?,
                 _ => return None,
             };
             let shift = mods as u8 & day_spec::KeyEvent::SHIFT != 0;
@@ -4439,7 +4619,7 @@ pub extern "C" fn day_dom_list_key(host: u32, dir: u32, mods: u32) -> u32 {
                 // lead — so a run of shifted arrows grows and shrinks one range instead of
                 // starting a new one from wherever the last one ended.
                 let a = st.anchor.unwrap_or(row);
-                st.selected = (a.min(row)..=a.max(row)).collect();
+                st.selected = (a.min(row)..=a.max(row)).filter(item).collect();
                 st.anchor = Some(a);
                 st.lead = Some(row);
             } else {
@@ -4453,7 +4633,10 @@ pub extern "C" fn day_dom_list_key(host: u32, dir: u32, mods: u32) -> u32 {
             } else {
                 Event::SelectionChanged(row as i64)
             };
-            Some((st.node, ev, st.row_span(row)))
+            // Revealed below the pinned header, which would otherwise cover a row the keyboard
+            // walked up onto.
+            let (top, bottom) = st.row_span(row);
+            Some((st.node, ev, (top - st.pinned_above(row), bottom)))
         });
         let Some((node, ev, span)) = moved else {
             return 0;
@@ -4475,12 +4658,16 @@ fn list_patch(el: u32, p: &ListPatch) {
         &ListPatch::RowSizeInvalidated { cell, height } => post_local(move || {
             let moved = LISTS.with(|m| {
                 let mut m = m.borrow_mut();
-                let Some(st) = m.get_mut(&el).filter(|st| st.automatic) else {
+                let Some(st) = m.get_mut(&el).filter(|st| st.stacked()) else {
                     return false;
                 };
                 let Some(row) = st.cells.iter().position(|c| *c as usize == cell) else {
                     return false;
                 };
+                // A uniform sectioned list measures only its headers; its items keep the pitch.
+                if !st.automatic && !st.is_header(row) {
+                    return false;
+                }
                 if st.heights.len() <= row {
                     st.heights.resize(row + 1, 0.0);
                 }
@@ -4497,7 +4684,7 @@ fn list_patch(el: u32, p: &ListPatch) {
             let y = LISTS.with(|m| {
                 m.borrow()
                     .get(&el)
-                    .map(|st| st.row_span(*row).0)
+                    .map(|st| (st.row_span(*row).0 - st.pinned_above(*row)).max(0.0))
                     .unwrap_or(0.0)
             });
             // Also held for the next fill: a jump asked for before the first one (a list the
@@ -4538,7 +4725,8 @@ fn list_cell_click(cell: u32, mods: u32) {
     };
     let emit_ev = LISTS.with(|m| {
         let mut m = m.borrow_mut();
-        let st = m.get_mut(&host)?;
+        // A section header is not selectable (docs/list.md "Sections").
+        let st = m.get_mut(&host).filter(|st| !st.is_header(row))?;
         let (ctrl, shift) = (mods & 1 != 0, mods & 2 != 0);
         if st.multi && ctrl {
             if !st.selected.remove(&row) {
@@ -4550,7 +4738,9 @@ fn list_cell_click(cell: u32, mods: u32) {
             // Shift-click extends from the anchor the same way a shifted arrow does: the pivot
             // stays, the lead comes to the clicked row.
             let a = st.anchor.unwrap_or(row);
-            st.selected = (a.min(row)..=a.max(row)).collect();
+            st.selected = (a.min(row)..=a.max(row))
+                .filter(|i| !st.is_header(*i))
+                .collect();
             st.anchor = Some(a);
             st.lead = Some(row);
         } else {
@@ -4969,6 +5159,31 @@ pub extern "C" fn day_dom_list_can_move(host: u32, from: u32, to: u32) -> i32 {
     })
 }
 
+/// The row whose span holds content offset `y`, clamped to the rows; -1 for an empty or
+/// unknown list. The shim's pointer-drag reorder reads its rows through this, since rows of a
+/// self-sizing or sectioned list stand at their own heights rather than a pitch.
+#[unsafe(no_mangle)]
+pub extern "C" fn day_dom_list_row_at(host: u32, y: f64) -> i32 {
+    day_spec::ffi_guard::contain(-1, || {
+        LISTS.with(|m| {
+            let m = m.borrow();
+            let Some(st) = m.get(&host) else { return -1 };
+            let n = st.source.as_ref().map_or(0, |src| (src.len)());
+            if n == 0 {
+                return -1;
+            }
+            let row = if st.stacked() {
+                st.tops(n)
+                    .partition_point(|top| *top <= y)
+                    .saturating_sub(1)
+            } else {
+                (y.max(0.0) / st.row_height.max(1.0)) as usize
+            };
+            row.min(n - 1) as i32
+        })
+    })
+}
+
 /// Commit a drop the guard accepts: rotate Day's snapshot (deferring the app callback), then
 /// reposition + rebind the pooled cells to the new order. Returns 1 on commit, 0 on deny.
 #[unsafe(no_mangle)]
@@ -5004,7 +5219,12 @@ fn day_dom_event_inner(el: u32, kind: u32, a: f64, b: f64, c: f64, d: f64) {
             list_cell_click(el, a as u32);
         }
         if b == 2.0 || c == 1.0 {
-            let row = CELL_ROWS.with(|m| m.borrow().get(&el).copied());
+            // A section header activates nothing (docs/list.md "Sections").
+            let row = CELL_ROWS
+                .with(|m| m.borrow().get(&el).copied())
+                .filter(|(host, row)| {
+                    !LISTS.with(|m| m.borrow().get(host).is_some_and(|st| st.is_header(*row)))
+                });
             if let Some((host, row)) = row
                 && let Some(node) = node_of(host)
             {

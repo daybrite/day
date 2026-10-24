@@ -900,6 +900,14 @@ pub struct List<S: RowSource> {
     swipe_trailing: Option<SwipeProvider>,
     separators: Option<bool>,
     editing: crate::Reactive<bool>,
+    sections: Option<ListSections<S::Slot>>,
+}
+
+/// [`List::sections`]: each item's section key (by index, hashed to a token) and the header
+/// builder, which receives the slot of its section's first item.
+struct ListSections<Slot> {
+    key: Rc<dyn Fn(usize) -> u64>,
+    header: Rc<dyn Fn(Slot) -> AnyPiece>,
 }
 
 /// The full-set selection callback, aliased for the field above.
@@ -1340,6 +1348,7 @@ where
         swipe_trailing: None,
         separators: None,
         editing: crate::Reactive::Const(false),
+        sections: None,
     }
 }
 
@@ -1505,6 +1514,43 @@ impl<S: RowSource + 'static> List<S> {
         self
     }
 
+    /// Group the rows into sections, each opened by a header row (docs/list.md "Sections").
+    /// `key` runs with each row index when the rows change and names the row's section: a new
+    /// section, and a header, starts wherever the key differs from the row before, so sort the
+    /// rows by section first. `header` builds a section's header from the slot of its first
+    /// row, the same slot a row builder gets, and rebinds it as its cell recycles.
+    ///
+    /// Headers are the platform's own: macOS group rows and UIKit section headers, which pin
+    /// to the top of the list while their section scrolls under them; the other toolkits pin
+    /// a copy of the current header the same way (`Cap::ListSections`). A header is never
+    /// selected, activated or swiped, and row indices everywhere (selection, swipe offers,
+    /// `selected_rows`, `scroll_to_row`, `first_visible_row`) still count rows only. A header
+    /// sizes to its content even when the rows are `Uniform`.
+    ///
+    /// A row drags only within its own section, the platforms' rule for grouped tables: a
+    /// drop past either end of the section lands at that end, and the `reorderable` guard
+    /// sees row indices. A sectioned list offers no native swipe-to-delete, since deleting a
+    /// section's last row would take its header with it.
+    ///
+    /// ```ignore
+    /// list(items(move || articles.get(), |a| a.id), article_row)
+    ///     .sections(
+    ///         move |i| articles.with(|a| a[i].feed_id),
+    ///         |slot| label(move || slot.field(|a| a.feed_title.clone())),
+    ///     )
+    /// ```
+    pub fn sections<K: Hash, P: Piece>(
+        mut self,
+        key: impl Fn(usize) -> K + 'static,
+        header: impl Fn(S::Slot) -> P + 'static,
+    ) -> Self {
+        self.sections = Some(ListSections {
+            key: Rc::new(move |i| key_token(&key(i))),
+            header: Rc::new(move |slot| AnyPiece::new(header(slot))),
+        });
+        self
+    }
+
     /// Put the list in the platform's editing mode (docs/list.md): on iOS, the rows show
     /// their delete controls (where a [`Delete`] offers one) and reorder grips (where a
     /// [`Reorder`] moves them), and a tap still activates
@@ -1518,6 +1564,31 @@ impl<S: RowSource + 'static> List<S> {
     }
 }
 
+/// The driver's build closure for a row or a section header: build `builder`'s piece from a
+/// slot for item `index` in its own scope, and rebind that slot as the cell recycles.
+fn slot_builder<C: RowConn>(
+    conn: Rc<C>,
+    builder: Rc<dyn Fn(C::Slot) -> AnyPiece>,
+) -> Box<dyn Fn(usize, RNode) -> BuiltRow> {
+    Box::new(move |index, anchor| {
+        let scope = Scope::child();
+        let conn = conn.clone();
+        let builder = builder.clone();
+        let rebind = scope.enter(move || {
+            // Native callbacks can deliver a stale index mid-animation; an out-of-range pull
+            // yields an empty row instead of panicking.
+            let Some(slot) = conn.slot_at(index) else {
+                return Rc::new(|_: usize| {}) as Rc<dyn Fn(usize)>;
+            };
+            let mut rowcx = BuildCx::new(anchor);
+            in_row_scope(|| builder(slot).build(&mut rowcx));
+            // Rebind on recycle: point the slot at the cell's new row.
+            Rc::new(move |i: usize| conn.rebind(&slot, i)) as Rc<dyn Fn(usize)>
+        });
+        BuiltRow { scope, rebind }
+    })
+}
+
 impl<S: RowSource + 'static> Piece for List<S> {
     fn build(mut self, cx: &mut BuildCx) -> RNode {
         let props = ListProps {
@@ -1528,8 +1599,10 @@ impl<S: RowSource + 'static> Piece for List<S> {
                 || self.selection.is_some()
                 || self.on_activate.is_some(),
             multi_select: self.multi_select,
+            // A sectioned list reorders within a section but offers no native delete (see
+            // `sections`); the scripted path still reaches the driver.
             reorderable: self.reorder.is_some(),
-            deletable: self.delete.is_some(),
+            deletable: self.delete.is_some() && self.sections.is_none(),
             delete_label: self
                 .delete
                 .as_ref()
@@ -1539,6 +1612,7 @@ impl<S: RowSource + 'static> Piece for List<S> {
             swipe_actions: self.swipe_leading.is_some() || self.swipe_trailing.is_some(),
             separators: self.separators,
             editing: self.editing.get_untracked(),
+            sections: self.sections.is_some(),
         };
         let node = cx.leaf(
             kinds::LIST,
@@ -1554,6 +1628,20 @@ impl<S: RowSource + 'static> Piece for List<S> {
         // watch below. The native host queries it synchronously; the driver's build/rebind
         // closures read the same snapshot.
         let conn = Rc::new(self.source.take().expect("List built once").connect());
+        // A sectioned list's keys, one per row of the snapshot: computed with it, and rotated
+        // with it by a committed move, so day-core's header rows always match the rows.
+        let section_keys: Rc<RefCell<Vec<u64>>> = Rc::new(RefCell::new(Vec::new()));
+        let key_of_row = self.sections.as_ref().map(|s| s.key.clone());
+        let refresh = {
+            let (conn, keys, key_of_row) = (conn.clone(), section_keys.clone(), key_of_row.clone());
+            Rc::new(move || {
+                let tokens = conn.refresh();
+                if let Some(key) = &key_of_row {
+                    *keys.borrow_mut() = (0..conn.len()).map(|i| key(i)).collect();
+                }
+                (tokens, keys.borrow().clone())
+            })
+        };
         // After a committed native move/delete, the token order the app's own data update is
         // expected to echo back. When the refresh below sees exactly this order, the native rows
         // already sit in it (the gesture animated them there): take the data, skip the reload.
@@ -1710,26 +1798,14 @@ impl<S: RowSource + 'static> Piece for List<S> {
                 let conn = conn.clone();
                 Box::new(move |i| conn.token_at(i))
             },
-            build: {
-                let (conn, build_row) = (conn.clone(), self.build_row.clone());
-                Box::new(move |index, anchor| {
-                    let scope = Scope::child();
-                    let conn = conn.clone();
-                    let build_row = build_row.clone();
-                    let rebind = scope.enter(move || {
-                        // Native callbacks can deliver a stale index mid-animation; an
-                        // out-of-range pull yields an empty row instead of panicking.
-                        let Some(slot) = conn.slot_at(index) else {
-                            return Rc::new(|_: usize| {}) as Rc<dyn Fn(usize)>;
-                        };
-                        let mut rowcx = BuildCx::new(anchor);
-                        in_row_scope(|| build_row(slot).build(&mut rowcx));
-                        // Rebind on recycle: point the slot at the cell's new row.
-                        Rc::new(move |i: usize| conn.rebind(&slot, i)) as Rc<dyn Fn(usize)>
-                    });
-                    BuiltRow { scope, rebind }
-                })
-            },
+            build: slot_builder(conn.clone(), self.build_row.clone()),
+            sections: self.sections.as_ref().map(|sections| ListSectionsDriver {
+                key_at: {
+                    let keys = section_keys.clone();
+                    Box::new(move |i| keys.borrow().get(i).copied().unwrap_or_default())
+                },
+                build: slot_builder(conn.clone(), sections.header.clone()),
+            }),
             delete: self.delete.as_ref().map(|delete| ListDeleteDriver {
                 // Availability first (`Delete::enabled`), then the row's own guard.
                 can_delete: {
@@ -1742,12 +1818,16 @@ impl<S: RowSource + 'static> Piece for List<S> {
                 // serve the shorter list while the native removal animates), arm the echo skip,
                 // and defer the app's callback.
                 deleted: {
-                    let (conn, echo) = (conn.clone(), pending_echo.clone());
+                    let (conn, echo, keys) =
+                        (conn.clone(), pending_echo.clone(), section_keys.clone());
                     Box::new(move |index| {
                         if index >= conn.len() {
                             return;
                         }
                         conn.commit_delete(index);
+                        if index < keys.borrow().len() {
+                            keys.borrow_mut().remove(index);
+                        }
                         *echo.borrow_mut() = Some(conn.tokens_now());
                         enqueue_event(rnode_to_id(node), Event::ListDelete(index));
                     })
@@ -1773,12 +1853,20 @@ impl<S: RowSource + 'static> Piece for List<S> {
                 // new order while the native move animates), arm the echo skip, and defer the
                 // app's callback through the event queue.
                 moved: {
-                    let (conn, echo) = (conn.clone(), pending_echo.clone());
+                    let (conn, echo, keys) =
+                        (conn.clone(), pending_echo.clone(), section_keys.clone());
                     Box::new(move |from, to| {
                         if from >= conn.len() || to >= conn.len() {
                             return;
                         }
                         conn.commit_move(from, to);
+                        {
+                            let mut keys = keys.borrow_mut();
+                            if from < keys.len() && to < keys.len() {
+                                let k = keys.remove(from);
+                                keys.insert(to, k);
+                            }
+                        }
                         *echo.borrow_mut() = Some(conn.tokens_now());
                         enqueue_event(rnode_to_id(node), Event::ListReorder { from, to });
                     })
@@ -1839,8 +1927,8 @@ impl<S: RowSource + 'static> Piece for List<S> {
             let (conn, echo, stick) = (conn.clone(), pending_echo.clone(), self.stick_to_bottom);
             let reselect = apply_selection.clone();
             let initial = {
-                let conn = conn.clone();
-                day_reactive::untrack(move || conn.refresh())
+                let refresh = refresh.clone();
+                day_reactive::untrack(move || refresh())
             };
             // The native host attached against an empty snapshot (install_list ran before this
             // prime), so tell it the real row set now: reload, without the auto-scroll a later
@@ -1848,15 +1936,16 @@ impl<S: RowSource + 'static> Piece for List<S> {
             // change, while the synthetic rail kept passing: the walkthrough drove the driver
             // directly and never noticed.
             list_reload(node);
-            let last: RefCell<Vec<u64>> = RefCell::new(initial);
-            let conn2 = conn.clone();
+            let last: RefCell<(Vec<u64>, Vec<u64>)> = RefCell::new(initial);
             watch(
-                move || conn2.refresh(),
-                move |toks: &Vec<u64>, _| {
+                move || refresh(),
+                move |rows: &(Vec<u64>, Vec<u64>), _| {
+                    let toks = &rows.0;
                     let pending = pending_echo.borrow_mut().take();
                     let is_echo = pending.as_ref().is_some_and(|e| e == toks);
-                    let unchanged = !conn.values_flow_by_reload() && *last.borrow() == *toks;
-                    *last.borrow_mut() = toks.clone();
+                    // A row moving to another section changes its header rows, not its tokens.
+                    let unchanged = !conn.values_flow_by_reload() && *last.borrow() == *rows;
+                    *last.borrow_mut() = rows.clone();
                     if !is_echo && pending.is_some() {
                         // The native rows took a move or delete the app answered with some
                         // other order. The source's deltas describe the change from its order

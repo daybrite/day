@@ -3,8 +3,16 @@
 // Included only by the WinUI build. ItemsRepeater/StackLayout own realization and
 // scroll extents; Day owns the contents of each recycled Canvas. Factory callbacks
 // only post work, since calling ListSource during XAML layout would re-enter Day.
+//
+// Section headers (docs/list.md "Sections"): ItemsRepeater has no group headers, so a header
+// row is a plain Border around its Canvas, pooled apart from the ItemContainer rows, never
+// selected, focused or swiped. A copy of the current section's header is pinned over the
+// viewport: one extra Canvas that Day binds to that header row, set beside the template's
+// ScrollContentPresenter so it stays put while the rows scroll under it.
 namespace {
 struct WinuiListCell {
+    bool header = false;
+    WUXC::Border frame{nullptr}; // a header row's element, in place of `root`
     WUXC::ItemContainer root;
     WUXC::SwipeControl swipe;
     WUXC::Canvas content;
@@ -15,6 +23,10 @@ struct WinuiListCell {
     int row = -1;
     uint64_t generation = 0;
     ~WinuiListCell() { if (handle) day_xaml_delete(handle); }
+    // The element the repeater places for this cell.
+    FrameworkElement element() const {
+        return header ? frame.as<FrameworkElement>() : root.as<FrameworkElement>();
+    }
 };
 struct WinuiList {
     WUXC::ScrollViewer scroll;
@@ -29,6 +41,17 @@ struct WinuiList {
     std::weak_ptr<WinuiListCell> drag;
     uint64_t drag_generation = 0;
     double pitch = 44;
+    // Sectioned lists only: the header rows, and the pinned copy of the current one.
+    std::set<int> headers;
+    double header_pitch = 44;
+    WUXC::Border pin{nullptr};
+    WUXC::Canvas pin_content{nullptr};
+    WUXM::TranslateTransform pin_shift{nullptr};
+    WUXM::RectangleGeometry pin_clip{nullptr};
+    void* pin_handle = nullptr;
+    bool pin_installed = false;
+    int pin_want = -1, pin_bound = -1;
+    double pin_height = 0;
     bool selectable = false, activatable = false, reorderable = false, syncing = false;
     void (*changed)(void*) = nullptr;
     void (*selected)(void*, int, int) = nullptr;
@@ -37,6 +60,7 @@ struct WinuiList {
     int (*can_move)(void*, int, int) = nullptr;
     void (*moved)(void*, int, int) = nullptr;
     void notify() { if (host) changed(host); }
+    ~WinuiList() { if (pin_handle) day_xaml_delete(pin_handle); }
 };
 std::map<void*, std::shared_ptr<WinuiList>> winui_lists;
 static std::shared_ptr<WinuiList> winui_list(void* host) {
@@ -59,11 +83,18 @@ static bool winui_list_embedded(WF::IInspectable const& source, WinuiListCell co
     }
     return false;
 }
+// Under a pinned header (docs/list.md "Sections") a row is only in view below it, so a
+// reveal brings the row plus that much space above it into view.
+static double winui_list_reveal_inset(WinuiList const& list, int row) {
+    if (!list.pin || list.headers.count(row)) return 0;
+    return list.pin_height > 0 ? list.pin_height : list.header_pitch;
+}
 static bool winui_list_reveal_landed(WinuiList const& list, int row, bool nearest) {
     auto element = list.repeater.TryGetElement(row).try_as<WUX::FrameworkElement>();
     if (!element || element.ActualWidth() <= 0 || element.ActualHeight() <= 0) return false;
+    double inset = winui_list_reveal_inset(list, row);
     auto bounds = element.TransformToVisual(list.scroll).TransformBounds(
-        {0, 0, float(element.ActualWidth()), float(element.ActualHeight())});
+        {0, float(-inset), float(element.ActualWidth()), float(element.ActualHeight() + inset)});
     double viewport = list.scroll.ViewportHeight();
     if (nearest) {
         return (bounds.Y >= -.5 && bounds.Y + bounds.Height <= viewport + .5) ||
@@ -84,11 +115,17 @@ static void winui_list_reveal(WinuiList& list) {
     WUX::BringIntoViewOptions options;
     options.AnimationDesired(false);
     if (!list.pending_nearest) options.VerticalAlignmentRatio(list.pending < 0 ? 1.0 : 0.0);
+    if (double inset = winui_list_reveal_inset(list, row); inset > 0) {
+        if (auto fe = element.try_as<WUX::FrameworkElement>()) {
+            options.TargetRect(WF::IReference<WF::Rect>(WF::Rect{
+                0, float(-inset), float(fe.ActualWidth()), float(fe.ActualHeight() + inset)}));
+        }
+    }
     int request = list.pending;
     bool nearest = list.pending_nearest;
     element.StartBringIntoView(options);
     // A queued keyboard jump may not have a container until this request runs.
-    if (nearest) element.as<WUXC::Control>().Focus(WUX::FocusState::Keyboard);
+    if (nearest) if (auto c = element.try_as<WUXC::Control>()) c.Focus(WUX::FocusState::Keyboard);
     // ItemsRepeater retains its bring-into-view anchor until Rendering. Another request
     // before that frame can replace the anchor while the first scroll is still pending.
     // Keep the request until its target reaches the viewport. Rendering releases the
@@ -108,10 +145,123 @@ static void winui_list_reveal(WinuiList& list) {
     });
     list.notify();
 }
-static std::shared_ptr<WinuiListCell> winui_list_make_cell(std::shared_ptr<WinuiList> const& list) {
+// Keyboard travel lands on rows, never headers: keep going the way the key moved, and turn
+// back at the end of the list (a header precedes every section, so some row is always near).
+static int winui_list_skip_headers(WinuiList const& l, int target, int dir) {
+    if (l.headers.empty() || dir == 0 || !l.headers.count(target)) return target;
+    for (int r = target; r >= 0 && r < l.count; r += dir) if (!l.headers.count(r)) return r;
+    for (int r = target - dir; r >= 0 && r < l.count; r -= dir) if (!l.headers.count(r)) return r;
+    return target;
+}
+// The pinned header's ground: opaque, so rows scrolling under it never show through. The
+// same page ground an emulated cover takes (day_xaml_cover_ground): the theme resource only
+// while the app follows the system scheme, which is the scheme that resource answers for.
+static void winui_list_pin_ground(WUXC::Border const& pin) {
+    if (!g_forced_theme && !g_app_override) {
+        auto res = WUX::Application::Current().Resources();
+        auto key = winrt::box_value(winrt::hstring(L"ApplicationPageBackgroundThemeBrush"));
+        if (res.HasKey(key)) {
+            if (auto brush = res.Lookup(key).try_as<WUXM::Brush>()) { pin.Background(brush); return; }
+        }
+    }
+    pin.Background(WUXM::SolidColorBrush(color_argb(effective_dark() ? 0xFF'202020u : 0xFF'F3F3F3u)));
+}
+// Put the pinned header beside the ScrollViewer template's ScrollContentPresenter, in the same
+// cell, just above it in z-order (the scroll bars stay above both). Outside the scrolled
+// content it does not move with the rows, so a scroll never needs a UI-thread catch-up.
+static void winui_list_pin_install(WinuiList& l) {
+    if (l.pin_installed || !l.pin) return;
+    l.scroll.ApplyTemplate();
+    WUXC::ScrollContentPresenter presenter{nullptr};
+    std::vector<std::pair<WUX::DependencyObject, int>> stack{{l.scroll, 0}};
+    while (!presenter && !stack.empty()) {
+        auto [at, depth] = stack.back();
+        stack.pop_back();
+        int n = WUXM::VisualTreeHelper::GetChildrenCount(at);
+        for (int i = 0; i < n && !presenter; ++i) {
+            auto child = WUXM::VisualTreeHelper::GetChild(at, i);
+            presenter = child.try_as<WUXC::ScrollContentPresenter>();
+            if (!presenter && depth < 4) stack.push_back({child, depth + 1});
+        }
+    }
+    if (!presenter) return;
+    auto panel = WUXM::VisualTreeHelper::GetParent(presenter).try_as<WUXC::Panel>();
+    uint32_t index = 0;
+    if (!panel || !panel.Children().IndexOf(presenter, index)) return;
+    WUXC::Grid::SetRow(l.pin, WUXC::Grid::GetRow(presenter));
+    WUXC::Grid::SetRowSpan(l.pin, WUXC::Grid::GetRowSpan(presenter));
+    WUXC::Grid::SetColumn(l.pin, WUXC::Grid::GetColumn(presenter));
+    WUXC::Grid::SetColumnSpan(l.pin, WUXC::Grid::GetColumnSpan(presenter));
+    l.pin.Margin(presenter.Margin());
+    panel.Children().InsertAt(index + 1, l.pin);
+    l.pin_installed = true;
+}
+// A realized row's top edge in viewport coordinates.
+static bool winui_list_row_top(WinuiList const& l, int row, double& top) {
+    for (auto const& c : l.cells) {
+        if (c->row != row) continue;
+        auto e = c->element();
+        if (e.ActualHeight() <= 0) return false;
+        top = e.TransformToVisual(l.scroll).TransformPoint({0, 0}).Y;
+        return true;
+    }
+    return false;
+}
+// Place the pinned header for the current scroll offset: the header of the section holding the
+// topmost visible row, hidden while that header row is itself in full view, and pushed up by
+// the next header as it arrives. A change of header asks Day for a rebind (`pin_want`); until
+// it lands the copy stays hidden rather than show the wrong section.
+static void winui_list_pin(WinuiList& l) {
+    if (!l.pin) return;
+    winui_list_pin_install(l);
+    double viewport = l.scroll.ViewportHeight();
+    int first = -1;
+    for (auto const& c : l.cells) {
+        if (c->row < 0 || (first >= 0 && c->row >= first)) continue;
+        auto e = c->element();
+        double height = e.ActualHeight();
+        if (height <= 0) continue;
+        double top = e.TransformToVisual(l.scroll).TransformPoint({0, 0}).Y;
+        if (top + height > .5 && top < viewport) first = c->row;
+    }
+    auto next = first < 0 ? l.headers.end() : l.headers.upper_bound(first);
+    double top = 0;
+    if (first < 0 || next == l.headers.begin() ||
+        (winui_list_row_top(l, *std::prev(next), top) && top >= -.5)) {
+        l.pin.Visibility(WUX::Visibility::Collapsed);
+        return;
+    }
+    int header = *std::prev(next);
+    if (l.pin_want != header) { l.pin_want = header; l.notify(); }
+    double shift = 0, arriving = 0;
+    if (next != l.headers.end() && winui_list_row_top(l, *next, arriving))
+        shift = (std::min)(0.0, arriving - l.pin_height);
+    if (l.pin_bound != header || l.pin_height <= 0 || shift <= -l.pin_height) {
+        l.pin.Visibility(WUX::Visibility::Collapsed);
+        return;
+    }
+    l.pin.Height(l.pin_height);
+    l.pin_shift.Y(shift);
+    // The clip is in the pin's own coordinates: keep only the part still inside the viewport.
+    l.pin_clip.Rect({0, float(-shift), float((std::max)(0.0, l.scroll.ActualWidth())),
+        float(l.pin_height + shift)});
+    l.pin.Visibility(WUX::Visibility::Visible);
+}
+static std::shared_ptr<WinuiListCell> winui_list_make_cell(std::shared_ptr<WinuiList> const& list, bool header) {
     auto cell = std::make_shared<WinuiListCell>();
     cell->handle = boxh(cell->content);
     cell->content.Background(WUXM::SolidColorBrush(color_argb(0)));
+    if (header) {
+        // No ItemContainer: nothing to select, hover, focus, swipe or drag. Controls inside
+        // the header piece still take their own input.
+        cell->header = true;
+        cell->frame = WUXC::Border();
+        cell->frame.Child(cell->content);
+        cell->frame.HorizontalAlignment(WUX::HorizontalAlignment::Stretch);
+        cell->frame.Height(list->header_pitch);
+        list->cells.push_back(cell);
+        return cell;
+    }
     cell->swipe.Content(cell->content);
     cell->root.Child(cell->swipe);
     // ItemContainer's theme padding is for text templates. Day supplies the complete
@@ -205,23 +355,30 @@ struct WinuiListFactory : winrt::implements<WinuiListFactory, WUX::IElementFacto
     UIElement GetElement(WUX::ElementFactoryGetArgs const& args) {
         auto l = list.lock();
         if (!l) return nullptr;
+        int row = winrt::unbox_value<int>(args.Data());
+        bool header = l->headers.count(row) != 0;
         std::shared_ptr<WinuiListCell> cell;
-        for (auto const& c : l->cells) if (c->row < 0) { cell = c; break; }
-        if (!cell) cell = winui_list_make_cell(l);
-        cell->row = winrt::unbox_value<int>(args.Data());
+        for (auto const& c : l->cells) if (c->row < 0 && c->header == header) { cell = c; break; }
+        if (!cell) cell = winui_list_make_cell(l, header);
+        cell->row = row;
         ++cell->generation;
-        l->syncing = true;
-        cell->root.IsSelected(l->selection.count(cell->row) != 0);
-        l->syncing = false;
-        cell->root.Height(l->pitch);
+        if (header) {
+            cell->frame.Height(l->header_pitch);
+        } else {
+            l->syncing = true;
+            cell->root.IsSelected(l->selection.count(cell->row) != 0);
+            l->syncing = false;
+            cell->root.Height(l->pitch);
+        }
         l->notify();
-        return cell->root;
+        return cell->element();
     }
     void RecycleElement(WUX::ElementFactoryRecycleArgs const& args) {
         if (auto l = list.lock()) {
-            for (auto const& c : l->cells) if (c->root == args.Element()) {
+            for (auto const& c : l->cells) if (c->element() == args.Element()) {
                 c->row = -1;
                 ++c->generation;
+                if (c->header) break;
                 c->swipe.Close();
                 c->menu.Hide();
                 // Old action closures must never follow this physical cell to a new row.
@@ -265,8 +422,13 @@ void* day_winui_list_new(double pitch, int selectable, int activatable, int reor
     l->host = boxh(l->scroll);
     winui_lists.emplace(l->host, l);
     std::weak_ptr<WinuiList> weak = l;
-    l->scroll.ViewChanged([weak](auto const&, auto const&) { if (auto l = weak.lock()) l->notify(); });
-    l->scroll.SizeChanged([weak](auto const&, auto const&) { if (auto l = weak.lock()) l->notify(); });
+    // The pinned header moves here, in step with the scroll; Day's pass only rebinds it.
+    l->scroll.ViewChanged([weak](auto const&, auto const&) {
+        if (auto l = weak.lock()) { winui_list_pin(*l); l->notify(); }
+    });
+    l->scroll.SizeChanged([weak](auto const&, auto const&) {
+        if (auto l = weak.lock()) { winui_list_pin(*l); l->notify(); }
+    });
     l->scroll.Loaded([weak](auto const&, auto const&) { if (auto l = weak.lock()) l->notify(); });
     l->scroll.PreviewKeyDown([weak](auto const&, WUXIn::KeyRoutedEventArgs const& e) {
         auto l = weak.lock();
@@ -276,21 +438,21 @@ void* day_winui_list_new(double pitch, int selectable, int activatable, int reor
         if (e.OriginalSource() != l->scroll) {
             for (auto const& c : l->cells) if (c->row == l->focus && winui_list_embedded(e.OriginalSource(), *c)) return;
         }
-        auto key = e.Key(); int target = l->focus, mods = winui_list_modifiers();
+        auto key = e.Key(); int target = l->focus, mods = winui_list_modifiers(), dir = 0;
         if (key == WS::VirtualKey::Enter) {
             if (!l->activatable) return;
             l->selected(l->host, target, 4);
         } else if (key == WS::VirtualKey::A && (mods & 1) && l->selectable) {
             l->selected(l->host, target, 16);
         } else {
-            if (key == WS::VirtualKey::Up) --target;
-            else if (key == WS::VirtualKey::Down) ++target;
-            else if (key == WS::VirtualKey::Home) target = 0;
-            else if (key == WS::VirtualKey::End) target = l->count - 1;
-            else if (key == WS::VirtualKey::PageUp) target -= (std::max)(1, int(l->scroll.ViewportHeight() / l->pitch));
-            else if (key == WS::VirtualKey::PageDown) target += (std::max)(1, int(l->scroll.ViewportHeight() / l->pitch));
+            if (key == WS::VirtualKey::Up) --target, dir = -1;
+            else if (key == WS::VirtualKey::Down) ++target, dir = 1;
+            else if (key == WS::VirtualKey::Home) target = 0, dir = 1;
+            else if (key == WS::VirtualKey::End) target = l->count - 1, dir = -1;
+            else if (key == WS::VirtualKey::PageUp) target -= (std::max)(1, int(l->scroll.ViewportHeight() / l->pitch)), dir = -1;
+            else if (key == WS::VirtualKey::PageDown) target += (std::max)(1, int(l->scroll.ViewportHeight() / l->pitch)), dir = 1;
             else if (key != WS::VirtualKey::Space || !l->selectable) return;
-            target = std::clamp(target, 0, l->count - 1);
+            target = winui_list_skip_headers(*l, std::clamp(target, 0, l->count - 1), dir);
             l->focus = target; l->pending = target;
             l->pending_nearest = true;
             winui_list_reveal(*l);
@@ -308,6 +470,13 @@ void day_winui_list_forget(void* host) {
             l->reveal_frame = {};
         }
         l->host = nullptr;
+        if (l->pin) {
+            if (auto panel = WUXM::VisualTreeHelper::GetParent(l->pin).try_as<WUXC::Panel>()) {
+                uint32_t index = 0;
+                if (panel.Children().IndexOf(l->pin, index)) panel.Children().RemoveAt(index);
+            }
+            l->pin.Child(nullptr);
+        }
         l->repeater.ItemsSource(nullptr);
         l->repeater.ItemTemplate(nullptr);
         l->scroll.Content(nullptr);
@@ -339,9 +508,10 @@ int day_winui_list_cells(void* host, DayWinuiListCell* out, int capacity) {
         for (auto const& c : l->cells) {
             if (c->row < 0) continue;
             if (out && i < capacity) {
-                auto bounds = c->root.TransformToVisual(l->scroll).TransformBounds(
-                    {0, 0, float(c->root.ActualWidth()), float(c->root.ActualHeight())});
-                out[i] = {c->handle, c->row, c->generation, c->root.ActualWidth(),
+                auto e = c->element();
+                auto bounds = e.TransformToVisual(l->scroll).TransformBounds(
+                    {0, 0, float(e.ActualWidth()), float(e.ActualHeight())});
+                out[i] = {c->handle, c->row, c->generation, e.ActualWidth(),
                     bounds.Y + bounds.Height > 0 && bounds.Y < l->scroll.ViewportHeight() ? 1 : 0};
             }
             ++i;
@@ -354,7 +524,9 @@ void day_winui_list_cell_size(void* host, void* cell, uint64_t generation, doubl
         auto l = winui_list(host); if (!l) return;
         auto c = winui_cell(*l, cell); if (!c || c->generation != generation) return;
         c->content.Width(width); c->content.Height(height);
-        if (std::abs(c->root.Height() - height) > .25) { c->root.Height(height); l->notify(); }
+        if (c->header) l->header_pitch = height;
+        auto e = c->element();
+        if (std::abs(e.Height() - height) > .25) { e.Height(height); l->notify(); }
     });
 }
 void day_winui_list_scroll(void* host, int row) {
@@ -372,14 +544,14 @@ void day_winui_list_select(void* host, int const* rows, int len) {
         l->selection.clear();
         for (int i = 0; i < len; ++i) if (rows[i] >= 0 && rows[i] < l->count) l->selection.insert(rows[i]);
         l->syncing = true;
-        for (auto const& c : l->cells) c->root.IsSelected(c->row >= 0 && l->selection.count(c->row));
+        for (auto const& c : l->cells) if (!c->header) c->root.IsSelected(c->row >= 0 && l->selection.count(c->row));
         l->syncing = false;
     });
 }
 void day_winui_list_actions_begin(void* host, void* cell) {
     guard([&] {
         auto l = winui_list(host); if (!l) return;
-        auto c = winui_cell(*l, cell); if (!c) return;
+        auto c = winui_cell(*l, cell); if (!c || c->header) return;
         c->leading = WUXC::SwipeItems(); c->trailing = WUXC::SwipeItems();
         c->menu.Items().Clear();
     });
@@ -388,7 +560,7 @@ void day_winui_list_action_add(void* host, void* cell, uint64_t token, int edge,
     char const* label, char const* glyph, int destructive, double const* color) {
     guard([&] {
         auto l = winui_list(host); if (!l) return;
-        auto c = winui_cell(*l, cell); if (!c || c->row < 0) return;
+        auto c = winui_cell(*l, cell); if (!c || c->row < 0 || c->header) return;
         std::weak_ptr<WinuiList> weak = l; std::weak_ptr<WinuiListCell> wc = c;
         auto invoke = [weak, wc, generation = c->generation, row = c->row, token, edge, index]() {
             auto l = weak.lock(); auto c = wc.lock();
@@ -418,7 +590,7 @@ void day_winui_list_action_add(void* host, void* cell, uint64_t token, int edge,
 void day_winui_list_actions_end(void* host, void* cell) {
     guard([&] {
         auto l = winui_list(host); if (!l) return;
-        auto c = winui_cell(*l, cell); if (!c) return;
+        auto c = winui_cell(*l, cell); if (!c || c->header) return;
         bool rtl = c->root.FlowDirection() == WUX::FlowDirection::RightToLeft;
         auto left = rtl ? c->trailing : c->leading;
         auto right = rtl ? c->leading : c->trailing;
@@ -427,6 +599,55 @@ void day_winui_list_actions_end(void* host, void* cell) {
         c->root.ContextFlyout(c->menu.Items().Size() ? c->menu : nullptr);
         // Action-only lists still need a keyboard route to their context menu.
         c->root.IsTabStop(l->selectable || l->activatable || c->menu.Items().Size() != 0);
+    });
+}
+// A sectioned list's header rows (docs/list.md "Sections"), sent before each reload so the
+// factory pools header elements apart from rows. The first call makes the pinned header.
+void day_winui_list_headers(void* host, int const* rows, int len) {
+    guard([&] {
+        auto l = winui_list(host); if (!l) return;
+        l->headers.clear();
+        for (int i = 0; i < len; ++i) l->headers.insert(rows[i]);
+        if (l->pin) return;
+        l->pin = WUXC::Border();
+        l->pin_content = WUXC::Canvas();
+        l->pin_content.Background(WUXM::SolidColorBrush(color_argb(0)));
+        l->pin_handle = boxh(l->pin_content);
+        l->pin.Child(l->pin_content);
+        l->pin.VerticalAlignment(WUX::VerticalAlignment::Top);
+        l->pin.HorizontalAlignment(WUX::HorizontalAlignment::Stretch);
+        l->pin.Visibility(WUX::Visibility::Collapsed);
+        l->pin_shift = WUXM::TranslateTransform();
+        l->pin.RenderTransform(l->pin_shift);
+        l->pin_clip = WUXM::RectangleGeometry();
+        l->pin.Clip(l->pin_clip);
+        winui_list_pin_ground(l->pin);
+        // An application-resource lookup is a brush snapshot: resolve it again on a theme change.
+        l->pin.ActualThemeChanged([](FrameworkElement const& sender, WF::IInspectable const&) {
+            if (auto pin = sender.try_as<WUXC::Border>()) winui_list_pin_ground(pin);
+        });
+    });
+}
+// The header row the pin should show now (-1: none), with the pin's cell and width for Day to
+// bind and lay out.
+int day_winui_list_pinned(void* host, void** cell, double* width) {
+    int row = -1;
+    guard([&] {
+        auto l = winui_list(host); if (!l || !l->pin) return;
+        winui_list_pin(*l);
+        *cell = l->pin_handle;
+        *width = l->scroll.ViewportWidth() > 0 ? l->scroll.ViewportWidth() : l->scroll.ActualWidth();
+        row = l->pin_want;
+    });
+    return row;
+}
+// Day bound header `row` into the pin's cell and measured it.
+void day_winui_list_pinned_bound(void* host, int row, double width, double height) {
+    guard([&] {
+        auto l = winui_list(host); if (!l || !l->pin) return;
+        l->pin_content.Width(width); l->pin_content.Height(height);
+        l->pin_bound = row; l->pin_height = height;
+        winui_list_pin(*l);
     });
 }
 } // extern "C"

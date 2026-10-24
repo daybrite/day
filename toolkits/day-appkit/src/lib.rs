@@ -3529,6 +3529,12 @@ struct ListIvars {
     /// it, through `tableView:heightOfRow:`. A uniform list never answers that selector, so
     /// NSTableView keeps its fixed-pitch fast path.
     automatic: bool,
+    /// The list has section headers (docs/list.md "Sections"): AppKit group rows, which float
+    /// at the top as their section scrolls under them. A header sizes to its content in any
+    /// list, so a sectioned list answers `tableView:heightOfRow:` even when it is uniform.
+    sections: bool,
+    /// The height a header nobody has bound yet is given, like `estimate` for rows.
+    header_estimate: std::cell::Cell<f64>,
     /// Each self-sizing row's height by row token, as Day last laid it. By token, not row: a
     /// splice or a drag moves rows without rebinding them.
     heights: RefCell<std::collections::HashMap<u64, f64>>,
@@ -3558,7 +3564,10 @@ define_class!(
         /// path. NSTableView reads this once, at `setDelegate:`, after `automatic` is set.
         #[unsafe(method(respondsToSelector:))]
         fn responds_to_selector(&self, selector: objc2::runtime::Sel) -> bool {
-            if selector == objc2::sel!(tableView:heightOfRow:) && !self.ivars().automatic {
+            if selector == objc2::sel!(tableView:heightOfRow:)
+                && !self.ivars().automatic
+                && !self.ivars().sections
+            {
                 false
             } else {
                 unsafe { msg_send![super(self), respondsToSelector: selector] }
@@ -3633,7 +3642,8 @@ define_class!(
                     .borrow()
                     .as_ref()
                     .is_some_and(|s| s.reorder.is_some());
-                if !reorderable || row < 0 {
+                // A group row (a section header) never lifts (docs/list.md "Sections").
+                if !reorderable || row < 0 || self.is_header(row) {
                     return None;
                 }
                 let item = objc2_app_kit::NSPasteboardItem::new();
@@ -3743,9 +3753,14 @@ define_class!(
         /// exists, often from inside `reloadData` under a day-core borrow, so it reads only this
         /// table's own record and the source's token snapshot.
         #[unsafe(method(tableView:heightOfRow:))]
-        fn height_of_row(&self, _tv: &NSTableView, row: isize) -> f64 {
+        fn height_of_row(&self, tv: &NSTableView, row: isize) -> f64 {
             ffi_guard::contain(44.0, || {
                 let ivars = self.ivars();
+                let header = self.is_header(row);
+                // A uniform sectioned list: rows keep the fixed pitch, headers size themselves.
+                if !header && !ivars.automatic {
+                    return unsafe { tv.rowHeight() };
+                }
                 let token = ivars
                     .source
                     .borrow()
@@ -3754,8 +3769,28 @@ define_class!(
                     .map(|s| (s.token_at)(row as usize));
                 token
                     .and_then(|t| ivars.heights.borrow().get(&t).copied())
-                    .unwrap_or_else(|| ivars.estimate.get())
+                    .unwrap_or_else(|| {
+                        if header {
+                            ivars.header_estimate.get()
+                        } else {
+                            ivars.estimate.get()
+                        }
+                    })
             })
+        }
+
+        /// Section headers are AppKit group rows (docs/list.md "Sections"): drawn in the
+        /// group style, spanning the row, and floated over their section by
+        /// `floatsGroupRows`.
+        #[unsafe(method(tableView:isGroupRow:))]
+        fn is_group_row(&self, _tv: &NSTableView, row: isize) -> bool {
+            ffi_guard::contain(false, || self.is_header(row))
+        }
+
+        /// A header is not an item: clicks and arrow keys pass over it.
+        #[unsafe(method(tableView:shouldSelectRow:))]
+        fn should_select_row(&self, _tv: &NSTableView, row: isize) -> bool {
+            ffi_guard::contain(true, || !self.is_header(row))
         }
 
         #[unsafe(method_id(tableView:viewForTableColumn:row:))]
@@ -3768,7 +3803,9 @@ define_class!(
             // Guarded: `bind_row` builds the app's row content.
             ffi_guard::contain(None, || {
                 let mtm = self.mtm();
-                let ident = NSString::from_str("day.cell");
+                // Headers pool apart from rows, so a recycled cell keeps its kind and rebinds.
+                let header = self.is_header(row);
+                let ident = NSString::from_str(if header { DAY_HEADER_CELL } else { DAY_ROW_CELL });
                 // Recycle a cell view if one is free; else make a fresh flipped container.
                 let cell: Retained<NSView> =
                     unsafe { tv.makeViewWithIdentifier_owner(&ident, None) }.unwrap_or_else(|| {
@@ -3783,8 +3820,8 @@ define_class!(
                 if let Some(source) = source {
                     let raw = Retained::as_ptr(&cell) as RawHandle;
                     (source.bind_row)(row as usize, raw);
-                    if self.ivars().automatic {
-                        self.note_row_height(tv, &source, row, raw);
+                    if self.ivars().automatic || header {
+                        self.note_row_height(tv, &source, row, raw, header);
                     }
                 }
                 Some(cell)
@@ -3806,7 +3843,10 @@ define_class!(
             ffi_guard::contain((), || {
                 let Some(cell) = row_view.subviews().iter().find(|sub| {
                     sub.identifier()
-                        .map(|i| i.to_string() == "day.cell")
+                        .map(|i| {
+                            let i = i.to_string();
+                            i == DAY_ROW_CELL || i == DAY_HEADER_CELL
+                        })
                         .unwrap_or(false)
                 }) else {
                     return;
@@ -3979,6 +4019,7 @@ impl DayListData {
         selectable: bool,
         multi: bool,
         automatic: bool,
+        sections: bool,
     ) -> Retained<Self> {
         let this = Self::alloc(mtm).set_ivars(ListIvars {
             node,
@@ -3988,6 +4029,8 @@ impl DayListData {
             suppress: std::cell::Cell::new(false),
             tokens: RefCell::new(Vec::new()),
             automatic,
+            sections,
+            header_estimate: std::cell::Cell::new(28.0),
             heights: RefCell::new(std::collections::HashMap::new()),
             cell_tokens: RefCell::new(std::collections::HashMap::new()),
             estimate: std::cell::Cell::new(44.0),
@@ -4005,6 +4048,7 @@ impl DayListData {
         source: &ListSource,
         row: isize,
         cell: RawHandle,
+        header: bool,
     ) {
         let height = (source.cell_height)(cell);
         if height <= 0.0 || row < 0 {
@@ -4016,11 +4060,27 @@ impl DayListData {
             .borrow_mut()
             .insert(cell as usize, token);
         self.ivars().heights.borrow_mut().insert(token, height);
-        self.ivars().estimate.set(height);
+        if header {
+            self.ivars().header_estimate.set(height);
+        } else {
+            self.ivars().estimate.set(height);
+        }
         let drawn = unsafe { table.rectOfRow(row) }.size.height;
         if (drawn - height).abs() > 0.5 {
             self.post_row_heights(table);
         }
+    }
+
+    /// Whether display row `row` is a section header (docs/list.md "Sections").
+    fn is_header(&self, row: isize) -> bool {
+        row >= 0
+            && self
+                .ivars()
+                .source
+                .borrow()
+                .as_ref()
+                .and_then(|s| s.is_header.clone())
+                .is_some_and(|is_header| is_header(row as usize))
     }
 
     /// `ListPatch::RowSizeInvalidated`: the row in `cell` was re-laid at `height`. Arrives under
@@ -4172,6 +4232,10 @@ impl DayListData {
             .unwrap_or(-1)
     }
 }
+
+/// The reuse identifiers of a list's row cells and its section-header cells.
+const DAY_ROW_CELL: &str = "day.cell";
+const DAY_HEADER_CELL: &str = "day.header";
 
 /// The private pasteboard type carrying a dragged day list row's index (local reorder only).
 const DAY_ROW_PASTEBOARD_TYPE: &str = "dev.daybrite.day.row";
@@ -6927,6 +6991,8 @@ impl Toolkit for AppKit {
             // NSTableView row actions: reveal-as-you-swipe buttons with the native full-slide
             // activation (docs/list.md).
             | Cap::ListSwipeActions
+            // NSTableView group rows with `floatsGroupRows` (docs/list.md "Sections").
+            | Cap::ListSections
             // NSOutlineView hosts Day-built rows natively, drag-reparent included
             // (docs/tree.md).
             | Cap::Tree
@@ -7686,6 +7752,7 @@ impl Toolkit for AppKit {
                     p.selectable,
                     p.multi_select,
                     p.row_height == RowHeight::Automatic,
+                    p.sections,
                 );
                 unsafe {
                     if p.multi_select {
@@ -7718,6 +7785,9 @@ impl Toolkit for AppKit {
                     table.setColumnAutoresizingStyle(
                         objc2_app_kit::NSTableViewColumnAutoresizingStyle::UniformColumnAutoresizingStyle,
                     );
+                    // Section headers pin to the top while their section scrolls under them,
+                    // the way Mail's and Finder's group rows do (docs/list.md "Sections").
+                    table.setFloatsGroupRows(p.sections);
                     match p.row_height {
                         RowHeight::Uniform(h) => table.setRowHeight(h),
                         RowHeight::Automatic => table.setRowHeight(44.0),

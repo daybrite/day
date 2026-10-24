@@ -9,12 +9,18 @@
 //! pointer stays stable and day-core's cell cache rebinds it. Recycling parks the subtree's
 //! element ids until its next bind. Row counts, binds and the reorder/delete seams come from
 //! `lib.rs`'s list callbacks.
+//!
+//! A sectioned list (docs/list.md "Sections") is a Stack holding the LIST and, above it, one
+//! extra cell Day binds the current section's header into: the pinned header. ArkUI's own sticky
+//! headers belong to `ListItemGroup`s, which would split the one adapter-fed row space into a
+//! group (and an adapter) per section; the overlay keeps the single adapter and reads the
+//! visible range the list already reports (`NODE_LIST_ON_SCROLL_INDEX`).
 
 // Node handles are opaque runtime tokens (see node.rs), never dereferenced here.
 #![allow(clippy::not_unsafe_ptr_arg_deref)]
 
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::ffi::c_void;
 use std::ptr;
 
@@ -48,6 +54,9 @@ use crate::node::{self, Handle};
 struct List {
     adapter: ArkUI_NodeAdapterHandle,
     host_id: u64,
+    /// Day's handle for the list: the LIST itself, or for a sectioned list the Stack around the
+    /// LIST and its pinned header (`node` is then the LIST inside it).
+    host: Handle,
     /// px; 0 = content-sized (`RowHeight::Automatic`): each cell then takes the height Day
     /// laid its row at, set after every bind and on `ListPatch::RowSizeInvalidated`.
     row_h: f32,
@@ -61,9 +70,9 @@ struct List {
     /// reparent/insert above the tail left every untouched cell showing the wrong row.
     generation: u32,
     pool: Vec<Handle>,
-    /// Drag-to-reorder (docs/list.md): whether rows drag, the list node (for geometry), and
-    /// each live cell's currently-bound row (cells recycle, so the row is re-recorded on every
-    /// bind).
+    /// Drag-to-reorder (docs/list.md): whether rows drag, the LIST node (for geometry and the
+    /// scroll attributes), and each live cell's currently-bound row (cells recycle, so the row
+    /// is re-recorded on every bind).
     reorderable: bool,
     node: Handle,
     rows: HashMap<usize, i32>,
@@ -79,6 +88,35 @@ struct List {
     /// A row jump asked for before the adapter had rows (a list the page scrolls as it builds):
     /// the next reload applies it.
     pending_scroll: Option<u32>,
+    /// A sectioned list's header cells (docs/list.md "Sections"): built inert (no tap, drag or
+    /// swipe), sized to their header, and pooled apart from the item cells so a recycled
+    /// header cell always rebinds a header.
+    header_cells: HashSet<usize>,
+    header_pool: Vec<Handle>,
+    /// A sectioned list's pinned header; `None` on every other list.
+    pin: Option<Pin>,
+}
+
+/// The pinned copy of the current section's header (docs/list.md "Sections"): one Stack laid
+/// over the top of the list, bound through the row source like any cell, rebound only when the
+/// section at the top changes, and pushed up as the next header arrives under it.
+struct Pin {
+    /// The overlay Stack, Day's cell for the header copy. Default hit testing: while shown it
+    /// takes the taps over the rows it covers, and hidden (`VISIBILITY_NONE`) it takes none.
+    cell: Handle,
+    /// The header row bound into `cell`; `None` before the first bind and after a reload.
+    bound: Option<i32>,
+    /// `cell`'s height, vp: the header's laid height.
+    height: f64,
+    /// The visible rows `NODE_LIST_ON_SCROLL_INDEX` last reported.
+    first: i32,
+    last: i32,
+    /// `(first, header)`: the header row of the section holding `first`, kept so a scroll
+    /// within a section scans nothing and one across sections scans only the rows it passed.
+    section: Option<(i32, i32)>,
+    /// The first header below `first` inside the visible range, the one that pushes the pin.
+    next: Option<i32>,
+    shown: bool,
 }
 
 /// User data for a cell's swipe action. The row is not captured here: cells recycle, so the
@@ -107,7 +145,8 @@ fn list_ptr(n: Handle) -> *mut List {
 /// One cell's selection fill (docs/list.md `ListPatch::Selected`): the HarmonyOS accent at
 /// 20% alpha as the LIST_ITEM's background; Day's row content paints above it.
 fn paint_cell(dl: &List, cell: Handle, row: i32) {
-    if !dl.selectable {
+    // A header never shows selection (docs/list.md "Sections"); its ground is the header band.
+    if !dl.selectable || dl.header_cells.contains(&(cell as usize)) {
         return;
     }
     let sel = crate::list_is_selected(dl.host_id, row as u32);
@@ -202,36 +241,16 @@ unsafe extern "C" fn adapter_receiver(ev: *mut ArkUI_NodeAdapterEvent) {
                 }
                 AdapterEv::NODE_ADAPTER_EVENT_ON_ADD_NODE_TO_ADAPTER => {
                     let idx = OH_ArkUI_NodeAdapterEvent_GetItemIndex(ev);
-                    let cell = match dl.pool.pop() {
-                        Some(cell) => cell,
-                        None => {
-                            let cell = node::create(node::LIST_ITEM);
-                            let inner = node::create(node::STACK);
-                            // Day's adopted anchor owns its contents, not its native frame.
-                            // Fill the list's width explicitly so the selection/touch target
-                            // covers the row instead of hugging its absolutely placed label.
-                            node::set_f32(cell, Attr::NODE_WIDTH_PERCENT, 1.0);
-                            node::set_f32(inner, Attr::NODE_WIDTH_PERCENT, 1.0);
-                            if dl.row_h > 0.0 {
-                                let h = dl.row_h / node::density() as f32;
-                                node::set_f32(cell, Attr::NODE_HEIGHT, h);
-                                node::set_f32(inner, Attr::NODE_HEIGHT, h);
-                            }
-                            node::add_child(cell, inner);
-                            if dl.reorderable {
-                                // Long-press lifts the row with ArkUI's own drag preview; the
-                                // drop lands on the LIST node's NODE_ON_DROP (registered in
-                                // `init`).
-                                OH_ArkUI_SetNodeDraggable(cell, true);
-                                node::register_event(cell, Ev::NODE_ON_DRAG_START, 0);
-                            }
-                            if dl.selectable {
-                                // A tap selects the bound row (docs/list.md); the shared
-                                // receiver resolves the cell through `cell_click`.
-                                node::register_event(cell, Ev::NODE_ON_CLICK, 0);
-                            }
-                            attach_swipe(dl, cell);
-                            cell
+                    let header = dl.pin.is_some() && crate::list_is_header(dl.host_id, idx);
+                    let cell = if header {
+                        match dl.header_pool.pop() {
+                            Some(cell) => cell,
+                            None => new_header_cell(dl),
+                        }
+                    } else {
+                        match dl.pool.pop() {
+                            Some(cell) => cell,
+                            None => new_cell(dl),
                         }
                     };
                     // Unconditional: the swipe action resolves its row through this map too,
@@ -241,9 +260,10 @@ unsafe extern "C" fn adapter_receiver(ev: *mut ArkUI_NodeAdapterEvent) {
                     let inner = node::child_at(cell, 0);
                     // Build (fresh) or rebind (recycled).
                     crate::list_bind(dl.host_id, idx, inner);
-                    if dl.row_h <= 0.0 {
+                    if dl.row_h <= 0.0 || header {
                         // Content-sized: the height Day just laid the row at. Left unset, the
                         // item only wraps its Stack, whose children are placed, not measured.
+                        // A header sizes to its content even in a uniform list.
                         let height = crate::list_cell_height(dl.host_id, inner);
                         size_row(dl, cell, inner, height);
                     }
@@ -261,13 +281,63 @@ unsafe extern "C" fn adapter_receiver(ev: *mut ArkUI_NodeAdapterEvent) {
                         if !inner.is_null() {
                             crate::list_recycle(dl.host_id, inner);
                         }
-                        dl.pool.push(removed);
+                        if dl.header_cells.contains(&(removed as usize)) {
+                            dl.header_pool.push(removed);
+                        } else {
+                            dl.pool.push(removed);
+                        }
                     }
                 }
                 _ => {}
             }
         }
     });
+}
+
+/// A fresh item cell: a LIST_ITEM around the Stack Day mounts the row in.
+fn new_cell(dl: &mut List) -> Handle {
+    let cell = node::create(node::LIST_ITEM);
+    let inner = node::create(node::STACK);
+    // Day's adopted anchor owns its contents, not its native frame. Fill the list's width
+    // explicitly so the selection/touch target covers the row instead of hugging its absolutely
+    // placed label.
+    node::set_f32(cell, Attr::NODE_WIDTH_PERCENT, 1.0);
+    node::set_f32(inner, Attr::NODE_WIDTH_PERCENT, 1.0);
+    if dl.row_h > 0.0 {
+        let h = dl.row_h / node::density() as f32;
+        node::set_f32(cell, Attr::NODE_HEIGHT, h);
+        node::set_f32(inner, Attr::NODE_HEIGHT, h);
+    }
+    node::add_child(cell, inner);
+    if dl.reorderable {
+        // Long-press lifts the row with ArkUI's own drag preview; the drop lands on the LIST
+        // node's NODE_ON_DROP (registered in `init`).
+        // SAFETY: a live node.
+        unsafe { OH_ArkUI_SetNodeDraggable(cell, true) };
+        node::register_event(cell, Ev::NODE_ON_DRAG_START, 0);
+    }
+    if dl.selectable {
+        // A tap selects the bound row (docs/list.md); the shared receiver resolves the cell
+        // through `cell_click`.
+        node::register_event(cell, Ev::NODE_ON_CLICK, 0);
+    }
+    attach_swipe(dl, cell);
+    cell
+}
+
+/// A fresh header cell (docs/list.md "Sections"): the item cell's shape with no height of its
+/// own (the header's laid height is set after each bind), the header band's opaque ground, and
+/// nothing to act on: no tap, no drag, no swipe, and no focus stop for keyboard navigation.
+fn new_header_cell(dl: &mut List) -> Handle {
+    let cell = node::create(node::LIST_ITEM);
+    let inner = node::create(node::STACK);
+    node::set_f32(cell, Attr::NODE_WIDTH_PERCENT, 1.0);
+    node::set_f32(inner, Attr::NODE_WIDTH_PERCENT, 1.0);
+    node::add_child(cell, inner);
+    node::set_i32(cell, Attr::NODE_FOCUSABLE, 0);
+    crate::list_header_ground(dl.host, cell);
+    dl.header_cells.insert(cell as usize);
+    cell
 }
 
 /// Give a content-sized list's cell (the LIST_ITEM and the Stack the row mounts in) the row's
@@ -292,48 +362,94 @@ pub fn resize_row(n: Handle, inner: Handle, height_vp: f64) {
     }
     // SAFETY: a live list; no map borrow is held.
     let dl = unsafe { &mut *dl };
-    if dl.row_h > 0.0 {
+    if let Some(pin) = dl.pin.as_mut()
+        && pin.cell == inner
+    {
+        if height_vp > 0.0 {
+            pin.height = height_vp;
+            node::set_f32(pin.cell, Attr::NODE_HEIGHT, height_vp as f32);
+            place_pin(dl);
+        }
         return;
     }
     let cell = node::parent(inner);
+    // A uniform list's item rows keep their declared height; its headers size to content.
+    if dl.row_h > 0.0 && !dl.header_cells.contains(&(cell as usize)) {
+        return;
+    }
     // Only a cell this list still binds: a pooled one gets its height on its next bind.
-    if dl.rows.contains_key(&(cell as usize)) && !dl.pool.contains(&cell) {
+    if dl.rows.contains_key(&(cell as usize))
+        && !dl.pool.contains(&cell)
+        && !dl.header_pool.contains(&cell)
+    {
         size_row(dl, cell, inner, height_vp);
     }
 }
 
 /// Create the list's adapter, binding it to `host_id` so the row callbacks can find the
-/// source. `row_h_vp` is the uniform row height in vp (0 = content-sized).
-pub fn init(
-    n: Handle,
-    host_id: u64,
-    row_h_vp: f64,
-    selectable: bool,
-    reorderable: bool,
-    deletable: bool,
-    delete_label: &str,
-) {
+/// source. `row_h_vp` is the uniform row height in vp (0 = content-sized). `n` is Day's handle:
+/// a LIST, or for a sectioned list (`p.sections`) a Stack this fills with the LIST and the
+/// pinned header (docs/list.md "Sections").
+pub fn init(n: Handle, host_id: u64, row_h_vp: f64, p: &day_spec::props::ListProps) {
     if n.is_null() || node::api().is_none() {
         return;
     }
+    let (list, pin) = if p.sections {
+        let list = node::create(node::LIST);
+        node::set_f32(list, Attr::NODE_WIDTH_PERCENT, 1.0);
+        node::set_f32(list, Attr::NODE_HEIGHT_PERCENT, 1.0);
+        node::add_child(n, list);
+        // Added after the LIST, so it draws (and hit-tests) above the rows; placed at the top
+        // edge by position, hidden until a header has scrolled off.
+        let cell = node::create(node::STACK);
+        node::set_f32(cell, Attr::NODE_WIDTH_PERCENT, 1.0);
+        node::set_values(
+            cell,
+            Attr::NODE_POSITION,
+            &[node::f32v(0.0), node::f32v(0.0)],
+        );
+        node::set_visibility(cell, false);
+        crate::list_header_ground(n, cell);
+        node::add_child(n, cell);
+        // The pin slides up past the list's top edge as the next header arrives.
+        node::set_i32(n, Attr::NODE_CLIP, 1);
+        let pin = Pin {
+            cell,
+            bound: None,
+            height: 0.0,
+            first: 0,
+            last: 0,
+            section: None,
+            next: None,
+            shown: false,
+        };
+        (list, Some(pin))
+    } else {
+        (n, None)
+    };
     // SAFETY: a fresh adapter, owned by the list until `forget`.
     let adapter = unsafe { OH_ArkUI_NodeAdapter_Create() };
+    let sectioned = pin.is_some();
     let mut dl = Box::new(List {
         adapter,
         host_id,
+        host: n,
         row_h: (row_h_vp * node::density()) as f32,
         heights: HashMap::new(),
-        selectable,
+        selectable: p.selectable,
         generation: 0,
         pending_scroll: None,
         pool: Vec::new(),
-        reorderable,
-        node: n,
+        reorderable: p.reorderable,
+        node: list,
         rows: HashMap::new(),
-        deletable,
-        delete_label: delete_label.to_owned(),
+        deletable: p.deletable,
+        delete_label: p.delete_label.clone(),
         swipe_opts: HashMap::new(),
         swipe_cells: Vec::new(),
+        header_cells: HashSet::new(),
+        header_pool: Vec::new(),
+        pin,
     });
     let user = ptr::from_mut(&mut *dl).cast::<c_void>();
     // SAFETY: the receiver's user data is the boxed list, stable until disposal.
@@ -341,14 +457,18 @@ pub fn init(
         OH_ArkUI_NodeAdapter_RegisterEventReceiver(adapter, user, Some(adapter_receiver));
     }
     LISTS.with(|l| l.borrow_mut().insert(n as usize, dl));
-    node::set_object(n, Attr::NODE_LIST_NODE_ADAPTER, adapter.cast());
-    node::register_event(n, Ev::NODE_LIST_ON_SCROLL_INDEX, host_id);
-    if reorderable {
+    node::set_object(list, Attr::NODE_LIST_NODE_ADAPTER, adapter.cast());
+    node::register_event(list, Ev::NODE_LIST_ON_SCROLL_INDEX, host_id);
+    if sectioned {
+        // Every scrolled frame moves the pin (the index event fires only as rows enter/leave).
+        node::register_event(list, Ev::NODE_LIST_ON_DID_SCROLL, host_id);
+    }
+    if p.reorderable {
         // Accept Day-row drops anywhere over the list; the verdict comes from the app's guard
         // at drop time (`list_can_move`).
         // SAFETY: a live node.
-        unsafe { OH_ArkUI_AllowNodeAllDropDataTypes(n) };
-        node::register_event(n, Ev::NODE_ON_DROP, 0);
+        unsafe { OH_ArkUI_AllowNodeAllDropDataTypes(list) };
+        node::register_event(list, Ev::NODE_ON_DROP, 0);
     }
 }
 
@@ -390,6 +510,26 @@ pub fn forget(n: Handle) {
             drop(Box::from_raw(*sc));
         }
     }
+    // A sectioned list's Stack holds this module's LIST and pin (the pin's header content is
+    // Day's, handed back through `ListSource::release` in lib.rs's `release`).
+    if dl.node != n {
+        if let Some(pin) = &dl.pin {
+            node::remove_child(n, pin.cell);
+            node::dispose_raw(pin.cell);
+        }
+        node::remove_child(n, dl.node);
+        node::dispose_raw(dl.node);
+    }
+}
+
+/// A sectioned list's pinned-header cell, for `ListSource::release` when the list goes.
+pub fn pin_cell(n: Handle) -> Option<Handle> {
+    let dl = list_ptr(n);
+    if dl.is_null() {
+        return None;
+    }
+    // SAFETY: a live list; no map borrow is held.
+    unsafe { (*dl).pin.as_ref().map(|pin| pin.cell) }
 }
 
 /// Repaint the live cells from Day's selection record; newly bound cells take theirs in the
@@ -414,12 +554,20 @@ pub fn cell_click(n: Handle) -> bool {
             if !dl.selectable {
                 return None;
             }
-            dl.rows.get(&(n as usize)).map(|row| (dl.host_id, *row))
+            let header = dl.header_cells.contains(&(n as usize));
+            dl.rows
+                .get(&(n as usize))
+                .map(|row| (dl.host_id, *row, header))
         })
     });
-    let Some((host_id, row)) = hit else {
+    let Some((host_id, row, header)) = hit else {
         return false;
     };
+    // Header cells register no tap; should one arrive anyway it is inert (docs/list.md
+    // "Sections"), and still consumed so it is not reported as a press.
+    if header {
+        return true;
+    }
     use day_spec::bridge::BridgeKind as K;
     crate::on_event(host_id, K::SelectionChanged as i32, f64::from(row), "");
     crate::on_event(host_id, K::ListActivated as i32, f64::from(row), "");
@@ -565,7 +713,19 @@ pub fn reload(n: Handle) {
     if count > 0
         && let Some(index) = dl.pending_scroll.take()
     {
-        reveal_row(n, (index as i32).min(count as i32 - 1));
+        reveal_row(dl.node, (index as i32).min(count as i32 - 1));
+    }
+    // The rows changed under the pin: its section, and the header bound in it, are re-read.
+    // A shown pin rebinds now; the cells just re-added are not laid out yet, so a hidden one
+    // waits for the list's next index or scroll event to judge the geometry.
+    if let Some(pin) = dl.pin.as_mut() {
+        pin.bound = None;
+        pin.section = None;
+        let shown = pin.shown;
+        locate_pin(dl);
+        if shown {
+            place_pin(dl);
+        }
     }
 }
 
@@ -575,11 +735,16 @@ pub fn scroll_to_end(n: Handle) {
     if dl.is_null() {
         return;
     }
-    // SAFETY: a live adapter.
-    let last = unsafe { OH_ArkUI_NodeAdapter_GetTotalNodeCount((*dl).adapter) } as i32 - 1;
+    // SAFETY: a live list and its adapter.
+    let (list, last) = unsafe {
+        (
+            (*dl).node,
+            OH_ArkUI_NodeAdapter_GetTotalNodeCount((*dl).adapter) as i32 - 1,
+        )
+    };
     if last >= 0 {
         node::set_values(
-            n,
+            list,
             Attr::NODE_LIST_SCROLL_TO_INDEX,
             &[
                 node::i32v(last),
@@ -596,10 +761,15 @@ pub fn scroll_to_row(n: Handle, index: u32) {
     if dl.is_null() {
         return;
     }
-    // SAFETY: a live adapter.
-    let count = unsafe { OH_ArkUI_NodeAdapter_GetTotalNodeCount((*dl).adapter) } as i32;
+    // SAFETY: a live list and its adapter.
+    let (list, count) = unsafe {
+        (
+            (*dl).node,
+            OH_ArkUI_NodeAdapter_GetTotalNodeCount((*dl).adapter) as i32,
+        )
+    };
     if count > 0 {
-        reveal_row(n, (index as i32).min(count - 1));
+        reveal_row(list, (index as i32).min(count - 1));
     } else {
         // No rows yet: the jump waits for the reload that brings them (`reload`).
         // SAFETY: a live list (checked non-null above).
@@ -608,10 +778,11 @@ pub fn scroll_to_row(n: Handle, index: u32) {
 }
 
 /// Reveal with the least movement, leaving an already-visible row in place. ArkUI's
-/// default START alignment moves even visible rows to the top of the viewport.
-fn reveal_row(n: Handle, index: i32) {
+/// default START alignment moves even visible rows to the top of the viewport. `list` is the
+/// LIST node itself.
+fn reveal_row(list: Handle, index: i32) {
     node::set_values(
-        n,
+        list,
         Attr::NODE_LIST_SCROLL_TO_INDEX,
         &[
             node::i32v(index),
@@ -619,4 +790,145 @@ fn reveal_row(n: Handle, index: i32) {
             node::i32v(ArkUI_ScrollAlignment::ARKUI_SCROLL_ALIGNMENT_AUTO.0 as i32),
         ],
     );
+}
+
+/// The sectioned list whose LIST node is `list` (an event's node), as a raw pointer.
+fn sectioned_by_node(list: Handle) -> *mut List {
+    LISTS.with(|l| {
+        l.borrow_mut()
+            .values_mut()
+            .find(|dl| dl.node == list && dl.pin.is_some())
+            .map_or(ptr::null_mut(), |b| ptr::from_mut(&mut **b))
+    })
+}
+
+/// `NODE_LIST_ON_SCROLL_INDEX` on a LIST node: a sectioned list re-reads which section is at
+/// its top and which header follows it, then moves its pin (docs/list.md "Sections").
+pub fn on_scroll_index(list: Handle, first: i32, last: i32) {
+    let dl = sectioned_by_node(list);
+    if dl.is_null() {
+        return;
+    }
+    // SAFETY: a live list; no map borrow is held.
+    let dl = unsafe { &mut *dl };
+    if let Some(pin) = dl.pin.as_mut() {
+        pin.first = first.max(0);
+        pin.last = last.max(pin.first);
+    }
+    locate_pin(dl);
+    place_pin(dl);
+}
+
+/// `NODE_LIST_ON_DID_SCROLL`: every scrolled frame of a sectioned list moves its pin.
+pub fn on_did_scroll(list: Handle) {
+    let dl = sectioned_by_node(list);
+    if dl.is_null() {
+        return;
+    }
+    // SAFETY: a live list; no map borrow is held.
+    place_pin(unsafe { &mut *dl });
+}
+
+/// Find the header of the section holding the first visible row, and the next header inside
+/// the visible range. Row 0 is always a header; a scroll within the section scans nothing.
+fn locate_pin(dl: &mut List) {
+    let host_id = dl.host_id;
+    let Some(pin) = dl.pin.as_mut() else {
+        return;
+    };
+    let count = crate::list_count(host_id) as i32;
+    if count <= 0 {
+        pin.section = None;
+        pin.next = None;
+        return;
+    }
+    let first = pin.first.min(count - 1);
+    let last = pin.last.clamp(first, count - 1);
+    let is_header = |row: &i32| crate::list_is_header(host_id, *row as u32);
+    // `(from, h)`: no header lies in h+1..=from, so any first in h..=from is still h's.
+    let header = match pin.section {
+        Some((from, h)) if (h..=from).contains(&first) => h,
+        Some((from, h)) if first > from => ((from + 1)..=first).rev().find(is_header).unwrap_or(h),
+        _ => (0..=first).rev().find(is_header).unwrap_or(0),
+    };
+    pin.section = Some((first, header));
+    pin.next = ((first + 1)..=last).find(is_header);
+}
+
+/// The window y (px) of the live cell bound to `row`, if one is on the list now.
+fn live_top(dl: &List, row: i32) -> Option<f32> {
+    let (&cell, _) = dl.rows.iter().find(|&(&cell, &r)| {
+        r == row
+            && !dl.pool.contains(&(cell as Handle))
+            && !dl.header_pool.contains(&(cell as Handle))
+    })?;
+    Some(window_y(cell as Handle))
+}
+
+fn window_y(n: Handle) -> f32 {
+    let mut pos = ArkUI_IntOffset { x: 0, y: 0 };
+    // SAFETY: a live node.
+    unsafe { OH_ArkUI_NodeUtils_GetLayoutPositionInWindow(n, &mut pos) };
+    pos.y as f32
+}
+
+/// Bind, place or hide the pin from the section `locate_pin` found: hidden while that
+/// section's own header row shows in full at the top, otherwise a copy of it at the top edge,
+/// slid up so its bottom never overlaps the next header.
+fn place_pin(dl: &mut List) {
+    let host_id = dl.host_id;
+    let Some(pin) = dl.pin.as_ref() else {
+        return;
+    };
+    let (cell, shown, section, next, bound) =
+        (pin.cell, pin.shown, pin.section, pin.next, pin.bound);
+    let hide = |dl: &mut List| {
+        if shown {
+            node::set_visibility(cell, false);
+        }
+        if let Some(pin) = dl.pin.as_mut() {
+            pin.shown = false;
+        }
+    };
+    let Some((_, header)) = section else {
+        return hide(dl);
+    };
+    if bound != Some(header) {
+        // A rebind only when the section at the top changes. A bind skipped inside a day-core
+        // borrow lays nothing (height 0): stay hidden and retry on the next event.
+        crate::list_bind_pinned(host_id, header as u32, cell);
+        let height = crate::list_cell_height(host_id, cell);
+        if height <= 0.0 {
+            return hide(dl);
+        }
+        node::set_f32(cell, Attr::NODE_HEIGHT, height as f32);
+        if let Some(pin) = dl.pin.as_mut() {
+            pin.bound = Some(header);
+            pin.height = height;
+        }
+    }
+    let list_top = window_y(dl.node);
+    // The real header row fully on screen at the top (or pulled below it in an overscroll).
+    if live_top(dl, header).is_some_and(|top| top >= list_top) {
+        return hide(dl);
+    }
+    let density = node::density() as f32;
+    let height = dl.pin.as_ref().map_or(0.0, |pin| pin.height as f32) * density;
+    let y = next
+        .and_then(|row| live_top(dl, row))
+        .map_or(0.0, |top| (top - list_top - height).min(0.0));
+    if y <= -height {
+        return hide(dl);
+    }
+    node::set_values(
+        cell,
+        Attr::NODE_POSITION,
+        &[node::f32v(0.0), node::f32v(y / density)],
+    );
+    if !shown {
+        node::set_visibility(cell, true);
+    }
+    if let Some(pin) = dl.pin.as_mut() {
+        pin.shown = true;
+    }
 }

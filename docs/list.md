@@ -145,18 +145,76 @@ follow.notify();
   It does not check whether the user is already near the bottom (no cross-toolkit scroll-position
   read exists yet); for that finer behavior drive [`scroll_to_end`](https://daybrite.dev/api/day_pieces/trait.ListBuilder.html#tymethod.scroll_to_end) from your own logic instead.
 
-### Floating group headers
+### Sections
 
-[`.first_visible_row(Signal<usize>)`](https://daybrite.dev/api/day_pieces/trait.ListBuilder.html#tymethod.first_visible_row) receives the first actually visible row, excluding
-overscan. Use that index to select a group title in a top-aligned list overlay. This is
-opt-in and event-driven: native callbacks enqueue a deduplicated report; the event pump
-updates the signal when the tree is available (a report during layout waits for the
-current borrow to end). The list owns no group
-model and adds no selectable header records. AppKit, UIKit, Android, GTK, Qt, WinUI,
-DOM and ArkUI report scroll changes; mock exposes `list_first_visible` for tests. GTK,
-DOM uses the uniform row pitch, so floating headers require uniform rows there.
-The initial index is zero; clamp it when data shrinks. Native drag reordering retains its
-existing capability contract; apps can offer explicit move controls on all toolkits.
+[`.sections(key, header)`](https://daybrite.dev/api/day_pieces/trait.ListBuilder.html#tymethod.sections)
+groups the rows under section headers. `key` runs with each row index when the rows change and
+names that row's section. A header starts every run of rows with the same key, so sort the rows
+by section first. `header` builds the header from the slot of the section's first row, the same
+slot a row builder gets.
+
+```rust
+list(items(move || articles.get(), |a: &Article| a.id), article_row)
+    .sections(
+        move |i| articles.with(|a| a[i].feed_id),
+        |slot| label(move || slot.field(|a| a.feed_title.clone())).font(Font::Footnote),
+    )
+```
+
+Headers are list rows of their own, drawn in the platform's group-header style. The header of
+the section under the top edge stays pinned there while its rows scroll beneath it, and the next
+header pushes it up.
+
+- A header is never selected, activated or swiped, and keyboard navigation steps over it.
+- Row indices everywhere count rows only: selection reports, `selected_rows`, `scroll_to_row`,
+  swipe offers, `first_visible_row` and dayscript's `select`, `swipe_row`, `reorder` and
+  `delete_row`.
+- A header sizes to its content, even in a [`Uniform`](https://daybrite.dev/api/day_spec/props/enum.RowHeight.html)
+  list, and takes the platform's side insets but not its vertical insets or minimum row height.
+- A row drags only within its own section, the rule
+  [`UITableView`](https://developer.apple.com/documentation/uikit/uitableviewdelegate/tableview(_:targetindexpathformoveatindexpath:toproposedindexpath:))
+  apps follow for grouped tables. A header never lifts, and a drop past either end of the row's
+  section lands at that end, through the same retarget the
+  [`reorderable`](https://daybrite.dev/api/day_pieces/trait.ListBuilder.html#tymethod.reorderable)
+  guard uses. The guard sees row indices, and dayscript's `reorder` keeps to the same rule. A
+  move between sections is a change to the row's data: update its section key, and the list
+  regroups.
+- A sectioned list offers no native swipe-to-delete, because deleting a section's last row
+  takes its header with it. Swipe actions still work, and dayscript's `delete_row` still drives
+  the app's handler.
+
+`Cap::ListSections` says how a toolkit pins the header:
+
+| Toolkit | Header rows | Pinned header |
+|---|---|---|
+| AppKit | [`NSTableView`](https://developer.apple.com/documentation/appkit/nstableview) group rows (`tableView(_:isGroupRow:)`), refused by `tableView(_:shouldSelectRow:)` | native: [`floatsGroupRows`](https://developer.apple.com/documentation/appkit/nstableview/floatsgrouprows) |
+| UIKit | one table section per header; the header is the section's [`UITableViewHeaderFooterView`](https://developer.apple.com/documentation/uikit/uitableviewheaderfooterview) | native: a plain-style table pins section headers |
+| Android | a `RecyclerView` view type of its own, with no click, ripple or focus | emulated: a copy in the list's overlay |
+| GTK 4 | model items marked not selectable, activatable or focusable | emulated: a copy in a [`GtkOverlay`](https://docs.gtk.org/gtk4/class.Overlay.html) over the scrolled window |
+| Qt | model rows without `ItemIsEnabled` or `ItemIsSelectable`, painted as a band by the delegate | emulated: a copy over the viewport |
+| WinUI | cells in a `Border` of their own, without the `ItemContainer` rows get, so they take no selection, hover or focus | emulated: a copy over the `ScrollContentPresenter`, under the scroll bars |
+| web | cells with `role="heading"` that take no clicks | emulated: a copy in a `position: sticky` wrapper |
+| ArkUI | `ListItem`s with no click, drag or swipe action | emulated: a copy stacked over the list |
+
+Where the pin is emulated, the host binds the copy through `ListSource::bind_pinned`. The copy
+carries no element ids, so a dayscript lookup of an id inside a header finds the header row in
+the list, never its pinned copy.
+
+Inside day-core the host sees display rows, headers included: `ListSource::is_header` says which,
+and `len`, `token_at`, `bind_row`, the selection and scroll patches and the toolkit's selection
+events all count headers. day-core translates between display rows and the app's rows, so a
+toolkit needs no section logic beyond drawing headers and keeping them out of selection.
+
+### First visible row
+
+[`.first_visible_row(Signal<usize>)`](https://daybrite.dev/api/day_pieces/trait.ListBuilder.html#tymethod.first_visible_row)
+receives the first actually visible row, excluding overscan and counting rows only (a header
+reports its section's first row). It is opt-in and event-driven: native callbacks enqueue a
+deduplicated report, and the event pump updates the signal when the tree is available (a report
+during layout waits for the current borrow to end). AppKit, UIKit, Android, GTK, Qt, WinUI, DOM
+and ArkUI report scroll changes; mock exposes `list_first_visible` for tests. The initial index
+is zero; clamp it when data shrinks. For section headers that float, use
+[`.sections`](#sections) instead of an overlay driven by this index.
 
 ## `ListSource`: how the toolkit pulls rows
 
@@ -673,11 +731,9 @@ separation turns the native line off rather than showing both).
 
 ## Reorder + row-height caveat
 
-Rows drag within their own list only; nothing is draggable out of the app. On the
-web, an `Automatic` list's drop slot comes from a uniform-pitch approximation, so a drag across
-rows of different heights can land a slot off; prefer `Uniform` heights for reorderable lists
-there. GTK, Qt and ArkUI find the row under the pointer, and AppKit, UIKit and Android use their
-platform's own drag.
+Rows drag within their own list only; nothing is draggable out of the app. The web, GTK, Qt
+and ArkUI find the row under the pointer from the rows' own heights, and AppKit, UIKit and
+Android use their platform's own drag.
 
 ## Selection and activation
 

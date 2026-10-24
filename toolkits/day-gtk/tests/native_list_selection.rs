@@ -63,6 +63,7 @@ fn main() {
         &host,
         ListSource {
             first_visible: None,
+            is_header: None,
             len: Rc::new({
                 let count = count.clone();
                 move || count.get()
@@ -72,6 +73,7 @@ fn main() {
                 let binds = binds.clone();
                 move |row, cell| binds.borrow_mut().push((row, cell as usize))
             }),
+            bind_pinned: Rc::new(|_, _| {}),
             recycle: Rc::new(|_| {}),
             release: Rc::new(|_| {}),
             layout_cell: Rc::new(|_, _| {}),

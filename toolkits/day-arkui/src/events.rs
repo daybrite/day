@@ -117,7 +117,18 @@ unsafe extern "C" fn receiver(ev: *mut ArkUI_NodeEvent) {
                             f64::from(first.i32_.max(0)),
                             "day-list-first-visible",
                         );
+                        // A sectioned list's pinned header follows the visible range.
+                        let last = component(1).map_or(first.i32_, |last| last.i32_);
+                        crate::list::on_scroll_index(
+                            OH_ArkUI_NodeEvent_GetNodeHandle(ev),
+                            first.i32_,
+                            last,
+                        );
                     }
+                }
+                // Registered on sectioned lists only: the pin moves with every scrolled frame.
+                Ev::NODE_LIST_ON_DID_SCROLL => {
+                    crate::list::on_did_scroll(OH_ArkUI_NodeEvent_GetNodeHandle(ev));
                 }
                 Ev::NODE_ON_CLICK => {
                     // A selectable list CELL's click is a row selection, not a press: resolved

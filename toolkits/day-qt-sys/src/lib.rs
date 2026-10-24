@@ -311,6 +311,15 @@ unsafe extern "C" {
     pub fn day_qt_list_set_selected(w: *mut c_void, rows: *const c_int, n: c_int);
     pub fn day_qt_list_scroll_to_row(w: *mut c_void, row: c_int);
     pub fn day_qt_list_scroll_to_end(w: *mut c_void);
+    /// A sectioned list's header rows (docs/list.md "Sections"): unselectable, painted as
+    /// headers, sized apart from the item rows.
+    pub fn day_qt_list_set_headers(w: *mut c_void, rows: *const c_int, n: c_int);
+    /// The header of the section holding `row` (the nearest at or before it), or -1.
+    pub fn day_qt_list_header_for(w: *mut c_void, row: c_int) -> c_int;
+    /// The pinned header's cell, made on the first call; it lives as long as the list.
+    pub fn day_qt_list_pin_cell(w: *mut c_void) -> *mut c_void;
+    /// The pinned cell shows header `row` (-1: none), laid `height` tall.
+    pub fn day_qt_list_pin_bound(w: *mut c_void, row: c_int, height: c_int);
     pub fn day_qt_scroll_to_rect(w: *mut c_void, x: c_int, y: c_int, rw: c_int, rh: c_int);
 
     pub fn day_qt_add_child(parent: *mut c_void, child: *mut c_void);

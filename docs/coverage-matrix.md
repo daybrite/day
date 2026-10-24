@@ -166,3 +166,4 @@ An app branches on this rather than on the target name.
 | `DockVisibility` | N | – | – | – | – | – | – | – |
 | `Monitors` | N | E | N | N | N | E | E | E |
 | `DynamicShortcuts` | N | N | – | – | N | ? | – | – |
+| `ListSections` | N | N | E | E | E | E | E | E |

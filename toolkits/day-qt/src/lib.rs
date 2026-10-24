@@ -361,6 +361,14 @@ struct CellPool {
     row_of: HashMap<usize, usize>,
     /// Cells with no row, hidden, ready for the next row that scrolls in.
     free: Vec<usize>,
+    /// A sectioned list's spare cells that last held a header (docs/list.md "Sections"), kept
+    /// apart from `free`: day-core rebuilds a cell that changes kind, so a header row only ever
+    /// takes a header's cell and an item row an item's, the per-kind reuse pools of
+    /// UITableView and RecyclerView. Each kind's spares stay as many as that kind ever had
+    /// bound at once, so the pool is a window of items plus the headers a window holds.
+    free_headers: Vec<usize>,
+    /// The cells holding a header now, bound or spare.
+    headers: std::collections::HashSet<usize>,
 }
 
 impl CellPool {
@@ -377,7 +385,11 @@ impl CellPool {
         for row in leaving {
             if let Some(cell) = self.bound.remove(&row) {
                 self.row_of.remove(&cell);
-                self.free.push(cell);
+                if self.headers.contains(&cell) {
+                    self.free_headers.push(cell);
+                } else {
+                    self.free.push(cell);
+                }
                 parked.push(cell);
             }
         }
@@ -391,8 +403,22 @@ impl CellPool {
         self.row_of.insert(cell, row);
     }
 
-    fn take_free(&mut self) -> Option<usize> {
-        self.free.pop()
+    /// A spare cell that last held a row of the same kind (header or item), if any.
+    fn take_free(&mut self, header: bool) -> Option<usize> {
+        if header {
+            self.free_headers.pop()
+        } else {
+            self.free.pop()
+        }
+    }
+
+    /// `cell` now holds a header row (or an item row).
+    fn set_kind(&mut self, cell: usize, header: bool) {
+        if header {
+            self.headers.insert(cell);
+        } else {
+            self.headers.remove(&cell);
+        }
     }
 
     fn row_of(&self, cell: usize) -> Option<usize> {
@@ -402,7 +428,7 @@ impl CellPool {
     /// Every cell the pool owns, bound or spare (the tests' bound on the pool).
     #[cfg(test)]
     fn len(&self) -> usize {
-        self.bound.len() + self.free.len()
+        self.bound.len() + self.free.len() + self.free_headers.len()
     }
 }
 
@@ -440,6 +466,13 @@ struct ListEntry {
     /// Whether several rows may be selected (`ListProps::multi_select`): decides which event
     /// a native selection change reports (docs/list.md).
     multi: bool,
+    /// A sectioned list's pinned header cell (docs/list.md "Sections"; `Cap::ListSections` =
+    /// Emulated), made on the first sync of a source with `is_header`.
+    pin: Option<usize>,
+    /// The header row the pinned cell was last bound to.
+    pin_row: Option<usize>,
+    /// The row count the view's header rows were last given for (`day_qt_list_set_headers`).
+    headers_for: Option<usize>,
 }
 
 extern "C" fn on_list_activate(node: u64, row: c_int) {
@@ -667,6 +700,8 @@ struct SyncPass {
     host_width: c_int,
     first_visible: usize,
     automatic: bool,
+    /// The header row to bind into the pinned cell, and the cell (sectioned lists).
+    pin_bind: Option<(usize, *mut c_void)>,
 }
 
 /// Bring the pool to the rows the viewport shows (plus the overscan) and bind whatever needs
@@ -683,6 +718,20 @@ fn list_sync(host_key: usize) {
         // The model holds the whole count, built or not: the scroll bar is how the user
         // reaches rows that do not exist yet. One delta, however many rows.
         unsafe { ffi::day_qt_list_set_count(st.host, n as c_int) };
+        let rebind_all = std::mem::take(&mut st.rebind_all);
+        // A sectioned list's header rows (docs/list.md "Sections") move only with the source:
+        // a reload, or a count that changed before its reload arrived.
+        let is_header = source.is_header.clone();
+        if let Some(is_header) = &is_header
+            && (rebind_all || st.headers_for != Some(n))
+        {
+            let rows: Vec<c_int> = (0..n)
+                .filter(|i| is_header(*i))
+                .map(|i| i as c_int)
+                .collect();
+            unsafe { ffi::day_qt_list_set_headers(st.host, rows.as_ptr(), rows.len() as c_int) };
+            st.headers_for = Some(n);
+        }
         let (mut w, mut h) = (0.0_f64, 0.0_f64);
         unsafe { ffi::day_qt_widget_size(st.host, &mut w, &mut h) };
         // Rows lay out to the VIEWPORT's width, not the host's: under a legacy scroll bar the
@@ -712,15 +761,16 @@ fn list_sync(host_key: usize) {
         for cell in &parked {
             unsafe { ffi::day_qt_list_park_cell(st.host, *cell as *mut c_void) };
         }
-        let rebind_all = std::mem::take(&mut st.rebind_all);
-        if rebind_all && st.automatic {
+        if rebind_all && (st.automatic || is_header.is_some()) {
             // The rows moved under the measured heights (a reload, a reorder): drop them and
-            // re-seed the window from the token cache below, before anything is laid out.
+            // re-seed the window from the token cache below, before anything is laid out. A
+            // sectioned list's headers go too: a reload can move them.
             unsafe { ffi::day_qt_list_clear_heights(st.host) };
         }
         let mut work: Vec<(usize, *mut c_void)> = Vec::with_capacity(need.len());
         for row in need {
-            let cell = match st.pool.take_free() {
+            let header = is_header.as_ref().is_some_and(|f| f(row));
+            let cell = match st.pool.take_free(header) {
                 Some(spare) => spare as *mut c_void,
                 None => unsafe { ffi::day_qt_container_new() },
             };
@@ -739,6 +789,29 @@ fn list_sync(host_key: usize) {
                 .collect();
         }
         work.sort_unstable_by_key(|(row, _)| *row);
+        if let Some(f) = &is_header {
+            for (row, cell) in &work {
+                st.pool.set_kind(*cell as usize, f(*row));
+            }
+        }
+        // The pinned header shows the header of the topmost row's section, rebound only when
+        // that section changes or the rows moved under it; with no header yet it hides.
+        let mut pin_bind = None;
+        if is_header.is_some() {
+            let host = st.host;
+            let pin = *st
+                .pin
+                .get_or_insert_with(|| unsafe { ffi::day_qt_list_pin_cell(host) } as usize);
+            let target = unsafe { ffi::day_qt_list_header_for(host, first_visible as c_int) };
+            let target = usize::try_from(target).ok();
+            if rebind_all || target != st.pin_row {
+                st.pin_row = target;
+                match target {
+                    Some(row) => pin_bind = Some((row, pin as *mut c_void)),
+                    None => unsafe { ffi::day_qt_list_pin_bound(host, -1, 0) },
+                }
+            }
+        }
         if rebind_all && st.automatic {
             for (row, _) in &work {
                 if let Some(h) = st.heights.get(&(source.token_at)(*row)) {
@@ -760,6 +833,7 @@ fn list_sync(host_key: usize) {
             host_width: st.last_width,
             first_visible,
             automatic: st.automatic,
+            pin_bind,
         })
     }) else {
         return;
@@ -774,6 +848,7 @@ fn list_sync(host_key: usize) {
         host_width,
         first_visible,
         automatic,
+        pin_bind,
     } = pass;
     // Phase 2 — no borrow held (bind_row re-enters with_tree, which may lay out + set_frame the
     // list host, taking LIST_STATE again).
@@ -835,8 +910,10 @@ fn list_sync(host_key: usize) {
         }
         // A self-sizing row is as tall as Day laid it, padding included; the view re-lays its
         // items once per turn and moves the cells below. Later changes come as
-        // `RowSizeInvalidated`.
-        if automatic {
+        // `RowSizeInvalidated`. A section header sizes the same way in every list, `Uniform`
+        // included (docs/list.md "Sections").
+        let header = source.is_header.as_ref().is_some_and(|f| f(i));
+        if automatic || header {
             let laid = (source.cell_height)(cell);
             if laid > 0.0 {
                 let laid_px = laid.ceil() as c_int;
@@ -844,13 +921,28 @@ fn list_sync(host_key: usize) {
                     ffi::day_qt_set_geometry(cell, x, y, cw, laid_px);
                     ffi::day_qt_list_set_row_height(host, i as c_int, laid_px);
                 }
-                list_remember_height(host_key, (source.token_at)(i), laid);
-                measured = true;
+                // Headers stay out of the items' estimate; the view guesses them apart.
+                if !header {
+                    list_remember_height(host_key, (source.token_at)(i), laid);
+                    measured = true;
+                }
             }
         }
     }
     if measured {
         list_update_estimate(host_key);
+    }
+    // The pinned copy of the current header: one more cell bound to that header's row, laid to
+    // the viewport's width and placed by the view (`DayListView::placePin`).
+    if let Some((row, pin)) = pin_bind {
+        unsafe { ffi::day_qt_set_geometry(pin, 0, 0, width, rowh as c_int) };
+        (source.bind_pinned)(row, pin);
+        if width != host_width {
+            (source.layout_cell)(pin, f64::from(width));
+        }
+        let laid = (source.cell_height)(pin);
+        let height = if laid > 0.0 { laid.ceil() } else { rowh } as c_int;
+        unsafe { ffi::day_qt_list_pin_bound(host, row as c_int, height) };
     }
 }
 
@@ -902,8 +994,20 @@ fn schedule_list_row_height(host_key: usize, cell: usize, height: f64) {
         let found = LIST_STATE.with(|m| {
             let m = m.borrow();
             let st = m.get(&host_key)?;
+            // The pinned header re-laid: only the pin changes height (docs/list.md "Sections").
+            if st.pin == Some(cell) {
+                let row = st.pin_row?;
+                unsafe {
+                    ffi::day_qt_list_pin_bound(st.host, row as c_int, height.ceil() as c_int)
+                };
+                return None;
+            }
             let row = st.pool.row_of(cell)?;
-            let token = st.source.borrow().as_ref().map(|s| (s.token_at)(row));
+            // A header's height is not an item's: it stays out of the estimate.
+            let token = st.source.borrow().as_ref().and_then(|s| {
+                let header = s.is_header.as_ref().is_some_and(|f| f(row));
+                (!header).then(|| (s.token_at)(row))
+            });
             Some((st.host, row, token))
         });
         let Some((host, row, token)) = found else {
@@ -2196,6 +2300,10 @@ impl Toolkit for Qt {
             // The canvas widget's painter replays into a QImage and onto QPdfWriter pages
             // (QtGui, no extra module), so both exports are native (docs/canvas.md "Exporting").
             Cap::CanvasBitmap | Cap::CanvasPdf => Support::Native,
+            // QListView has no sticky group rows: header rows are unselectable, disabled model
+            // rows sized to their content, and the list pins a copy of the current section's
+            // header over the top of its viewport (docs/list.md "Sections").
+            Cap::ListSections => Support::Emulated,
             // QPlainTextEdit honors editable + selectable; Qt ships no built-in spell-check, so
             // Cap::TextSpellCheck stays Unsupported (the default arm).
             Cap::TextRuns
@@ -2829,7 +2937,9 @@ impl Toolkit for Qt {
                     // A legacy scroll bar appearing or leaving resizes the viewport under
                     // the rows without the host moving: re-lay them to the width they have.
                     ffi::day_qt_list_on_viewport_resized(host, on_list_viewport_resized);
-                    if automatic {
+                    // A sectioned list's headers size to their content even in a `Uniform`
+                    // list (docs/list.md "Sections"), so its rows are not uniform either.
+                    if automatic || p.sections {
                         ffi::day_qt_list_set_automatic(host);
                     }
                     LIST_STATE.with(|m| {
@@ -2851,6 +2961,9 @@ impl Toolkit for Qt {
                                 cell_width: -1,
                                 node: id.0,
                                 multi: p.multi_select,
+                                pin: None,
+                                pin_row: None,
+                                headers_for: None,
                             },
                         )
                     });
@@ -3426,6 +3539,12 @@ impl Toolkit for Qt {
             LIST_BY_NODE.with(|m| {
                 m.borrow_mut().remove(&entry.node);
             });
+            // The pinned header's cell is Day's row like any other (docs/list.md "Sections"):
+            // give it back; its widget goes with the view.
+            let source = entry.source.borrow().clone();
+            if let (Some(pin), Some(source)) = (entry.pin, source) {
+                (source.release)(pin as *mut c_void);
+            }
         }
         // A disposed nav host / page must drop its NAV_STATE / NAV_PAGE_IDS entry — otherwise a
         // later widget that reuses the freed address is mistaken for a nav host in `set_frame`,
@@ -4949,13 +5068,37 @@ mod cell_pool_tests {
     fn sync(pool: &mut CellPool, band: std::ops::Range<usize>, next: &mut usize) -> Vec<usize> {
         let (parked, need) = pool.retarget(band);
         for row in need {
-            let cell = pool.take_free().unwrap_or_else(|| {
+            let cell = pool.take_free(false).unwrap_or_else(|| {
                 *next += 1;
                 *next
             });
             pool.bind(row, cell);
         }
         parked
+    }
+
+    /// `sync` for a sectioned list whose header rows are the multiples of `every`.
+    fn sync_sectioned(
+        pool: &mut CellPool,
+        band: std::ops::Range<usize>,
+        every: usize,
+        next: &mut usize,
+    ) -> (Vec<usize>, usize) {
+        let (parked, need) = pool.retarget(band);
+        let mut flips = 0;
+        for row in need {
+            let header = row % every == 0;
+            let cell = pool.take_free(header).unwrap_or_else(|| {
+                *next += 1;
+                *next
+            });
+            if *next != cell && pool.headers.contains(&cell) != header {
+                flips += 1;
+            }
+            pool.bind(row, cell);
+            pool.set_kind(cell, header);
+        }
+        (parked, flips)
     }
 
     #[test]
@@ -5013,6 +5156,32 @@ mod cell_pool_tests {
         sync(&mut pool, 0..20, &mut next);
         assert_eq!(pool.free.len(), 0);
         assert_eq!(next, 20);
+    }
+
+    #[test]
+    fn header_rows_take_header_cells_and_item_rows_item_cells() {
+        let mut pool = CellPool::default();
+        let mut next = 0;
+        let every = 10;
+        let window = 12 + 2 * LIST_OVERSCAN;
+        // A window holds at most this many headers, and the pool at most that many more cells
+        // than a window: each kind keeps its own spares.
+        let headers = window.div_ceil(every) + 1;
+        let mut top = 0usize;
+        while top + window < 10_000 {
+            let (_, flips) = sync_sectioned(&mut pool, top..top + window, every, &mut next);
+            assert_eq!(flips, 0, "a cell changed kind at top {top}");
+            assert!(
+                pool.len() <= window + headers,
+                "pool grew to {} cells",
+                pool.len()
+            );
+            top += 3;
+        }
+        // A far jump reuses the same cells.
+        let before = next;
+        sync_sectioned(&mut pool, 9_000..9_000 + window, every, &mut next);
+        assert_eq!(next, before);
     }
 
     #[test]

@@ -323,9 +323,17 @@ mod imp {
     /// Give a self-sizing list's native row the height day-core laid its row at (docs/list.md
     /// "Row heights"). Called right after `bind_row`, inside RecyclerView's own bind, which is
     /// where a row's layout params belong: the layout manager measures the holder next. A
-    /// uniform list's rows keep the height their holders were made with.
-    fn size_list_cell(host_id: i64, source: &ListSource, cell: &JObject, raw: RawHandle) {
-        if !LIST_AUTOMATIC.with(|m| m.borrow().contains(&host_id)) {
+    /// uniform list's rows keep the height their holders were made with, except a section
+    /// header, which sizes to its content in every list (docs/list.md "Sections").
+    fn size_list_cell(
+        host_id: i64,
+        source: &ListSource,
+        index: usize,
+        cell: &JObject,
+        raw: RawHandle,
+    ) {
+        let header = source.is_header.as_ref().is_some_and(|f| f(index));
+        if !header && !LIST_AUTOMATIC.with(|m| m.borrow().contains(&host_id)) {
             return;
         }
         let height = (source.cell_height)(raw);
@@ -343,7 +351,9 @@ mod imp {
     /// Fill a recycled cell; the Java adapter's getView calls this. A stable GlobalRef per
     /// physical cell (keyed by identityHashCode under its list) gives day-core a consistent
     /// cell key. A JNI up-call entry running app row builders: contained like `list_len`.
-    pub fn list_bind(env: &mut Env, host_id: i64, position: i32, cell: JObject) {
+    /// `pinned`: the cell is the list's pinned header copy, bound through
+    /// `ListSource::bind_pinned` (docs/list.md "Sections").
+    pub fn list_bind(env: &mut Env, host_id: i64, position: i32, cell: JObject, pinned: bool) {
         day_spec::ffi_guard::contain((), || {
             let hash = framework::System::identityHashCode(env, &cell).unwrap_or(0);
             let cached = LIST_CELLS.with(|m| {
@@ -378,9 +388,16 @@ mod imp {
                 }
                 let token = (source.token_at)(index);
                 LIST_BINDINGS.with(|m| m.borrow_mut().insert((host_id, hash), (index, token)));
+                let bind = move |source: &ListSource| {
+                    if pinned {
+                        source.bind_pinned.clone()
+                    } else {
+                        source.bind_row.clone()
+                    }
+                };
                 if day_core::try_with_tree(|_| ()).is_some() {
-                    (source.bind_row)(index, raw);
-                    size_list_cell(host_id, &source, &cell, raw);
+                    bind(&source)(index, raw);
+                    size_list_cell(host_id, &source, index, &cell, raw);
                 } else {
                     // DayFixed.measure can make RecyclerView bind during Day's layout borrow.
                     // Core refuses reentry, but RecyclerView considers that empty holder bound
@@ -398,8 +415,8 @@ mod imp {
                             && (current.token_at)(index) == token
                         {
                             let raw = gref.as_obj().as_raw() as RawHandle;
-                            (current.bind_row)(index, raw);
-                            size_list_cell(host_id, &current, gref.as_obj(), raw);
+                            bind(&current)(index, raw);
+                            size_list_cell(host_id, &current, index, gref.as_obj(), raw);
                         }
                     }));
                 }
@@ -446,6 +463,34 @@ mod imp {
         });
     }
 
+    /// A sectioned list is going away: hand day-core its pinned header cell for good
+    /// (`ListSource::release`), the one cell RecyclerView never pooled (docs/list.md
+    /// "Sections"). The cell keys by the GlobalRef `list_bind` made for it.
+    fn release_pinned_header(list: &AHandle, nid: i64) {
+        let Some(source) = LIST_SOURCES.with(|m| m.borrow().get(&nid).cloned()) else {
+            return;
+        };
+        if source.is_header.is_none() {
+            return;
+        }
+        let gref = with_env(|env| {
+            let Ok(cell) = DayBridge::listPinnedCell(env, list.0.as_obj()) else {
+                if env.exception_check() {
+                    env.exception_clear();
+                }
+                return None;
+            };
+            if cell.is_null() {
+                return None;
+            }
+            let hash = framework::System::identityHashCode(env, &cell).ok()?;
+            LIST_CELLS.with(|m| m.borrow().get(&nid).and_then(|c| c.get(&hash).cloned()))
+        });
+        if let Some(gref) = gref {
+            (source.release)(gref.as_obj().as_raw() as RawHandle);
+        }
+    }
+
     /// Whether row `position` is in the list's programmatic selection; the Java bind path
     /// paints newly bound holders from this. A JNI up-call entry: contained.
     pub fn list_is_selected(host_id: i64, position: i32) -> bool {
@@ -455,6 +500,41 @@ mod imp {
                     .get(&host_id)
                     .is_some_and(|set| set.contains(&(position.max(0) as usize)))
             })
+        })
+    }
+
+    /// Whether display row `position` of a sectioned list is a section header (docs/list.md
+    /// "Sections"): the adapter's `getItemViewType`, so headers pool apart from rows. A JNI
+    /// up-call entry: contained.
+    pub fn list_is_header(host_id: i64, position: i32) -> bool {
+        day_spec::ffi_guard::contain(false, || {
+            let source = LIST_SOURCES.with(|m| m.borrow().get(&host_id).cloned());
+            source.is_some_and(|s| {
+                let index = position.max(0) as usize;
+                index < (s.len)() && s.is_header.as_ref().is_some_and(|f| f(index))
+            })
+        })
+    }
+
+    /// The display row of the header that opens the section holding row `position`, or -1:
+    /// which header the pinned copy shows (docs/list.md "Sections"). Walks back from the row;
+    /// row 0 of a sectioned list is always a header. A JNI up-call entry: contained.
+    pub fn list_header_of(host_id: i64, position: i32) -> i32 {
+        day_spec::ffi_guard::contain(-1, || {
+            let source = LIST_SOURCES.with(|m| m.borrow().get(&host_id).cloned());
+            let Some(source) = source else { return -1 };
+            let Some(is_header) = source.is_header.as_ref() else {
+                return -1;
+            };
+            let len = (source.len)();
+            if position < 0 || len == 0 {
+                return -1;
+            }
+            let start = (position as usize).min(len - 1);
+            (0..=start)
+                .rev()
+                .find(|&i| is_header(i))
+                .map_or(-1, |i| i32::try_from(i).unwrap_or(-1))
         })
     }
 
@@ -638,6 +718,8 @@ mod imp {
         static fn listReload(v: android.view.View),
         static fn listScrollToEnd(v: android.view.View),
         static fn listScrollToRow(v: android.view.View, row: jint),
+        static fn listSetSections(v: android.view.View, on: jboolean),
+        static fn listPinnedCell(v: android.view.View) -> android.view.View,
         static fn localeTags() -> JString,
         static fn makeButton(id: jlong, title: JString) -> android.view.View,
         static fn makeCanvas(id: jlong) -> android.view.View,
@@ -764,8 +846,11 @@ mod imp {
             static fn nativeDoFrame(token: jlong, frame_time_nanos: jlong),
             static fn nativeListLen(host_id: jlong) -> jint,
             static fn nativeListBind(host_id: jlong, position: jint, cell: android.view.View),
+            static fn nativeListBindPinned(host_id: jlong, position: jint, cell: android.view.View),
             static fn nativeListRecycle(host_id: jlong, cell: android.view.View),
             static fn nativeListIsSelected(host_id: jlong, position: jint) -> jboolean,
+            static fn nativeListIsHeader(host_id: jlong, position: jint) -> jboolean,
+            static fn nativeListHeaderOf(host_id: jlong, position: jint) -> jint,
             static fn nativeListCanDrop(host_id: jlong, from: jint, to: jint) -> jboolean,
             static fn nativeListMove(host_id: jlong, from: jint, to: jint) -> jboolean,
             static fn nativeListCanDelete(host_id: jlong, index: jint) -> jboolean,
@@ -916,7 +1001,18 @@ mod imp {
             position: i32,
             cell: JObject<'l>,
         ) -> Result<(), Self::Error> {
-            list_bind(env, host_id, position, cell);
+            list_bind(env, host_id, position, cell, false);
+            Ok(())
+        }
+
+        fn nativeListBindPinned<'l>(
+            env: &mut Env<'l>,
+            _class: JClass<'l>,
+            host_id: i64,
+            position: i32,
+            cell: JObject<'l>,
+        ) -> Result<(), Self::Error> {
+            list_bind(env, host_id, position, cell, true);
             Ok(())
         }
 
@@ -937,6 +1033,24 @@ mod imp {
             position: i32,
         ) -> Result<bool, Self::Error> {
             Ok(list_is_selected(host_id, position))
+        }
+
+        fn nativeListIsHeader<'l>(
+            _env: &mut Env<'l>,
+            _class: JClass<'l>,
+            host_id: i64,
+            position: i32,
+        ) -> Result<bool, Self::Error> {
+            Ok(list_is_header(host_id, position))
+        }
+
+        fn nativeListHeaderOf<'l>(
+            _env: &mut Env<'l>,
+            _class: JClass<'l>,
+            host_id: i64,
+            position: i32,
+        ) -> Result<i32, Self::Error> {
+            Ok(list_header_of(host_id, position))
         }
 
         fn nativeListCanDrop<'l>(
@@ -2602,6 +2716,10 @@ mod imp {
                 Cap::FontList => Support::Native,
                 // DayListItem: a Material 3 list item (docs/list.md "List items").
                 Cap::ListItem => Support::Native,
+                // RecyclerView has no sticky headers: header rows take their own view type, and
+                // DayListView pins a copy of the current one in the list's overlay, pushed up by
+                // the next (docs/list.md "Sections").
+                Cap::ListSections => Support::Emulated,
                 // `BitmapFactory` decodes every container Android reads, and `Bitmap.compress`
                 // writes back PNG and JPEG (docs/images.md). WebP decodes here but is not
                 // offered for encode: the modern `WEBP_LOSSY`/`WEBP_LOSSLESS` constants are
@@ -2925,6 +3043,11 @@ mod imp {
                     });
                     if p.row_height == RowHeight::Automatic {
                         LIST_AUTOMATIC.with(|m| m.borrow_mut().insert(id.0 as i64));
+                    }
+                    // Before the first bind (attach_list reloads): headers take their own view
+                    // type from the start (docs/list.md "Sections").
+                    if p.sections {
+                        bridge(|env| DayBridge::listSetSections(env, handle.0.as_obj(), true));
                     }
                     handle
                 }
@@ -3916,6 +4039,7 @@ mod imp {
             NAV_MENU_ROWS.with(|m| m.borrow_mut().remove(&key));
             LIST_ITEM_PROPS.with(|m| m.borrow_mut().remove(&key));
             if let Some(nid) = LIST_NODE.with(|m| m.borrow_mut().remove(&key)) {
+                release_pinned_header(&h, nid);
                 TREE_SOURCES.with(|m| m.borrow_mut().remove(&nid));
                 LIST_SOURCES.with(|m| {
                     m.borrow_mut().remove(&nid);

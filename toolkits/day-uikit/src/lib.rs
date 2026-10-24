@@ -4370,72 +4370,77 @@ mod imp {
     /// re-place the window toolbar and the search field against them. Runs a turn after a
     /// collapse or expand, and after a rebuild.
     fn split_settle(host: usize) {
-        {
-            NAV_STATE.with(|m| {
-                let m = m.borrow();
-                let Some(state) = m.get(&host) else { return };
-                // RESIZE each page to the column that now owns it, then lay it out.
-                //
-                // Laying a view out does not change its own frame, which is why forcing
-                // `layoutIfNeeded` alone never fixed this: UIKit does not resize the OFF-SCREEN
-                // members of a navigation stack, and after a collapse the sidebar page sits at
-                // the bottom of the merged stack. It kept the column bounds it had while
-                // expanded — measured at 420x409 in landscape while the detail had correctly
-                // re-laid to 430x839 — so its content stayed sized for the other presentation
-                // (docs/size-classes.md).
-                //
-                // Every page is full-bleed within its own navigation controller, so that
-                // controller's view bounds are the page's frame.
-                // Ask each COLUMN to lay itself out, rather than resizing pages by hand.
-                //
-                // The navigation controller owns its pages' frames AND their safe-area insets, so
-                // laying it out propagates both. Setting a page's frame directly does not: the
-                // insets stay whatever they were where the page last lived, which is how a
-                // landscape notch inset of 100pt survived into portrait.
-                let relayout = |nav: &DayNavController| {
-                    if let Some(v) = unsafe { nav.viewIfLoaded() } {
-                        v.setNeedsLayout();
-                        v.layoutIfNeeded();
+        // Copied out of NAV_STATE first, the file's re-entrancy rule: laying a column out
+        // makes UIKit lay out what it shows, which binds list rows synchronously, and a row
+        // built there inserts views through `Toolkit::insert`, which borrows NAV_STATE again.
+        let settled = NAV_STATE.with(|m| {
+            let m = m.borrow();
+            let state = m.get(&host)?;
+            let parts = state.split.as_ref()?;
+            Some((
+                parts.primary_nav.clone(),
+                state.nav.clone(),
+                parts.split_vc.clone(),
+                state.search.is_some(),
+                state.search_hides_on_scroll,
+                state.search_initially_hidden,
+            ))
+        });
+        let Some((primary_nav, nav, split_vc, search, hides_on_scroll, initially_hidden)) = settled
+        else {
+            return;
+        };
+        // RESIZE each page to the column that now owns it, then lay it out.
+        //
+        // Laying a view out does not change its own frame, which is why forcing
+        // `layoutIfNeeded` alone never fixed this: UIKit does not resize the OFF-SCREEN
+        // members of a navigation stack, and after a collapse the sidebar page sits at
+        // the bottom of the merged stack. It kept the column bounds it had while
+        // expanded — measured at 420x409 in landscape while the detail had correctly
+        // re-laid to 430x839 — so its content stayed sized for the other presentation
+        // (docs/size-classes.md).
+        //
+        // Every page is full-bleed within its own navigation controller, so that
+        // controller's view bounds are the page's frame.
+        // Ask each COLUMN to lay itself out, rather than resizing pages by hand.
+        //
+        // The navigation controller owns its pages' frames AND their safe-area insets, so
+        // laying it out propagates both. Setting a page's frame directly does not: the
+        // insets stay whatever they were where the page last lived, which is how a
+        // landscape notch inset of 100pt survived into portrait.
+        let relayout = |nav: &DayNavController| {
+            if let Some(v) = unsafe { nav.viewIfLoaded() } {
+                v.setNeedsLayout();
+                v.layoutIfNeeded();
+            }
+        };
+        relayout(&primary_nav);
+        relayout(&nav);
+        if let Some(v) = unsafe { split_vc.viewIfLoaded() } {
+            v.setNeedsLayout();
+            v.layoutIfNeeded();
+        }
+        // The window bar and the columns' bar actions follow the presentation
+        // (docs/toolbars.md): the bar moves between the detail column's navigation
+        // bar and the bottom of the merged stack, and the sidebar's every-page actions
+        // leave it or rejoin it. `isCollapsed` has settled by now, one turn later.
+        let roots: Vec<usize> = WINDOW_TOOLBARS.with(|t| t.borrow().keys().copied().collect());
+        for root in roots {
+            reapply_window_toolbar(root);
+        }
+        // The search policy follows its owning column (docs/search.md), including
+        // the compact-title drawer opt-in. Both stacks are walked because the
+        // sidebar page lives in the primary column expanded and in the merged one
+        // collapsed, and only the page that has the controller is touched.
+        if search {
+            for nav in [&primary_nav, &nav] {
+                for vc in unsafe { nav.viewControllers() }.iter() {
+                    let item = unsafe { vc.navigationItem() };
+                    if unsafe { item.searchController() }.is_some() {
+                        configure_sidebar_search(&item, nav, hides_on_scroll, initially_hidden);
                     }
-                };
-                let Some(parts) = state.split.as_ref() else {
-                    return;
-                };
-                relayout(&parts.primary_nav);
-                relayout(&state.nav);
-                if let Some(v) = unsafe { parts.split_vc.viewIfLoaded() } {
-                    v.setNeedsLayout();
-                    v.layoutIfNeeded();
                 }
-                // The window bar and the columns' bar actions follow the presentation
-                // (docs/toolbars.md): the bar moves between the detail column's navigation
-                // bar and the bottom of the merged stack, and the sidebar's every-page actions
-                // leave it or rejoin it. `isCollapsed` has settled by now, one turn later.
-                let roots: Vec<usize> =
-                    WINDOW_TOOLBARS.with(|t| t.borrow().keys().copied().collect());
-                for root in roots {
-                    reapply_window_toolbar(root);
-                }
-                // The search policy follows its owning column (docs/search.md), including
-                // the compact-title drawer opt-in. Both stacks are walked because the
-                // sidebar page lives in the primary column expanded and in the merged one
-                // collapsed, and only the page that has the controller is touched.
-                if state.search.is_some() {
-                    for nav in [&parts.primary_nav, &state.nav] {
-                        for vc in unsafe { nav.viewControllers() }.iter() {
-                            let item = unsafe { vc.navigationItem() };
-                            if unsafe { item.searchController() }.is_some() {
-                                configure_sidebar_search(
-                                    &item,
-                                    nav,
-                                    state.search_hides_on_scroll,
-                                    state.search_initially_hidden,
-                                );
-                            }
-                        }
-                    }
-                }
-            });
+            }
         }
     }
 
@@ -7800,6 +7805,105 @@ mod imp {
         }
     }
 
+    // A sectioned list's header (docs/list.md "Sections"): a plain table's section header view,
+    // which UIKit pins to the top while its section scrolls under it. Day builds the header
+    // row in its content view, as it builds a row in a cell's.
+    define_class!(
+        #[unsafe(super(objc2_ui_kit::UITableViewHeaderFooterView))]
+        #[thread_kind = MainThreadOnly]
+        #[name = "DayListHeader"]
+        #[ivars = ListCellIvars]
+        struct DayListHeader;
+
+        impl DayListHeader {
+            /// A header sizes to its content in every list: lay it at the offered width and
+            /// answer the height Day laid it at.
+            #[unsafe(method(systemLayoutSizeFittingSize:withHorizontalFittingPriority:verticalFittingPriority:))]
+            fn size_fitting(
+                &self,
+                target: CGSize,
+                horizontal: objc2_ui_kit::UILayoutPriority,
+                vertical: objc2_ui_kit::UILayoutPriority,
+            ) -> CGSize {
+                let measured = day_spec::ffi_guard::contain(None, || {
+                    let (table, node) = (self.ivars().table, self.ivars().node);
+                    let source = LIST_STATE.with(|m| {
+                        let m = m.borrow();
+                        let (_, data) = m.get(&table)?;
+                        if data.ivars().node != node {
+                            return None;
+                        }
+                        data.ivars().source.borrow().clone()
+                    })?;
+                    let cell = self.ivars().content.get() as RawHandle;
+                    if target.width > 0.0 {
+                        (source.layout_cell)(cell, target.width);
+                    }
+                    let height = (source.cell_height)(cell);
+                    (height > 0.0).then_some(CGSize::new(target.width, height))
+                });
+                match measured {
+                    Some(size) => size,
+                    None => unsafe {
+                        msg_send![
+                            super(self),
+                            systemLayoutSizeFittingSize: target,
+                            withHorizontalFittingPriority: horizontal,
+                            verticalFittingPriority: vertical
+                        ]
+                    },
+                }
+            }
+        }
+    );
+
+    impl DayListHeader {
+        fn new(
+            mtm: MainThreadMarker,
+            ident: &NSString,
+            table: usize,
+            node: NodeId,
+        ) -> Retained<Self> {
+            let this = Self::alloc(mtm).set_ivars(ListCellIvars {
+                reported: std::cell::Cell::new(0.0),
+                table,
+                node,
+                content: std::cell::Cell::new(0),
+            });
+            let this: Retained<Self> =
+                unsafe { msg_send![super(this), initWithReuseIdentifier: ident] };
+            this.ivars()
+                .content
+                .set(Retained::as_ptr(&this.contentView()) as usize);
+            this
+        }
+    }
+
+    /// The header's goodbye, exactly as `DayListCell`'s: release the row Day built in it.
+    impl Drop for DayListHeader {
+        fn drop(&mut self) {
+            let (table, node) = (self.ivars().table, self.ivars().node);
+            let content = self.ivars().content.get();
+            if content == 0 {
+                return;
+            }
+            <Uikit as Platform>::post(Box::new(move || {
+                let release = LIST_STATE.with(|m| {
+                    let m = m.borrow();
+                    let (_, data) = m.get(&table)?;
+                    if data.ivars().node != node {
+                        return None;
+                    }
+                    let source = data.ivars().source.borrow();
+                    source.as_ref().map(|s| s.release.clone())
+                });
+                if let Some(release) = release {
+                    release(content as RawHandle);
+                }
+            }));
+        }
+    }
+
     // -----------------------------------------------------------------------
     // DayListData — UITableView data source + delegate for the recycling list (docs/list.md, §10)
     // -----------------------------------------------------------------------
@@ -7819,6 +7923,14 @@ mod imp {
         selectable: std::cell::Cell<bool>,
         /// The app's localized word for the swipe action (docs/list.md); empty ⇒ trash glyph.
         delete_label: RefCell<String>,
+        /// The list has section headers (docs/list.md "Sections"). Day's display rows count
+        /// headers; the table gets a section per header, and the header row becomes the
+        /// section's header view, which a plain table pins while the section scrolls.
+        sections: bool,
+        /// The display row of each section's header, ascending: recomputed whenever the table
+        /// asks for its section count (a reload), so the index-path mapping always matches
+        /// the rows the table believes it has.
+        headers: RefCell<Vec<usize>>,
     }
 
     define_class!(
@@ -7829,6 +7941,101 @@ mod imp {
         struct DayListData;
 
         unsafe impl NSObjectProtocol for DayListData {}
+
+        impl DayListData {
+            /// Only a sectioned list answers the section-header selectors: a plain list keeps
+            /// UIKit's own section metrics exactly as before. UITableView reads this once, when
+            /// the delegate and data source are set, after `sections` is.
+            #[unsafe(method(respondsToSelector:))]
+            fn responds_to_selector(&self, selector: objc2::runtime::Sel) -> bool {
+                let header_selector = selector == objc2::sel!(numberOfSectionsInTableView:)
+                    || selector == objc2::sel!(tableView:viewForHeaderInSection:)
+                    || selector == objc2::sel!(tableView:heightForHeaderInSection:)
+                    || selector == objc2::sel!(tableView:didEndDisplayingHeaderView:forSection:);
+                if header_selector && !self.ivars().sections {
+                    false
+                } else {
+                    unsafe { msg_send![super(self), respondsToSelector: selector] }
+                }
+            }
+
+            #[unsafe(method(numberOfSectionsInTableView:))]
+            fn number_of_sections(&self, _tv: &objc2_ui_kit::UITableView) -> isize {
+                day_spec::ffi_guard::contain(0, || {
+                    self.refresh_headers();
+                    self.ivars().headers.borrow().len() as isize
+                })
+            }
+
+            #[unsafe(method_id(tableView:viewForHeaderInSection:))]
+            fn view_for_header(
+                &self,
+                tv: &objc2_ui_kit::UITableView,
+                section: isize,
+            ) -> Option<Retained<UIView>> {
+                // (Closure body: define_class converts only the tail expression.)
+                let make = || {
+                let display =
+                    self.ivars().headers.borrow().get(section.max(0) as usize).copied()?;
+                let mtm = self.mtm();
+                let ident = NSString::from_str("day.header");
+                let table = std::ptr::from_ref(tv) as usize;
+                let node = self.ivars().node;
+                let header: Retained<objc2_ui_kit::UITableViewHeaderFooterView> =
+                    unsafe { tv.dequeueReusableHeaderFooterViewWithIdentifier(&ident) }
+                        .unwrap_or_else(|| {
+                            Retained::into_super(DayListHeader::new(mtm, &ident, table, node))
+                        });
+                let content = header.contentView();
+                let source = self.ivars().source.borrow().clone();
+                if let Some(source) = source {
+                    let raw = Retained::as_ptr(&content) as RawHandle;
+                    day_spec::ffi_guard::contain((), || (source.bind_row)(display, raw));
+                }
+                Some(Retained::into_super(header))
+                };
+                make()
+            }
+
+            #[unsafe(method(tableView:heightForHeaderInSection:))]
+            fn height_for_header(&self, _tv: &objc2_ui_kit::UITableView, _section: isize) -> CGFloat {
+                unsafe { objc2_ui_kit::UITableViewAutomaticDimension }
+            }
+
+            /// The header left the screen: park its ids, as a row's cell does.
+            #[unsafe(method(tableView:didEndDisplayingHeaderView:forSection:))]
+            fn did_end_displaying_header(
+                &self,
+                _tv: &objc2_ui_kit::UITableView,
+                view: &UIView,
+                _section: isize,
+            ) {
+                day_spec::ffi_guard::contain((), || {
+                    let Some(header) = view.downcast_ref::<objc2_ui_kit::UITableViewHeaderFooterView>()
+                    else {
+                        return;
+                    };
+                    let content = Retained::as_ptr(&header.contentView()) as usize;
+                    let view = Retained::into_raw(view.retain()) as usize;
+                    let data = Retained::into_raw(self.retain()) as usize;
+                    <Uikit as Platform>::post(Box::new(move || {
+                        // Reclaim both +1s first, so every early return balances them.
+                        let view = unsafe { Retained::from_raw(view as *mut UIView) };
+                        let data = unsafe { Retained::from_raw(data as *mut DayListData) };
+                        let (Some(view), Some(data)) = (view, data) else { return };
+                        if view.window().is_some() {
+                            return; // displayed again: its ids are the live header's
+                        }
+                        let recycle =
+                            data.ivars().source.borrow().as_ref().map(|s| s.recycle.clone());
+                        if let Some(recycle) = recycle {
+                            recycle(content as RawHandle);
+                        }
+                    }));
+                });
+            }
+        }
+
         unsafe impl UIScrollViewDelegate for DayListData {
             #[unsafe(method(scrollViewDidScroll:))]
             fn list_did_scroll(&self, view: &objc2_ui_kit::UIScrollView) {
@@ -7840,12 +8047,12 @@ mod imp {
                         let offset = unsafe { view.contentOffset() }.y.max(0.0);
                         // A self-sizing list has no pitch to divide by: ask the table which row
                         // is at the top.
-                        let row = if self.ivars().automatic {
+                        let row = if self.ivars().automatic || self.ivars().sections {
                             view.downcast_ref::<objc2_ui_kit::UITableView>()
                                 .and_then(|t| unsafe {
                                     t.indexPathForRowAtPoint(CGPoint::new(0.0, offset))
                                 })
-                                .map(|ip| unsafe { ip.row() }.max(0) as usize)
+                                .map(|ip| self.display_of(&ip))
                                 .unwrap_or(0)
                         } else {
                             (offset / self.ivars().row_height.get().max(1.0)) as usize
@@ -7858,16 +8065,28 @@ mod imp {
 
         unsafe impl UITableViewDataSource for DayListData {
             #[unsafe(method(tableView:numberOfRowsInSection:))]
-            fn rows_in_section(&self, _tv: &objc2_ui_kit::UITableView, _section: isize) -> isize {
+            fn rows_in_section(&self, _tv: &objc2_ui_kit::UITableView, section: isize) -> isize {
                 // Snapshot-only read (no tree) — safe during reloadData inside a with_tree
                 // borrow. `len` is an app closure, so the body is contained (§8.5).
                 day_spec::ffi_guard::contain(0, || {
-                    self.ivars()
+                    let len = self
+                        .ivars()
                         .source
                         .borrow()
                         .as_ref()
-                        .map(|s| (s.len)() as isize)
-                        .unwrap_or(0)
+                        .map(|s| (s.len)())
+                        .unwrap_or(0);
+                    if !self.ivars().sections {
+                        return len as isize;
+                    }
+                    // A section's rows run from after its header to the next header.
+                    let headers = self.ivars().headers.borrow();
+                    let section = section.max(0) as usize;
+                    let Some(&start) = headers.get(section) else {
+                        return 0;
+                    };
+                    let end = headers.get(section + 1).copied().unwrap_or(len).max(start + 1);
+                    (end - start - 1) as isize
                 })
             }
 
@@ -7889,7 +8108,7 @@ mod imp {
                 // runs day-core's row builder — contained (§8.5); a panicking row leaves the
                 // recycled cell blank rather than aborting.
                 let content = cell.contentView();
-                let row = unsafe { index_path.row() } as usize;
+                let row = self.display_of(index_path);
                 if let Some(source) = self.ivars().source.borrow().as_ref() {
                     let raw = Retained::as_ptr(&content) as RawHandle;
                     day_spec::ffi_guard::contain((), || (source.bind_row)(row, raw));
@@ -7910,7 +8129,7 @@ mod imp {
                 // A row the guard won't move anywhere (a pinned row) refuses the lift itself:
                 // probing (row -> row) is the cheapest "may this row drag at all" question.
                 // The verdict runs the app's guard closure — contained (§8.5), refusing on panic.
-                let row = unsafe { index_path.row() } as usize;
+                let row = self.display_of(index_path);
                 objc2::runtime::Bool::new(day_spec::ffi_guard::contain(false, || {
                     self.reorder_verdict(row, row) >= 0
                 }))
@@ -7927,7 +8146,7 @@ mod imp {
                 // The table has already animated the move; commit rotates Day's snapshot and
                 // defers the app callback — contained (§8.5).
                 day_spec::ffi_guard::contain((), || {
-                    let (from, to) = unsafe { (from_path.row() as usize, to_path.row() as usize) };
+                    let (from, to) = (self.display_of(from_path), self.display_of(to_path));
                     if from == to {
                         return;
                     }
@@ -7957,7 +8176,7 @@ mod imp {
                     if style != objc2_ui_kit::UITableViewCellEditingStyle::Delete {
                         return;
                     }
-                    let row = unsafe { index_path.row() } as usize;
+                    let row = self.display_of(index_path);
                     let del = self
                         .ivars()
                         .source
@@ -7993,7 +8212,7 @@ mod imp {
                 _tv: &objc2_ui_kit::UITableView,
                 index_path: &objc2_foundation::NSIndexPath,
             ) -> objc2_ui_kit::UITableViewCellEditingStyle {
-                self.row_editing_style(unsafe { index_path.row() } as usize)
+                self.row_editing_style(self.display_of(index_path))
             }
 
             // A row without a delete control keeps its leading edge while editing, rather than
@@ -8005,7 +8224,7 @@ mod imp {
                 index_path: &objc2_foundation::NSIndexPath,
             ) -> objc2::runtime::Bool {
                 objc2::runtime::Bool::new(
-                    self.row_editing_style(unsafe { index_path.row() } as usize)
+                    self.row_editing_style(self.display_of(index_path))
                         != objc2_ui_kit::UITableViewCellEditingStyle::None,
                 )
             }
@@ -8062,13 +8281,10 @@ mod imp {
                 day_spec::ffi_guard::contain((), || {
                     let source = self.ivars().source.borrow().clone();
                     if let Some(source) = source {
-                        let row = unsafe { ip.row() };
-                        if row >= 0 && (row as usize) < (source.len)() {
+                        let row = self.display_of(ip);
+                        if row < (source.len)() {
                             let content = cell.contentView();
-                            (source.bind_row)(
-                                row as usize,
-                                Retained::as_ptr(&content) as RawHandle,
-                            );
+                            (source.bind_row)(row, Retained::as_ptr(&content) as RawHandle);
                         }
                     }
                 });
@@ -8094,11 +8310,11 @@ mod imp {
                 index_path: &objc2_foundation::NSIndexPath,
             ) {
                 day_spec::ffi_guard::contain((), || {
-                    let row = unsafe { index_path.row() };
+                    let row = self.display_of(index_path);
                     unsafe { tv.deselectRowAtIndexPath_animated(index_path, true) };
                     if self.ivars().selectable.get() {
                         emit(self.ivars().node, Event::SelectionChanged(row as i64));
-                        emit(self.ivars().node, Event::ListActivated(row as usize));
+                        emit(self.ivars().node, Event::ListActivated(row));
                     }
                 });
             }
@@ -8122,7 +8338,7 @@ mod imp {
                 // `contain` doubles as the invoker (§8.5) — the guard seam runs app closures,
                 // and a panic degrades to "no swipe action".
                 let body = || -> Option<Retained<objc2_ui_kit::UISwipeActionsConfiguration>> {
-                    let row = unsafe { index_path.row() } as usize;
+                    let row = self.display_of(index_path);
                     let (del, sw) = {
                         let src = self.ivars().source.borrow();
                         let s = src.as_ref()?;
@@ -8216,7 +8432,7 @@ mod imp {
             ) -> Option<Retained<objc2_ui_kit::UISwipeActionsConfiguration>> {
                 // Guarded as the trailing edge is: the offer runs the app's provider closure.
                 let body = || -> Option<Retained<objc2_ui_kit::UISwipeActionsConfiguration>> {
-                    let row = unsafe { index_path.row() } as usize;
+                    let row = self.display_of(index_path);
                     let sw = self
                         .ivars()
                         .source
@@ -8264,7 +8480,7 @@ mod imp {
             ) -> Retained<objc2_foundation::NSIndexPath> {
                 // (Closure body: define_class converts only the tail expression.)
                 let target = || {
-                    let (from, to) = unsafe { (from_path.row() as usize, proposed.row() as usize) };
+                    let (from, to) = (self.display_of(from_path), self.display_of(proposed));
                     let accepted = self.reorder_verdict(from, to);
                     if accepted < 0 {
                         return from_path.retain();
@@ -8272,10 +8488,11 @@ mod imp {
                     if accepted as usize == to {
                         return proposed.retain();
                     }
-                    objc2_foundation::NSIndexPath::indexPathForRow_inSection(
-                        accepted as isize,
-                        proposed.section(),
-                    )
+                    // A retarget names a display row: in a sectioned table, the end of the
+                    // row's own section when the finger strays past it (docs/list.md
+                    // "Sections").
+                    self.path_of(accepted as usize)
+                        .unwrap_or_else(|| from_path.retain())
                 };
                 // Contained (§8.5): the verdict runs the app's guard closure; a panic refuses
                 // the move (the source path keeps the gap home).
@@ -8296,7 +8513,7 @@ mod imp {
             ) -> Retained<objc2_foundation::NSArray<objc2_ui_kit::UIDragItem>> {
                 // (Closure body: define_class converts only the tail expression.)
                 let items = || {
-                    let row = unsafe { index_path.row() } as usize;
+                    let row = self.display_of(index_path);
                     if self.reorder_verdict(row, row) < 0 {
                         return objc2_foundation::NSArray::new();
                     }
@@ -8324,6 +8541,7 @@ mod imp {
             row_height: f64,
             automatic: bool,
             delete_label: String,
+            sections: bool,
         ) -> Retained<Self> {
             let this = Self::alloc(mtm).set_ivars(ListIvars {
                 node,
@@ -8333,8 +8551,64 @@ mod imp {
                 heights_pending: std::cell::Cell::new(false),
                 selectable: std::cell::Cell::new(selectable),
                 delete_label: RefCell::new(delete_label),
+                sections,
+                headers: RefCell::new(Vec::new()),
             });
             unsafe { msg_send![super(this), init] }
+        }
+
+        /// Re-read which display rows are headers (docs/list.md "Sections").
+        fn refresh_headers(&self) {
+            let source = self.ivars().source.borrow().clone();
+            let headers = source
+                .and_then(|s| {
+                    let is_header = s.is_header.clone()?;
+                    Some((0..(s.len)()).filter(|i| is_header(*i)).collect())
+                })
+                .unwrap_or_default();
+            *self.ivars().headers.borrow_mut() = headers;
+        }
+
+        /// The display row (the index Day's source speaks) at a table index path.
+        fn display_of(&self, ip: &objc2_foundation::NSIndexPath) -> usize {
+            let row = unsafe { ip.row() }.max(0) as usize;
+            if !self.ivars().sections {
+                return row;
+            }
+            let section = unsafe { ip.section() }.max(0) as usize;
+            self.ivars()
+                .headers
+                .borrow()
+                .get(section)
+                .map_or(row, |header| header + 1 + row)
+        }
+
+        /// The index path of a display row; `None` for a header, which is no row of the table.
+        fn path_of(&self, display: usize) -> Option<Retained<objc2_foundation::NSIndexPath>> {
+            if !self.ivars().sections {
+                return Some(objc2_foundation::NSIndexPath::indexPathForRow_inSection(
+                    display as isize,
+                    0,
+                ));
+            }
+            let headers = self.ivars().headers.borrow();
+            let section = headers.partition_point(|h| *h <= display).checked_sub(1)?;
+            let row = display.checked_sub(headers[section] + 1)?;
+            Some(objc2_foundation::NSIndexPath::indexPathForRow_inSection(
+                row as isize,
+                section as isize,
+            ))
+        }
+
+        /// The display rows the table currently holds: its rows, plus one header per section
+        /// in a sectioned list.
+        fn table_len(&self, table: &objc2_ui_kit::UITableView) -> usize {
+            let sections = unsafe { table.numberOfSections() }.max(0);
+            let rows: isize = (0..sections)
+                .map(|s| unsafe { table.numberOfRowsInSection(s) }.max(0))
+                .sum();
+            let headers = if self.ivars().sections { sections } else { 0 };
+            (rows + headers) as usize
         }
 
         /// `ListPatch::RowSizeInvalidated`: a self-sizing row was re-laid at a new height.
@@ -8357,7 +8631,7 @@ mod imp {
                 // batch then failed UITableView's row-count check and threw ("Invalid batch
                 // updates"), aborting the app. The pending change re-sizes the rows itself.
                 let len = data.ivars().source.borrow().as_ref().map(|s| (s.len)());
-                if len != Some(unsafe { table.numberOfRowsInSection(0) }.max(0) as usize) {
+                if len != Some(data.table_len(&table)) {
                     return;
                 }
                 let cls = <objc2_ui_kit::UIView as objc2::ClassType>::class();
@@ -10435,6 +10709,9 @@ mod imp {
                 // The same pipeline generalized: app-declared actions on either edge, with
                 // the full-swipe shortcut on the first (docs/list.md).
                 | Cap::ListSwipeActions
+                // Plain-table section headers, pinned while their section scrolls
+                // (docs/list.md "Sections").
+                | Cap::ListSections
                 // A `UISplitViewController` hosts every `nav(Sidebar)`, so two columns are
                 // available wherever the window is wide enough — an iPad, and a Plus/Pro Max
                 // iPhone in landscape (docs/size-classes.md).
@@ -11091,8 +11368,19 @@ mod imp {
                         row_height,
                         automatic,
                         p.delete_label.clone(),
+                        p.sections,
                     );
                     unsafe {
+                        if p.sections {
+                            // Section headers (docs/list.md "Sections"): self-sizing, and flush
+                            // with the rows above them; iOS 15's automatic top padding would
+                            // open a gap over every header.
+                            table.setSectionHeaderHeight(
+                                objc2_ui_kit::UITableViewAutomaticDimension,
+                            );
+                            table.setEstimatedSectionHeaderHeight(32.0);
+                            table.setSectionHeaderTopPadding(0.0);
+                        }
                         if automatic {
                             // Self-sizing cells (docs/list.md "Row heights"): each row is as
                             // tall as Day lays it, asked of the cell once it is bound.
@@ -12180,17 +12468,16 @@ mod imp {
                         // borrow: scrolling can synchronously realize and recycle cells too.
                         <Uikit as Platform>::post(Box::new(move || {
                             let entry = LIST_STATE.with(|m| m.borrow().get(&key).cloned());
-                            let Some((table, _)) = entry else { return };
+                            let Some((table, data)) = entry else { return };
                             // UIKit's committed count is authoritative, even if another model
                             // change has already advanced the source snapshot. Empty is a no-op.
-                            let count = unsafe { table.numberOfRowsInSection(0) };
-                            if count <= 0 {
+                            let count = data.table_len(&table);
+                            if count == 0 {
                                 return;
                             }
-                            let ip = objc2_foundation::NSIndexPath::indexPathForRow_inSection(
-                                row.min(count as usize - 1) as isize,
-                                0,
-                            );
+                            let Some(ip) = data.path_of(row.min(count - 1)) else {
+                                return;
+                            };
                             unsafe {
                                 table.scrollToRowAtIndexPath_atScrollPosition_animated(
                                     &ip, position, true,

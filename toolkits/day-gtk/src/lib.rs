@@ -1751,7 +1751,15 @@ thread_local! {
 /// them, a few frames at most. Deferring every request was wrong: GTK runs a frame's tick
 /// callbacks newest first, and a burst of jumps that all waited for one frame landed on the
 /// oldest, so a `scroll_to_row` could end at the previous target.
-fn scroll_list_when_laid(sw: &gtk4::ScrolledWindow, row: Option<usize>) {
+///
+/// A sectioned list (`pinned`) scrolls a row it has laid out to its real position rather than
+/// the uniform-pitch estimate (its headers are not one pitch tall), and stops it just below the
+/// pinned header copy instead of under it.
+fn scroll_list_when_laid(
+    sw: &gtk4::ScrolledWindow,
+    row: Option<usize>,
+    pinned: Option<Rc<PinnedHeader>>,
+) {
     /// The row count of the host's list, or 0 before a model is set.
     fn count(sw: &gtk4::ScrolledWindow) -> usize {
         sw.child()
@@ -1760,13 +1768,24 @@ fn scroll_list_when_laid(sw: &gtk4::ScrolledWindow, row: Option<usize>) {
             .map(|m| m.n_items() as usize)
             .unwrap_or(0)
     }
-    /// The vertical offset of `row` (its end for `None`) by the uniform pitch.
-    fn offset(adj: &gtk4::Adjustment, n: usize, row: Option<usize>) -> f64 {
+    /// The vertical offset of `row` (its end for `None`) by the uniform pitch, or for a sectioned
+    /// list by where the row really is.
+    fn offset(
+        adj: &gtk4::Adjustment,
+        n: usize,
+        row: Option<usize>,
+        pinned: Option<&PinnedHeader>,
+    ) -> f64 {
         let end = adj.upper() - adj.page_size();
-        match row {
-            Some(row) => ((adj.upper() / n as f64) * row as f64).min(end),
-            None => end,
-        }
+        let Some(row) = row else {
+            return end;
+        };
+        let estimate = (adj.upper() / n as f64) * row as f64;
+        let Some(pinned) = pinned else {
+            return estimate.min(end);
+        };
+        let top = pinned.laid_top(row).map_or(estimate, |y| adj.value() + y);
+        (top - pinned.inset_for(row)).clamp(0.0, end.max(0.0))
     }
     let key = widget_key(sw.upcast_ref());
     let adj = sw.vadjustment();
@@ -1781,7 +1800,10 @@ fn scroll_list_when_laid(sw: &gtk4::ScrolledWindow, row: Option<usize>) {
             let n = count(&sw);
             if n > 0 {
                 let adj = sw.vadjustment();
-                adj.set_value(offset(&adj, n, row));
+                adj.set_value(offset(&adj, n, row, pinned.as_deref()));
+                if let (Some(pinned), Some(row)) = (&pinned, row) {
+                    pinned.settle_scroll(&sw, row);
+                }
             }
             gtk4::glib::ControlFlow::Break
         });
@@ -1820,7 +1842,10 @@ fn scroll_list_when_laid(sw: &gtk4::ScrolledWindow, row: Option<usize>) {
             };
         }
         LIST_SCROLL_SERIAL.with(|m| m.borrow_mut().remove(&key));
-        adj.set_value(offset(&adj, n, row));
+        adj.set_value(offset(&adj, n, row, pinned.as_deref()));
+        if let (Some(pinned), Some(row)) = (&pinned, row) {
+            pinned.settle_scroll(sw, row);
+        }
         gtk4::glib::ControlFlow::Break
     });
 }
@@ -3020,6 +3045,368 @@ struct ListEntry {
     selection: Option<ListSelection>,
     /// The cells GTK has bound right now, for a reload to re-bind in place.
     bound: BoundCells,
+    /// A sectioned list's pinned header copy (docs/list.md "Sections"); `None` on a plain list.
+    pinned: Option<Rc<PinnedHeader>>,
+}
+
+/// The pinned copy of a sectioned list's current header (docs/list.md "Sections";
+/// `Cap::ListSections` is Emulated here).
+///
+/// GtkListView's own section headers (GtkSectionModel + header factory, GTK 4.12) scroll away with
+/// their rows, so a sectioned list's headers are ordinary rows of the flat model, and the list's
+/// host is a GtkOverlay over its scrolled window. One extra `DayCell` above it holds the header of
+/// the section the topmost visible row belongs to, bound through `bind_pinned` (a row bind that
+/// leaves the copy without element ids), with an opaque strip behind it so the rows do not show
+/// through. The overlay's `get-child-position` places both: GTK runs it right after it allocated
+/// the scrolled window in the same pass, so the row positions it reads are this frame's, and the
+/// copy moves in step with the scroll, pushed up as the next header arrives. A scroll queues the
+/// overlay's allocation for exactly that.
+struct PinnedHeader {
+    overlay: gtk4::Overlay,
+    listview: gtk4::ListView,
+    /// The opaque background, the list's full width.
+    strip: gtk4::Box,
+    /// The header copy, at the rows' own cell inset and width.
+    cell: DayCell,
+    source: Rc<RefCell<Option<ListSource>>>,
+    bound: BoundCells,
+    /// The display row the copy holds, `None` before its first bind and after a reload.
+    row: std::cell::Cell<Option<usize>>,
+    /// The row a posted rebind will bind, while one is pending.
+    wanted: std::cell::Cell<Option<usize>>,
+    /// The last `(topmost row, its header)`, so a scroll only scans the rows it moved across.
+    last: std::cell::Cell<Option<(usize, usize)>>,
+    /// This pass's `(strip, cell)` placement, worked out for the strip (the first overlay child)
+    /// and reused for the cell.
+    placement: std::cell::Cell<Option<(gtk4::gdk::Rectangle, gtk4::gdk::Rectangle)>>,
+}
+
+impl PinnedHeader {
+    /// Wrap `sw` (the list's scrolled window around `listview`) in the overlay that pins the
+    /// header copy. The overlay is the list's host.
+    fn new(
+        sw: &gtk4::ScrolledWindow,
+        listview: &gtk4::ListView,
+        source: Rc<RefCell<Option<ListSource>>>,
+        bound: BoundCells,
+    ) -> Rc<Self> {
+        let overlay = gtk4::Overlay::new();
+        overlay.set_child(Some(sw));
+        // A copy pushed up past the top, or parked above it while hidden, is clipped here.
+        overlay.set_overflow(gtk4::Overflow::Hidden);
+        let strip = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
+        strip.add_css_class("day-list-pinned");
+        let cell = DayCell::new();
+        cell.set_overflow(gtk4::Overflow::Hidden);
+        // Assistive technology reads the real header row; the copy is only paint.
+        cell.update_state(&[gtk4::accessible::State::Hidden(true)]);
+        strip.update_state(&[gtk4::accessible::State::Hidden(true)]);
+        for w in [strip.upcast_ref::<gtk4::Widget>(), cell.upcast_ref()] {
+            overlay.add_overlay(w);
+            // The copy sits beside the scrolled window, not in it, so the wheel and touchpad
+            // over it would scroll nothing: hand their deltas to the list.
+            forward_scroll(w, sw);
+        }
+        let pinned = Rc::new(Self {
+            overlay: overlay.clone(),
+            listview: listview.clone(),
+            strip,
+            cell,
+            source,
+            bound,
+            row: std::cell::Cell::new(None),
+            wanted: std::cell::Cell::new(None),
+            last: std::cell::Cell::new(None),
+            placement: std::cell::Cell::new(None),
+        });
+        // Weak: the overlay owns the handler, and the handler must not own the overlay.
+        let weak = Rc::downgrade(&pinned);
+        overlay.connect_get_child_position(move |_, child| {
+            let pinned = weak.upgrade()?;
+            ffi_guard::contain(None, || {
+                let place = if child == pinned.strip.upcast_ref::<gtk4::Widget>() {
+                    let place = pinned.place();
+                    pinned.placement.set(Some(place));
+                    place
+                } else {
+                    pinned.placement.take().unwrap_or_else(|| pinned.place())
+                };
+                Some(if child == pinned.strip.upcast_ref::<gtk4::Widget>() {
+                    place.0
+                } else {
+                    place.1
+                })
+            })
+        });
+        let adj = sw.vadjustment();
+        for signal in ["value-changed", "changed"] {
+            let overlay = overlay.downgrade();
+            adj.connect_local(signal, false, move |_| {
+                if let Some(overlay) = overlay.upgrade() {
+                    overlay.queue_allocate();
+                }
+                None
+            });
+        }
+        pinned
+    }
+
+    /// Where the strip and the copy go this pass: over the top of the viewport while the topmost
+    /// visible row's section header has scrolled (even partly) out of view, pushed up by the next
+    /// header, and parked out of sight above the list otherwise. Also reports the first visible
+    /// row, which a list of mixed row heights cannot work out from the scroll offset.
+    fn place(self: &Rc<Self>) -> (gtk4::gdk::Rectangle, gtk4::gdk::Rectangle) {
+        let width = self.overlay.width();
+        let parked = |h: i32| {
+            let r = gtk4::gdk::Rectangle::new(0, -h - 1, width.max(1), h.max(1));
+            (r, r)
+        };
+        let Some(src) = self.source.borrow().clone() else {
+            return parked(1);
+        };
+        let Some(is_header) = src.is_header.clone() else {
+            return parked(1);
+        };
+        // The rows GTK has laid out, in the overlay's (= the viewport's) coordinates.
+        let laid: Vec<(usize, gtk4::graphene::Rect, gtk4::graphene::Rect)> = self
+            .bound
+            .borrow()
+            .values()
+            .filter_map(|li| {
+                let li = li.upgrade()?;
+                let pos = li.position();
+                if pos == gtk4::INVALID_LIST_POSITION {
+                    return None;
+                }
+                let cell = li.child()?;
+                let row = cell.parent()?;
+                if !row.is_visible() || !row.is_child_visible() {
+                    return None;
+                }
+                Some((
+                    pos as usize,
+                    row.compute_bounds(&self.overlay)?,
+                    cell.compute_bounds(&self.overlay)?,
+                ))
+            })
+            .collect();
+        // The topmost visible row: the one across the viewport's top edge.
+        let Some(&(top_row, top_bounds, top_cell)) = laid
+            .iter()
+            .filter(|(_, b, _)| b.y() <= 0.5 && b.y() + b.height() > 0.5)
+            .min_by_key(|(pos, ..)| *pos)
+        else {
+            return parked(self.cell.height());
+        };
+        if let Some(report) = &src.first_visible {
+            report(top_row);
+        }
+        // Its section's header: the nearest header at or above it, scanning only what the last
+        // pass did not already settle.
+        let header = match self.last.get() {
+            Some((t, h)) if h <= top_row && top_row <= t => Some(h),
+            Some((t, h)) if t < top_row => {
+                (t + 1..=top_row).rev().find(|&r| is_header(r)).or(Some(h))
+            }
+            _ => (0..=top_row).rev().find(|&r| is_header(r)),
+        };
+        let Some(header) = header else {
+            self.last.set(None);
+            return parked(self.cell.height());
+        };
+        self.last.set(Some((top_row, header)));
+        // The real header row, fully in view at the top, needs no copy over it.
+        if header == top_row && top_bounds.y() >= -0.5 {
+            return parked(self.cell.height());
+        }
+        // The copy must hold this header first; until it does, nothing is shown.
+        if self.row.get() != Some(header) {
+            self.rebind_later(header);
+            return parked(self.cell.height());
+        }
+        let cell_w = top_cell.width().round() as i32;
+        let (height, ..) = self.cell.measure(gtk4::Orientation::Vertical, cell_w);
+        // Pushed up by the next section's header once it reaches the copy's bottom edge.
+        let next_top = laid
+            .iter()
+            .filter(|(pos, ..)| *pos > top_row && is_header(*pos))
+            .min_by_key(|(pos, ..)| *pos)
+            .map(|(_, b, _)| b.y());
+        let y = next_top.map_or(0, |top| (top.round() as i32 - height).min(0));
+        let list = self.listview.compute_bounds(&self.overlay);
+        let (list_x, list_w) = list.map_or((0, width), |b| {
+            (b.x().round() as i32, b.width().round() as i32)
+        });
+        (
+            gtk4::gdk::Rectangle::new(list_x, y, list_w.max(1), height.max(1)),
+            gtk4::gdk::Rectangle::new(top_cell.x().round() as i32, y, cell_w.max(1), height.max(1)),
+        )
+    }
+
+    /// The top of display row `row` in the viewport, when GTK has laid it out. A bound row GTK
+    /// keeps out of view is not child-visible and has no allocation to read.
+    fn laid_top(&self, row: usize) -> Option<f64> {
+        let li = self.bound.borrow().values().find_map(|li| {
+            let li = li.upgrade()?;
+            (li.position() as usize == row).then_some(li)
+        })?;
+        let widget = li.child()?.parent()?;
+        if !widget.is_child_visible() {
+            return None;
+        }
+        Some(f64::from(widget.compute_bounds(&self.listview)?.y()))
+    }
+
+    /// After a jump to `row` by the estimate: once GTK has laid the row out (a frame or two
+    /// later), move it to its real place below the pinned copy. Gives up after a few frames.
+    fn settle_scroll(self: &Rc<Self>, sw: &gtk4::ScrolledWindow, row: usize) {
+        let pinned = Rc::clone(self);
+        let frames = std::cell::Cell::new(0u32);
+        sw.add_tick_callback(move |sw, _| {
+            frames.set(frames.get() + 1);
+            let Some(sw) = sw.downcast_ref::<gtk4::ScrolledWindow>() else {
+                return gtk4::glib::ControlFlow::Break;
+            };
+            let Some(y) = pinned.laid_top(row) else {
+                return if frames.get() < 8 {
+                    gtk4::glib::ControlFlow::Continue
+                } else {
+                    gtk4::glib::ControlFlow::Break
+                };
+            };
+            let adj = sw.vadjustment();
+            let end = (adj.upper() - adj.page_size()).max(0.0);
+            adj.set_value((adj.value() + y - pinned.inset_for(row)).clamp(0.0, end));
+            gtk4::glib::ControlFlow::Break
+        });
+    }
+
+    /// How far below the viewport's top a scroll should stop row `row`: clear of the pinned
+    /// copy, which covers the top of every section but a header's own row. The copy's height,
+    /// or before its first bind any laid header row's.
+    fn inset_for(&self, row: usize) -> f64 {
+        let Some(is_header) = self
+            .source
+            .borrow()
+            .as_ref()
+            .and_then(|src| src.is_header.clone())
+        else {
+            return 0.0;
+        };
+        if is_header(row) {
+            return 0.0;
+        }
+        if self.row.get().is_some() && self.cell.height() > 0 {
+            return f64::from(self.cell.height());
+        }
+        self.bound
+            .borrow()
+            .values()
+            .find_map(|li| {
+                let li = li.upgrade()?;
+                let pos = li.position();
+                if pos == gtk4::INVALID_LIST_POSITION || !is_header(pos as usize) {
+                    return None;
+                }
+                let widget = li.child()?.parent()?;
+                (widget.is_child_visible() && widget.height() > 0)
+                    .then(|| f64::from(widget.height()))
+            })
+            .unwrap_or(0.0)
+    }
+
+    /// Bind header `row` into the copy on the next main-loop turn: `bind_row` builds Day's
+    /// subtree, which must not happen inside the allocation pass that found the need for it.
+    fn rebind_later(self: &Rc<Self>, row: usize) {
+        if self.wanted.replace(Some(row)).is_some() {
+            return; // already posted; it binds the newest wanted row
+        }
+        let weak = Rc::downgrade(self);
+        gtk4::glib::idle_add_local_once(move || {
+            let Some(pinned) = weak.upgrade() else {
+                return;
+            };
+            // Contained: bind_row runs day-core and the app's header builder.
+            ffi_guard::contain((), || {
+                let Some(row) = pinned.wanted.take() else {
+                    return;
+                };
+                let Some(src) = pinned.source.borrow().clone() else {
+                    return;
+                };
+                if row >= (src.len)() {
+                    return;
+                }
+                // `bind_pinned`: the copy carries no element ids, so a lookup of the header
+                // finds the real row in the list.
+                (src.bind_pinned)(row, pinned.cell.as_ptr() as RawHandle);
+                pinned
+                    .cell
+                    .bind_layout(src.layout_cell.clone(), src.cell_height.clone());
+                pinned.row.set(Some(row));
+                pinned.cell.queue_resize();
+                pinned.overlay.queue_allocate();
+            });
+        });
+    }
+
+    /// The rows were reloaded: the header a row index names may have changed, so the copy binds
+    /// afresh. Posted behind the reload's own deferred resize (`schedule_list_resize`), so it
+    /// places against the new rows.
+    fn reset_later(self: &Rc<Self>) {
+        let weak = Rc::downgrade(self);
+        gtk4::glib::idle_add_local_once(move || {
+            if let Some(pinned) = weak.upgrade() {
+                pinned.row.set(None);
+                pinned.last.set(None);
+                pinned.overlay.queue_allocate();
+            }
+        });
+    }
+}
+
+/// Scroll `sw` by the wheel or touchpad deltas that land on `w`, a widget floating over it.
+/// GTK's own wheel step is the page size to the 2/3 power; a touchpad reports pixels.
+fn forward_scroll(w: &gtk4::Widget, sw: &gtk4::ScrolledWindow) {
+    let scroll = gtk4::EventControllerScroll::new(gtk4::EventControllerScrollFlags::VERTICAL);
+    let adj = sw.vadjustment();
+    scroll.connect_scroll(move |ctrl, _dx, dy| {
+        let step = if ctrl.unit() == gtk4::gdk::ScrollUnit::Wheel {
+            adj.page_size().powf(2.0 / 3.0)
+        } else {
+            1.0
+        };
+        adj.set_value(adj.value() + dy * step);
+        gtk4::glib::Propagation::Stop
+    });
+    w.add_controller(scroll);
+}
+
+/// A list host's scrolled window: the host itself, or a sectioned list's, under the overlay that
+/// pins its header (`PinnedHeader`).
+fn list_scroller(h: &Handle) -> Option<gtk4::ScrolledWindow> {
+    if let Some(sw) = h.downcast_ref::<gtk4::ScrolledWindow>() {
+        return Some(sw.clone());
+    }
+    h.downcast_ref::<gtk4::Overlay>()?
+        .child()?
+        .downcast::<gtk4::ScrolledWindow>()
+        .ok()
+}
+
+/// Mark row `pos`'s list item as a section header or an ordinary row (docs/list.md "Sections"):
+/// a header is not selectable, activatable or focusable, so it takes no click, no Enter and no
+/// selection, and keyboard navigation steps over it. Adwaita draws hover and press feedback only
+/// on an `.activatable` row, which GTK takes off an unactivatable item itself, so the header row
+/// needs no style of its own (a CSS class added to the row widget from `bind` crashed GTK 4.20's
+/// item manager in a later splice). `focusable` is GTK 4.12's (the binding is pinned at 4.10), so
+/// it is set by name where the running library has it.
+fn mark_list_header(li: &gtk4::ListItem, header: bool) {
+    li.set_selectable(!header);
+    li.set_activatable(!header);
+    if li.find_property("focusable").is_some() {
+        li.set_property("focusable", !header);
+    }
 }
 
 /// A list's bound cells: physical cell (DayCell ptr) → the GtkListItem it fills. Written by the
@@ -3316,8 +3703,14 @@ fn day_list_rows(listview: &gtk4::ListView) {
             && let Some(display) = gtk4::gdk::Display::default()
         {
             let provider = gtk4::CssProvider::new();
-            provider
-                .load_from_data("listview.day-list > row { padding-top: 0; padding-bottom: 0; }");
+            provider.load_from_data(concat!(
+                "listview.day-list > row { padding-top: 0; padding-bottom: 0; }",
+                // A sectioned list's pinned header strip (docs/list.md "Sections"): the list's own
+                // background, so rows scrolling under it stay hidden, and a hairline below, as a
+                // floating header draws.
+                ".day-list-pinned { background-color: @view_bg_color; \
+                 box-shadow: 0 1px alpha(currentColor, 0.12); }",
+            ));
             gtk4::style_context_add_provider_for_display(
                 &display,
                 &provider,
@@ -3573,6 +3966,9 @@ fn list_resize(
         }
         let Some(cell) = li.child() else { continue };
         LIST_CELL_ROWS.with(|t| t.insert(cell.as_ptr() as usize, pos as usize));
+        if let Some(is_header) = &src.is_header {
+            mark_list_header(&li, is_header(pos as usize));
+        }
         (src.bind_row)(pos as usize, cell.as_ptr() as RawHandle);
         if let Ok(cell) = cell.downcast::<DayCell>() {
             cell.bind_layout(src.layout_cell.clone(), src.cell_height.clone());
@@ -4784,6 +5180,10 @@ impl Toolkit for Gtk {
             Cap::FontList => Support::Native,
             // A GNOME list row's content (docs/list.md "List items").
             Cap::ListItem => Support::Native,
+            // Headers are rows of the flat model, unselectable and unfocusable, and a copy of
+            // the current one is pinned over the top in a GtkOverlay (`PinnedHeader`):
+            // GtkListView's own section headers (GTK 4.12) scroll away (docs/list.md "Sections").
+            Cap::ListSections => Support::Emulated,
             // `GdkTexture::from_bytes` reads what gdk-pixbuf's loaders read, and pixbuf writes
             // back PNG/JPEG/TIFF/BMP (docs/images.md). `Cap::ImageProperties` is deliberately NOT
             // here: there is no metadata reader on this path, and answering an empty struct would
@@ -6025,6 +6425,16 @@ impl Toolkit for Gtk {
                                     move |ds, x, y| {
                                         let row = LIST_CELL_ROWS
                                             .with(|t| t.get(cell.as_ptr() as usize))?;
+                                        // A section header never lifts (docs/list.md
+                                        // "Sections"); its cell may hold an item row later.
+                                        let header = LIST_STATE.with(|m| {
+                                            let m = m.borrow();
+                                            let source = m.get(&host_key.get())?.source.borrow();
+                                            source.as_ref()?.is_header.clone()
+                                        });
+                                        if header.is_some_and(|is_header| is_header(row)) {
+                                            return None;
+                                        }
                                         DRAG_FROM.with(|d| d.set(Some((host_key.get(), row))));
                                         ds.set_icon(
                                             Some(&gtk4::WidgetPaintable::new(Some(&cell))),
@@ -6064,6 +6474,12 @@ impl Toolkit for Gtk {
                                 bound
                                     .borrow_mut()
                                     .insert(cell.as_ptr() as usize, li.downgrade());
+                                // A sectioned list's header rows (docs/list.md "Sections").
+                                // GtkListView pools one item type, so a recycled item can turn
+                                // from a header into a row and back: mark it on every bind.
+                                if let Some(is_header) = &src.is_header {
+                                    mark_list_header(li, is_header(pos));
+                                }
                                 (src.bind_row)(pos, cell.as_ptr() as RawHandle);
                                 // `bind_row` laid the row at the LIST's width; the cell knows the
                                 // width its row actually granted and re-lays the content to that.
@@ -6144,12 +6560,31 @@ impl Toolkit for Gtk {
                     sel.set_can_unselect(true);
                     let suppress = selection.suppress.clone();
                     let requested = selection.requested.clone();
+                    let header_guard = selection.clone();
+                    let source = source.clone();
                     sel.connect_selected_notify(move |s| {
                         if suppress.get() {
                             return;
                         }
                         ffi_guard::contain((), || {
                             let i = s.selected();
+                            // A header is never selected (docs/list.md "Sections"). Its item
+                            // is unselectable, but keyboard navigation on GTK before 4.12
+                            // (no item `focusable`) can still land on it: put the row the
+                            // selection held back, past this notify.
+                            let header = i != gtk4::INVALID_LIST_POSITION
+                                && source.borrow().as_ref().is_some_and(|src| {
+                                    src.is_header.as_ref().is_some_and(|f| f(i as usize))
+                                });
+                            if header {
+                                let selection = header_guard.clone();
+                                gtk4::glib::idle_add_local_once(move || {
+                                    selection.suppress.set(true);
+                                    selection.apply();
+                                    selection.suppress.set(false);
+                                });
+                                return;
+                            }
                             requested.set(i);
                             emit(
                                 id,
@@ -6214,19 +6649,31 @@ impl Toolkit for Gtk {
                         RowHeight::Automatic => 44.0,
                     }
                     .max(1.0);
-                    vadj.connect_value_changed(move |adjustment| {
-                        let source = source.borrow().clone();
-                        if let Some(source) = source
-                            && let Some(report) = &source.first_visible
-                        {
-                            report(
-                                ((adjustment.value().max(0.0) / pitch) as usize)
-                                    .min((source.len)().saturating_sub(1)),
-                            );
-                        }
-                    });
+                    // A sectioned list's headers are not one pitch tall: its `PinnedHeader`
+                    // reports the first visible row from the laid rows instead.
+                    if !p.sections {
+                        vadj.connect_value_changed(move |adjustment| {
+                            let source = source.borrow().clone();
+                            if let Some(source) = source
+                                && let Some(report) = &source.first_visible
+                            {
+                                report(
+                                    ((adjustment.value().max(0.0) / pitch) as usize)
+                                        .min((source.len)().saturating_sub(1)),
+                                );
+                            }
+                        });
+                    }
                 }
-                let host: Handle = sw.upcast();
+                // A sectioned list pins its current header over the rows (docs/list.md
+                // "Sections"): the host is the overlay that holds the copy above the scroller.
+                let pinned = p
+                    .sections
+                    .then(|| PinnedHeader::new(&sw, &listview, source.clone(), bound.clone()));
+                let host: Handle = match &pinned {
+                    Some(pinned) => pinned.overlay.clone().upcast(),
+                    None => sw.upcast(),
+                };
                 host_key.set(widget_key(&host));
                 if p.reorderable {
                     // The drop half (docs/list.md): every hovered slot is vetted through the
@@ -6338,6 +6785,7 @@ impl Toolkit for Gtk {
                             source,
                             selection,
                             bound,
+                            pinned,
                         },
                     )
                 });
@@ -6911,17 +7359,25 @@ impl Toolkit for Gtk {
                                 e.selection.clone(),
                                 e.bound.clone(),
                             );
+                            if let Some(pinned) = &e.pinned {
+                                pinned.reset_later();
+                            }
                         }
                     });
                 }
                 Some(ListPatch::ScrollToEnd) => {
-                    if let Some(sw) = h.downcast_ref::<gtk4::ScrolledWindow>() {
-                        scroll_list_when_laid(sw, None);
+                    if let Some(sw) = list_scroller(h) {
+                        scroll_list_when_laid(&sw, None, None);
                     }
                 }
                 Some(ListPatch::ScrollToRow(row)) => {
-                    if let Some(sw) = h.downcast_ref::<gtk4::ScrolledWindow>() {
-                        scroll_list_when_laid(sw, Some(*row));
+                    if let Some(sw) = list_scroller(h) {
+                        let pinned = LIST_STATE.with(|m| {
+                            m.borrow()
+                                .get(&widget_key(h))
+                                .and_then(|e| e.pinned.clone())
+                        });
+                        scroll_list_when_laid(&sw, Some(*row), pinned);
                     }
                 }
                 Some(ListPatch::Selected(rows)) => {
@@ -6949,14 +7405,24 @@ impl Toolkit for Gtk {
                     // A self-sizing row Day re-laid at a new height: the DayCell answers it from
                     // `cell_height` in `measure`, so it only has to be measured again. Deferred
                     // past the tree borrow, which that measure would otherwise find held.
-                    let bound = LIST_STATE
-                        .with(|m| m.borrow().get(&widget_key(h)).map(|e| e.bound.clone()));
-                    if let Some(bound) = bound {
+                    let entry = LIST_STATE.with(|m| {
+                        m.borrow()
+                            .get(&widget_key(h))
+                            .map(|e| (e.bound.clone(), e.pinned.clone()))
+                    });
+                    if let Some((bound, pinned)) = entry {
                         let cell = *cell;
                         gtk4::glib::idle_add_local_once(move || {
                             let item = bound.borrow().get(&cell).and_then(|li| li.upgrade());
                             if let Some(cell) = item.and_then(|li| li.child()) {
                                 cell.queue_resize();
+                            }
+                            // The pinned header copy is a bound cell too, outside the list.
+                            if let Some(pinned) = pinned
+                                && pinned.cell.as_ptr() as usize == cell
+                            {
+                                pinned.cell.queue_resize();
+                                pinned.overlay.queue_allocate();
                             }
                         });
                     }
@@ -7081,9 +7547,14 @@ impl Toolkit for Gtk {
         LABEL_STYLE.with(|m| {
             m.borrow_mut().remove(&key);
         });
-        LIST_STATE.with(|m| {
-            m.borrow_mut().remove(&key);
-        });
+        // A sectioned list's pinned header copy is a cell Day bound outside the list's own
+        // pool, so no factory teardown releases it: the list going away does.
+        let list = LIST_STATE.with(|m| m.borrow_mut().remove(&key));
+        if let Some(pinned) = list.as_ref().and_then(|e| e.pinned.as_ref())
+            && let Some(src) = pinned.source.borrow().as_ref()
+        {
+            (src.release)(pinned.cell.as_ptr() as RawHandle);
+        }
         TREE_STATE.with(|m| {
             m.borrow_mut().remove(&key);
         });

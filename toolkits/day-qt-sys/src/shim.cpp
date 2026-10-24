@@ -3833,16 +3833,37 @@ public:
     // The height of a row Day has not measured: the pitch of a `Uniform` list, and for an
     // `Automatic` one the running average of the rows it has laid (`day_qt_list_set_estimate`).
     int estimate;
-    // row → the height Day laid it at (`Automatic` lists only; empty for `Uniform`).
+    // row → the height Day laid it at (`Automatic` lists, and a sectioned list's header rows;
+    // empty for an unsectioned `Uniform` list).
     QHash<int, int> heights;
     bool reorderable;
+    // A sectioned list's header rows, ascending (docs/list.md "Sections"; empty otherwise). A
+    // header is neither enabled nor selectable, so the view's selection, hover, activation and
+    // click handling pass it by; the walker skips it in `DayListView::moveCursor`.
+    std::vector<int> headers;
+    // The height of a header row Day has not laid yet: the last one it did lay (headers size to
+    // their content even in a `Uniform` list, and a list's headers are usually alike).
+    int headerEstimate;
     DayListModel(int pitch, bool reorder, QObject *parent)
-        : QAbstractListModel(parent), estimate(pitch > 0 ? pitch : 1), reorderable(reorder) {}
+        : QAbstractListModel(parent), estimate(pitch > 0 ? pitch : 1), reorderable(reorder),
+          headerEstimate(pitch > 0 ? pitch : 1) {}
 
     int rowCount(const QModelIndex &parent = QModelIndex()) const override { return parent.isValid() ? 0 : n; }
+    bool isHeader(int row) const { return !headers.empty() && std::binary_search(headers.begin(), headers.end(), row); }
+    // The header of the section holding `row` (the nearest at or before it), or -1.
+    int headerFor(int row) const {
+        auto it = std::upper_bound(headers.begin(), headers.end(), row);
+        return it == headers.begin() ? -1 : *(it - 1);
+    }
+    // The first header after `row`, or -1.
+    int headerAfter(int row) const {
+        auto it = std::upper_bound(headers.begin(), headers.end(), row);
+        return it == headers.end() ? -1 : *it;
+    }
     int heightOf(int row) const {
         const auto it = heights.constFind(row);
-        return it == heights.constEnd() ? estimate : *it;
+        if (it != heights.constEnd()) return *it;
+        return isHeader(row) ? headerEstimate : estimate;
     }
     QVariant data(const QModelIndex &ix, int role) const override {
         if (role == Qt::SizeHintRole && ix.isValid()) return QSize(0, heightOf(ix.row()));
@@ -3852,6 +3873,7 @@ public:
         // Drops land BETWEEN rows (the view's above/below positions), never on one, so no item
         // takes ItemIsDropEnabled; the root does, which is what the view's drag-move checks.
         if (!ix.isValid()) return reorderable ? Qt::ItemIsDropEnabled : Qt::NoItemFlags;
+        if (isHeader(ix.row())) return Qt::ItemNeverHasChildren;
         Qt::ItemFlags f = Qt::ItemIsEnabled | Qt::ItemIsSelectable | Qt::ItemNeverHasChildren;
         if (reorderable) f |= Qt::ItemIsDragEnabled;
         return f;
@@ -3918,9 +3940,29 @@ public:
     }
 };
 
+// The band behind a section header (docs/list.md "Sections"), the header row and its pinned
+// copy alike: the window color shaded a step toward its text, so it reads as a group header in
+// light and dark palettes, OPAQUE so rows scrolling under the pinned copy never show through,
+// with a hairline along the bottom edge like the row separator's. Always the WIDGET's palette:
+// a header row is a disabled item, and the item option's palette is in the Disabled group,
+// whose paler text would shade the row lighter than its pinned copy.
+static void dayListPaintHeader(QPainter *p, const QRect &r, const QPalette &pal) {
+    const QColor base = pal.color(QPalette::Window);
+    const QColor ink = pal.color(QPalette::WindowText);
+    const double t = 0.07;
+    const QColor band = QColor::fromRgbF(base.redF() + (ink.redF() - base.redF()) * t,
+                                         base.greenF() + (ink.greenF() - base.greenF()) * t,
+                                         base.blueF() + (ink.blueF() - base.blueF()) * t);
+    p->fillRect(r, band);
+    QColor line = pal.color(QPalette::Mid);
+    line.setAlpha(110);
+    p->fillRect(QRect(r.left(), r.bottom(), r.width(), 1), line);
+}
+
 // Paints the item chrome under a transparent cell: the selection, focus and alternate-row
 // treatment the platform style gives a list item, with the (empty) text and icon left out, and
-// the row separator when the list asked for one.
+// the row separator when the list asked for one. A header row gets the header band instead,
+// and never any item state: it cannot be selected, hovered or focused.
 class DayListDelegate : public QStyledItemDelegate {
 public:
     QListView *view; DayListModel *model; bool separators;
@@ -3930,6 +3972,10 @@ public:
         return QSize(view->viewport()->width(), model->heightOf(index.row()));
     }
     void paint(QPainter *p, const QStyleOptionViewItem &option, const QModelIndex &index) const override {
+        if (model->isHeader(index.row())) {
+            dayListPaintHeader(p, option.rect, view->viewport()->palette());
+            return;
+        }
         QStyleOptionViewItem opt(option);
         initStyleOption(&opt, index);
         opt.text.clear();
@@ -3937,12 +3983,34 @@ public:
         opt.features &= ~(QStyleOptionViewItem::HasDisplay | QStyleOptionViewItem::HasDecoration);
         const QWidget *w = option.widget;
         (w ? w->style() : QApplication::style())->drawControl(QStyle::CE_ItemViewItem, &opt, p, w);
-        if (separators && index.row() + 1 < model->n) {
+        // The row above a header leaves the edge to the header's own hairline.
+        if (separators && index.row() + 1 < model->n && !model->isHeader(index.row() + 1)) {
             QColor line = opt.palette.color(QPalette::Mid);
             line.setAlpha(110);
             p->fillRect(QRect(opt.rect.left(), opt.rect.bottom(), opt.rect.width(), 1), line);
         }
     }
+};
+
+// The pinned copy of the current section's header (docs/list.md "Sections",
+// `Cap::ListSections` = Emulated): QListView has no sticky group rows, so a sectioned list keeps
+// ONE extra cell of its own over the top of the viewport, bound by the Rust side to the header
+// of the section the topmost row belongs to and placed by `DayListView::placePin`. It paints
+// the header band under Day's content, so the rows scrolling beneath it never show through, and
+// it takes the presses that land on it: a click on the pinned header must not select the row
+// it covers. Wheel events still reach the view.
+class DayListPin : public QWidget {
+public:
+    explicit DayListPin(QWidget *parent) : QWidget(parent) { hide(); }
+protected:
+    void paintEvent(QPaintEvent *) override {
+        QPainter p(this);
+        dayListPaintHeader(&p, rect(), palette());
+    }
+    void mousePressEvent(QMouseEvent *e) override { e->accept(); }
+    void mouseReleaseEvent(QMouseEvent *e) override { e->accept(); }
+    void mouseDoubleClickEvent(QMouseEvent *e) override { e->accept(); }
+    void mouseMoveEvent(QMouseEvent *e) override { e->accept(); }
 };
 
 class DayListView;
@@ -3974,6 +4042,11 @@ public:
     // `doItemsLayout` on a non-uniform view, and a fill lays out a whole window of rows.
     int dirtyLo = -1, dirtyHi = -1;
     bool flushPosted = false;
+    // A sectioned list's pinned header (`DayListPin`), made on the Rust side's first ask; the
+    // header row it was last bound to and the height Day laid it at.
+    DayListPin *pin = nullptr;
+    int pinRow = -1;
+    int pinHeight = 0;
 
     DayListView(uint64_t n, int rowH, bool reorderable, bool separators) : node(n) {
         m = new DayListModel(rowH, reorderable, this);
@@ -4001,9 +4074,11 @@ public:
                 });
     }
 
+    // A header is never part of the selection Day hears about, whatever a range swept over.
     std::vector<int> selectedRows() const {
         std::vector<int> rows;
-        for (const QModelIndex &ix : selectionModel()->selectedRows()) rows.push_back(ix.row());
+        for (const QModelIndex &ix : selectionModel()->selectedRows())
+            if (!m->isHeader(ix.row())) rows.push_back(ix.row());
         std::sort(rows.begin(), rows.end());
         return rows;
     }
@@ -4049,14 +4124,46 @@ public:
     void placeAll() {
         for (auto it = placed.cbegin(); it != placed.cend(); ++it)
             it.value()->setGeometry(visualRect(m->index(it.key())));
+        placePin();
+    }
+    // Keep the pinned header where the section it heads wants it: hidden while its own row is
+    // fully in view at or below the top (the real header shows), else at the top of the
+    // viewport, pushed up by the next section's header as that one arrives, so the two never
+    // overlap. Everything is measured from the row the pin is BOUND to, so a pin the Rust side
+    // has not rebound yet after a scroll is always either right or out of sight.
+    void placePin() {
+        if (!pin) return;
+        if (pinRow < 0 || pinRow >= m->n || !m->isHeader(pinRow) || pinHeight <= 0) {
+            pin->hide();
+            return;
+        }
+        if (visualRect(m->index(pinRow)).top() >= 0) {
+            pin->hide();
+            return;
+        }
+        int y = 0;
+        const int next = m->headerAfter(pinRow);
+        if (next >= 0 && next < m->n) y = std::min(0, visualRect(m->index(next)).top() - pinHeight);
+        if (y <= -pinHeight) {
+            pin->hide();
+            return;
+        }
+        pin->setGeometry(0, y, viewport()->width(), pinHeight);
+        pin->raise();
+        pin->show();
     }
     void notifyWindow() {
         if (onWindow) onWindow(node);
     }
 
-    // Row `row` is `h` tall: queue the relayout (see `dirtyLo`).
+    // Row `row` is `h` tall: queue the relayout (see `dirtyLo`). A header's height is also
+    // the guess for the headers not laid yet.
     void noteHeight(int row, int h) {
         if (row < 0 || row >= m->n || h <= 0) return;
+        if (m->isHeader(row) && m->headerEstimate != h) {
+            m->headerEstimate = h;
+            markDirty(0, m->n - 1);
+        }
         const auto it = m->heights.constFind(row);
         if (it != m->heights.constEnd() && *it == h) return;
         m->heights.insert(row, h);
@@ -4106,7 +4213,42 @@ public:
     // Begin the reorder drag of the current row (from `DayListDragWatcher`).
     void beginDrag() { startDrag(Qt::MoveAction); }
 
+    // A row scrolled to the top of a sectioned list lands under the pinned header of its
+    // section: scroll on until it clears the pin (docs/list.md "Sections"). The covered height
+    // is the header row's own, which the pin copies. Every reveal comes through here: the
+    // keyboard walker's, `day_qt_list_scroll_to_row`'s, a click's.
+    void scrollTo(const QModelIndex &ix, ScrollHint hint = EnsureVisible) override {
+        QListView::scrollTo(ix, hint);
+        if (m->headers.empty() || !ix.isValid() || hint == PositionAtBottom) return;
+        const int h = m->headerFor(ix.row());
+        if (h < 0 || h == ix.row()) return;
+        const QRect head = visualRect(m->index(h));
+        if (head.top() >= 0) return; // the header row itself is in view: no pin
+        const int top = visualRect(ix).top();
+        if (top < head.height())
+            verticalScrollBar()->setValue(verticalScrollBar()->value() - (head.height() - top));
+    }
+
 protected:
+    // The keyboard walker passes over header rows the way it was going (docs/list.md
+    // "Sections"); one with nowhere to go that way — Up from a section's first row under the
+    // list's first header — stays on the row it is on.
+    QModelIndex moveCursor(CursorAction action, Qt::KeyboardModifiers mods) override {
+        const QModelIndex ix = QListView::moveCursor(action, mods);
+        if (!ix.isValid() || !m->isHeader(ix.row())) return ix;
+        const bool back = action == MoveUp || action == MoveLeft || action == MovePrevious ||
+                          action == MovePageUp || action == MoveEnd;
+        for (int step : {back ? -1 : 1, back ? 1 : -1}) {
+            int r = ix.row();
+            while (r >= 0 && r < m->n && m->isHeader(r)) r += step;
+            if (r >= 0 && r < m->n) {
+                // The reverse walk is only for Home and End, which name a place, not a way.
+                if (step != (back ? -1 : 1) && action != MoveHome && action != MoveEnd) break;
+                return m->index(r);
+            }
+        }
+        return currentIndex();
+    }
     void scrollContentsBy(int dx, int dy) override {
         QListView::scrollContentsBy(dx, dy);
         placeAll();
@@ -4382,6 +4524,54 @@ void day_qt_list_scroll_to_row(void *w, int row) {
 }
 
 void day_qt_list_scroll_to_end(void *w) { static_cast<DayListView *>(w)->scrollToBottom(); }
+
+// --- list sections (docs/list.md "Sections") ---
+// The header rows of a sectioned list, in display rows (any order; duplicates and rows past the
+// count are dropped). They lose ItemIsEnabled and ItemIsSelectable, paint the header band, and
+// size apart from the item rows: the view stops assuming uniform rows, since even a `Uniform`
+// list's headers are as tall as their content. A changed set re-lays every row, and a pinned
+// header whose row is no longer a header hides until it is rebound.
+void day_qt_list_set_headers(void *w, const int *rows, int n) {
+    auto *l = static_cast<DayListView *>(w);
+    std::vector<int> headers;
+    headers.reserve(n > 0 ? n : 0);
+    for (int i = 0; i < n; ++i)
+        if (rows[i] >= 0 && rows[i] < l->m->n) headers.push_back(rows[i]);
+    std::sort(headers.begin(), headers.end());
+    headers.erase(std::unique(headers.begin(), headers.end()), headers.end());
+    if (headers == l->m->headers) return;
+    l->m->headers = std::move(headers);
+    l->setUniformItemSizes(false);
+    // A row that turned into a header leaves the selection (an item held it before the
+    // reload); quietly, as every model-side change here is.
+    l->syncing = true;
+    for (int h : l->m->headers) l->selectionModel()->select(l->m->index(h), QItemSelectionModel::Deselect);
+    l->syncing = false;
+    if (l->m->n > 0) l->markDirty(0, l->m->n - 1);
+    l->placePin();
+}
+
+// The header of the section holding display row `row`: the nearest header at or before it, or
+// -1 (no headers, or none that early).
+int day_qt_list_header_for(void *w, int row) {
+    return static_cast<DayListView *>(w)->m->headerFor(row);
+}
+
+// The pinned header's cell (`DayListPin`), made on the first ask: a viewport child the Rust side
+// binds the current section's header into. Lives as long as the view.
+void *day_qt_list_pin_cell(void *w) {
+    auto *l = static_cast<DayListView *>(w);
+    if (!l->pin) l->pin = new DayListPin(l->viewport());
+    return l->pin;
+}
+
+// The pinned cell now shows header row `row` (-1: none), laid `height` tall; place it.
+void day_qt_list_pin_bound(void *w, int row, int height) {
+    auto *l = static_cast<DayListView *>(w);
+    l->pinRow = row;
+    l->pinHeight = height;
+    l->placePin();
+}
 
 // --- focus (docs/focus.md) ---
 // kind: 1 = gained, 0 = lost, 2 = submitted (line-edit return key).

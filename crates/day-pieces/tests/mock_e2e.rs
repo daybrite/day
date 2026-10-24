@@ -11570,3 +11570,249 @@ fn dedicated_document_host_stays_hidden_after_last_close_and_reopens() {
         );
     }
 }
+
+// ---------------------------------------------------------------------------
+// Sections (docs/list.md "Sections"): the host sees display rows with headers among them; the
+// app sees items. These drive the host side of the seam and assert both sides of the mapping.
+// ---------------------------------------------------------------------------
+
+/// `(section, title)` rows sorted by section: a1 a2 | b1 | c1 c2.
+fn sectioned_rows() -> Vec<(char, String)> {
+    ["a1", "a2", "b1", "c1", "c2"]
+        .iter()
+        .map(|t| (t.chars().next().unwrap(), t.to_string()))
+        .collect()
+}
+
+#[test]
+fn sectioned_list_inserts_header_rows_and_maps_selection_to_items() {
+    let picks = std::rc::Rc::new(std::cell::RefCell::new(Vec::<String>::new()));
+    let sink = picks.clone();
+    let first = Signal::new(0usize);
+    let probe = boot(move || {
+        let rows = Signal::new(sectioned_rows());
+        list(
+            day_pieces::items(move || rows.get(), |r: &(char, String)| r.1.clone()),
+            |slot: ItemSlot<(char, String), String>| label(move || slot.field(|r| r.1.clone())),
+        )
+        .sections(
+            move |i| rows.with(|r| r[i].0),
+            |slot: ItemSlot<(char, String), String>| {
+                label(move || format!("Section {}", slot.field(|r| r.0)))
+            },
+        )
+        .on_select(move |k| sink.borrow_mut().push(k))
+        .first_visible_row(first)
+        .any()
+    });
+    let host = probe.find_by_kind("day.list")[0].0;
+    let node = node_id(&probe, "day.list", 0);
+
+    // Five items in three sections: eight display rows, headers at 0, 3 and 5.
+    assert_eq!(probe.list_len(host), 8);
+    let headers: Vec<bool> = {
+        let is_header = probe.state.borrow().list_sources[&host.0]
+            .is_header
+            .clone()
+            .expect("a sectioned source flags its headers");
+        (0..8).map(|i| is_header(i)).collect()
+    };
+    assert_eq!(
+        headers,
+        [true, false, false, true, false, true, false, false]
+    );
+
+    // A header binds its own piece, from its section's first item.
+    probe.list_bind(host, 0, MockHandle(9001));
+    probe.list_bind(host, 1, MockHandle(9002));
+    let texts: Vec<String> = probe
+        .find_by_kind("day.label")
+        .into_iter()
+        .map(|(_, w)| w.text)
+        .collect();
+    assert_eq!(texts, ["Section a", "a1"]);
+
+    // The host recycles the header's cell for an item and the item's for a header: each
+    // cell is rebuilt as the other kind, never rebound into the wrong piece.
+    probe.list_bind(host, 4, MockHandle(9001));
+    probe.list_bind(host, 5, MockHandle(9002));
+    let mut texts: Vec<String> = probe
+        .find_by_kind("day.label")
+        .into_iter()
+        .map(|(_, w)| w.text)
+        .collect();
+    texts.sort();
+    assert_eq!(texts, ["Section c", "b1"]);
+
+    // Display row 4 is item 2 (b1); a header selects nothing.
+    probe.emit(node, Event::SelectionChanged(4));
+    probe.emit(node, Event::SelectionChanged(3));
+    flush_sync();
+    assert_eq!(picks.borrow().as_slice(), ["b1".to_string()]);
+
+    // The first visible display row reports as an item; a header stands for its first item.
+    probe.list_first_visible(host, 5);
+    day_core::pump_events();
+    assert_eq!(first.get_untracked(), 3);
+    probe.list_first_visible(host, 7);
+    day_core::pump_events();
+    assert_eq!(first.get_untracked(), 4);
+}
+
+#[test]
+fn sectioned_list_maps_programmatic_selection_and_offers_no_header_swipe() {
+    let probe = boot(move || {
+        let rows = Signal::new(sectioned_rows());
+        list(
+            day_pieces::items(move || rows.get(), |r: &(char, String)| r.1.clone()),
+            |slot: ItemSlot<(char, String), String>| label(move || slot.field(|r| r.1.clone())),
+        )
+        .sections(
+            move |i| rows.with(|r| r[i].0),
+            |slot: ItemSlot<(char, String), String>| label(move || slot.field(|r| r.0.to_string())),
+        )
+        .selected_rows(|| vec![3])
+        .swipe_trailing(|i| vec![swipe_action(format!("Row {i}"))])
+        .reorderable(Reorder::new(|_, _| {}))
+        .any()
+    });
+    day_core::pump_events();
+    flush_sync();
+    let host = probe.find_by_kind("day.list")[0].0;
+    // Item 3 (c1) is display row 6.
+    assert!(
+        probe.log().iter().any(|l| l.ends_with("list selected [6]")),
+        "{:?}",
+        probe.log()
+    );
+    // Swipe offers name items; a header offers nothing.
+    let offer = probe
+        .list_swipe_actions(host, 6, SwipeEdge::Trailing)
+        .unwrap();
+    assert_eq!(offer[0].label, "Row 3");
+    assert!(
+        probe
+            .list_swipe_actions(host, 5, SwipeEdge::Trailing)
+            .unwrap()
+            .is_empty()
+    );
+    // Native drag reorder works within a section: a header never lifts.
+    assert_eq!(probe.list_can_move(host, 5, 6), -1);
+    assert_eq!(probe.list_can_move(host, 6, 7), 7);
+}
+
+#[test]
+fn sectioned_list_reorders_within_a_section_and_keeps_its_headers() {
+    let rows = Signal::new(sectioned_rows());
+    let asked = std::rc::Rc::new(std::cell::RefCell::new(Vec::<(usize, usize)>::new()));
+    let seen = asked.clone();
+    let probe = boot(move || {
+        list(
+            day_pieces::items(move || rows.get(), |r: &(char, String)| r.1.clone()),
+            |slot: ItemSlot<(char, String), String>| label(move || slot.field(|r| r.1.clone())),
+        )
+        .sections(
+            move |i| rows.with(|r| r[i].0),
+            |slot: ItemSlot<(char, String), String>| label(move || slot.field(|r| r.0.to_string())),
+        )
+        .reorderable(
+            Reorder::new(move |from, to| {
+                rows.update(|r| {
+                    let row = r.remove(from);
+                    r.insert(to, row);
+                })
+            })
+            .guard(move |from, to| {
+                seen.borrow_mut().push((from, to));
+                ReorderVerdict::Allow
+            }),
+        )
+        .any()
+    });
+    let host = probe.find_by_kind("day.list")[0].0;
+    let token_at = probe.state.borrow().list_sources[&host.0].token_at.clone();
+    // Display rows: 0 [a] 1 a1 2 a2 3 [b] 4 b1 5 [c] 6 c1 7 c2.
+    assert_eq!(probe.list_can_move(host, 0, 2), -1, "a header never lifts");
+    assert_eq!(probe.list_can_move(host, 1, 2), 2);
+    // Past the end of its section, a row lands at that end; the guard sees item indices.
+    assert_eq!(probe.list_can_move(host, 1, 6), 2);
+    assert_eq!(probe.list_can_move(host, 6, 0), 6);
+    assert_eq!(
+        probe.list_can_move(host, 4, 7),
+        4,
+        "a one-row section has nowhere to go"
+    );
+    assert_eq!(asked.borrow().as_slice(), [(0, 1), (0, 1), (3, 3), (2, 2)]);
+
+    // Moving a section's first row keeps the section's header identity.
+    let header = token_at(5);
+    assert!(probe.list_move(host, 6, 7));
+    day_core::pump_events();
+    flush_sync();
+    assert_eq!(
+        rows.get_untracked()
+            .iter()
+            .map(|r| r.1.as_str())
+            .collect::<Vec<_>>(),
+        ["a1", "a2", "b1", "c2", "c1"]
+    );
+    assert_eq!(probe.list_len(host), 8);
+    assert_eq!(token_at(5), header);
+}
+
+#[test]
+fn sectioned_list_regroups_when_a_row_changes_section() {
+    let rows = Signal::new(sectioned_rows());
+    let probe = boot(move || {
+        list(
+            day_pieces::items(move || rows.get(), |r: &(char, String)| r.1.clone()),
+            |slot: ItemSlot<(char, String), String>| label(move || slot.field(|r| r.1.clone())),
+        )
+        .sections(
+            move |i| rows.with(|r| r[i].0),
+            |slot: ItemSlot<(char, String), String>| label(move || slot.field(|r| r.0.to_string())),
+        )
+        .any()
+    });
+    let host = probe.find_by_kind("day.list")[0].0;
+    assert_eq!(probe.list_len(host), 8);
+    // b1 joins section a: same tokens, one section fewer.
+    rows.update(|r| r[2].0 = 'a');
+    flush_sync();
+    assert_eq!(probe.list_len(host), 7);
+}
+
+#[test]
+fn pinned_header_copy_never_answers_an_id_lookup() {
+    let probe = boot(move || {
+        let rows = Signal::new(sectioned_rows());
+        list(
+            day_pieces::items(move || rows.get(), |r: &(char, String)| r.1.clone()),
+            |slot: ItemSlot<(char, String), String>| label(move || slot.field(|r| r.1.clone())),
+        )
+        .sections(
+            move |i| rows.with(|r| r[i].0),
+            |slot: ItemSlot<(char, String), String>| {
+                label(move || slot.field(|r| r.0.to_string())).id(day_core::id!(section_header))
+            },
+        )
+        .any()
+    });
+    let host = probe.find_by_kind("day.list")[0].0;
+    let lookup = || day_core::with_tree(|t| t.find_by_id("section_header"));
+    // The pinned copy alone: built and shown, but it answers no lookup.
+    probe.list_bind_pinned(host, 0, MockHandle(9100));
+    assert_eq!(probe.find_by_kind("day.label").len(), 1);
+    assert_eq!(lookup(), None);
+    // The real header row answers it, and keeps answering as the pin rebinds.
+    probe.list_bind(host, 0, MockHandle(9101));
+    let real = lookup().expect("the header row answers its id");
+    probe.list_bind_pinned(host, 3, MockHandle(9100));
+    assert_eq!(lookup(), Some(real));
+    let texts: Vec<String> = probe
+        .find_by_kind("day.label")
+        .into_iter()
+        .map(|(_, w)| w.text)
+        .collect();
+    assert!(texts.contains(&"b".to_string()), "{texts:?}");
+}

@@ -970,6 +970,7 @@ list(items_fn, key_fn, row_fn)     // NATIVE recycling list (§10, docs/list.md)
     .deletable(Delete::new(f).label(t).guard(g))       // ReorderVerdict::{Allow,Deny,Retarget(i)}
     .multi_select().separators()/.no_separators().stick_to_bottom()
     .selection(binding)            // a store list's selected key, two-way; reveals app writes
+    .sections(key_fn, header_fn)   // section headers the platform pins (Cap::ListSections)
 list_item(title)                   // a row's standard content, the platform's own row: NATIVE where
     .subtitle(t).detail(t)         //   Cap::ListItem says so (UIListContentView, a Material list
     .icon(vector).icon_tint(c)     //   item, an image-and-text table cell, a GTK row box), COMPOSED
@@ -1786,7 +1787,7 @@ Evolution of pane's `Backend` (proven across six toolkits), extended for Day's p
 pub trait Toolkit: Sized + 'static {
     type Handle: Clone + 'static;
 
-    // capabilities — feature detection for pieces (§10; Cap: ListRecycling, Lottie,
+    // capabilities — feature detection for pieces (§10; Cap: ListRecycling, ListSections, Lottie,
     // NativeSymbols, Snapshot, NavSplit, NavRepresent, NavContentList, NavHeader, Appearance,
     // Dialogs, FileDialogs, FolderDialog, Animation, Cover, TextEditable, TextSelectable, TextSpellCheck,
     // …, Cursor, FontList, Announce, ReduceMotion, CanvasBitmap, CanvasPdf)
@@ -2764,6 +2765,18 @@ process is not supported.
 > item, an image-and-text table cell, a GTK row box, composed elsewhere — and marks itself the
 > whole row (`Flex::whole_row`), so it keeps the list's side margins and sizes its own height
 > ([docs/list.md](docs/list.md#row-metrics)).
+> **Sections** (2026-10): `.sections(key, header)` groups rows under section headers that the
+> platform pins at the top of the list (`ListProps::sections`, `ListSource::is_header`,
+> `ListSource::bind_pinned`, `Cap::ListSections`). The host sees display rows with the headers
+> among them; day-core's `SectionMap` translates between display rows and the app's rows for
+> the source closures, the selection and scroll patches, and the toolkit's selection events
+> (the event sink drops an event that names a header). AppKit maps headers to `NSTableView`
+> group rows with `floatsGroupRows`, and UIKit to plain-table section headers; Android, GTK,
+> Qt, WinUI, web and ArkUI keep headers as inert rows and pin a copy, bound without element
+> ids, over the top of the list. A row drags only within its own section (day-core clamps the
+> drop to the section and never lifts a header), and a sectioned list offers no native delete
+> gesture, since deleting a section's last row takes its header with it
+> ([docs/list.md](docs/list.md#sections)).
 
 The requirement: Day's `list` must use the platform's recycling list (`UICollectionView`,
 `RecyclerView`, `NSTableView`, `GtkListView`, `QListView`) so large collections get native
@@ -8257,6 +8270,13 @@ MockProbe::list_first_visible exercises the same queue. No group model is embedd
 framework. Applications clamp the index after reload and compose a top overlay. Variable
 row heights are not covered by the pitch-based adapters. See [docs/list.md](docs/list.md) and the mock
 viewport regression in crates/day-pieces/tests/mock_e2e.rs.
+
+> [!NOTE]
+> **Outcome (2026-10):** the framework now has a group model. `.sections(key, header)` makes
+> headers native list rows that the platform pins ([§10](#10-native-list-integration),
+> [docs/list.md](docs/list.md#sections)), and Day-News moved its feed headers from a
+> first-visible overlay to it. `first_visible_row` remains for other viewport-driven UI and now
+> reports rows only, never a header.
 
 ### Reorderable navigation sidebars
 

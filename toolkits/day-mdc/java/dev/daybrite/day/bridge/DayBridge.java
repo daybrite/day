@@ -293,10 +293,16 @@ public final class DayBridge extends DayRuntime {
     /** Recycling list (docs/list.md): the adapter pulls row count + fills recycled cells. */
     public static native int nativeListLen(long hostId);
     public static native void nativeListBind(long hostId, int position, View cell);
+    public static native void nativeListBindPinned(long hostId, int position, View cell);
     /** A holder left the visible set: day clears its dayscript ids (docs/list.md). */
     public static native void nativeListRecycle(long hostId, View cell);
     /** Whether row `position` is in the list's programmatic selection (ListPatch::Selected). */
     public static native boolean nativeListIsSelected(long hostId, int position);
+    /** Whether display row `position` of a sectioned list is a section header
+     *  (docs/list.md "Sections"). */
+    public static native boolean nativeListIsHeader(long hostId, int position);
+    /** The header row of the section holding display row `position`, or -1. */
+    public static native int nativeListHeaderOf(long hostId, int position);
     /** Drag-to-reorder (docs/list.md): may `from` drop over `to`? (The app guard's live veto;
      *  a Retarget verdict reads as deny here, since ItemTouchHelper can't relocate the gap.) */
     public static native boolean nativeListCanDrop(long hostId, int from, int to);
@@ -606,6 +612,174 @@ public final class DayBridge extends DayRuntime {
         DayCellHolder(DayFixed cell) { super(cell); }
     }
 
+    /** The adapter's view types: a sectioned list's header rows pool apart from its item rows
+     *  (docs/list.md "Sections"), so a recycled header cell is never handed to an item. */
+    static final int LIST_ROW = 0;
+    static final int LIST_HEADER = 1;
+
+    /** The RecyclerView behind every `list` (docs/list.md). An unsectioned list is a plain
+     *  RecyclerView. A sectioned one (docs/list.md "Sections") also pins the current section's
+     *  header, the Contacts idiom: one extra cell, which Day binds to the header of the section
+     *  under the top edge, drawn in the list's own ViewGroupOverlay (so it never joins the
+     *  adapter's children or the layout manager's count). The next header pushes it up as it
+     *  arrives, and it hides while the real header row sits fully in view at the top. */
+    static final class DayListView extends RecyclerView {
+        final long hostId;
+        final int rowHeightPx;
+        /** Set once by listSetSections, before the first bind. */
+        boolean sections;
+        /** The pinned copy and the display row it is bound to (-1: unbound, or stale after a
+         *  reload). Recycled while hidden, so its dayscript ids never shadow the real row's. */
+        DayFixed pinned;
+        int pinnedRow = -1;
+        boolean pinShown;
+
+        DayListView(Context c, long hostId, int rowHeightPx) {
+            super(c);
+            this.hostId = hostId;
+            this.rowHeightPx = rowHeightPx;
+        }
+
+        /** Re-place the pinned header for the current scroll offset: called from the scroll
+         *  listener and after every layout pass, which is when rows move under it. */
+        void updatePin() {
+            if (!sections) return;
+            LinearLayoutManager lm = (LinearLayoutManager) getLayoutManager();
+            int first = lm == null ? NO_POSITION : lm.findFirstVisibleItemPosition();
+            int header = first == NO_POSITION || getWidth() == 0
+                    ? -1 : nativeListHeaderOf(hostId, first);
+            int top = getPaddingTop();
+            ViewHolder real = header < 0 ? null : findViewHolderForAdapterPosition(header);
+            if (header < 0 || (real != null && real.itemView.getTop() >= top)) {
+                hidePin();
+                return;
+            }
+            if (pinned == null) {
+                pinned = new DayFixed(getContext()) {
+                    // A cell in an overlay has no parent that lays it out: dirty the list
+                    // instead, whose next draw lays the cell out (dispatchDraw below).
+                    @Override public void requestLayout() {
+                        super.requestLayout();
+                        DayListView.this.invalidate();
+                    }
+                };
+                pinned.setLayoutParams(new ViewGroup.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT, rowHeightPx));
+                pinned.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS);
+                getOverlay().add(pinned);
+            }
+            if (header != pinnedRow) {
+                pinnedRow = header;
+                // The bind every row takes, for a pinned copy: Day lays the header at its own
+                // height and hands that back through setListCellHeight, and the copy carries no
+                // element ids, so lookups find the real header row.
+                nativeListBindPinned(hostId, header, pinned);
+                // Opaque, so the rows scrolling under it never show through, and the color
+                // the real header row shows through it: the first opaque fill behind the list.
+                // Resolved per bind, so it follows a light/dark change.
+                pinned.setBackgroundColor(backdrop());
+            }
+            int height = pinHeight();
+            // The next header on screen pushes the pinned one up rather than sliding under it.
+            int offset = 0;
+            for (int i = 0; i < getChildCount(); i++) {
+                View child = getChildAt(i);
+                ViewHolder vh = getChildViewHolder(child);
+                if (vh == null || vh.getItemViewType() != LIST_HEADER) continue;
+                int pos = vh.getBindingAdapterPosition();
+                if (pos == NO_POSITION || pos <= header) continue;
+                offset = Math.min(offset, child.getTop() - top - height);
+            }
+            layoutPin(height);
+            pinned.setTranslationY(top + offset);
+            if (!pinShown) {
+                pinShown = true;
+                pinned.setVisibility(View.VISIBLE);
+            }
+        }
+
+        /** The color behind the list's rows: the nearest opaque fill on the list or an
+         *  ancestor (an app's pane color, a card), else Material's surface. */
+        int backdrop() {
+            for (View v = this; v != null;
+                    v = v.getParent() instanceof View ? (View) v.getParent() : null) {
+                android.graphics.drawable.Drawable bg = v.getBackground();
+                int color = 0;
+                if (bg instanceof android.graphics.drawable.ColorDrawable) {
+                    color = ((android.graphics.drawable.ColorDrawable) bg).getColor();
+                } else if (bg instanceof GradientDrawable
+                        && ((GradientDrawable) bg).getColor() != null) {
+                    color = ((GradientDrawable) bg).getColor().getDefaultColor();
+                }
+                if (bg != null && bg.getAlpha() == 255 && (color >>> 24) == 0xFF) return color;
+            }
+            return MaterialColors.getColor(this,
+                    com.google.android.material.R.attr.colorSurface, 0xFFFFFFFF);
+        }
+
+        int pinHeight() {
+            ViewGroup.LayoutParams lp = pinned.getLayoutParams();
+            return lp != null && lp.height > 0 ? lp.height : rowHeightPx;
+        }
+
+        void layoutPin(int height) {
+            int w = getWidth();
+            if (!pinned.isLayoutRequested() && pinned.getWidth() == w
+                    && pinned.getHeight() == height) {
+                return;
+            }
+            pinned.measure(MeasureSpec.makeMeasureSpec(w, MeasureSpec.EXACTLY),
+                    MeasureSpec.makeMeasureSpec(height, MeasureSpec.EXACTLY));
+            pinned.layout(0, 0, w, height);
+        }
+
+        void hidePin() {
+            if (pinned == null || !pinShown) return;
+            pinShown = false;
+            pinned.setVisibility(View.INVISIBLE);
+            // Unbind: a hidden copy must not answer the header's dayscript ids.
+            nativeListRecycle(hostId, pinned);
+            pinnedRow = -1;
+        }
+
+        /** The rows changed (a reload): the pinned row may now name another section. */
+        void pinStale() {
+            pinnedRow = -1;
+        }
+
+        /** A touch on the visible pinned header goes to the list itself: it still scrolls the
+         *  list, but never presses or selects the row hidden underneath. */
+        @Override public boolean onInterceptTouchEvent(MotionEvent e) {
+            boolean intercepted = super.onInterceptTouchEvent(e);
+            if (pinShown && e.getActionMasked() == MotionEvent.ACTION_DOWN
+                    && e.getY() < pinned.getTranslationY() + pinned.getHeight()) {
+                return true;
+            }
+            return intercepted;
+        }
+
+        @Override protected void onLayout(boolean changed, int l, int t, int r, int b) {
+            super.onLayout(changed, l, t, r, b);
+            updatePin();
+        }
+
+        @Override protected void dispatchDraw(android.graphics.Canvas canvas) {
+            if (pinShown && pinned.isLayoutRequested()) layoutPin(pinHeight());
+            super.dispatchDraw(canvas);
+        }
+    }
+
+    /** Mark a list as sectioned (docs/list.md "Sections"): header rows take their own view type
+     *  and the current one pins over the top. Called once, right after makeList. */
+    public static void listSetSections(View v, boolean on) {
+        if (v instanceof DayListView) ((DayListView) v).sections = on;
+    }
+
+    /** The pinned header cell of a sectioned list, or null: released with the list. */
+    public static View listPinnedCell(View v) {
+        return v instanceof DayListView ? ((DayListView) v).pinned : null;
+    }
+
     /** A native recycling list (docs/list.md): a RecyclerView (the platform's recycling
      *  widget) whose adapter reuses DayFixed cells, day filling each via nativeListBind.
      *  With `reorderable`, an ItemTouchHelper drives the native drag-to-reorder (long-press
@@ -614,7 +788,7 @@ public final class DayBridge extends DayRuntime {
     public static View makeList(final long hostId, final int rowHeightPx, final boolean selectable,
                                 final boolean reorderable, final boolean deletable,
                                 final String deleteLabel) {
-        final RecyclerView rv = new RecyclerView(ctx);
+        final DayListView rv = new DayListView(ctx, hostId, rowHeightPx);
         if (skipTransitions()) rv.setItemAnimator(null);
         rv.setLayoutManager(new LinearLayoutManager(ctx));
         rv.addOnScrollListener(new RecyclerView.OnScrollListener() {
@@ -625,15 +799,25 @@ public final class DayBridge extends DayRuntime {
                     previous = first;
                     nativeOnEvent(hostId, K_CUSTOM, first, "day-list-first-visible");
                 }
+                rv.updatePin();
             }
         });
         rv.setAdapter(new RecyclerView.Adapter<DayCellHolder>() {
             public int getItemCount() { return nativeListLen(hostId); }
+            @Override public int getItemViewType(int position) {
+                return rv.sections && nativeListIsHeader(hostId, position) ? LIST_HEADER : LIST_ROW;
+            }
             public DayCellHolder onCreateViewHolder(ViewGroup parent, int viewType) {
                 DayFixed cell = new DayFixed(ctx);
                 cell.setLayoutParams(new RecyclerView.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, rowHeightPx));
-                if (selectable) {
+                if (viewType == LIST_HEADER) {
+                    // A section header (docs/list.md "Sections"): no ripple, no click, no focus
+                    // stop for the arrow keys; Day sizes it to its content at bind, whatever the
+                    // items' pitch. TalkBack reads it as a heading to navigate by.
+                    cell.setFocusable(false);
+                    androidx.core.view.ViewCompat.setAccessibilityHeading(cell, true);
+                } else if (selectable) {
                     // Touch feedback, which a bare ViewGroup with a click listener does not have:
                     // a row that responds to a tap has to say so under the finger, and on Android
                     // that is the bounded ripple every Material list item draws.
@@ -649,7 +833,7 @@ public final class DayBridge extends DayRuntime {
             }
             public void onBindViewHolder(DayCellHolder h, int position) {
                 nativeListBind(hostId, position, h.itemView);
-                if (selectable) {
+                if (selectable && h.getItemViewType() != LIST_HEADER) {
                     // A rebound holder inherits the row's selection state; the sync patch
                     // (listPaintSelection) covers the holders already on screen.
                     paintSelected(h.itemView, nativeListIsSelected(hostId, position));
@@ -682,6 +866,9 @@ public final class DayBridge extends DayRuntime {
             swipeText.setTextSize(14f * ctx.getResources().getDisplayMetrics().scaledDensity);
             new ItemTouchHelper(new ItemTouchHelper.Callback() {
                 public int getMovementFlags(RecyclerView r, RecyclerView.ViewHolder vh) {
+                    // A section header never lifts or slides (docs/list.md "Sections"); a row
+                    // drags within its section, which Day's guard enforces at each swap.
+                    if (vh.getItemViewType() == LIST_HEADER) return 0;
                     int drag = reorderable ? (ItemTouchHelper.UP | ItemTouchHelper.DOWN) : 0;
                     // `START`, not `LEFT`: it resolves against the layout direction, so the gesture
                     // is a trailing-edge swipe in both LTR and RTL, the same edge iOS uses.
@@ -777,7 +964,9 @@ public final class DayBridge extends DayRuntime {
         for (int i = 0; i < rv.getChildCount(); i++) {
             View child = rv.getChildAt(i);
             int pos = rv.getChildAdapterPosition(child);
-            if (pos != RecyclerView.NO_POSITION) {
+            RecyclerView.ViewHolder vh = rv.getChildViewHolder(child);
+            // A section header is never selected and keeps its own look.
+            if (pos != RecyclerView.NO_POSITION && vh.getItemViewType() != LIST_HEADER) {
                 paintSelected(child, nativeListIsSelected(hostId, pos));
             }
         }
@@ -795,6 +984,7 @@ public final class DayBridge extends DayRuntime {
     }
 
     public static void listReload(View v) {
+        if (v instanceof DayListView) ((DayListView) v).pinStale();
         if (v instanceof RecyclerView && ((RecyclerView) v).getAdapter() != null) {
             ((RecyclerView) v).getAdapter().notifyDataSetChanged();
         }

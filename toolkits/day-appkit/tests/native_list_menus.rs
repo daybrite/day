@@ -53,6 +53,8 @@ fn main() {
         &host,
         ListSource {
             first_visible: None,
+            is_header: None,
+            bind_pinned: Rc::new(|_, _| {}),
             len: Rc::new(|| 2),
             token_at: Rc::new(|i| i as u64),
             bind_row: Rc::new(move |index, raw| {

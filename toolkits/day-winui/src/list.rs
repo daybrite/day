@@ -2,6 +2,9 @@
 // SPDX-License-Identifier: MPL-2.0
 //! WinUI ItemsRepeater owns realization, layout and the physical cell pool.
 //! Native layout only schedules work: ListSource pulls run outside day-core borrows.
+//! A sectioned list (docs/list.md "Sections") hands the shim its header rows, which it keeps
+//! out of selection and keyboard travel, and binds one extra cell: the shim's pinned copy of
+//! the current section's header.
 use super::*;
 use day_spec::{ListSource, SwipeEdge};
 
@@ -9,6 +12,15 @@ use day_spec::{ListSource, SwipeEdge};
 struct Binding {
     row: usize,
     generation: u64,
+    token: u64,
+    width: f64,
+}
+
+/// What the pinned header cell holds.
+#[derive(Clone, Copy)]
+struct Pinned {
+    cell: usize,
+    row: usize,
     token: u64,
     width: f64,
 }
@@ -23,6 +35,7 @@ struct Entry {
     posted: bool,
     reload: bool,
     frame: Size,
+    pinned: Option<Pinned>,
 }
 
 thread_local! {
@@ -31,6 +44,10 @@ thread_local! {
 
 fn source(host: usize) -> Option<ListSource> {
     LISTS.with(|m| m.borrow().get(&host)?.source.clone())
+}
+
+fn is_header(source: &ListSource, row: usize) -> bool {
+    source.is_header.as_ref().is_some_and(|f| f(row))
 }
 
 extern "C" fn changed(host: *mut c_void) {
@@ -69,6 +86,7 @@ pub(super) fn new(node: NodeId, props: &ListProps) -> *mut c_void {
                 posted: false,
                 reload: false,
                 frame: Size::default(),
+                pinned: None,
             },
         );
     });
@@ -85,8 +103,12 @@ pub(super) fn attach(host: &WinHandle, source: ListSource) {
 }
 
 pub(super) fn release(host: usize) {
-    if LISTS.with(|m| m.borrow_mut().remove(&host)).is_some() {
-        // day-core disposes adopted row scopes; the native factory owns their handles.
+    if let Some(e) = LISTS.with(|m| m.borrow_mut().remove(&host)) {
+        // day-core disposes adopted row scopes; the native factory owns their handles. The
+        // pinned header's cell is the list's own, so say goodbye to it here.
+        if let (Some(source), Some(pinned)) = (&e.source, e.pinned) {
+            (source.release)(pinned.cell as *mut c_void);
+        }
         unsafe { ffi::day_winui_list_forget(host as *mut c_void) };
     }
 }
@@ -178,7 +200,16 @@ fn fill(host: usize, node: NodeId) {
     };
     let raw = host as *mut c_void;
     if reload {
-        unsafe { ffi::day_winui_list_reload(raw, (source.len)().min(i32::MAX as usize) as i32) };
+        let len = (source.len)().min(i32::MAX as usize);
+        if let Some(is_header) = &source.is_header {
+            // Before the reload, so the factory pools the new rows by kind.
+            let headers: Vec<i32> = (0..len)
+                .filter(|r| is_header(*r))
+                .map(|r| r as i32)
+                .collect();
+            unsafe { ffi::day_winui_list_headers(raw, headers.as_ptr(), headers.len() as i32) };
+        }
+        unsafe { ffi::day_winui_list_reload(raw, len as i32) };
     }
     unsafe { ffi::day_winui_list_layout(raw) };
     let count = unsafe { ffi::day_winui_list_cells(raw, std::ptr::null_mut(), 0) }.max(0) as usize;
@@ -224,9 +255,10 @@ fn fill(host: usize, node: NodeId) {
         if rebind || old.is_none_or(|b| (b.width - c.width).abs() > 0.25) {
             (source.layout_cell)(c.cell, c.width);
         }
+        // A header sizes to its content even among uniform rows.
         let measured = match height {
-            RowHeight::Uniform(h) => h.max(1.0),
-            RowHeight::Automatic => (source.cell_height)(c.cell).max(1.0),
+            RowHeight::Uniform(h) if !is_header(&source, row) => h.max(1.0),
+            _ => (source.cell_height)(c.cell).max(1.0),
         };
         unsafe { ffi::day_winui_list_cell_size(raw, c.cell, c.generation, c.width, measured) };
         active.insert(
@@ -250,10 +282,49 @@ fn fill(host: usize, node: NodeId) {
             e.active = active;
         }
     });
+    if source.is_header.is_some() {
+        pin(host, node, &source, reload);
+    }
     paint_selection(host);
     if let (Some(report), Some(first)) = (&source.first_visible, first) {
         report(first);
     }
+}
+
+/// Bind the shim's pinned header cell to the header it asks for, and keep its height current.
+fn pin(host: usize, node: NodeId, source: &ListSource, reload: bool) {
+    let raw = host as *mut c_void;
+    let (mut cell, mut width) = (std::ptr::null_mut(), 0.0);
+    let want = unsafe { ffi::day_winui_list_pinned(raw, &mut cell, &mut width) };
+    if want < 0 || cell.is_null() || width <= 0.0 || want as usize >= (source.len)() {
+        return;
+    }
+    let row = want as usize;
+    if !is_header(source, row) {
+        return;
+    }
+    let token = (source.token_at)(row);
+    let old = LISTS.with(|m| m.borrow().get(&host).and_then(|e| e.pinned));
+    let rebind = reload || old.is_none_or(|p| p.row != row || p.token != token);
+    if rebind {
+        // The copy carries no element ids: lookups of a header's id find the real row.
+        (source.bind_pinned)(row, cell);
+    }
+    if rebind || old.is_none_or(|p| (p.width - width).abs() > 0.25) {
+        (source.layout_cell)(cell, width);
+    }
+    let height = (source.cell_height)(cell).max(1.0);
+    unsafe { ffi::day_winui_list_pinned_bound(raw, want, width, height) };
+    LISTS.with(|m| {
+        if let Some(e) = m.borrow_mut().get_mut(&host).filter(|e| e.node == node) {
+            e.pinned = Some(Pinned {
+                cell: cell as usize,
+                row,
+                token,
+                width,
+            });
+        }
+    });
 }
 
 fn paint_selection(host: usize) {
@@ -275,6 +346,10 @@ extern "C" fn selected(host: *mut c_void, row: i32, modifiers: i32) {
             return;
         };
         let len = (source.len)();
+        // Headers are never selected or activated (docs/list.md "Sections").
+        if row >= 0 && is_header(&source, row as usize) {
+            return;
+        }
         let event = LISTS.with(|m| {
             let mut m = m.borrow_mut();
             let e = m.get_mut(&(host as usize))?;
@@ -286,7 +361,7 @@ extern "C" fn selected(host: *mut c_void, row: i32, modifiers: i32) {
                 return None;
             }
             if modifiers == 16 && e.props.multi_select {
-                e.selected = (0..len).collect();
+                e.selected = (0..len).filter(|r| !is_header(&source, *r)).collect();
             } else if row < 0 || row as usize >= len {
                 return None;
             } else {
@@ -301,7 +376,9 @@ extern "C" fn selected(host: *mut c_void, row: i32, modifiers: i32) {
                     e.anchor = Some(row);
                 } else if e.props.multi_select && modifiers & 2 != 0 {
                     let anchor = e.anchor.unwrap_or(row).min(len.saturating_sub(1));
-                    e.selected = (anchor.min(row)..=anchor.max(row)).collect();
+                    e.selected = (anchor.min(row)..=anchor.max(row))
+                        .filter(|r| !is_header(&source, *r))
+                        .collect();
                 } else if e.props.multi_select && modifiers & 1 != 0 {
                     if !e.selected.remove(&row) {
                         e.selected.insert(row);
@@ -333,7 +410,7 @@ extern "C" fn offer(host: *mut c_void, cell: *mut c_void, row: i32) {
         let Some(source) = source(host as usize) else {
             return;
         };
-        if row < 0 || row as usize >= (source.len)() {
+        if row < 0 || row as usize >= (source.len)() || is_header(&source, row as usize) {
             return;
         }
         let row = row as usize;

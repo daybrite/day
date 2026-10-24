@@ -600,11 +600,17 @@ impl<B: Toolkit> Tree<B> {
         let Some(state) = self.lists.get(&node) else {
             return;
         };
-        let (anchor, stale) = match state.cells.get(&key) {
-            Some(b) if b.active => (b.anchor, b.laid_width != Some(width)),
+        let (anchor, stale, header) = match state.cells.get(&key) {
+            Some(b) if b.active => (b.anchor, b.laid_width != Some(width), b.header),
             _ => return,
         };
-        let row_height = state.driver.row_height;
+        // A section header sizes to its content in every list: a `Uniform` pitch is the
+        // items' (docs/list.md "Sections").
+        let row_height = if header {
+            day_spec::props::RowHeight::Automatic
+        } else {
+            state.driver.row_height
+        };
         // A new width: nothing measured at the old one may survive, or a `grow` child keeps it.
         // The same width again (the dirty-cell sweep re-lays every bound cell on every pass)
         // keeps the row's measurement cache; re-measuring every row's text each pass is what
@@ -1118,19 +1124,23 @@ pub trait TreeOps {
     // (`len`/`token_at` read the piece's snapshot directly and don't need the tree.)
     fn install_list(&mut self, node: RNode, driver: crate::list::ListDriver);
     /// Decide whether row `key`'s cell must be built (returns a fresh anchor) or rebound.
+    /// `header`: the row about to bind is a section header (docs/list.md "Sections"); a cell
+    /// that held the other kind is rebuilt.
     fn list_prepare_cell(
         &mut self,
         node: RNode,
         key: usize,
         cell: RawHandle,
+        header: bool,
     ) -> crate::list::CellStep;
-    /// Record a freshly built row for a cell.
+    /// Record a freshly built row (or section header) for a cell.
     fn list_store_cell(
         &mut self,
         node: RNode,
         key: usize,
         anchor: RNode,
         built: crate::list::BuiltRow,
+        header: bool,
     );
     /// Lay the row out inside its cell bounds (row content width × the RowHeight).
     fn list_layout_cell(&mut self, node: RNode, key: usize);
@@ -1151,6 +1161,9 @@ pub trait TreeOps {
     fn list_recycle_cell(&mut self, node: RNode, key: usize);
     /// The host discarded cell `key` of list `node` for good: dispose the row built in it.
     fn list_release_cell(&mut self, node: RNode, key: usize);
+    /// Cell `key` is the host's pinned header copy (`ListSource::bind_pinned`): park its ids, now
+    /// and on every rebind, so lookups find the header row in the list.
+    fn list_pin_cell(&mut self, node: RNode, key: usize);
     /// Apply a data change: the native host re-queries the source.
     fn list_reload(&mut self, node: RNode);
     fn list_splice(&mut self, node: RNode, deltas: Vec<day_spec::props::RowDelta>);
@@ -2566,14 +2579,19 @@ impl<B: Toolkit> TreeOps for Tree<B> {
 
     fn install_list(&mut self, node: RNode, driver: crate::list::ListDriver) {
         let driver = Rc::new(driver);
+        let sections = driver
+            .sections
+            .is_some()
+            .then(|| crate::list::register_sections(node, driver.clone()));
         self.lists.insert(
             node,
             crate::list::ListState {
                 driver: driver.clone(),
                 cells: HashMap::new(),
+                sections: sections.clone(),
             },
         );
-        let source = crate::list::make_source(node, driver);
+        let source = crate::list::make_source(node, driver, sections);
         if let Some(handle) = self.nodes.get(node).and_then(|n| n.handle.clone()) {
             self.toolkit.attach_list(&handle, source);
         }
@@ -2584,23 +2602,45 @@ impl<B: Toolkit> TreeOps for Tree<B> {
         node: RNode,
         key: usize,
         cell: RawHandle,
+        header: bool,
     ) -> crate::list::CellStep {
+        // A cell that held the other kind (a header's cell reused for an item, or the reverse)
+        // cannot be rebound: its subtree is the wrong piece. Dispose it as a release would and
+        // build afresh in the same native cell.
+        if let Some(state) = self.lists.get_mut(&node)
+            && state.cells.get(&key).is_some_and(|b| b.header != header)
+            && let Some(old) = state.cells.remove(&key)
+        {
+            old.scope.dispose();
+            self.remove_subtree_impl(old.anchor);
+        }
         if let Some(state) = self.lists.get_mut(&node)
             && let Some(bound) = state.cells.get_mut(&key)
         {
             bound.active = true;
-            let (rebind, anchor) = (bound.rebind.clone(), bound.anchor);
+            let (rebind, anchor, pinned) = (bound.rebind.clone(), bound.anchor, bound.pinned);
             // A pooled cell coming back: its ids were parked when it was recycled, and a
-            // rebind to unchanged content would never re-set them (see `parked_id`).
-            self.restore_subtree_ids(anchor);
+            // rebind to unchanged content would never re-set them (see `parked_id`). A pinned
+            // header copy keeps its ids parked.
+            if !pinned {
+                self.restore_subtree_ids(anchor);
+            }
             return crate::list::CellStep::Rebind { rebind, anchor };
         }
         // First use of this cell: adopt the native cell and anchor a fresh subtree under it,
         // inside the platform's row margins (docs/list.md "Row metrics").
-        let metrics = match self.nodes.get(node).and_then(|n| n.handle.clone()) {
+        let mut metrics = match self.nodes.get(node).and_then(|n| n.handle.clone()) {
             Some(list) => self.toolkit.list_row_metrics(&list),
             None => day_spec::RowMetrics::default(),
         };
+        // A section header lines up with the rows (the side insets) but is no row: its own
+        // padding sets its height, and the platform's least row height is a touch target's,
+        // which a header is not.
+        if header {
+            metrics.insets.top = 0.0;
+            metrics.insets.bottom = 0.0;
+            metrics.min_height = 0.0;
+        }
         let handle = self.toolkit.adopt(cell);
         let anchor = self.create_cell_anchor(
             handle,
@@ -2616,6 +2656,7 @@ impl<B: Toolkit> TreeOps for Tree<B> {
         key: usize,
         anchor: RNode,
         built: crate::list::BuiltRow,
+        header: bool,
     ) {
         if let Some(state) = self.lists.get_mut(&node) {
             state.cells.insert(
@@ -2628,6 +2669,8 @@ impl<B: Toolkit> TreeOps for Tree<B> {
                     native_width: None,
                     laid_width: None,
                     laid_height: None,
+                    header,
+                    pinned: false,
                 },
             );
         }
@@ -2689,6 +2732,9 @@ impl<B: Toolkit> TreeOps for Tree<B> {
     }
 
     fn list_reload(&mut self, node: RNode) {
+        if let Some(map) = self.lists.get(&node).and_then(|s| s.sections.as_ref()) {
+            map.invalidate();
+        }
         if let Some(handle) = self.nodes.get(node).and_then(|n| n.handle.clone()) {
             self.toolkit.update(
                 &handle,
@@ -2700,6 +2746,12 @@ impl<B: Toolkit> TreeOps for Tree<B> {
     }
 
     fn list_splice(&mut self, node: RNode, deltas: Vec<day_spec::props::RowDelta>) {
+        // A sectioned list's deltas name items, and the headers around them move too: the
+        // host re-queries instead (docs/list.md "Sections").
+        if self.lists.get(&node).is_some_and(|s| s.sections.is_some()) {
+            self.list_reload(node);
+            return;
+        }
         if let Some(handle) = self.nodes.get(node).and_then(|n| n.handle.clone()) {
             self.toolkit.update(
                 &handle,
@@ -2743,11 +2795,15 @@ impl<B: Toolkit> TreeOps for Tree<B> {
         if len == 0 {
             return;
         }
+        let mut row = row.min(len - 1);
+        if let Some(map) = self.lists.get(&node).and_then(|s| s.sections.as_ref()) {
+            row = map.display_of(row).unwrap_or(row);
+        }
         if let Some(handle) = self.nodes.get(node).and_then(|n| n.handle.clone()) {
             self.toolkit.update(
                 &handle,
                 kinds::LIST,
-                &day_spec::props::ListPatch::ScrollToRow(row.min(len - 1)) as &dyn Any,
+                &day_spec::props::ListPatch::ScrollToRow(row) as &dyn Any,
                 None,
             );
         }
@@ -2765,6 +2821,10 @@ impl<B: Toolkit> TreeOps for Tree<B> {
     }
 
     fn list_set_selected(&mut self, node: RNode, rows: Vec<usize>) {
+        let rows = match self.lists.get(&node).and_then(|s| s.sections.as_ref()) {
+            Some(map) => rows.iter().filter_map(|i| map.display_of(*i)).collect(),
+            None => rows,
+        };
         if let Some(handle) = self.nodes.get(node).and_then(|n| n.handle.clone()) {
             self.toolkit.update(
                 &handle,
@@ -2939,6 +2999,21 @@ impl<B: Toolkit> TreeOps for Tree<B> {
         // the handles under it are Day's and go through the release queue as usual.
         cell.scope.dispose();
         self.remove_subtree_impl(cell.anchor);
+    }
+
+    fn list_pin_cell(&mut self, node: RNode, key: usize) {
+        let Some(anchor) = self
+            .lists
+            .get_mut(&node)
+            .and_then(|s| s.cells.get_mut(&key))
+            .map(|b| {
+                b.pinned = true;
+                b.anchor
+            })
+        else {
+            return;
+        };
+        self.clear_subtree_ids(anchor);
     }
 
     fn tree_reload(&mut self, node: RNode) {
@@ -3346,6 +3421,16 @@ pub fn has_tree() -> bool {
 /// re-entrantly from inside any Toolkit method; dispatch happens at the next safe point.
 pub fn enqueue_event(id: NodeId, ev: Event) {
     enqueue_events([(id, ev)]);
+}
+
+/// The toolkit's event sink: [`enqueue_event`], after a sectioned list's row events are
+/// translated from the host's display rows to the app's items (docs/list.md "Sections").
+/// Everything else (dayscript, probes, day-core's own reports) already speaks items and
+/// enqueues directly.
+pub(crate) fn enqueue_native_event(id: NodeId, ev: Event) {
+    if let Some(ev) = crate::list::translate_native_event(id, ev) {
+        enqueue_event(id, ev);
+    }
 }
 
 /// Enqueue several events into one drain before dispatching. Backends that observe a focus

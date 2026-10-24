@@ -818,4 +818,11 @@ unsafe extern "C" {
         color: *const f64,
     );
     pub fn day_winui_list_actions_end(host: *mut c_void, cell: *mut c_void);
+    /// A sectioned list's header rows; the first call makes the pinned header.
+    pub fn day_winui_list_headers(host: *mut c_void, rows: *const i32, len: i32);
+    /// The header row the pinned copy should show (-1 for none), with its cell and width.
+    pub fn day_winui_list_pinned(host: *mut c_void, cell: *mut *mut c_void, width: *mut f64)
+    -> i32;
+    /// The pinned copy now holds header `row`, laid out at `width` × `height`.
+    pub fn day_winui_list_pinned_bound(host: *mut c_void, row: i32, width: f64, height: f64);
 }

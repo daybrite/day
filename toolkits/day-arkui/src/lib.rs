@@ -1792,6 +1792,17 @@ mod imp {
         });
     }
 
+    /// [`list_bind`] for the list's pinned header copy (`ListSource::bind_pinned`, docs/list.md
+    /// "Sections"): the copy carries no element ids, so lookups find the real header row.
+    pub(crate) fn list_bind_pinned(host_id: u64, index: u32, cell: Handle) {
+        day_spec::ffi_guard::contain((), || {
+            let source = LIST_SOURCES.with(|m| m.borrow().get(&host_id).cloned());
+            if let Some(source) = source {
+                (source.bind_pinned)(index as usize, cell as day_spec::RawHandle);
+            }
+        });
+    }
+
     /// The height, in vp, Day laid the row bound to `cell` (an inner Stack) at: what a
     /// content-sized list gives the cell right after `list_bind`. `0.0` before the row's first
     /// layout or inside a day-core borrow.
@@ -1802,6 +1813,30 @@ mod imp {
                 (source.cell_height)(cell as day_spec::RawHandle)
             })
         })
+    }
+
+    /// Whether display row `index` of a sectioned list is a section header (docs/list.md
+    /// "Sections"); false on every other list.
+    pub(crate) fn list_is_header(host_id: u64, index: u32) -> bool {
+        day_spec::ffi_guard::contain(false, || {
+            let source = LIST_SOURCES.with(|m| m.borrow().get(&host_id).cloned());
+            source
+                .and_then(|s| s.is_header)
+                .is_some_and(|is_header| is_header(index as usize))
+        })
+    }
+
+    /// Give a section-header cell (a header row's LIST_ITEM, or the pinned copy) the header
+    /// band's opaque ground, following the color mode for as long as the list `owner` lives:
+    /// the rows scrolling under the pin must not show through it (docs/list.md "Sections").
+    pub(crate) fn list_header_ground(owner: Handle, cell: Handle) {
+        themed(
+            owner as usize,
+            cell,
+            Paint::Background,
+            0xFFF1_F3F5,
+            0xFF1C_1C1E,
+        );
     }
 
     /// A pooled cell left the adapter's visible set: clear the cell subtree's dayscript ids so
@@ -3005,17 +3040,11 @@ mod imp {
                         RowHeight::Uniform(h) => h,
                         RowHeight::Automatic => 0.0,
                     };
-                    let n = new_node(node::LIST);
+                    // A sectioned list is a Stack around the LIST and its pinned header
+                    // (docs/list.md "Sections"); list.rs builds both inside it.
+                    let n = new_node(if p.sections { node::STACK } else { node::LIST });
                     LIST_NODE.with(|m| m.borrow_mut().insert(n.0 as usize, id.0));
-                    crate::list::init(
-                        n.0,
-                        id.0,
-                        row_h,
-                        p.selectable,
-                        p.reorderable,
-                        p.deletable,
-                        &p.delete_label,
-                    );
+                    crate::list::init(n.0, id.0, row_h, p);
                     n
                 }
                 // A recycled list cell is ADOPTED from the native list, never realized
@@ -3647,9 +3676,13 @@ mod imp {
                 LIST_SELECTED.with(|m| {
                     m.borrow_mut().remove(&nid);
                 });
-                LIST_SOURCES.with(|m| {
-                    m.borrow_mut().remove(&nid);
-                });
+                let source = LIST_SOURCES.with(|m| m.borrow_mut().remove(&nid));
+                // A sectioned list's pinned header is a cell outside the adapter: hand it
+                // back so Day disposes the header copy it built there (docs/list.md
+                // "Sections"). The node itself goes with the list (`list::forget`).
+                if let (Some(source), Some(pin)) = (source, crate::list::pin_cell(h.0)) {
+                    (source.release)(pin as day_spec::RawHandle);
+                }
             }
             // A released NAV_MENU retires its rows' synthetic click ids: without this every
             // menu rebuild leaked its row entries for the process lifetime.
@@ -4477,6 +4510,11 @@ mod imp {
                 // `NODE_LIST_ITEM_SWIPE_ACTION`: the row slides to reveal the app's delete
                 // button, ArkUI's own idiom for the gesture (docs/list.md).
                 Cap::ListDelete => Support::Native,
+                // Header rows are inert, content-sized cells pooled apart from the items; the
+                // pinned header is one overlay cell over the list, rebound as the section at
+                // the top changes. ArkUI's own sticky headers need `ListItemGroup`s, which the
+                // single adapter-fed row space does not have (docs/list.md "Sections").
+                Cap::ListSections => Support::Emulated,
                 // Emulated: a topmost full-window child of the root, not a system modal.
                 Cap::Cover => Support::Emulated,
                 // The window's `setSpecificSystemBarEnabled('status', …)` (docs/cover.md).
