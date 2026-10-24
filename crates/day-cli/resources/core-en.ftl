@@ -14,6 +14,7 @@ day_no = No
 day_done = Done
 day_save = Save
 day_open = Open
+day_open_folder = Choose Folder
 day_close = Close
 day_delete = Delete
 

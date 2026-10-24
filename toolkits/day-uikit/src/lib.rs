@@ -1639,7 +1639,16 @@ mod imp {
         })
     }
 
-    /// Native search drawer policy for the sidebar's own controller.
+    /// Native search policy for the sidebar's own controller (docs/search.md).
+    ///
+    /// `Always` pins the field under the large title. `Scrolls` and `OnPull` hand it to UIKit's
+    /// `hidesSearchBarWhenScrolling`, set once and left alone: the field shows with the list at
+    /// its top, collapses with the large title as the list scrolls, and comes back at the top.
+    /// UIKit has no "starts collapsed" state, and every attempt to manufacture one here (pin
+    /// the bar, flip the flag later, scroll the list by the bar's height) left the bar in a
+    /// state UIKit never shows on its own, so `OnPull` is `Scrolls` on this toolkit. Stacked
+    /// placement at every width, so an iPad does not fold the field into the bar's trailing
+    /// end, away from the list it searches.
     fn configure_sidebar_search(
         item: &objc2_ui_kit::UINavigationItem,
         nav: &DayNavController,
@@ -1648,13 +1657,11 @@ mod imp {
     ) {
         unsafe {
             item.setHidesSearchBarWhenScrolling(hides || initially_hidden);
-            item.setLargeTitleDisplayMode(if initially_hidden {
-                objc2_ui_kit::UINavigationItemLargeTitleDisplayMode::Never
-            } else {
-                objc2_ui_kit::UINavigationItemLargeTitleDisplayMode::Always
-            });
-            nav.navigationBar().setPrefersLargeTitles(!initially_hidden);
-            if initially_hidden && os_at_least(16) {
+            item.setLargeTitleDisplayMode(
+                objc2_ui_kit::UINavigationItemLargeTitleDisplayMode::Always,
+            );
+            nav.navigationBar().setPrefersLargeTitles(true);
+            if os_at_least(16) {
                 item.setPreferredSearchBarPlacement(
                     objc2_ui_kit::UINavigationItemSearchBarPlacement::Stacked,
                 );
@@ -4796,6 +4803,7 @@ mod imp {
         nav: &DayNavController,
         target: Vec<Retained<UIViewController>>,
         retry: bool,
+        quiet: bool,
     ) {
         let current = day_pages(nav, None);
         let unchanged = current.len() == target.len()
@@ -4818,7 +4826,7 @@ mod imp {
         // Re-stamp the transition clock at execution (docs: `ui_idle`), and never ANIMATE to
         // an empty stack — that transition never completes and holds `ui_idle` false.
         note_ui_transition();
-        let animated = !target.is_empty() && !day_core::testing::fast_animations();
+        let animated = !target.is_empty() && !quiet && !day_core::testing::fast_animations();
         unsafe { nav.setViewControllers_animated(&arr, animated) };
         let Some(coordinator) = (unsafe { nav.transitionCoordinator() }) else {
             // No transition: the set applied on the spot.
@@ -4851,7 +4859,7 @@ mod imp {
                         let mtm = MainThreadMarker::new().expect("dispatched to main");
                         let (nav, target) = again.into_inner(mtm);
                         day_spec::ffi_guard::contain((), || {
-                            set_stack(host, generation, &nav, target, false)
+                            set_stack(host, generation, &nav, target, false, false)
                         });
                     });
                 },
@@ -4876,6 +4884,20 @@ mod imp {
         scheduled: bool,
         in_flight: Option<Vec<Retained<UIViewController>>>,
         generation: u64,
+        /// The next set is applied without animation: it was held back until the host first
+        /// appeared, and what it restores was never on screen to animate away from.
+        quiet: bool,
+        /// How many turns `apply_ops` has waited for the host's first appearance.
+        first_show_waits: u32,
+    }
+
+    /// The most turns (50 ms each) a stack change waits for its host's first appearance.
+    const FIRST_SHOW_MAX_WAITS: u32 = 20;
+
+    thread_local! {
+        /// Hosts that have been in a window at least once: their changes never wait again.
+        static NAV_SEEN: RefCell<std::collections::HashSet<usize>> =
+            RefCell::new(std::collections::HashSet::new());
     }
 
     enum NavOp {
@@ -4919,6 +4941,8 @@ mod imp {
                 ops: Vec::new(),
                 scheduled: false,
                 in_flight: None,
+                quiet: false,
+                first_show_waits: 0,
                 generation: 0,
             });
             entry.ops.push(op);
@@ -4957,20 +4981,64 @@ mod imp {
             return;
         }
 
-        let ops = NAV_OPS.with(|q| {
+        // The host's first appearance comes first. A stack set issued before the host is in a
+        // window (a launch restoring the last section) would put the page over a root UIKit has
+        // never laid out, and the root's navigation bar then keeps the state it was never given
+        // — compact title, search field collapsed — for as long as the app runs. UIKit's own
+        // apps push after the root appears; so does this, one turn later and without animation.
+        //
+        // Only before the host's FIRST appearance, and only for a moment: a host that has been
+        // on screen once (a stack in a tab now in the background) applies at once, as before,
+        // and one that never appears (built but never shown) stops waiting after a second
+        // rather than retrying forever with its change unapplied.
+        let in_window = NAV_STATE.with(|m| {
+            m.borrow().get(&host).is_some_and(|s| {
+                s.active_nav()
+                    .viewIfLoaded()
+                    .is_some_and(|v| v.window().is_some())
+            })
+        });
+        if in_window {
+            NAV_SEEN.with(|seen| {
+                seen.borrow_mut().insert(host);
+            });
+        }
+        let waited = NAV_OPS.with(|q| q.borrow().get(&host).map_or(0, |e| e.first_show_waits));
+        let unseen = !in_window
+            && !NAV_SEEN.with(|seen| seen.borrow().contains(&host))
+            && waited < FIRST_SHOW_MAX_WAITS;
+        if unseen {
+            NAV_OPS.with(|q| {
+                if let Some(entry) = q.borrow_mut().get_mut(&host) {
+                    entry.quiet = true;
+                    entry.first_show_waits += 1;
+                }
+            });
+            let when = dispatch2::DispatchTime::try_from(std::time::Duration::from_millis(50))
+                .unwrap_or(dispatch2::DispatchTime::NOW);
+            let _ = dispatch2::DispatchQueue::main().after(when, move || {
+                day_spec::ffi_guard::contain((), || apply_ops(host));
+            });
+            return;
+        }
+
+        let (ops, quiet) = NAV_OPS.with(|q| {
             let mut q = q.borrow_mut();
             let Some(entry) = q.get_mut(&host) else {
-                return Vec::new();
+                return (Vec::new(), false);
             };
             // A set is still animating: leave everything queued (still scheduled) and let its
             // completion run this again. UIKit defers a `setViewControllers:animated:` issued
             // mid-transition and keeps reporting the old stack until it lands — the window in
             // which a scripted back found nothing to pop — and warns about the call besides.
             if entry.in_flight.is_some() {
-                return Vec::new();
+                return (Vec::new(), false);
             }
             entry.scheduled = false;
-            std::mem::take(&mut entry.ops)
+            (
+                std::mem::take(&mut entry.ops),
+                std::mem::take(&mut entry.quiet),
+            )
         });
         if ops.is_empty() {
             return;
@@ -5067,7 +5135,7 @@ mod imp {
             entry.in_flight = Some(target.clone());
             entry.generation
         });
-        set_stack(host, generation, &active, target, true);
+        set_stack(host, generation, &active, target, true, quiet);
     }
 
     /// The change `generation` on `host` has settled: the stack UIKit reports is the truth
@@ -5604,6 +5672,13 @@ mod imp {
         None
     }
 
+    thread_local! {
+        /// Pages (`DayPageVC` pointers) whose list rested at its top when they last left the
+        /// screen, to be put back there on the first layout after they reappear.
+        static PAGE_RESTORE_TOP: RefCell<std::collections::HashSet<usize>> =
+            RefCell::new(std::collections::HashSet::new());
+    }
+
     // Navigation pages end editing on departure (push, pop and tab selection). Keep the
     // request scoped to the outgoing view, so an incoming page's first responder survives.
     define_class!(
@@ -5615,12 +5690,66 @@ mod imp {
         unsafe impl NSObjectProtocol for DayPageVC {}
 
         impl DayPageVC {
+            /// What `UITableViewController` does for its table: a page whose list rested at its
+            /// top when it left the screen comes back at its top, whatever the bar above it has
+            /// grown or shrunk to meanwhile. A list left mid-inset reads to UIKit as scrolled,
+            /// and the large title and search field it carries come back collapsed.
+            #[unsafe(method(viewWillAppear:))]
+            fn view_will_appear(&self, animated: bool) {
+                unsafe {
+                    let _: () = msg_send![super(self), viewWillAppear: animated];
+                }
+                // Name the list before UIKit decides the bar's state for this appearance
+                // (`viewDidLayoutSubviews` is after that decision). Headers and a pinned
+                // footer make this a multi-child page, so UIKit's own single-scroll-view
+                // discovery through the wrapper hierarchy finds nothing.
+                if unsafe { self.navigationItem().searchController() }.is_some()
+                    && let Some(view) = self.viewIfLoaded()
+                    && let Some(scroll) = first_content_scroll(&view, 12)
+                {
+                    let edge = objc2_ui_kit::NSDirectionalRectEdge::Top;
+                    if unsafe { self.contentScrollViewForEdge(edge) }.as_deref() != Some(&*scroll) {
+                        unsafe { self.setContentScrollView_forEdge(Some(&scroll), edge) };
+                    }
+                }
+                let at_top = self
+                    .viewIfLoaded()
+                    .and_then(|v| first_content_scroll(&v, 12))
+                    .is_some_and(|scroll| {
+                        let y = scroll.contentOffset().y;
+                        y <= 0.0 && y >= -scroll.adjustedContentInset().top - 1.0
+                    });
+                if at_top {
+                    PAGE_RESTORE_TOP.with(|p| {
+                        p.borrow_mut().insert(self as *const Self as usize);
+                    });
+                }
+            }
+
             #[unsafe(method(viewDidLayoutSubviews))]
             fn view_did_layout_subviews(&self) {
                 unsafe {
                     let _: () = msg_send![super(self), viewDidLayoutSubviews];
+                    let key = self as *const Self as usize;
+                    if PAGE_RESTORE_TOP.with(|p| p.borrow_mut().remove(&key))
+                        && let Some(view) = self.viewIfLoaded()
+                        && let Some(scroll) = first_content_scroll(&view, 12)
+                    {
+                        let top = -scroll.adjustedContentInset().top;
+                        if scroll.contentOffset().y > top {
+                            scroll.setContentOffset(objc2_core_foundation::CGPoint::new(
+                                scroll.contentOffset().x,
+                                top,
+                            ));
+                        }
+                    }
                     let item = self.navigationItem();
-                    if item.searchController().is_some() && item.hidesSearchBarWhenScrolling() {
+                    // Whenever the page carries a search controller, not only once its
+                    // hide-on-scroll is on: the flag goes on a turn after the page first
+                    // appears (`configure_sidebar_search`), and UIKit reads the scroll edge
+                    // state from this association at that moment. Without it the bar reads as
+                    // scrolled, and the title and search collapse the instant the flag lands.
+                    if item.searchController().is_some() {
                         // Headers and a pinned sync footer make this a multi-child page.
                         // Explicitly identify its list instead of relying on UIKit's
                         // single-scroll-view discovery through the wrapper hierarchy.
@@ -6658,7 +6787,6 @@ mod imp {
                     // reserving a blank band.
                     content.setText(title.as_deref().map(NSString::from_str).as_deref());
                     view.setContentConfiguration(Some(ProtocolObject::from_ref(&*content)));
-                    view.setBackgroundConfiguration(Some(&floating_header_background(self.mtm())));
                 }
                 // ListCell -> Cell -> ReusableView: the supplementary method answers in the base.
                 objc2::rc::Retained::into_super(objc2::rc::Retained::into_super(view))
@@ -6913,77 +7041,48 @@ mod imp {
     /// The reuse identifier for a sidebar section heading.
     const NAV_HEADER_ID: &str = "day.nav.header";
 
-    /// A pinned header must occlude the rows underneath it. Keep UIKit's header
-    /// configuration, but make its surface opaque and flush with the list edges.
-    /// Retain the semantic UIColor (not a resolved CGColor) so appearance changes
-    /// update already-visible headers without needing to dequeue them again.
-    fn floating_header_background(
-        mtm: MainThreadMarker,
-    ) -> Retained<objc2_ui_kit::UIBackgroundConfiguration> {
-        use objc2_ui_kit::{
-            NSDirectionalEdgeInsets, NSDirectionalRectEdge, UIBackgroundConfiguration,
-        };
-        let background = if os_at_least(18) {
-            UIBackgroundConfiguration::listHeaderConfiguration(mtm)
-        } else {
-            // The adaptive constructor is iOS 18+. This sidebar-specific constructor
-            // is the corresponding native configuration on iOS 14–17.
-            #[allow(deprecated)]
-            UIBackgroundConfiguration::listSidebarHeaderConfiguration(mtm)
-        };
-        background.setBackgroundColor(Some(&UIColor::secondarySystemBackgroundColor()));
-        background.setVisualEffect(None);
-        background.setCornerRadius(0.0);
-        background.setBackgroundInsets(NSDirectionalEdgeInsets {
-            top: 0.0,
-            leading: 0.0,
-            bottom: 0.0,
-            trailing: 0.0,
-        });
-        background.setEdgesAddingLayoutMarginsToBackgroundInsets(NSDirectionalRectEdge::empty());
-        background
-    }
-
     /// The sidebar list's layout. `headers` turns section headings on: left off for a list that
     /// declares none, so a flat list reserves no band where a heading would go.
+    ///
+    /// The list's appearance follows the width the layout is asked for, the way UIKit's own
+    /// apps do it: at a regular width the SIDEBAR appearance, the Settings sidebar's rounded
+    /// selection pill and group labels; at a compact width an INSET GROUPED list, the phone's
+    /// grouped table with its section headings over each group. Both come from the
+    /// configuration itself (`listEnvironment` is what the cells' and headers' adaptive
+    /// configurations read), so nothing here names a font, an inset or a background, and a
+    /// heading scrolls as the platform scrolls it.
     fn nav_list_layout(
         mtm: MainThreadMarker,
         headers: bool,
     ) -> Retained<objc2_ui_kit::UICollectionViewLayout> {
-        // A SIDEBAR list, not an inset-grouped table (docs/navigation.md). The appearance is what
-        // publishes the `listEnvironment` trait the cells' adaptive configurations read, and it is
-        // the whole difference between the Settings sidebar and a plain list: the selection draws
-        // as an inset rounded pill with a tinted label, and the rows carry no separators. A table
-        // cannot be told to do any of that — its selection is edge to edge whatever background
-        // configuration the cells are given, which is what this replaced.
-        let config = unsafe {
-            objc2_ui_kit::UICollectionLayoutListConfiguration::initWithAppearance(
-                objc2_ui_kit::UICollectionLayoutListConfiguration::alloc(mtm),
-                objc2_ui_kit::UICollectionLayoutListAppearance::Sidebar,
-            )
-        };
         unsafe {
-            config.setHeaderMode(if headers {
-                objc2_ui_kit::UICollectionLayoutListHeaderMode::Supplementary
-            } else {
-                objc2_ui_kit::UICollectionLayoutListHeaderMode::None
-            });
-            // Build each native list section explicitly so its supplementary heading
-            // floats until the following group pushes it away, including on iOS 15.
             let provider = block2::RcBlock::new(
                 move |_: isize,
                       environment: NonNull<
                     ProtocolObject<dyn objc2_ui_kit::NSCollectionLayoutEnvironment>,
                 >|
                       -> *mut objc2_ui_kit::NSCollectionLayoutSection {
-                    let section = objc2_ui_kit::NSCollectionLayoutSection::
-                        sectionWithListConfiguration_layoutEnvironment(
-                            &config,
-                            environment.as_ref(),
+                    let environment = environment.as_ref();
+                    let compact =
+                        objc2_ui_kit::NSCollectionLayoutEnvironment::traitCollection(environment)
+                            .horizontalSizeClass()
+                            == objc2_ui_kit::UIUserInterfaceSizeClass::Compact;
+                    let config =
+                        objc2_ui_kit::UICollectionLayoutListConfiguration::initWithAppearance(
+                            objc2_ui_kit::UICollectionLayoutListConfiguration::alloc(mtm),
+                            if compact {
+                                objc2_ui_kit::UICollectionLayoutListAppearance::InsetGrouped
+                            } else {
+                                objc2_ui_kit::UICollectionLayoutListAppearance::Sidebar
+                            },
                         );
-                    for header in section.boundarySupplementaryItems() {
-                        header.setPinToVisibleBounds(true);
-                    }
+                    config.setHeaderMode(if headers {
+                        objc2_ui_kit::UICollectionLayoutListHeaderMode::Supplementary
+                    } else {
+                        objc2_ui_kit::UICollectionLayoutListHeaderMode::None
+                    });
+                    let section = objc2_ui_kit::NSCollectionLayoutSection::
+                        sectionWithListConfiguration_layoutEnvironment(&config, environment);
                     Retained::autorelease_return(section)
                 },
             );

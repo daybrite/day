@@ -413,10 +413,13 @@ the only way a row is reachable, and a row's icon tint is the grouping signal th
 there. AppKit draws them as source-list group rows (small, bold, secondary, pinned as their
 group scrolls under them); the outline keys its rows by index, not by title, so a header may
 share its text with an item ("Controls" over Controls) without the two collapsing into one row.
-UIKit and Android draw floating headers from their native list styling. UIKit headers use
-an opaque system secondary-background surface across their full width by default, so scrolled
-row text never overlaps the heading. The semantic color follows light/dark appearance changes;
-apps do not need to add their own backgrounds. GTK draws them
+UIKit and Android draw them as their platforms' own list headings, scrolling with the group
+they open: on iOS the heading of a `UICollectionLayoutListConfiguration` section, in the
+inset-grouped appearance at a compact width (the phone's grouped table) and the sidebar
+appearance at a regular width (the Settings sidebar), with the configuration's own default
+header content and nothing of Day's painted over it; on Android Material's `NavigationView`
+subheader for each group. Neither pins a heading over the rows below it, because neither
+platform's own lists do. GTK draws them
 in its list box's header slot. Qt, whose [`QListWidget`](https://doc.qt.io/qt-6/qlistwidget.html) has no header slot, draws each as a small
 bold dimmed item of its own that takes no click, hover or selection, and Web as a heading
 element between the rows. Windows adds a [`NavigationViewItemHeader`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.navigationviewitemheader) to the pane's items (a disabled

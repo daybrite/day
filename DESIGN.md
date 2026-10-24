@@ -6271,8 +6271,8 @@ The `daybrite/actions` companion repository provides reusable workflows for exte
    published crate's output directory before documentation starts and serializes rustdoc, so
    cross-crate links resolve locally even when Cargo documents a consumer first. Its item-link check follows
    aliases and checks fragment destinations separately from the website link checker. Links to
-   private helpers remain prose, public links use resolvable paths, and re-exported standard-library
-   links point to the hosted Rust documentation. This artifact sequence
+   private helpers remain prose, public links across modules use crate-qualified targets, and
+   re-exported standard-library links point to the hosted Rust documentation. This artifact sequence
    makes it the does-rustdoc-still-build check on crate changes too; the separate `api-docs`
    job it replaced is gone. The `screenshots-<combo>` artifacts the platform legs upload stay, as
    each run's evidence of what its walkthrough rendered.

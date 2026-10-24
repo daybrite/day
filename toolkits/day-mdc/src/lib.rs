@@ -718,7 +718,7 @@ mod imp {
         static fn setNavMenuTints(nav_menu: android.view.View, joined_tints: JString),
         static fn setNavRefreshing(view: android.view.View, busy: jboolean),
         static fn setNavRowMenus(nav_menu: android.view.View, joined_specs: JString),
-        static fn setNavSearch(nav_host: android.view.View, id: jlong, prompt: JString, text: JString, hides_on_scroll: jboolean),
+        static fn setNavSearch(nav_host: android.view.View, id: jlong, prompt: JString, text: JString, hides_on_scroll: jboolean, initially_hidden: jboolean),
         static fn setNavSearchText(nav_host: android.view.View, text: JString),
         static fn setNavSuiteRows(menu: android.view.View, titles: JString, icons: JString, badges: JString, menu_node: jlong),
         static fn updateNavMenuRows(v: android.view.View, joined_rows: JString, joined_items: JString, joined_icons: JString),
@@ -3004,6 +3004,7 @@ mod imp {
                                     &pr,
                                     &tx,
                                     sp.hides_on_scroll,
+                                    sp.initially_hidden,
                                 )
                             });
                             if env.exception_check() {

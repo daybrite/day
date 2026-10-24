@@ -86,9 +86,25 @@ public class DayNavHost extends LinearLayout {
     /** The window toolbar on this host's app bar (docs/toolbars.md) — the shared painter, bound
      *  to the bar this host already has. Assigned with `toolbar`, in the constructor. */
     private WindowBar windowBar;
-    /** Inline search field (docs/search.md); null until `setSearch` runs. */
+    /** The pinned inline search field (docs/search.md): an outlined box over the list. Null
+     *  until `setSearch` runs, and null for good when the chrome scrolls (see {@link #searchBar}). */
     TextInputLayout searchLayout;
+    /** The field's editor: the box's, or the search view's. */
     EditText searchEdit;
+    /** Whichever control sits in the app bar, the box or the search bar; null until `setSearch`. */
+    View searchField;
+    /** Scrolling chrome's search (docs/search.md): Material's search bar, the pill under the
+     *  title that scrolls away with it, and the full-screen search view it expands into, which
+     *  borrows the root list for its results while it is up. Null in pinned mode. */
+    com.google.android.material.search.SearchBar searchBar;
+    com.google.android.material.search.SearchView searchView;
+    /** Where the root list lives while the search view is down: its parent, position and layout
+     *  params, so the list goes back exactly where it came from. */
+    private ViewGroup listHome;
+    private int listHomeIndex;
+    private ViewGroup.LayoutParams listHomeParams;
+    /** System Back while the search view is up collapses it, as Material's own apps do. */
+    private OnBackPressedCallback searchBackCallback;
     /** Suppresses the echo while day writes the app's query back into the field. */
     boolean searchSyncing;
     private androidx.coordinatorlayout.widget.CoordinatorLayout scrollingChrome;
@@ -360,29 +376,48 @@ public class DayNavHost extends LinearLayout {
     }
 
     private void syncSearchVisibility(int depth) {
-        if (searchLayout != null) {
+        if (searchField != null) {
             // Tiled, the list it filters never leaves the screen, so the field stays too.
             boolean show = depth == 0 || !stacked();
-            searchLayout.setVisibility(show ? View.VISIBLE : View.GONE);
+            searchField.setVisibility(show ? View.VISIBLE : View.GONE);
             if (scrollingChrome != null) {
                 syncToolbarPlacement(depth);
-                boolean scroll = show && !searchEdit.hasFocus();
+                boolean scroll = show && !searchEditing();
                 int flags = scroll ? AppBarLayout.LayoutParams.SCROLL_FLAG_SCROLL
                         | AppBarLayout.LayoutParams.SCROLL_FLAG_ENTER_ALWAYS
                         | AppBarLayout.LayoutParams.SCROLL_FLAG_SNAP : 0;
-                for (View child : new View[] { toolbar, searchLayout }) {
+                for (View child : new View[] { toolbar, searchField }) {
                     if (child.getParent() != appBar) continue;
                     AppBarLayout.LayoutParams lp = (AppBarLayout.LayoutParams) child.getLayoutParams();
                     if (lp.getScrollFlags() != flags) { lp.setScrollFlags(flags); child.setLayoutParams(lp); }
                 }
-                AppBarLayout.LayoutParams searchParams = (AppBarLayout.LayoutParams) searchLayout.getLayoutParams();
+                AppBarLayout.LayoutParams searchParams = (AppBarLayout.LayoutParams) searchField.getLayoutParams();
                 int width = !stacked() ? Math.round(NAV_SIDEBAR_DP * getResources().getDisplayMetrics().density)
                         : ViewGroup.LayoutParams.MATCH_PARENT;
-                if (searchParams.width != width) { searchParams.width = width; searchLayout.setLayoutParams(searchParams); }
+                if (searchParams.width != width) { searchParams.width = width; searchField.setLayoutParams(searchParams); }
                 if (!scroll || show != scrollingSearchShown) appBar.setExpanded(true, false);
                 scrollingSearchShown = show;
             }
         }
+    }
+
+    /** Whether the user is in the middle of a search: the search view is up, or the pinned box's
+     *  editor holds focus. The app bar must not scroll away under either. */
+    private boolean searchEditing() {
+        return searchView != null ? searchShowing() : searchEdit != null && searchEdit.hasFocus();
+    }
+
+    private boolean searchShowing() {
+        if (searchView == null) return false;
+        com.google.android.material.search.SearchView.TransitionState state =
+                searchView.getCurrentTransitionState();
+        return state == com.google.android.material.search.SearchView.TransitionState.SHOWING
+                || state == com.google.android.material.search.SearchView.TransitionState.SHOWN;
+    }
+
+    /** Collapse the search view, for a navigation that leaves the list it searches. */
+    private void dismissSearchView() {
+        if (searchShowing()) searchView.hide();
     }
 
     /**
@@ -496,21 +531,30 @@ public class DayNavHost extends LinearLayout {
     }
 
     /**
-     * Install the inline search field directly under the app bar, above the navigation list
-     * (docs/search.md).
+     * Install the inline search over the navigation list (docs/search.md).
      *
-     * A Material `TextInputLayout` with a search icon and a clear button, not the Material
-     * `SearchBar`/`SearchView` pair: `SearchBar` is a launcher for a full-screen `SearchView`
-     * overlay that shows its OWN results list, and on a searchable navigation surface the list
-     * underneath already is the result set. An editable filter-in-place field is the control this
-     * actually needs.
-     *
-     * Optional scrolling uses Material's scroll/enter-always app bar. The field is
-     * expanded while editing and chrome is restored before leaving the root list.
+     * Two forms. With scrolling chrome (`Search::reveal(Scrolls)` or `OnPull`), it is Material's
+     * own search: a {@code SearchBar} under the title that scrolls away with it and returns on a
+     * pull, and the full-screen {@code SearchView} it expands into when tapped
+     * ({@link #installScrollingSearch}). Pinned, it is a Material `TextInputLayout` with a search
+     * icon and a clear button, filtering the list in place under a bar that stays put: the list
+     * underneath is the result set, and a pinned field reads as part of it.
      */
-    void setSearch(final long id, String prompt, String text, boolean hidesOnScroll) {
-        if (searchLayout != null) {
+    void setSearch(final long id, String prompt, String text, boolean hidesOnScroll,
+            boolean initiallyHidden) {
+        if (searchField != null) {
             return; // already installed
+        }
+        if (hidesOnScroll && !DayActivity.edgeToEdge) {
+            installScrollingSearch(id, prompt, text);
+            syncSearchVisibility(depth());
+            if (initiallyHidden) {
+                // `SearchReveal::OnPull`: the bar starts scrolled away with the title row, and
+                // the first scroll up brings it back, Material's enter-always behavior. After
+                // the first layout, since a collapse before the app bar has a height is lost.
+                appBar.post(() -> appBar.setExpanded(false, false));
+            }
+            return;
         }
         TextInputLayout box = new TextInputLayout(getContext(), null,
                 com.google.android.material.R.attr.textInputOutlinedStyle);
@@ -561,10 +605,9 @@ public class DayNavHost extends LinearLayout {
         lp.setMargins(pad, pad / 2, pad, pad / 2);
         box.setLayoutParams(lp);
         searchLayout = box;
+        searchField = box;
         searchEdit = edit;
-        if (hidesOnScroll && !DayActivity.edgeToEdge) {
-            installScrollingSearch(box, pad);
-        } else if (listColumn != null) {
+        if (listColumn != null) {
             // Inside the list pane, above the list: the field belongs to the surface it filters
             // (docs/search.md), and tiled that surface is one pane rather than the whole window.
             listColumn.addView(box, 0);
@@ -578,12 +621,71 @@ public class DayNavHost extends LinearLayout {
         syncSearchVisibility(depth());
     }
 
-    /** Native nested-scroll chrome, scoped to the feed list rather than sibling articles. */
-    private void installScrollingSearch(TextInputLayout box, int pad) {
+    /**
+     * Scrolling chrome: Material's search bar in the app bar, and its search view.
+     *
+     * The app bar (title, actions, and the search bar under them) rides a `CoordinatorLayout`
+     * with scroll/enter-always/snap flags, so it scrolls away as the root list scrolls and comes
+     * back on the first pull, the behavior Material gives a search bar in a top app bar. Only
+     * nested scrolls that start in the root list move it (see the behavior below), never a
+     * destination page's.
+     *
+     * The search bar is a launcher, not a field: tapping it expands the search view over the
+     * whole host, keyboard up, and the query is typed there. Material's search view shows its own
+     * results, and here the results ARE the navigation list the query filters, so the list is
+     * lent to the search view while it is up (its view moves into the search view's content,
+     * fragment and all) and returned to its pane as the view collapses. Choosing a row navigates,
+     * which collapses the view as well. The query stays in the search bar's text when the view
+     * collapses, so the pill reads as the active filter, and the view's own clear button empties
+     * it.
+     */
+    private void installScrollingSearch(final long id, String prompt, String text) {
+        Context ctx = getContext();
+        int pad = (int) TypedValue.applyDimension(
+                TypedValue.COMPLEX_UNIT_DIP, 12f, getResources().getDisplayMetrics());
+        String hint = prompt == null ? "" : prompt;
+        final com.google.android.material.search.SearchBar bar =
+                new com.google.android.material.search.SearchBar(ctx);
+        bar.setHint(hint);
+        final com.google.android.material.search.SearchView view =
+                new com.google.android.material.search.SearchView(ctx);
+        view.setHint(hint);
+        view.setAutoShowKeyboard(true);
+        final EditText edit = view.getEditText();
+        edit.setImeOptions(android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH);
+        if (text != null && !text.isEmpty()) {
+            bar.setText(text);
+            edit.setText(text);
+        }
+        edit.addTextChangedListener(new TextWatcher() {
+            @Override public void beforeTextChanged(CharSequence s, int a, int b, int c) {}
+            @Override public void onTextChanged(CharSequence s, int a, int b, int c) {}
+            @Override public void afterTextChanged(Editable e) {
+                bar.setText(e.toString());
+                if (!searchSyncing) {
+                    DayBridge.nativeOnEvent(id, DayBridge.K_SEARCH_CHANGED, 0.0, e.toString());
+                }
+            }
+        });
+        // The keyboard's Search key submits (num 1 = submitted; docs/search.md) and collapses the
+        // view onto the filtered list, which is what the query was for.
+        edit.setOnEditorActionListener((v, actionId, event) -> {
+            boolean enter = event != null && event.getKeyCode() == android.view.KeyEvent.KEYCODE_ENTER;
+            if (actionId != android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH && !enter) {
+                return false;
+            }
+            if (event != null && event.getAction() != android.view.KeyEvent.ACTION_DOWN) {
+                return true;
+            }
+            DayBridge.nativeOnEvent(id, DayBridge.K_SEARCH_CHANGED, 1.0, v.getText().toString());
+            view.hide();
+            return true;
+        });
+
         scrollingContent = split != null ? split : pages;
         removeView(appBar);
         removeView(scrollingContent);
-        scrollingChrome = new androidx.coordinatorlayout.widget.CoordinatorLayout(getContext());
+        scrollingChrome = new androidx.coordinatorlayout.widget.CoordinatorLayout(ctx);
         androidx.coordinatorlayout.widget.CoordinatorLayout.LayoutParams contentParams =
                 new androidx.coordinatorlayout.widget.CoordinatorLayout.LayoutParams(
                         ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT);
@@ -596,14 +698,14 @@ public class DayNavHost extends LinearLayout {
             @Override public boolean onStartNestedScroll(
                     androidx.coordinatorlayout.widget.CoordinatorLayout parent, AppBarLayout child,
                     View directTargetChild, View target, int axes, int type) {
-                View feedPage = listPane != null ? listPane : pages;
+                View feedPage = rootList();
                 View current = target;
                 while (current != feedPage && current.getParent() instanceof View) {
                     current = (View) current.getParent();
                 }
                 return current == feedPage && (depth() == 0 || !stacked())
-                        && searchLayout.getVisibility() == View.VISIBLE
-                        && !searchEdit.hasFocus()
+                        && searchField.getVisibility() == View.VISIBLE
+                        && !searchEditing()
                         && super.onStartNestedScroll(parent, child, directTargetChild, target, axes, type);
             }
         });
@@ -611,14 +713,73 @@ public class DayNavHost extends LinearLayout {
         AppBarLayout.LayoutParams searchParams = new AppBarLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         searchParams.setMargins(pad, pad / 2, pad, pad / 2);
-        appBar.addView(box, searchParams);
+        appBar.addView(bar, searchParams);
+        // After the app bar, so the expanded view draws over it.
+        scrollingChrome.addView(view, new androidx.coordinatorlayout.widget.CoordinatorLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        view.setupWithSearchBar(bar);
         addView(scrollingChrome, new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
-        appBar.addOnOffsetChangedListener((bar, offset) -> {
+        appBar.addOnOffsetChangedListener((b, offset) -> {
             chromeOffset = offset;
             sizeScrollingContent();
         });
         scrollingChrome.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> sizeScrollingContent());
-        searchEdit.setOnFocusChangeListener((view, focused) -> syncSearchVisibility(depth()));
+        view.addTransitionListener((sv, previous, now) -> {
+            switch (now) {
+                case SHOWING:
+                    lendListToSearchView();
+                    break;
+                case HIDING:
+                    returnListFromSearchView();
+                    break;
+                default:
+                    break;
+            }
+            if (searchBackCallback != null) {
+                searchBackCallback.setEnabled(
+                        now == com.google.android.material.search.SearchView.TransitionState.SHOWING
+                        || now == com.google.android.material.search.SearchView.TransitionState.SHOWN);
+            }
+            syncSearchVisibility(depth());
+        });
+        searchBackCallback = new OnBackPressedCallback(false) {
+            @Override public void handleOnBackPressed() {
+                view.hide();
+            }
+        };
+        ((FragmentActivity) ctx).getOnBackPressedDispatcher().addCallback(searchBackCallback);
+        searchBar = bar;
+        searchView = view;
+        searchField = bar;
+        searchEdit = edit;
+    }
+
+    /** The root list the search filters: the list pane of an adaptive host, else the pages. */
+    private View rootList() {
+        return listPane != null ? listPane : pages;
+    }
+
+    /** Move the root list into the search view's content, remembering where it came from. */
+    private void lendListToSearchView() {
+        View list = rootList();
+        ViewGroup parent = (ViewGroup) list.getParent();
+        if (parent == null || listHome != null) return;
+        listHome = parent;
+        listHomeIndex = parent.indexOfChild(list);
+        listHomeParams = list.getLayoutParams();
+        parent.removeView(list);
+        searchView.addView(list, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+    }
+
+    /** Put the root list back where {@link #lendListToSearchView} found it. */
+    private void returnListFromSearchView() {
+        View list = rootList();
+        if (listHome == null) return;
+        ViewGroup parent = (ViewGroup) list.getParent();
+        if (parent != null) parent.removeView(list);
+        listHome.addView(list, Math.min(listHomeIndex, listHome.getChildCount()), listHomeParams);
+        listHome = null;
     }
 
     /** Keep pinned page footers inside the viewport as the app bar grows/shrinks. */
@@ -630,7 +791,11 @@ public class DayNavHost extends LinearLayout {
     }
 
     void focusSearch() {
-        if (searchEdit == null || searchLayout.getVisibility() != View.VISIBLE) return;
+        if (searchEdit == null || searchField.getVisibility() != View.VISIBLE) return;
+        if (searchView != null) {
+            if (!searchShowing()) searchView.show();
+            return;
+        }
         searchEdit.requestFocus();
         searchEdit.selectAll();
         android.view.inputmethod.InputMethodManager keyboard =
@@ -651,6 +816,7 @@ public class DayNavHost extends LinearLayout {
         }
         searchSyncing = true;
         searchEdit.setText(next);
+        if (searchBar != null) searchBar.setText(next);
         searchSyncing = false;
     }
 
@@ -1461,6 +1627,7 @@ public class DayNavHost extends LinearLayout {
     void push(String title, boolean immersive) {
         int n = frags.size();
         if (n < 2) return;
+        dismissSearchView();
         PageFragment top = frags.get(n - 1);
         PageFragment prev = frags.get(n - 2);
         View v = top.content;

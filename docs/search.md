@@ -86,8 +86,8 @@ Each platform keeps its own convention.
 
 | toolkit | where | resting state | how it is revealed |
 |---|---|---|---|
-| ios-uikit | [`UISearchController`](https://developer.apple.com/documentation/uikit/uisearchcontroller) on the root page's `navigationItem` | pinned by default | opt-in: search and large title collapse while scrolling; initially-hidden mode uses a compact title and pull-down drawer |
-| android-mdc | Material [`TextInputLayout`](https://developer.android.com/reference/com/google/android/material/textfield/TextInputLayout) over the nav list | pinned by default | opt-in: scroll/enter-always app bar, returns on downward scroll |
+| ios-uikit | [`UISearchController`](https://developer.apple.com/documentation/uikit/uisearchcontroller) on the root page's `navigationItem`, under the large title | pinned by default | opt-in: UIKit's `hidesSearchBarWhenScrolling`, which collapses the field and the large title as the list scrolls and brings both back at the top |
+| android-mdc | pinned: a Material [`TextInputLayout`](https://developer.android.com/reference/com/google/android/material/textfield/TextInputLayout) over the nav list; scrolling: Material's [`SearchBar`](https://developer.android.com/reference/com/google/android/material/search/SearchBar) under the title, expanding into its full-screen [`SearchView`](https://developer.android.com/reference/com/google/android/material/search/SearchView) with the nav list as its results | pinned by default | opt-in: the search bar and title scroll away with the list and return on the first pull; a tap expands the search view |
 | harmony-arkui | ArkUI `Search` atop the nav list | visible | always there |
 
 [`Search::reveal(SearchReveal::Scrolls)`](https://daybrite.dev/api/day_pieces/struct.Search.html#method.reveal) opts into scrolling chrome. Desktop toolbar search
@@ -103,15 +103,17 @@ nav(selection)
 ```
 
 The default is `SearchReveal::Always`. `OnPull` implies scrolling search (so Android's
-scrolling chrome comes with it); on UIKit it keeps the title in one compact toolbar row and
-starts the native search drawer collapsed. Pull down slightly
-on the list to reveal search. On iOS 16+ the drawer explicitly uses `Stacked` placement so
-an iPad does not substitute an always-visible inline field. iOS 15 uses its native stacked
-placement. UIKit owns subsequent scrolling, editing and navigation transitions: Day never
-resets the content offset or clears the query on layout, return navigation or rotation.
-`Always` keeps the large-title presentation, and `Scrolls` keeps it with the collapsing
-chrome. Other toolkits treat `OnPull` as `Scrolls`; their existing search placement is
-unchanged.
+scrolling chrome comes with it) and asks for the field to start out of sight. Android honors
+that: the app bar starts collapsed and the first scroll up brings the search bar back. UIKit
+has no such state, and Day no longer manufactures one: on iOS `OnPull` is `Scrolls`, the
+field under the large title that UIKit's `hidesSearchBarWhenScrolling` collapses as the list
+scrolls and shows again at the top, which is what Apple's own apps do. On iOS 16+ the field
+uses `Stacked` placement at every width, so an iPad does not fold it into the bar's trailing
+end. UIKit owns every scrolling, editing and navigation transition: Day never resets the
+content offset or clears the query on layout, return navigation or rotation, and sets the
+hide-on-scroll flag once, at the start (set later, or toggled, UIKit leaves the bar collapsed).
+`Always` keeps the large-title presentation with the field pinned under it. The other
+toolkits treat `OnPull` as `Scrolls`; their existing search placement is unchanged.
 
 Android uses [`CoordinatorLayout`](https://developer.android.com/reference/androidx/coordinatorlayout/widget/CoordinatorLayout) and Material `AppBarLayout` scroll/enter-always/snap flags.
 Only nested scrolls originating in the root navigation list move this chrome. The search
@@ -122,8 +124,12 @@ search can scroll independently. Only the compact root places the toolbar in the
 app bar. Selection, push, pop and layout changes reconcile this together with the title and
 Up action, including section selections that do not enter FragmentManager history. A late
 root fling cannot move the destination toolbar because it no longer belongs to the app bar. The list content is sized to the visible area so pinned
-footers remain on screen. Immersive hosts retain their existing floating chrome. The field
-continues to filter the existing list; it does not open a separate full-screen SearchView.
+footers remain on screen. Immersive hosts retain their existing floating chrome. With
+scrolling chrome the field is Material's search bar: a tap expands it into the full-screen
+search view, and the navigation list itself moves into that view as the results while it is
+up, so the query filters the same rows in both places. Choosing a row navigates and collapses
+the view; Back collapses it; the Search key submits and collapses it onto the filtered list,
+whose query the collapsed bar keeps showing until its clear button empties it.
 
 ## One model, one writer
 

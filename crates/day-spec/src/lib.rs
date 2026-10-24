@@ -6636,8 +6636,8 @@ pub mod present {
         },
         /// Native "choose folder" picker (docs/files.md). The backend answers with
         /// `PresentResult::Files` holding the one chosen directory path, or `Dismissed`. Only
-        /// backends answering [`Cap::FolderDialog`] as `Native` show a chooser; the others
-        /// resolve the request as `Dismissed` at once, so the await never hangs.
+        /// backends answering [`Cap::FolderDialog`](crate::Cap::FolderDialog) as `Native` show a
+        /// chooser; the others resolve the request as `Dismissed` at once, so the await never hangs.
         OpenFolder { title: String },
         /// Native "save file" picker (docs/files.md). `src_path` is a Day-written temp file
         /// holding the bytes to save; iOS/Android deliver it to the chosen destination natively,

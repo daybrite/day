@@ -127,7 +127,7 @@ Platform guidance: [Apple: file management](https://developer.apple.com/design/h
 | WinUI  | WinRT `FileOpenPicker` (`PickSingleFileAsync` / `PickMultipleFilesAsync`) | WinRT `FolderPicker` | WinRT `FileSavePicker` |
 
 `Cap::FolderDialog` is `Native` exactly where the Folder column names a chooser: the four
-desktops. The phone and web toolkits answer `Unsupported` and resolve an `open_folder()` request
+desktops. The phone and web toolkits answer `Unsupported` and resolve an [`open_folder()`](https://daybrite.dev/api/day_pieces/fn.open_folder.html) request
 as cancelled at once, so the await never hangs; an app that offers "Add Folder…" asks the
 capability first and hides the command elsewhere.
 
@@ -150,8 +150,8 @@ so the main loop keeps running and dayscript stays live while a picker is up.
 Files go through the existing [`present`](https://daybrite.dev/api/day_core/fn.present.html) path ([docs/dialogs](dialogs.md)) and add no `Toolkit` methods:
 
 - `day_spec::present::PresentSpec::{OpenFile, OpenFolder, SaveFile}` + `FileFilter { name, extensions }`.
-  `OpenFile { multiple }` is the one spec behind both `open_file()` (`false`) and
-  `open_files()` (`true`); `OpenFolder { title }` carries the folder chooser.
+  `OpenFile { multiple }` is the one spec behind both [`open_file()`](https://daybrite.dev/api/day_pieces/fn.open_file.html) (`false`) and
+  [`open_files()`](https://daybrite.dev/api/day_pieces/fn.open_files.html) (`true`); `OpenFolder { title }` carries the folder chooser.
 - `PresentResult::Files(Vec<String>)`: the chosen locators, crossing the C ABI (Qt shim /
   Android JNI / WinUI shim / ArkTS host) as tag `3` with the paths joined by the unit separator.
   A multiple-selection pick reports every path, in the picker's order.
@@ -174,8 +174,8 @@ A file picker is a presentation, so a script answers it with a path ([docs/dialo
 
 This makes open/save flows headless-testable and screenshot-able on every toolkit without touching
 the machine's real filesystem. See `Day-Showcase` (the **Files & storage** page's Files section) and
-`Day-Showcase/dayscript/files.yaml`. The same `respond: { path }` answers an `open_files()` pick
-(with that one file) and an `open_folder()` request (with that path as the directory), on every
+`Day-Showcase/dayscript/files.yaml`. The same `respond: { path }` answers an [`open_files()`](https://daybrite.dev/api/day_pieces/fn.open_files.html) pick
+(with that one file) and an [`open_folder()`](https://daybrite.dev/api/day_pieces/fn.open_folder.html) request (with that path as the directory), on every
 toolkit, including the ones without a native folder chooser.
 
 ## Windows picker behavior
