@@ -422,6 +422,10 @@ pub fn list_set_editing(node: RNode, on: bool) {
 /// step and the mock probe drive reordering without a native gesture. Returns the index the row
 /// actually landed at. Call with no borrow held.
 pub fn list_try_reorder(node: RNode, from: usize, to: usize) -> Result<usize, &'static str> {
+    let hook = SCRIPTED_REORDERS.with(|m| m.borrow().get(&crate::tree::rnode_to_id(node)).cloned());
+    if let Some(hook) = hook {
+        return hook(from, to);
+    }
     let driver = with_tree(|t| t.list_driver(node)).ok_or("no list at this node")?;
     let Some(re) = driver.reorder.as_ref() else {
         return Err("list is not reorderable");
@@ -458,6 +462,26 @@ pub fn list_try_reorder(node: RNode, from: usize, to: usize) -> Result<usize, &'
     // No native animation on this path; a reload re-binds the visible rows in the new order.
     list_reload(node);
     Ok(accepted)
+}
+
+/// A scripted reorder for a node that reorders without a list driver: a toolkit's own sidebar
+/// (`Cap::NavReorder` Native), whose rows the nav moves itself.
+type ScriptedReorder = Rc<dyn Fn(usize, usize) -> Result<usize, &'static str>>;
+
+thread_local! {
+    static SCRIPTED_REORDERS: RefCell<HashMap<day_spec::NodeId, ScriptedReorder>> =
+        RefCell::new(HashMap::new());
+}
+
+/// Route [`list_try_reorder`] at `node` (the dayscript `reorder` step) to `reorder`, for a piece
+/// that reorders rows with no list driver of its own. `reorder` gets the step's `from` and `to`
+/// and answers where the row landed, or why it did not move. Replaces any earlier route.
+pub fn set_scripted_reorder(
+    node: RNode,
+    reorder: impl Fn(usize, usize) -> Result<usize, &'static str> + 'static,
+) {
+    let id = crate::tree::rnode_to_id(node);
+    SCRIPTED_REORDERS.with(|m| m.borrow_mut().insert(id, Rc::new(reorder)));
 }
 
 /// Programmatically delete a list row through the same guard → commit path a native swipe takes

@@ -1342,7 +1342,10 @@ impl Toolkit for Xaml {
             Cap::ListSections => Support::Emulated,
             // The real WinRT drag pipeline (CanDrag/DragOver/Drop) over the emulated list —
             // system drag visuals + live no-drop cursor from the app's guard (docs/list.md).
-            Cap::NavReorder | Cap::ListReorder => Support::Native,
+            Cap::ListReorder => Support::Native,
+            // A reordering sidebar is Day's own list standing in for the NavigationView
+            // (docs/navigation.md).
+            Cap::NavReorder => Support::Emulated,
             // A second Win32 host + its own XAML island per window (docs/windows.md).
             Cap::MultiWindow => Support::Native,
             // Window properties (docs/windows.md): ShowWindow for minimize, maximize and restore,

@@ -399,6 +399,10 @@ pub struct MockState {
     pub no_nav_tabs: bool,
     /// Preserve native navigation while content lists remain draggable, as on UIKit.
     pub no_nav_reorder: bool,
+    /// `Cap::NavReorder` answers `Native`: the sidebar drags its own rows, as on AppKit, so a
+    /// reordering nav keeps its `day.nav_menu` and marks the movable rows. Off, the mock
+    /// answers `Emulated` and the nav stands a reorderable list in.
+    pub native_nav_reorder: bool,
     /// `Cap::NavTabsAdaptive` answers `Unsupported`: the harness for a desktop idiom, where a
     /// narrow window collapses to a stack instead of growing a tab bar. Also inverted: the mock
     /// models a phone by default, and a phone adapts.
@@ -950,6 +954,11 @@ impl MockProbe {
         self.state.borrow_mut().no_nav_reorder = v;
     }
 
+    /// Answer `Cap::NavReorder` as `Native`: the sidebar drags its own rows.
+    pub fn set_native_nav_reorder(&self, v: bool) {
+        self.state.borrow_mut().native_nav_reorder = v;
+    }
+
     /// Make `Cap::NavTabs` answer `Unsupported`, modeling a toolkit without tab chrome.
     pub fn set_no_nav_tabs(&self, v: bool) {
         self.state.borrow_mut().no_nav_tabs = v;
@@ -1228,10 +1237,13 @@ impl Toolkit for MockToolkit {
             // `list_move`).
             Cap::ListReorder => Support::Native,
             Cap::NavReorder => {
-                if self.state.borrow().no_nav_reorder {
+                let s = self.state.borrow();
+                if s.no_nav_reorder {
                     Support::Unsupported
-                } else {
+                } else if s.native_nav_reorder {
                     Support::Native
+                } else {
+                    Support::Emulated
                 }
             }
             // The probe drives every tree duty (`tree_children`/`tree_bind`/`tree_move`).
@@ -1372,7 +1384,10 @@ impl Toolkit for MockToolkit {
         } else if let Some(p) = props.downcast_ref::<NavMenuProps>() {
             w.text = p.items.join("|");
             w.value = p.selected.map(|i| i as f64).unwrap_or(-1.0);
-            detail = format!(" items={:?} selected={:?}", p.items, p.selected);
+            detail = format!(
+                " items={:?} selected={:?} movable={:?}",
+                p.items, p.selected, p.movable
+            );
         } else if let Some(p) = props.downcast_ref::<PickerProps>() {
             w.text = p.options.join("|");
             w.value = p.selected as f64;
@@ -1557,13 +1572,14 @@ impl Toolkit for MockToolkit {
                         selected,
                         badges,
                         rows_changed,
+                        movable,
                         ..
                     } => {
                         w.text = items.join("|");
                         w.value = selected.map(|i| i as f64).unwrap_or(-1.0);
                         format!(
                             "menu items={items:?} selected={selected:?} badges={badges:?} \
-                             rows_changed={rows_changed:?}"
+                             rows_changed={rows_changed:?} movable={movable:?}"
                         )
                     }
                 }

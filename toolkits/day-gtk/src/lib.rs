@@ -5161,6 +5161,9 @@ impl Toolkit for Gtk {
 
     fn capability(&self, cap: Cap) -> Support {
         match cap {
+            // A reordering sidebar is Day's own list standing in for the native one: the rows
+            // drag natively, the sidebar does not (docs/navigation.md).
+            Cap::NavReorder => Support::Emulated,
             Cap::SearchField => Support::Native,
             Cap::ComboBox => Support::Native,
             Cap::Stepper => Support::Native,
@@ -5215,7 +5218,7 @@ impl Toolkit for Gtk {
             | Cap::TextEditable
             // GTK's own DnD framework (DragSource/DropTarget) drives row reorder; the drop gap
             // indicator is the drag icon + forbidden cursor (docs/list.md has the nuance).
-            | Cap::DragDeferredReceipt | Cap::DragDrop | Cap::DragExternalImport | Cap::DragExternalExport | Cap::DragMultipleItems | Cap::DragFileReferences | Cap::NavReorder | Cap::ListReorder
+            | Cap::DragDeferredReceipt | Cap::DragDrop | Cap::DragExternalImport | Cap::DragExternalExport | Cap::DragMultipleItems | Cap::DragFileReferences | Cap::ListReorder
             // GtkListView's factory binds and unbinds Day's `DayCell`s as rows come and go,
             // and across a far jump it tears item widgets down and sets up new ones; the
             // factory's `teardown` releases the row Day built in a discarded cell, so the
@@ -7058,6 +7061,8 @@ impl Toolkit for Gtk {
                     menus,
                     selected,
                     rows_changed,
+                    // `movable` is for toolkits whose own sidebar drags (Cap::NavReorder).
+                    ..
                 }) = patch.downcast_ref::<NavMenuPatch>()
                 {
                     DOCUMENT_MENU_KEYS.with(|m| {

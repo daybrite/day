@@ -97,7 +97,7 @@ An app branches on this rather than on the target name.
 | `UndoBridge` | N | N | – | – | – | – | – | – |
 | `EditBridge` | N | N | – | – | – | – | – | N |
 | `ListReorder` | N | N | N | N | N | N | N | E |
-| `NavReorder` | N | – | N | N | N | – | N | E |
+| `NavReorder` | N | – | E | E | E | – | E | E |
 | `ListDelete` | – | N | – | – | N | N | N | – |
 | `ListSwipeActions` | N | N | – | – | N | – | – | – |
 | `ListEditing` | – | N | – | – | – | – | – | – |

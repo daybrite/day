@@ -2274,6 +2274,9 @@ impl Toolkit for Qt {
 
     fn capability(&self, cap: Cap) -> Support {
         match cap {
+            // A reordering sidebar is Day's own list standing in for the native one: the rows
+            // drag natively, the sidebar does not (docs/navigation.md).
+            Cap::NavReorder => Support::Emulated,
             Cap::SearchField => Support::Native,
             Cap::ComboBox => Support::Native,
             Cap::Stepper => Support::Native,
@@ -2324,7 +2327,7 @@ impl Toolkit for Qt {
             | Cap::TextEditable
             | Cap::TextSelectable
             // Qt's own QDrag pipeline: grabbed-cell pixmap, insertion line, no-drop cursor.
-            | Cap::DragDrop | Cap::DragExternalImport | Cap::DragExternalExport | Cap::DragMultipleItems | Cap::DragFileReferences | Cap::NavReorder | Cap::ListReorder
+            | Cap::DragDrop | Cap::DragExternalImport | Cap::DragExternalExport | Cap::DragMultipleItems | Cap::DragFileReferences | Cap::ListReorder
             // A QListView with Day's cells recycled through a bounded pool as rows scroll in
             // and out (docs/list.md): the view scrolls, Day fills the cell it is handed.
             | Cap::ListRecycling
@@ -3064,6 +3067,8 @@ impl Toolkit for Qt {
                         sections,
                         selected,
                         rows_changed,
+                        // `movable` is for toolkits whose own sidebar drags (Cap::NavReorder).
+                        ..
                     }) = patch.downcast_ref::<NavMenuPatch>()
                     {
                         NAV_SUITE_ROWS.with(|m| {

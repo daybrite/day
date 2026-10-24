@@ -4503,7 +4503,10 @@ mod imp {
                 Cap::NavTabsAdaptive => Support::Emulated,
                 // ArkUI's own drag pipeline (SetNodeDraggable + NODE_ON_DROP): long-press lift
                 // with the system preview; a denied drop springs back natively (docs/list.md).
-                Cap::NavReorder | Cap::ListReorder => Support::Native,
+                Cap::ListReorder => Support::Native,
+                // A reordering sidebar is Day's own list standing in for the native one
+                // (docs/navigation.md).
+                Cap::NavReorder => Support::Emulated,
                 // The List's NodeAdapter pools its item nodes: a row scrolling in rebinds a
                 // pooled cell, one scrolling out parks it (docs/list.md).
                 Cap::ListRecycling => Support::Native,

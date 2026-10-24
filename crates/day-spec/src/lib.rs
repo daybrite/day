@@ -2298,9 +2298,11 @@ pub enum Cap {
     /// ItemTouchHelper, …), `Emulated` for a pointer-tracked fake (web-dom). `Unsupported` ⇒ the
     /// list renders normally but rows cannot be dragged (docs/list.md).
     ListReorder,
-    /// Sidebar destinations can be reordered without sacrificing the toolkit's navigation
-    /// presentation. Independent of `ListReorder`: UIKit supports draggable content lists
-    /// but retains its native navigation collection for sidebars.
+    /// Sidebar destinations can be dragged to reorder (`NavBuilder::reorder_items`). `Native`
+    /// when the toolkit's own sidebar drags them (`NavMenuProps::movable`); `Emulated` when Day
+    /// stands a reorderable list in for the sidebar. Independent of `ListReorder`: UIKit
+    /// supports draggable content lists but retains its native navigation collection for
+    /// sidebars.
     NavReorder,
     /// The toolkit realizes `ListProps::deletable` as the platform's delete gesture:
     /// `Native` where the platform ships one (UIKit's trailing swipe actions, Android's
@@ -6408,6 +6410,13 @@ pub mod props {
         /// registered action ids, so a chosen entry dispatches [`crate::Event::MenuAction`]
         /// exactly like a piece context menu. Parallel to `items`; empty = no menu.
         pub menus: Vec<Vec<crate::MenuItem>>,
+        /// Which rows drag to reorder (docs/navigation.md "Reordering sidebar destinations"),
+        /// parallel to `items`; empty when the sidebar does not reorder. A row moves only
+        /// within the run of movable rows around it, which a section header or a fixed row
+        /// ends. A toolkit whose `Cap::NavReorder` is `Native` drags the rows in its own
+        /// sidebar and reports a drop as [`crate::Event::ListReorder`] in item indices: `from`
+        /// is the moved row, `to` the row whose position it takes, in the order before the move.
+        pub movable: Vec<bool>,
         pub selected: Option<usize>,
     }
     #[derive(Clone, Debug, PartialEq)]
@@ -6442,6 +6451,8 @@ pub mod props {
             sections: Vec<Option<String>>,
             tints: Vec<Option<Color>>,
             menus: Vec<Vec<crate::MenuItem>>,
+            /// [`NavMenuProps::movable`] for the new rows.
+            movable: Vec<bool>,
             selected: Option<usize>,
         },
     }

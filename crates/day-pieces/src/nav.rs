@@ -1290,6 +1290,45 @@ fn section_sidebar<K: Route, S: Binding<K>>(
     .any()
 }
 
+/// A dayscript `reorder` of a toolkit's own sidebar (`Cap::NavReorder` Native), in the rows
+/// [`reorder_sidebar`]'s list would have: a header row before each section, so one script
+/// drives both. A row moves within the run of movable rows around it; `to` is where it lands,
+/// the row whose place it takes in the order before the move.
+fn script_nav_reorder<K: Route>(
+    keys: &[K],
+    sections: &[Option<String>],
+    reorder: &NavReorder<K>,
+    from: usize,
+    to: usize,
+) -> Result<usize, &'static str> {
+    let mut rows: Vec<Option<usize>> = Vec::with_capacity(keys.len() * 2);
+    for i in 0..keys.len() {
+        if sections.get(i).is_some_and(Option::is_some) {
+            rows.push(None);
+        }
+        rows.push(Some(i));
+    }
+    let movable = |r: usize| {
+        rows.get(r)
+            .copied()
+            .flatten()
+            .is_some_and(|i| (reorder.eligible)(&keys[i]))
+    };
+    if !movable(from) || to >= rows.len() {
+        return Err("reorder denied: the row is fixed or the target is out of range");
+    }
+    let (lo, hi) = (from.min(to), from.max(to));
+    if !(lo..=hi).all(movable) {
+        return Err("reorder denied: a fixed row or a section header is in the way");
+    }
+    if let (Some(Some(a)), Some(Some(b))) = (rows.get(from), rows.get(to))
+        && a != b
+    {
+        (reorder.moved)(keys[*a].clone(), keys[*b].clone());
+    }
+    Ok(to)
+}
+
 fn reorder_sidebar<K: Route, S: Binding<K>>(
     rows: Rc<SelItems<K>>,
     selection: S,
@@ -3420,6 +3459,16 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Nav<S, K>, cx: &mut BuildCx) -> 
         },
     );
     let menu_holder: Rc<Cell<Option<RNode>>> = Rc::new(Cell::new(None));
+    // Reordering (docs/navigation.md): a toolkit whose own sidebar drags rows
+    // (`Cap::NavReorder` Native) keeps it and marks the movable rows; one that cannot stands a
+    // reorderable list in for it (`reorder_sidebar`). Collapsible sections win over both.
+    let nav_reorder = day_core::capability(day_spec::Cap::NavReorder);
+    let native_reorder = sel
+        .reorder_items
+        .clone()
+        .filter(|_| nav_reorder == day_spec::Support::Native && sel.collapsed_sections.is_none());
+    // Which rows drag, re-asked whenever the rows change.
+    let movable_of = native_reorder.clone();
     {
         let (mh, ks, s, ts) = (
             menu_holder.clone(),
@@ -3446,6 +3495,12 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Nav<S, K>, cx: &mut BuildCx) -> 
             (rows0.badge_icons.clone(), rows0.badge_tints.clone());
         let tints_init = rows0.tints.clone();
         let menus_init = rows0.menus.clone();
+        let reorders_natively = native_reorder.is_some();
+        let rows_script = items.clone();
+        let movable_init: Vec<bool> = movable_of
+            .as_ref()
+            .map(|r| typed.borrow().iter().map(|k| (r.eligible)(k)).collect())
+            .unwrap_or_default();
         let document_keys = if sel.documents.is_some() {
             typed.borrow().iter().map(Route::key).collect()
         } else {
@@ -3464,9 +3519,10 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Nav<S, K>, cx: &mut BuildCx) -> 
                 sel.on_section_expansion,
                 icon_progress.clone(),
             )
-        } else if let Some(reorder) = sel.reorder_items.filter(|_| {
-            day_core::capability(day_spec::Cap::NavReorder) != day_spec::Support::Unsupported
-        }) {
+        } else if let Some(reorder) = sel
+            .reorder_items
+            .filter(|_| nav_reorder == day_spec::Support::Emulated)
+        {
             reorder_sidebar(
                 items.clone(),
                 selection.clone(),
@@ -3487,6 +3543,7 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Nav<S, K>, cx: &mut BuildCx) -> 
                         sections: sections_init,
                         tints: tints_init,
                         menus: menus_init,
+                        movable: movable_init,
                         selected: selected_init,
                     },
                     Rc::new(LeafLayout),
@@ -3498,6 +3555,16 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Nav<S, K>, cx: &mut BuildCx) -> 
                     Boundary::No,
                 );
                 mh.set(Some(node));
+                // The dayscript `reorder` step drives this sidebar in the rows the stand-in list
+                // has, section headers counted, so one script reorders both.
+                if let Some(reorder) = native_reorder.clone() {
+                    let rows = rows_script.clone();
+                    day_core::set_scripted_reorder(node, move |from, to| {
+                        let NavRows { keys, sections, .. } =
+                            day_reactive::untrack(|| rows.derive());
+                        script_nav_reorder(&keys, &sections, &reorder, from, to)
+                    });
+                }
                 if let Some((refreshing, action)) = refresh {
                     let refreshing = Rc::new(refreshing);
                     let state = refreshing.clone();
@@ -3534,6 +3601,25 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Nav<S, K>, cx: &mut BuildCx) -> 
                 if let Some(event) = document_event {
                     mcx.on(node, move |ev| event(ev));
                 }
+                // A row the sidebar itself dragged: `from` moved to where `to` stood, both
+                // item indices into the keys as they were before the move.
+                if let Some(reorder) = native_reorder {
+                    let keys = ks.clone();
+                    mcx.on(node, move |ev| {
+                        if let Event::ListReorder { from, to } = *ev {
+                            let pair = {
+                                let keys = keys.borrow();
+                                keys.get(from).cloned().zip(keys.get(to).cloned())
+                            };
+                            if let Some((moved, target)) = pair
+                                && (reorder.eligible)(&moved)
+                                && (reorder.eligible)(&target)
+                            {
+                                (reorder.moved)(moved, target);
+                            }
+                        }
+                    });
+                }
                 mcx.on(node, move |ev| {
                     if let Event::SelectionChanged(i) = ev
                         && let Some(k) = ks.borrow().get(*i as usize)
@@ -3561,7 +3647,13 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Nav<S, K>, cx: &mut BuildCx) -> 
                 });
                 node
             })
-            .id(day_core::id!(nav_menu))
+            // A reorderable sidebar answers to the stand-in list's name, so a script's
+            // `reorder` steps address the sidebar whichever one the toolkit shows.
+            .id(if reorders_natively {
+                day_core::id!(nav_reorder_list)
+            } else {
+                day_core::id!(nav_menu)
+            })
             .any()
         };
         let content: AnyPiece = match sel.header {
@@ -4374,6 +4466,7 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Nav<S, K>, cx: &mut BuildCx) -> 
         // Seeded with the rows the menu was realized with.
         let last_rows: RefCell<Option<ShownRows>> = RefCell::new(Some(shown0));
         let (resident_e, current_e, sizes_e) = (resident.clone(), current.clone(), sizes.clone());
+        let movable_e = movable_of.clone();
         bind(
             move || {
                 // Tracked derive: subscribes to every dynamic block's signal.
@@ -4518,6 +4611,10 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Nav<S, K>, cx: &mut BuildCx) -> 
                                 sections: scs.clone(),
                                 tints: tns.clone(),
                                 menus: mns.clone(),
+                                movable: movable_e
+                                    .as_ref()
+                                    .map(|r| keys.iter().map(|k| (r.eligible)(k)).collect())
+                                    .unwrap_or_default(),
                                 selected,
                             }),
                             false,

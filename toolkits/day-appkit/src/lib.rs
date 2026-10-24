@@ -2768,6 +2768,9 @@ struct NavMenuIvars {
     /// Template images tint with the source-list's selection/appearance, so they read in light,
     /// dark, and while selected — the macOS-idiomatic sidebar look (Finder/Mail).
     icons: RefCell<Vec<Option<Retained<objc2_app_kit::NSImage>>>>,
+    /// How much of each icon's box its drawing spans (`nav_icon_fill`), index-aligned with
+    /// `icons`: the cell sizes the icon so the drawing matches a system sidebar glyph.
+    icon_fills: RefCell<Vec<f64>>,
     /// Per-row icon tint (docs/vectors.md): recolors the template glyph via contentTintColor;
     /// `None` keeps the source-list's neutral template tint.
     tints: RefCell<Vec<Option<day_spec::Color>>>,
@@ -2782,6 +2785,8 @@ struct NavMenuIvars {
     /// Per-row context menu (docs/menus.md), empty = none. Built into an NSMenu and attached
     /// to the row's cell view, so a secondary click pops it like any native sidebar menu.
     menus: RefCell<Vec<Vec<day_spec::MenuItem>>>,
+    /// Which items drag to reorder (`NavMenuProps::movable`); empty when none do.
+    movable: RefCell<Vec<bool>>,
     /// The outline's rows, in display order: `Some(i)` is item `i`, `None` is a section
     /// header. Day addresses rows by ITEM index, so every selection crossing the boundary
     /// goes through this map — a header must never shift what index 3 means.
@@ -2795,6 +2800,136 @@ struct NavMenuIvars {
     row_ids: RefCell<Vec<Retained<NSNumber>>>,
     /// Programmatic selection in flight: don't re-emit SelectionChanged.
     suppress: std::cell::Cell<bool>,
+}
+
+struct NavCellIvars {
+    /// The trailing accessories (an unread count, a status glyph), when the row has any: the
+    /// label ends before them.
+    accessory: RefCell<Option<Retained<NSView>>>,
+    /// The unread count among them, sized to follow the row's text.
+    count: RefCell<Option<Retained<NSTextField>>>,
+    /// How much of the icon's box its drawing spans (`nav_icon_fill`).
+    icon_fill: std::cell::Cell<f64>,
+}
+
+define_class!(
+    /// A sidebar row's cell. `NSTableCellView` lays out its icon and label itself, at the
+    /// size the outline's row size style gives them: the system's Sidebar icon size setting,
+    /// followed live (docs/navigation.md). This only makes room for the trailing accessories,
+    /// which AppKit knows nothing about.
+    #[unsafe(super(objc2_app_kit::NSTableCellView))]
+    #[thread_kind = MainThreadOnly]
+    #[name = "DayNavCell"]
+    #[ivars = NavCellIvars]
+    struct DayNavCell;
+
+    unsafe impl NSObjectProtocol for DayNavCell {}
+
+    impl DayNavCell {
+        #[unsafe(method(layout))]
+        fn layout(&self) {
+            let _: () = unsafe { msg_send![super(self), layout] };
+            ffi_guard::contain((), || self.fit_accessories());
+        }
+    }
+);
+
+impl DayNavCell {
+    fn new(mtm: MainThreadMarker) -> Retained<Self> {
+        let this = Self::alloc(mtm).set_ivars(NavCellIvars {
+            accessory: RefCell::new(None),
+            count: RefCell::new(None),
+            icon_fill: std::cell::Cell::new(1.0),
+        });
+        unsafe { msg_send![super(this), init] }
+    }
+
+    /// After AppKit's layout: the count takes a size two points under the label's, and the
+    /// label, which AppKit stretches to the cell's trailing edge, ends 6pt before the
+    /// accessories so a long title truncates instead of running under its count. A showing
+    /// progress ring re-fits the icon AppKit just sized.
+    fn fit_accessories(&self) {
+        let label = unsafe { self.textField() };
+        if let (Some(label), Some(count)) = (&label, self.ivars().count.borrow().as_ref()) {
+            let size = unsafe { label.font() }.map_or(NSFont::smallSystemFontSize(), |f| {
+                (f.pointSize() - 2.0).max(9.0)
+            });
+            if unsafe { count.font() }.is_none_or(|f| f.pointSize() != size) {
+                unsafe {
+                    count.setFont(Some(&NSFont::monospacedDigitSystemFontOfSize_weight(
+                        size,
+                        objc2_app_kit::NSFontWeightRegular,
+                    )));
+                }
+                self.layoutSubtreeIfNeeded();
+            }
+        }
+        if let (Some(label), Some(accessory)) = (label, self.ivars().accessory.borrow().as_ref()) {
+            let mut frame = label.frame();
+            let end = accessory.frame().origin.x - 6.0;
+            if frame.origin.x + frame.size.width > end {
+                frame.size.width = (end - frame.origin.x).max(0.0);
+                label.setFrame(frame);
+            }
+        }
+        if let Some(icon) = unsafe { self.imageView() } {
+            fit_nav_icon(&icon, self.ivars().icon_fill.get());
+            nav_progress::fit(&icon);
+        }
+    }
+}
+
+thread_local! {
+    /// The side of a system sidebar glyph per symbol configuration (see `fit_nav_icon`).
+    static NAV_GLYPH_SIDES: RefCell<HashMap<u64, f64>> = RefCell::new(HashMap::new());
+}
+
+/// Draw a sidebar row's icon so its drawing is the size a system sidebar draws its SF Symbol,
+/// centered in the slot AppKit lays out for it; `fill` is how much of the image's box the
+/// drawing spans (`nav_icon_fill`). The slot is wider than the glyph AppKit puts there (22pt for a
+/// 16pt glyph at Medium), and Day's icons are artwork that fills whatever frame it gets, so
+/// left at the slot's size they read a third larger and heavier than Finder's or Mail's.
+/// The side is measured, not tabled: a square symbol (`gearshape`) drawn with the symbol
+/// configuration the row size style gave this image view, so it tracks the Sidebar icon size
+/// setting and whatever a later macOS draws.
+fn fit_nav_icon(icon: &objc2_app_kit::NSImageView, fill: f64) {
+    let Some(config) = (unsafe { icon.symbolConfiguration() }) else {
+        return;
+    };
+    let slot = icon.frame();
+    // Configurations compare by value, and AppKit gives every cell of a row size style an
+    // equal one, so the hash names the style.
+    let key = config.hash() as u64;
+    let side = NAV_GLYPH_SIDES
+        .with(|m| m.borrow().get(&key).copied())
+        .or_else(|| {
+            let symbol =
+                objc2_app_kit::NSImage::imageWithSystemSymbolName_accessibilityDescription(
+                    &NSString::from_str("gearshape"),
+                    None,
+                )?;
+            let side = symbol.imageWithSymbolConfiguration(&config)?.size().height;
+            NAV_GLYPH_SIDES.with(|m| m.borrow_mut().insert(key, side));
+            Some(side)
+        });
+    // The box that puts the drawing itself at the glyph's size: a Material Symbols icon keeps
+    // the margin of its grid inside the box, so its box is that much larger.
+    let Some(side) = side
+        .filter(|s| *s > 0.0)
+        .map(|s| (s / fill.clamp(0.25, 1.0)).round())
+    else {
+        return;
+    };
+    if slot.size.width <= side && slot.size.height <= side {
+        return;
+    }
+    icon.setFrame(NSRect::new(
+        NSPoint::new(
+            (slot.origin.x + (slot.size.width - side) / 2.0).round(),
+            (slot.origin.y + (slot.size.height - side) / 2.0).round(),
+        ),
+        NSSize::new(side, side),
+    ));
 }
 
 define_class!(
@@ -2908,6 +3043,76 @@ define_class!(
         ) -> bool {
             false
         }
+
+        // --- drag-to-reorder (docs/navigation.md "Reordering sidebar destinations"): the
+        // outline's own drag pipeline, with the Gap placeholder Finder's sidebar shows. A row
+        // moves within the run of movable rows around it; the app's data change brings the
+        // new order back as `NavMenuPatch::Items`.
+
+        #[unsafe(method_id(outlineView:pasteboardWriterForItem:))]
+        fn pasteboard_writer_for_item(
+            &self,
+            _ov: &objc2_app_kit::NSOutlineView,
+            item: &objc2::runtime::AnyObject,
+        ) -> Option<Retained<ProtocolObject<dyn objc2_app_kit::NSPasteboardWriting>>> {
+            let make = || {
+                let row = Self::outline_row(item);
+                let index = self.item_of_row(row)?;
+                if !self.is_movable(index) {
+                    return None;
+                }
+                let pbitem = objc2_app_kit::NSPasteboardItem::new();
+                unsafe {
+                    pbitem.setString_forType(
+                        &NSString::from_str(&row.to_string()),
+                        &NSString::from_str(DAY_NAV_PASTEBOARD_TYPE),
+                    );
+                }
+                Some(ProtocolObject::from_retained(pbitem))
+            };
+            ffi_guard::contain(None, make)
+        }
+
+        #[unsafe(method(outlineView:validateDrop:proposedItem:proposedChildIndex:))]
+        fn validate_drop(
+            &self,
+            ov: &objc2_app_kit::NSOutlineView,
+            info: &ProtocolObject<dyn objc2_app_kit::NSDraggingInfo>,
+            item: Option<&objc2::runtime::AnyObject>,
+            child_index: isize,
+        ) -> objc2_app_kit::NSDragOperation {
+            ffi_guard::contain(objc2_app_kit::NSDragOperation::None, || {
+                let Some(drop) = self.nav_drop(ov, info, item, child_index) else {
+                    return objc2_app_kit::NSDragOperation::None;
+                };
+                // A drop past the run's end lands at that end: move the gap there.
+                if drop.retarget {
+                    unsafe { ov.setDropItem_dropChildIndex(None, drop.gap as isize) };
+                }
+                objc2_app_kit::NSDragOperation::Move
+            })
+        }
+
+        #[unsafe(method(outlineView:acceptDrop:item:childIndex:))]
+        fn accept_drop(
+            &self,
+            ov: &objc2_app_kit::NSOutlineView,
+            info: &ProtocolObject<dyn objc2_app_kit::NSDraggingInfo>,
+            item: Option<&objc2::runtime::AnyObject>,
+            child_index: isize,
+        ) -> bool {
+            ffi_guard::contain(false, || {
+                let Some(drop) = self.nav_drop(ov, info, item, child_index) else {
+                    return false;
+                };
+                if let Some((from, to)) = drop.moves {
+                    // Deferred through the event queue: the app's callback never runs inside
+                    // AppKit's drop, and its data change reloads the rows in the new order.
+                    emit(self.ivars().node, Event::ListReorder { from, to });
+                }
+                true
+            })
+        }
     }
 
     unsafe impl NSControlTextEditingDelegate for DayNavMenuData {}
@@ -2953,29 +3158,18 @@ define_class!(
             text.map(|text| {
                 let text: &NSString = &text;
                 let Some(index) = self.item_of_row(row) else {
-                    // A section header: a plain secondary label. AppKit gives group rows their
-                    // own typography, so this only supplies the text.
-                    let cell = unsafe { objc2_app_kit::NSTableCellView::new(mtm) };
+                    // A section header: a plain label. AppKit gives group rows their own
+                    // typography and places the text, so this only supplies it.
+                    let cell = DayNavCell::new(mtm);
                     let label = unsafe { NSTextField::labelWithString(text, mtm) };
                     unsafe {
-                        label.setTranslatesAutoresizingMaskIntoConstraints(false);
+                        label.cell().inspect(|c| {
+                            c.setLineBreakMode(objc2_app_kit::NSLineBreakMode::ByTruncatingTail)
+                        });
                         cell.addSubview(&label);
                         cell.setTextField(Some(&label));
-                        objc2_app_kit::NSLayoutConstraint::activateConstraints(
-                            &objc2_foundation::NSArray::from_retained_slice(&[
-                                label
-                                    .leadingAnchor()
-                                    .constraintEqualToAnchor_constant(&cell.leadingAnchor(), 0.0),
-                                label
-                                    .trailingAnchor()
-                                    .constraintEqualToAnchor_constant(&cell.trailingAnchor(), -6.0),
-                                label
-                                    .centerYAnchor()
-                                    .constraintEqualToAnchor(&cell.centerYAnchor()),
-                            ]),
-                        );
                     }
-                    return objc2::rc::Retained::into_super(cell);
+                    return objc2::rc::Retained::into_super(objc2::rc::Retained::into_super(cell));
                 };
                 let icon = self
                     .ivars()
@@ -3002,21 +3196,17 @@ define_class!(
                     .get(index)
                     .copied()
                     .flatten();
-                // Indent the label past the icon when there is one, so labels align icon-to-text.
-                let label_x = if icon.is_some() { 26.0 } else { 0.0 };
-                let cell = unsafe { objc2_app_kit::NSTableCellView::new(mtm) };
+                // The cell places the icon and the label itself, at the row size style's size
+                // (the system's Sidebar icon size); `DayNavCell` keeps the label clear of the
+                // trailing accessories.
+                let cell = DayNavCell::new(mtm);
                 let label = unsafe { NSTextField::labelWithString(text, mtm) };
                 unsafe {
                     // Feed titles are arbitrarily long, so the label truncates with an
-                    // ellipsis — but only within a frame that ENDS where the cell does.
-                    // Autoresizing could not deliver that: the label was born 10pt wide in a
-                    // zero-width cell, so a width-sizable mask grew it to (cell + 10) and the
-                    // overhang was clipped by the sidebar's edge, cutting names mid-glyph
-                    // with no ellipsis at all. Pin it to the cell instead.
+                    // ellipsis within the frame the cell gives it.
                     label.cell().inspect(|c| {
                         c.setLineBreakMode(objc2_app_kit::NSLineBreakMode::ByTruncatingTail)
                     });
-                    label.setTranslatesAutoresizingMaskIntoConstraints(false);
                     cell.addSubview(&label);
                     cell.setTextField(Some(&label));
                     // The badge sits at the trailing edge and keeps its intrinsic width; the
@@ -3048,6 +3238,7 @@ define_class!(
                                 objc2_app_kit::NSLayoutPriorityRequired,
                                 objc2_app_kit::NSLayoutConstraintOrientation::Horizontal,
                             );
+                            *cell.ivars().count.borrow_mut() = Some(b.clone());
                             accessory.addArrangedSubview(&objc2::rc::Retained::into_super(
                                 objc2::rc::Retained::into_super(b),
                             ));
@@ -3076,29 +3267,12 @@ define_class!(
                         accessory.addArrangedSubview(&objc2::rc::Retained::into_super(iv));
                         has_accessory = true;
                     }
-                    // Added either way: with no accessory the stack is zero-width, and it still
-                    // anchors the label's trailing constraint, so the layout below needs no
-                    // special case for a bare row.
-                    let _ = has_accessory;
                     cell.addSubview(&trailing);
-                    label.setContentCompressionResistancePriority_forOrientation(
-                        objc2_app_kit::NSLayoutPriorityDefaultLow,
-                        objc2_app_kit::NSLayoutConstraintOrientation::Horizontal,
-                    );
+                    if has_accessory {
+                        *cell.ivars().accessory.borrow_mut() = Some(trailing.clone());
+                    }
                     objc2_app_kit::NSLayoutConstraint::activateConstraints(
                         &objc2_foundation::NSArray::from_retained_slice(&[
-                            label
-                                .leadingAnchor()
-                                .constraintEqualToAnchor_constant(&cell.leadingAnchor(), label_x),
-                            label
-                                .trailingAnchor()
-                                .constraintLessThanOrEqualToAnchor_constant(
-                                    &trailing.leadingAnchor(),
-                                    -6.0,
-                                ),
-                            label
-                                .centerYAnchor()
-                                .constraintEqualToAnchor(&cell.centerYAnchor()),
                             trailing
                                 .trailingAnchor()
                                 .constraintEqualToAnchor_constant(&cell.trailingAnchor(), -6.0),
@@ -3109,6 +3283,8 @@ define_class!(
                     );
                 }
                 if let Some(img) = icon {
+                    let fill = self.ivars().icon_fills.borrow().get(index).copied();
+                    cell.ivars().icon_fill.set(fill.unwrap_or(1.0));
                     let tint = self.ivars().tints.borrow().get(index).copied().flatten();
                     let iv = unsafe { objc2_app_kit::NSImageView::new(mtm) };
                     unsafe {
@@ -3121,7 +3297,6 @@ define_class!(
                         iv.setImageScaling(
                             objc2_app_kit::NSImageScaling::ScaleProportionallyUpOrDown,
                         );
-                        iv.setFrame(NSRect::new(NSPoint::new(2.0, 2.0), NSSize::new(18.0, 18.0)));
                         cell.addSubview(&iv);
                         cell.setImageView(Some(&iv));
                         let progress = self
@@ -3134,7 +3309,7 @@ define_class!(
                         nav_progress::update(&iv, progress);
                     }
                 }
-                objc2::rc::Retained::into_super(cell)
+                objc2::rc::Retained::into_super(objc2::rc::Retained::into_super(cell))
             })
         }
 
@@ -3169,6 +3344,71 @@ define_class!(
         }
     }
 );
+
+thread_local! {
+    /// `nav_icon_fill` per icon name: a sidebar rebuilds its rows on every count change, and an
+    /// icon's drawing does not change with them.
+    static NAV_ICON_FILLS: RefCell<HashMap<String, f64>> = RefCell::new(HashMap::new());
+}
+
+/// `nav_icon_fill` for each resolved icon, by name; 1 where a row has none.
+fn nav_icon_fills(
+    names: &[Option<String>],
+    images: &[Option<Retained<objc2_app_kit::NSImage>>],
+) -> Vec<f64> {
+    names
+        .iter()
+        .zip(images)
+        .map(|(name, image)| match (name, image) {
+            (Some(name), Some(image)) => NAV_ICON_FILLS.with(|m| {
+                *m.borrow_mut()
+                    .entry(name.clone())
+                    .or_insert_with(|| nav_icon_fill(image))
+            }),
+            _ => 1.0,
+        })
+        .collect()
+}
+
+/// How much of an icon's box its drawing spans along its longer side, in (0, 1]: a Material
+/// Symbols glyph keeps the 80-unit margin of its 960-unit grid (about 0.83), an SF Symbol export
+/// is boxed to its content (1), and artwork usually fills its square. Measured from the alpha of
+/// one small render, since a plain SVG says nothing about where its drawing sits.
+fn nav_icon_fill(image: &objc2_app_kit::NSImage) -> f64 {
+    const PX: f64 = 64.0;
+    let Some(rep) = scaled_rep(image, Size::new(PX, PX), 1.0) else {
+        return 1.0;
+    };
+    let (w, h) = (
+        rep.pixelsWide().max(0) as usize,
+        rep.pixelsHigh().max(0) as usize,
+    );
+    let stride = rep.bytesPerRow().max(0) as usize;
+    let data = unsafe { rep.bitmapData() };
+    if data.is_null() || stride < w * 4 {
+        return 1.0;
+    }
+    // SAFETY: `scaled_rep` made a meshed 8-bit RGBA bitmap of `h` rows of `stride` bytes, which
+    // `rep` owns and keeps alive for this borrow.
+    let bytes = unsafe { std::slice::from_raw_parts(data, stride * h) };
+    let (mut x0, mut y0, mut x1, mut y1) = (w, h, 0, 0);
+    for y in 0..h {
+        for x in 0..w {
+            if bytes[y * stride + x * 4 + 3] > 24 {
+                (x0, x1, y0, y1) = (x0.min(x), x1.max(x + 1), y0.min(y), y1.max(y + 1));
+            }
+        }
+    }
+    if x1 <= x0 || y1 <= y0 {
+        return 1.0;
+    }
+    // The render stretched the image to a square; back in the image's own proportions, the
+    // drawing's longer extent over the image's longer side is what proportional scaling keeps.
+    let size = image.size();
+    let (iw, ih) = (size.width.max(1.0), size.height.max(1.0));
+    let (fx, fy) = ((x1 - x0) as f64 / w as f64, (y1 - y0) as f64 / h as f64);
+    ((fx * iw).max(fy * ih) / iw.max(ih)).clamp(0.25, 1.0)
+}
 
 fn resolve_nav_icons(icons: &[Option<String>]) -> Vec<Option<Retained<objc2_app_kit::NSImage>>> {
     // A bundled icon name → a template NSImage (tinted by the source list); `None` per iconless row.
@@ -3210,9 +3450,11 @@ impl DayNavMenuData {
         let this = Self::alloc(mtm).set_ivars(NavMenuIvars {
             node,
             items: RefCell::new(items.iter().map(|s| NSString::from_str(s)).collect()),
+            icon_fills: RefCell::new(nav_icon_fills(icons, &resolve_nav_icons(icons))),
             icons: RefCell::new(resolve_nav_icons(icons)),
             tints: RefCell::new(tints.to_vec()),
             menus: RefCell::new(menus.to_vec()),
+            movable: RefCell::new(Vec::new()),
             badges: RefCell::new(ns_badges(badges)),
             icon_progress: RefCell::new(Vec::new()),
             badge_icons: RefCell::new(resolve_nav_icons(badge_icons)),
@@ -3243,7 +3485,9 @@ impl DayNavMenuData {
         menus: &[Vec<day_spec::MenuItem>],
     ) {
         *self.ivars().items.borrow_mut() = items.iter().map(|s| NSString::from_str(s)).collect();
-        *self.ivars().icons.borrow_mut() = resolve_nav_icons(icons);
+        let resolved = resolve_nav_icons(icons);
+        *self.ivars().icon_fills.borrow_mut() = nav_icon_fills(icons, &resolved);
+        *self.ivars().icons.borrow_mut() = resolved;
         *self.ivars().tints.borrow_mut() = tints.to_vec();
         *self.ivars().menus.borrow_mut() = menus.to_vec();
         *self.ivars().badges.borrow_mut() = ns_badges(badges);
@@ -3304,7 +3548,82 @@ impl DayNavMenuData {
             .iter()
             .position(|r| *r == Some(item))
     }
+
+    fn is_movable(&self, item: usize) -> bool {
+        self.ivars()
+            .movable
+            .borrow()
+            .get(item)
+            .copied()
+            .unwrap_or(false)
+    }
+
+    /// What a drop proposal means for a reorder, or `None` when it is no drop of ours: a drag
+    /// from another view, or of a row that cannot move. The gap clamps to the run of movable
+    /// rows around the dragged one, which section headers and fixed rows end.
+    fn nav_drop(
+        &self,
+        ov: &objc2_app_kit::NSOutlineView,
+        info: &ProtocolObject<dyn objc2_app_kit::NSDraggingInfo>,
+        item: Option<&objc2::runtime::AnyObject>,
+        child_index: isize,
+    ) -> Option<NavDrop> {
+        let src = unsafe { info.draggingSource() }?;
+        if Retained::as_ptr(&src).cast::<std::ffi::c_void>()
+            != std::ptr::from_ref(ov).cast::<std::ffi::c_void>()
+        {
+            return None;
+        }
+        let pb = unsafe { info.draggingPasteboard() };
+        let from_row = unsafe { pb.stringForType(&NSString::from_str(DAY_NAV_PASTEBOARD_TYPE)) }?
+            .to_string()
+            .parse::<usize>()
+            .ok()?;
+        let rows = self.ivars().rows.borrow();
+        let from = (*rows.get(from_row)?).filter(|i| self.is_movable(*i))?;
+        let in_run = |r: usize| rows[r].is_some_and(|i| self.is_movable(i));
+        let first = (0..from_row)
+            .rev()
+            .take_while(|r| in_run(*r))
+            .last()
+            .unwrap_or(from_row);
+        let last = (from_row + 1..rows.len())
+            .take_while(|r| in_run(*r))
+            .last()
+            .unwrap_or(from_row);
+        // The flat outline proposes a gap among the root's children, or a row itself (a drop
+        // ONTO it, index -1), which reads as the gap above that row.
+        let proposed = match item {
+            Some(item) => Self::outline_row(item),
+            None => child_index,
+        };
+        let proposed = usize::try_from(proposed).unwrap_or(rows.len());
+        let gap = proposed.clamp(first, last + 1);
+        // The row's place once it has left its own: the row whose position it takes.
+        let target_row = if gap > from_row { gap - 1 } else { gap };
+        let moves = (target_row != from_row)
+            .then(|| rows[target_row].map(|to| (from, to)))
+            .flatten();
+        Some(NavDrop {
+            gap,
+            retarget: gap != proposed || item.is_some(),
+            moves,
+        })
+    }
 }
+
+/// A reorder drop in a sidebar outline (`DayNavMenuData::nav_drop`).
+struct NavDrop {
+    /// The gap the row drops into, among the outline's rows.
+    gap: usize,
+    /// The proposal named some other place, and the gap moves here.
+    retarget: bool,
+    /// `(from, to)` in item indices, or `None` for a drop back in place.
+    moves: Option<(usize, usize)>,
+}
+
+/// The private pasteboard type carrying a dragged sidebar row (local reorder only).
+const DAY_NAV_PASTEBOARD_TYPE: &str = "dev.daybrite.day.nav-row";
 
 /// Badge strings, retained once per rebuild rather than per cell.
 fn ns_badges(badges: &[Option<String>]) -> Vec<Option<Retained<NSString>>> {
@@ -6983,7 +7302,8 @@ impl Toolkit for AppKit {
             | Cap::TextEditable
             | Cap::TextSelectable
             | Cap::TextSpellCheck
-            // NSTableView's own drag pipeline, with the `.gap` placeholder (docs/list.md).
+            // NSTableView's own drag pipeline, with the `.gap` placeholder (docs/list.md), in
+            // lists and in the source-list sidebar itself (docs/navigation.md).
             | Cap::NavReorder | Cap::ListReorder
             // NSTableView's view-based reuse queue (`makeViewWithIdentifier`) hands Day's cells
             // back for new rows; `didRemoveRowView` recycles them (docs/list.md).
@@ -7659,6 +7979,7 @@ impl Toolkit for AppKit {
                     &p.tints,
                     &p.menus,
                 );
+                *data.ivars().movable.borrow_mut() = p.movable.clone();
                 // The Day subclass serves per-row context menus via menuForEvent:.
                 let outline: Retained<objc2_app_kit::NSOutlineView> = {
                     let o: Retained<DayNavOutlineView> =
@@ -7690,10 +8011,33 @@ impl Toolkit for AppKit {
                     // `selectionHighlightStyle` constant is deprecated precisely because the
                     // style property now implies it.
                     outline.setStyle(objc2_app_kit::NSTableViewStyle::SourceList);
+                    // The default row size style follows the system's Sidebar icon size
+                    // (Small, Medium, Large), live, as Finder's and Mail's sidebars do: AppKit
+                    // sets the row height, the label's font and the icon's size. A table made
+                    // in code starts at Custom, which ignores the setting.
+                    outline.setRowSizeStyle(objc2_app_kit::NSTableViewRowSizeStyle::Default);
                     // Section headers pin to the top of the scroll as their group passes under
                     // it, the way Finder's sidebar groups do.
                     outline.setFloatsGroupRows(true);
                     outline.setIndentationPerLevel(0.0);
+                    // Drag-to-reorder within this sidebar only (docs/navigation.md): rows that
+                    // cannot move offer no drag, so registering costs a plain sidebar nothing.
+                    outline.registerForDraggedTypes(
+                        &objc2_foundation::NSArray::from_retained_slice(&[NSString::from_str(
+                            DAY_NAV_PASTEBOARD_TYPE,
+                        )]),
+                    );
+                    outline.setDraggingSourceOperationMask_forLocal(
+                        objc2_app_kit::NSDragOperation::Move,
+                        true,
+                    );
+                    outline.setDraggingSourceOperationMask_forLocal(
+                        objc2_app_kit::NSDragOperation::None,
+                        false,
+                    );
+                    outline.setDraggingDestinationFeedbackStyle(
+                        objc2_app_kit::NSTableViewDraggingDestinationFeedbackStyle::Gap,
+                    );
                     outline.setDataSource(Some(ProtocolObject::from_ref(&*data)));
                     outline.setDelegate(Some(ProtocolObject::from_ref(&*data)));
                     outline.reloadData();
@@ -8237,6 +8581,7 @@ impl Toolkit for AppKit {
                     sections,
                     tints,
                     menus,
+                    movable,
                     selected,
                     rows_changed,
                     ..
@@ -8247,6 +8592,7 @@ impl Toolkit for AppKit {
                         let Some((outline, data)) = m.get(&ptr_of(h)) else {
                             return;
                         };
+                        *data.ivars().movable.borrow_mut() = movable.clone();
                         data.set_items(
                             items,
                             icons,

@@ -8320,7 +8320,8 @@ supplementary column. Returning to the root and selecting another list-backed de
 must reopen the list even when `ListVisible` remains true; it does not require a detail push.
 
 The native fixed navigation row list is addressable as `nav-menu` for dayscript selection
-regressions, parallel to `nav-reorder-list` on reorder-capable navigation backends.
+regressions, and a reorderable sidebar as `nav-reorder-list`, whether the toolkit's own (AppKit,
+`Cap::NavReorder` Native) or Day's stand-in list (Emulated).
 
 UIKit native sidebar selection is delivered on the next main-queue turn. UIKit can invoke
 `didSelectItemAtIndexPath` during a hardware-keyboard focus update; application navigation

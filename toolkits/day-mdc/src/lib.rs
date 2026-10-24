@@ -3588,6 +3588,8 @@ mod imp {
                             selected,
                             document_keys,
                             rows_changed,
+                            // `movable` is for toolkits whose own sidebar drags (Cap::NavReorder).
+                            ..
                         }) => {
                             let joined = items.join("\u{1f}");
                             let joined_icons = icons

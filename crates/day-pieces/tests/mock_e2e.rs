@@ -10493,6 +10493,77 @@ fn nav_reorder_unsupported_preserves_navigation_menu() {
     assert!(probe.find_by_kind("day.list").is_empty());
 }
 
+#[test]
+fn native_nav_reorder_keeps_the_sidebar_and_moves_by_its_event() {
+    day_core::uninstall_tree();
+    let (mock, probe) = MockToolkit::new();
+    probe.set_native_nav_reorder(true);
+    let selected = Signal::new(Some("feed:b".to_string()));
+    let feeds = Signal::new(vec![
+        "feed:a".to_string(),
+        "feed:b".to_string(),
+        "feed:c".to_string(),
+    ]);
+    day_core::launch_with(mock, WindowOptions::default(), move || {
+        nav(selected)
+            .style(NavStyle::Sidebar)
+            .item("today".to_string(), "Fixture today", || label("Today page"))
+            .section(
+                "Fixture feeds",
+                nav_items(move || feeds.get(), |key| item(key.clone(), key.clone())),
+            )
+            .destination(|_| label("Fixture feed page"))
+            .reorder_items(
+                |key: &Option<String>| key.as_deref().is_some_and(|k| k.starts_with("feed:")),
+                move |from, to| {
+                    feeds.update(|rows| {
+                        let from = rows.iter().position(|k| Some(k) == from.as_ref()).unwrap();
+                        let to = rows.iter().position(|k| Some(k) == to.as_ref()).unwrap();
+                        let moved = rows.remove(from);
+                        rows.insert(to, moved);
+                    });
+                },
+            )
+            .any()
+    });
+    // The sidebar stays the toolkit's own, with the feed rows marked movable.
+    let menus = probe.find_by_kind("day.nav_menu");
+    assert_eq!(menus.len(), 1);
+    assert!(probe.find_by_kind("day.list").is_empty());
+    assert!(
+        probe
+            .log()
+            .iter()
+            .any(|l| l.contains("movable=[false, true, true, true]")),
+        "{:?}",
+        probe.log()
+    );
+    // The toolkit's drop: item 1 (feed:a) takes item 3's place (feed:c).
+    let node = node_id(&probe, "day.nav_menu", 0);
+    probe.emit(node, Event::ListReorder { from: 1, to: 3 });
+    flush_sync();
+    assert_eq!(feeds.get_untracked(), ["feed:b", "feed:c", "feed:a"]);
+    assert_eq!(selected.get_untracked().as_deref(), Some("feed:b"));
+    // A fixed row never moves, whatever a toolkit reports.
+    probe.emit(node, Event::ListReorder { from: 0, to: 2 });
+    flush_sync();
+    assert_eq!(feeds.get_untracked(), ["feed:b", "feed:c", "feed:a"]);
+    // dayscript's `reorder` reaches it under the stand-in list's name and rows, the section
+    // header counted: 0 today, 1 [Fixture feeds], 2 feed:b, 3 feed:c, 4 feed:a.
+    let menu = day_core::with_tree(|t| t.find_by_id("nav_reorder_list")).expect("addressable");
+    assert_eq!(day_core::list_try_reorder(menu, 4, 2), Ok(2));
+    flush_sync();
+    assert_eq!(feeds.get_untracked(), ["feed:a", "feed:b", "feed:c"]);
+    assert!(
+        day_core::list_try_reorder(menu, 2, 0).is_err(),
+        "today stays first"
+    );
+    assert!(
+        day_core::list_try_reorder(menu, 2, 1).is_err(),
+        "the header stays put"
+    );
+}
+
 // ---------------------------------------------------------------------------
 // Window properties (docs/windows.md "Window properties") and the Dock menu (docs/menus.md)
 // ---------------------------------------------------------------------------

@@ -254,6 +254,18 @@ desktop may pin one with `NavStyle::Tabs`, but narrowing hides its sidebar and p
 > [!NOTE]
 > **Renamed.** [`nav`](https://daybrite.dev/api/day_pieces/fn.nav.html)`(sel)`[`.style`](https://daybrite.dev/api/day_pieces/trait.NavBuilder.html#tymethod.style)`(Tabs)` was `tabs()`, and [`nav`](https://daybrite.dev/api/day_pieces/fn.nav.html)`(sel)`[`.style`](https://daybrite.dev/api/day_pieces/trait.NavBuilder.html#tymethod.style)`(Sidebar)` was [`nav()`](https://daybrite.dev/api/day_pieces/fn.nav.html).
 
+### Row size
+
+On macOS the sidebar follows the system's **Sidebar icon size** setting (System Settings ›
+Appearance), as Finder's and Mail's do, and changes with it while the app runs. The outline uses
+the default [row size style](https://developer.apple.com/documentation/appkit/nstableview/rowsizestyle-swift.property),
+so AppKit sets each row's height and its label's font: 24, 32 or 40 points tall for Small,
+Medium and Large. A row's icon draws at the size AppKit draws an SF Symbol there (16 points at
+Medium), measured from a system symbol rather than tabled. Day's icons are artwork that fills its
+frame, and a Material Symbols glyph sits inside a margin of its grid, so each icon is measured
+once and sized until its drawing, not its box, matches the symbol. Day also keeps a row's label
+clear of its badge, and sizes the count two points under the label.
+
 ### Keyboard
 
 A sidebar walks with the arrow keys: ↑/↓ move to the next destination, Home and End to the first
@@ -1166,13 +1178,23 @@ Use [`.reorder_items(|key| is_movable(key), |moved, target| persist_move(moved, 
 make contiguous runs of destinations draggable. Static headers and ineligible rows form
 boundaries that no drop can cross. `target` names the row whose position the moved row takes,
 in the pre-removal order. Keep the eligibility callback pure and persist changes in the commit
-callback. Rows use the shared list pipeline where `Cap::NavReorder` is supported, including
-long-press dragging on supported touch platforms. UIKit and Android retain their native
-navigation widgets and ignore this option, independently of their draggable content-list
-support. Android uses Material NavigationView so long-press feed menus do not compete with
-dragging. The internal list is addressable as `nav-reorder-list`
-for dayscript `reorder` steps; its indices include fixed section-header rows. Tabs and rails
-remain fixed. Without the option, the existing native sidebar widget is unchanged.
+callback. `Cap::NavReorder` says how a toolkit does it:
+
+- **Native** (AppKit): the sidebar stays the toolkit's own. The source-list outline drags the
+  rows in its own drag pipeline, with the gap Finder's sidebar shows, and a drop past the end of
+  the run lands at that end. The sidebar keeps every native trait, the system Sidebar icon size
+  among them.
+- **Emulated** (GTK, Qt, WinUI, web, ArkUI): Day stands a reorderable list in for the sidebar,
+  with long-press dragging on touch platforms.
+- **Unsupported** (UIKit, Android): the native navigation widget stays and ignores the option,
+  independently of draggable content-list support. Android uses Material NavigationView so
+  long-press feed menus do not compete with dragging.
+
+A reorderable sidebar is addressable as `nav-reorder-list` for dayscript `reorder` steps either
+way, and its indices include fixed section-header rows. The stand-in list's rows are also
+addressable as `sidebar:item:<key>` and `sidebar:header:<id>`; a native sidebar's rows are not
+Day elements, so a script reaches them through the sidebar itself (`select`, `reorder`). Tabs
+and rails remain fixed. Without the option, the existing native sidebar widget is unchanged.
 
 ## Collapsible sidebar sections
 
