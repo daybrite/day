@@ -726,6 +726,62 @@ mod imp {
         });
     }
 
+    /// Keyboard avoidance for presented covers and sheets (docs/focus.md). A cover is a view
+    /// controller of its own over the window, so the root clamp in `keyboardWillChange:` never
+    /// reaches it. Its page view pins the content inside the safe area and reports the new size
+    /// (`DayNavPageView::layoutSubviews`), so the part of the keyboard over the cover becomes
+    /// its VC's `additionalSafeAreaInsets` bottom, net of the home-indicator inset it already
+    /// has; a scroll-view content that fills the page gets the same inset as scroll insets.
+    ///
+    /// Measured a turn later, like `reveal_focused_field`: an iPad form sheet moves up out of
+    /// the keyboard's way in the same notification, and its final frame is set by then.
+    /// `kb` is the keyboard's end frame in screen coordinates; a hidden keyboard lies below
+    /// every view, so its overlap is zero and the inset returns to nothing.
+    fn avoid_keyboard_in_covers(kb: CGRect) {
+        dispatch2::DispatchQueue::main().exec_async(move || {
+            day_spec::ffi_guard::contain((), || {
+                use objc2_ui_kit::UICoordinateSpace;
+                let covers: Vec<Retained<DayCoverVC>> =
+                    COVER_STATE.with(|m| m.borrow().values().map(|s| s.vc.clone()).collect());
+                for vc in covers {
+                    let Some(view) = vc.viewIfLoaded() else {
+                        continue;
+                    };
+                    let mut extra = unsafe { vc.additionalSafeAreaInsets() };
+                    let screen = view
+                        .window()
+                        .and_then(|w| w.windowScene())
+                        .map(|s| s.screen());
+                    let overlap = screen.map_or(0.0, |screen| {
+                        let local =
+                            view.convertRect_fromCoordinateSpace(kb, &screen.coordinateSpace());
+                        let bounds = view.bounds();
+                        let bottom = bounds.origin.y + bounds.size.height;
+                        let beside = local.origin.x >= bounds.origin.x + bounds.size.width
+                            || local.origin.x + local.size.width <= bounds.origin.x;
+                        if beside || local.size.height <= 0.0 {
+                            0.0
+                        } else {
+                            (bottom - local.origin.y).clamp(0.0, bounds.size.height)
+                        }
+                    });
+                    // Out of a window the insets read stale, so no overlap means no inset
+                    // rather than arithmetic on them.
+                    let wanted = if overlap > 0.0 {
+                        let own = view.safeAreaInsets().bottom - extra.bottom;
+                        (overlap - own).max(0.0)
+                    } else {
+                        0.0
+                    };
+                    if extra.bottom != wanted {
+                        extra.bottom = wanted;
+                        unsafe { vc.setAdditionalSafeAreaInsets(extra) };
+                    }
+                }
+            });
+        });
+    }
+
     pub fn emit(id: NodeId, ev: Event) {
         let sink = SINK.with(|s| s.borrow().clone());
         if let Some(sink) = sink {
@@ -15338,6 +15394,7 @@ mod imp {
                     };
                     use objc2_ui_kit::NSValueUIGeometryExtensions;
                     let kb = unsafe { val.CGRectValue() };
+                    avoid_keyboard_in_covers(kb);
                     // The holder fills the window, so the root's frame is in window == screen
                     // coordinates; a hidden keyboard reports an off-screen frame (top >= bottom).
                     let base_bottom = base.origin.y + base.size.height;

@@ -165,7 +165,9 @@ day_pieces::renderer!(day_toolkit_material::RENDERERS, Material,
 
 /// How the row arranges itself: the texts take the leading column (past the icon slot); the
 /// single Day child sits at the trailing edge when it fits beside the texts' natural width,
-/// else under them (a slider always). A control that grows (a slider, a text field) takes
+/// else under them (a slider always). A fixed-width control (a switch, a choice) stays trailing
+/// while the texts keep at least half the row, and the texts wrap beside it, the way a
+/// SwitchPreference wraps a long summary. A control that grows (a slider, a text field) takes
 /// whatever width is left in either arrangement. A category header and a footnote are a text
 /// block with its own padding, never a control.
 struct RowLayout {
@@ -251,9 +253,10 @@ impl RowLayout {
         }
         let natural_text_w = cx.measure_leaf(Proposal::UNCONSTRAINED).width;
         let c_nat = cx.measure_child(control, Proposal::UNCONSTRAINED);
-        if natural_text_w + GAP + c_nat.width <= inner {
-            // Beside: the texts at their natural width, the control trailing (growing into the
-            // rest when it asks to).
+        let wraps_beside = !grow && c_nat.width + GAP <= inner / 2.0;
+        if natural_text_w + GAP + c_nat.width <= inner || wraps_beside {
+            // Beside: the texts at their natural width (or wrapped in what the control leaves),
+            // the control trailing (growing into the rest when it asks to).
             let cw = if grow {
                 inner - natural_text_w - GAP
             } else {

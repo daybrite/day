@@ -152,8 +152,12 @@ visible area and the focused field is scrolled back into view:
   behavior, scrolling the focused descendant back into view.
 - **iOS**: the app delegate observes `UIKeyboardWillChangeFrame`, clamps the root view's bottom
   to the keyboard's top, emits `WindowResized`, and after Day's relayout reveals the focused
-  `UITextField` via `scrollRectToVisible` on its nearest enclosing `UIScrollView`. Show, hide,
-  and height changes (emoji pane, hardware-keyboard toggles) all ride the one notification.
+  `UITextField` via `scrollRectToVisible` on its nearest enclosing `UIScrollView`. A presented
+  cover or sheet is its own view controller, out of the root's reach, so the part of the
+  keyboard over it becomes that controller's `additionalSafeAreaInsets` bottom: its page view
+  pins the content inside the safe area and reports `FrameChanged`, and a scroll-view content
+  takes the inset as scroll insets. Show, hide, and height changes (emoji pane,
+  hardware-keyboard toggles) all ride the one notification.
 - **HarmonyOS**: the window's UIContext is set to `KeyboardAvoidMode.RESIZE`, so ArkUI shrinks
   the page instead of translating it; the host page's `onAreaChange` forwards the new area
   through the `resized()` NAPI export, and Day relayouts into it.

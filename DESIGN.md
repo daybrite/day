@@ -1637,7 +1637,8 @@ hop needed a dedicated protocol — this cannot be retrofitted after the spec fr
 > leave the root at its launch frame). **Keyboard avoidance shipped (2026-07,
 > [docs/focus.md](docs/focus.md)):** each mobile backend consumes the keyboard natively and resizes the Day root
 > through the `WindowResized` rail — Android folds `WindowInsetsCompat.ime()` into the root
-> margins, UIKit observes `UIKeyboardWillChangeFrame` (clamping the root to the keyboard top and
+> margins, UIKit observes `UIKeyboardWillChangeFrame` (clamping the root to the keyboard top,
+> giving a presented cover or sheet the keyboard's overlap as `additionalSafeAreaInsets`, and
 > revealing the focused field via `scrollRectToVisible`), ArkUI uses `KeyboardAvoidMode.RESIZE`
 > plus the host's `onAreaChange` → `resized()` NAPI. The
 > soft keyboard is raised/dismissed through the focus system ([docs/focus.md](docs/focus.md)).
