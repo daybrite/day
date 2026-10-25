@@ -6062,6 +6062,10 @@ Architecture checks validate
 canonical source paths and the public documentation URLs embedded in CLI help and app templates.
 Markdown lint discovers canonical pages automatically. Writing rules live in `STYLE_GUIDE.md`;
 documentation-specific conventions and templates live in `website/authoring/`.
+Crate READMEs remain short entry points. The HTTP reference in [docs/http.md](docs/http.md) owns
+the session, runtime-provider, simulation, and statistics contracts; it does not delegate those
+contracts to a README section. README heading changes require the full documentation link check
+to validate incoming references as well as the edited file.
 The `daybrite/actions` companion repository provides reusable workflows for external Day apps.
 
 ---

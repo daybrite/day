@@ -50,7 +50,11 @@ npm --prefix website run docs:check -- docs/history/documentation-overhaul.md
 ```
 
 Explicit file arguments replace the default scope. MDX and Astro components require build and
-rendered checks. Source lint does not verify API semantics, root-relative site routes, or external
+rendered checks. After shortening a crate README or removing its headings, also run the default
+`npm --prefix website run docs:check`: checking only the edited README does not check links from
+other pages into its removed sections. Move detailed contracts into their canonical reference
+page before removing them from a README.
+Source lint does not verify API semantics, root-relative site routes, or external
 URLs. These checks use existing locked dependencies; they are not full Vale or markdownlint runs.
 
 ## Validate app examples
