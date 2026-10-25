@@ -18,11 +18,11 @@ permission and scheduling support depend on the platform.
 ## Add to your app
 
 Defined in [`day-part-local-notify`](https://github.com/daybrite/day/tree/main/crates/day-part-local-notify). Add this to your app’s `Cargo.toml`
-`[dependencies]` table, using the same Day Git source as the rest of your app:
+`[dependencies]` table, at the same Day version as the rest of your app:
 
 ```toml
 [dependencies]
-day-part-local-notify = { git = "https://github.com/daybrite/day.git" }
+day-part-local-notify = "0.6"
 ```
 
 The implementation is selected by the compilation target; no toolkit feature flags

@@ -18,11 +18,11 @@ platform’s menu entries where available:
 ## Add to your app
 
 Defined in [`day-piece-settings`](https://github.com/daybrite/day/tree/main/crates/day-piece-settings). Add this to your app’s `Cargo.toml`
-`[dependencies]` table, using the same Day Git source as the rest of your app:
+`[dependencies]` table, at the same Day version as the rest of your app:
 
 ```toml
 [dependencies]
-day-piece-settings = { git = "https://github.com/daybrite/day.git" }
+day-piece-settings = "0.6"
 ```
 
 `day build -t <target>` enables this direct dependency’s matching toolkit feature

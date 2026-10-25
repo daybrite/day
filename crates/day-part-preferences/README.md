@@ -21,7 +21,7 @@ For direct use:
 
 ```toml
 [dependencies]
-day-part-preferences = { git = "https://github.com/daybrite/day.git" }
+day-part-preferences = "0.6"
 ```
 
 ## Documentation

@@ -22,7 +22,7 @@ Defined in [`day-piece-media`](https://github.com/daybrite/day-piece-media). Add
 
 ```toml
 [dependencies]
-day-piece-media = { git = "https://github.com/daybrite/day-piece-media.git" }
+day-piece-media = "0.4"
 ```
 
 `day build -t <target>` enables this direct dependency’s matching toolkit feature

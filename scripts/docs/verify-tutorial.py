@@ -68,10 +68,13 @@ def local_framework_fixture(app):
     manifest = app / 'Cargo.toml'
     source = manifest.read_text()
     (app / 'Cargo.toml.documented').write_text(source)
-    for crate in ('day', 'day-build'):
-        git = f'{crate} = {{ git = "https://github.com/daybrite/day" }}'
-        assert source.count(git) == 1, f'Unexpected tutorial dependency: {crate}'
-        source = source.replace(git, f'{crate} = {{ path = "../../crates/{crate}" }}')
+    for published, local in (
+        ('day = { package = "day-app", version = "0.6" }',
+         'day = { package = "day-app", path = "../../crates/day" }'),
+        ('day-build = "0.6"', 'day-build = { path = "../../crates/day-build" }'),
+    ):
+        assert source.count(published) == 1, f'Unexpected tutorial dependency: {published}'
+        source = source.replace(published, local)
     manifest.write_text(source)
 
 

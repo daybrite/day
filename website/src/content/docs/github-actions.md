@@ -67,10 +67,18 @@ themselves, and only its release and Pages jobs use the grants. Any job you add 
 therefore runs read-only. Fork pull requests receive a read-only token and no repository
 secrets.
 
-Dependencies must resolve on the runner. Commit `Cargo.lock` and use registry or Git dependencies
-instead of paths to another local checkout. `day-version` defaults to Day's `main` branch, built from
-source; set a release, branch or commit when the app needs a particular Day revision. Leave `update-day-deps`
-off to keep the versions in the lockfile.
+Dependencies must resolve on the runner, so use crates.io versions instead of paths to another
+local checkout. The scaffolded workflow builds against two versions of Day, chosen by the event:
+
+- A push or a pull request builds against the `main` branch of every Day repository, so a Day
+  change that breaks your app shows up before it is released.
+- The nightly run, a version tag and a manual run build against the newest Day release your
+  version requirements accept: what someone who builds your app gets. Tick **day-main** when you
+  start a run by hand to build against `main` instead.
+
+The runner installs the day CLI that matches, the release's binary or a build of that `main`
+commit. The run summary says which Day it built. To build exactly what `Cargo.lock` pins, set
+`day-deps: locked`.
 
 > [!NOTE] Runner requirements
 > The current shared workflow requests the `xcode-27` runner label for macOS builds, iOS builds

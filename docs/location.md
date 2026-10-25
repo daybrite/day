@@ -17,11 +17,11 @@ updates with selectable accuracy, so an app can balance precision and battery us
 ## Add to your app
 
 Defined in [`day-part-location`](https://github.com/daybrite/day/tree/main/crates/day-part-location). Add this to your app’s `Cargo.toml`
-`[dependencies]` table, using the same Day Git source as the rest of your app:
+`[dependencies]` table, at the same Day version as the rest of your app:
 
 ```toml
 [dependencies]
-day-part-location = { git = "https://github.com/daybrite/day.git" }
+day-part-location = "0.6"
 ```
 
 The implementation is selected by the compilation target; no toolkit feature flags

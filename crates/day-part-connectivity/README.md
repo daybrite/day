@@ -16,11 +16,11 @@ in your networking code.
 
 ## Use
 
-Add this entry to your app’s `Cargo.toml`, using the same Day source as the rest of the app:
+Add this entry to your app’s `Cargo.toml`, at the same Day version as the rest of the app:
 
 ```toml
 [dependencies]
-day-part-connectivity = { git = "https://github.com/daybrite/day.git" }
+day-part-connectivity = "0.6"
 ```
 
 ## Documentation

@@ -301,7 +301,11 @@ with the binary tool in `day-cli` producing a binary named `day`. An app writes
 > **Changed 2026-10-25.** The umbrella was the package `day` until crates.io, where kan-tools
 > owns `day`, became a release target. Every crate name was reserved on crates.io on 2026-10-25,
 > and from 0.6.1 every workspace member publishes on a semver tag ([§20](#20-continuous-integration)).
-> Scaffolds still default to git dependencies (`day new --git`), with `--registry` ready.
+> Apps, pieces and parts depend on the published crates by version, which is what `day new`
+> writes (`--git` takes the git remote instead). External pieces and parts publish too, from
+> their own repositories, through `dayapp.yml`'s `publish-crates`. CI builds a push against the
+> head of every Day repository's default branch (`day patch --main`) and a nightly run against
+> the newest release ([§15](#15-extensibility-pieces-parts-and-tweaks), [§20](#20-continuous-integration)).
 
 **Workspace versions.** Every framework crate inherits `[workspace.package].version` through
 `version.workspace = true`. Every internal entry in `[workspace.dependencies]` carries an
@@ -2418,7 +2422,7 @@ read it opts down with.
 ### §8.5 Panics and crashes
 
 Crash reporting is an external compose Piece, [`day-piece-crash-reporter`](https://github.com/daybrite/day-piece-break),
-with independent releases and bare canonical git dependencies on Day. Its default `ui` feature
+with independent releases and crates.io dependencies on Day. Its default `ui` feature
 provides a localized consent banner with report review, Send, and Discard; disabling it leaves
 the capture/storage/transport APIs available. The framework supplies public lifecycle and
 contained-panic observer hooks, and `day_core::VERSION` identifies the linked runtime in reports.
@@ -2426,7 +2430,7 @@ The Android Java shim is discovered through the dependency's `[package.metadata.
 Extraction preserves the schema-1 report format, `day-break` storage directory, `DAY_BREAK_*`
 environment variables, Java/JNI names, and `dbreak-*` UI IDs. Day CLI diagnosis still reads
 those legacy paths without depending on the optional reporter. Tests now live in the external
-repository; Day-Showcase consumes it through its git dependency.
+repository; Day-Showcase consumes it as a crates.io dependency.
 
 > [!IMPORTANT]
 > **Status: partially shipped.** The event pump runs handler dispatch under `catch_unwind`
@@ -4115,18 +4119,21 @@ ArkUI; emulator acceptance remains in CI.
 > Windows arm from one `bridge!`, and the consumer of the stacked `on_open_url` handlers
 > ([§8](#8-the-toolkit-specification-day-spec)). Nothing about
 > the layout or the aggregation changed; what an external repository adds is a dependency rule
-> and a test harness. Its day dependencies name the BARE canonical URL
-> (`git = "https://github.com/daybrite/day.git"`, no branch, tag, or rev): cargo unifies a git
-> dependency only when URL and ref match, and it refuses a `[patch]` that points a URL at itself
-> on another ref, so a piece that pinned a tag would double every day crate in an app on `main`.
-> The consuming app's `Cargo.lock` picks one revision for the whole graph;
+> and a test harness. Its day dependencies are crates.io versions (`day-core = "0.6"`), and the
+> repository publishes its own crates to crates.io on a version tag (`dayapp.yml`'s
+> `publish-crates`), so an app takes pieces and day the same way and cargo unifies them by
+> version. (Until 2026-10-25 they named the bare canonical git URL, since cargo unifies a git
+> dependency only when URL and ref match.) A push builds against everything's `main` through
+> `day patch --main`, which follows each `day-*` crate to the repository crates.io records for
+> it; a nightly run builds against the newest releases. The consuming app's `Cargo.lock` picks
+> one version for the whole graph;
 > `[package.metadata.day] compat = "X.Y"` records the day minor the crate was tested against and
 > `day build` notes a mismatch; `day build`/`launch` refuse a graph carrying two copies of any
 > day crate (`crate::patch::verify_graph`). A `demo/` app in the repository depends on the crate
 > by path, and its dayscript is the on-device test; `day patch --local <checkout>` takes any
 > number of checkouts (day, pieces, parts) and works from a piece crate's own root, and
-> `day patch --git <fork>[@<ref>]` writes a committable table that redirects the canonical URL
-> to a fork for the whole graph, external pieces included. In this tree the `swift-packages`
+> `day patch --git <fork>[@<ref>]` writes a committable table that takes a repository's crates
+> from a fork for the whole graph, external pieces included. In this tree the `swift-packages`
 > key is exercised by a fixture piece in `scripts/ci/scaffold-check.sh` (ios-uikit).
 
 The shipped layout — everything rides `Cargo.toml`, no side manifest:
@@ -4705,7 +4712,7 @@ headless runtime path is exercised in HarmonyOS CI, never by a local emulator te
 | `day icon build [master]` / `day icon new` / `day icon check [master]` | render platform assets, create a seeded source icon, or check for drift (exit 5). A subcommand is required; `new --out preview.svg` writes a preview without changing a project |
 | `day metadata [--json]` | machine-readable project metadata (versioned, grow-only envelope — IDE tooling consumes this, never Day.toml directly) |
 | `day lint` | fluent coverage (missing/unused/unknown keys), duplicate element ids, unknown navigation routes (including `[[shortcuts]]` routes), shortcut-label coverage, permission declaration/manifest drift ([docs/permissions.md](docs/permissions.md)), store-listing rules ([docs/store.md](docs/store.md)), Day.toml schema, every `Day-<name>.toml` flavor ([docs/flavors.md](docs/flavors.md)) — fast, source-level  Findings carry `file:line:column` and a severity; `--json` emits them as a versioned envelope with the fix a rule proposes, and `--fix` applies those fixes  Under GitHub Actions (`GITHUB_ACTIONS=true`) findings also emit `::warning::`/`::error::` annotations on stdout, anchored to their line, and a markdown table into `$GITHUB_STEP_SUMMARY` |
-| `day patch [--local <checkout>]… [--git <url>[@<ref>]] [--check]` | build a project against LOCAL checkouts or a FORK of the crates it takes from git: `--local` (repeatable: the day checkout, an external piece or part repository — each identified by the `day` crate it carries or its manifest's `repository`) writes the machine-local `.cargo/config.toml` `[patch]` tables, one per source URL; `--git` writes a committable table redirecting the canonical day URL to a fork for the whole graph (external pieces follow, unchanged; `@<ref>` is a branch, a 40-hex commit, or `tag=`/`branch=`/`rev=`); `--check` fails when a patched source still resolves from git — the guard against a stale table silently mixing a local framework with a published one. Works from an app (Day.toml) or from any cargo package root, so a piece crate patches its own day dependency the same way. `day build`/`launch` separately refuse a graph carrying two copies of any day crate (§15.2) |
+| `day patch [--local <checkout>]… [--git <url>[@<ref>]]… [--main] [--check]` | build a project against LOCAL checkouts, FORKS, or the `main` branches of the crates it takes from crates.io (or from git): `--local` (repeatable: the day checkout, an external piece or part repository — each identified by the `day-app` crate it carries or its manifest's `repository`) writes the machine-local `.cargo/config.toml` `[patch.crates-io]` table (plus a git-keyed table for crates still taken from git); `--git` (repeatable) takes a repository's crates from that URL and ref for the whole graph (external pieces follow, unchanged; `@<ref>` is a branch, a 40-hex commit, or `tag=`/`branch=`/`rev=`); `--main` follows every other `day-*` crate to the repository crates.io records for it, under `github.com/daybrite`, pinned to the head of its default branch, which is what CI runs on a push. The crates.io table starts with every crate a source carries and drops what a resolve under it leaves unused, since a graph that asks for an unreleased version cannot be resolved without it. `--check` fails when a patched repository's crate still resolves from crates.io or git — a missing entry, a checkout behind the newest release, or a version the requirement does not accept — the guard against a stale table silently mixing a local framework with a published one. Works from an app (Day.toml) or from any cargo package root, so a piece crate patches its own day dependency the same way. `day build`/`launch` separately refuse a graph carrying two copies of any day crate (§15.2) |
 | `day store <init\|migrate\|stage\|screenshots\|export>` | the App Store / Google Play listing, one file (`store/storefront.toml` or `storefront.yaml`; the older `app.*` names still read): `init` writes `[storefront.metadata]` tables for every locale the app ships and the listing lacks, `migrate` folds the older `store/<locale>/*.txt` layout into them, `stage` generates the fastlane trees a release uploads ([docs/store.md](docs/store.md)), refusing a listing with any lint error (`--allow-placeholders` lets TODO text through), `export` writes the listing resolved per target, store and locale as one JSON document with the stores' rules in force (`--out FILE`; what the website is built from and a release carries as `storefront.json`); `stage --screenshots <gallery.json\|URL>` also places the listing's screenshots, the captures `store/storefront.toml` `[storefront…screenshots]` declares (§14.7), from a gallery index; `screenshots <gallery.json\|URL>` checks that set against each store's rules, the `store-rules.toml` the CLI embeds and `--rules` / `DAY_STORE_RULES` / `store/rules.toml` replace ([docs/store.md](docs/store.md)) |
 | `day localize <list\|add\|remove>` | the project's locale surfaces — `resource/locales/`, the store listing's locale tables in `store/storefront.toml`, the iOS `project.xcproj` localizations, `website/site.toml`'s `locales` array — surveyed (`list`, with drift warnings; `day lint` reports the same findings) or edited together (`add`/`remove` a Day BCP-47 tag on every surface the project has; per-store and Xcode spellings remain a generation-time concern) |
 | `day screenshot index` | merge capture trees (`--screenshot-paths`, default `build/day/screenshots`) into `gallery.json` — the published machine-readable screenshot index: URL, localized title/caption from the dayscript metadata (§14.7), theme, locale, platform, dimensions, byte size, sha-256, and `listings`, the store and website lists `store/storefront.toml` `[storefront]` declares, resolved per target and device kind. App sites serve it at `/gallery/gallery.json`; `--out` places it |
@@ -6126,7 +6133,9 @@ The `daybrite/actions` companion repository provides reusable workflows for exte
 1. **Fast checks** — rustfmt, MSRV build, and the toolkit-independent clippy (host-portable
    crates + CLI/dayscript + mock-backend showcase, all `--all-targets`; the android
    cross-*check* lint; the drift checks for all three generated tables — duty, piece-vocabulary
-   coverage, and recorder coverage); plus **`spelling`** (2026-08), which runs `typos` over the
+   coverage, and recorder coverage); **`crate-names`**, which rejects retired crate names and
+   Rust imports (`scripts/ci/check-crate-names.py`, a separate workflow until 2026-10-25); plus
+   **`spelling`** (2026-08), which runs `typos` over the
    whole tree. It gates two things at once: misspellings, and STYLE_GUIDE.md's American-English
    rule, which `typos.toml`'s `locale = "en-us"` turns from a convention into a check. The gate
    arrived with the cleanup it enforces — 355 British spellings had accumulated across 116 files,
@@ -6231,7 +6240,8 @@ The `daybrite/actions` companion repository provides reusable workflows for exte
    > calls `dayapp.yml` like any app repository does, with two inputs that make it test *this*
    > commit: `day-source: artifact` takes the CLI from this run's own `day-cli-*` artifacts, and a
    > `setup-command` clones the app and runs `day patch --local` so its day dependencies resolve
-   > to this checkout rather than to whatever is published. `ci.yml` lost 720 lines.
+   > to this checkout rather than to whatever is published (with `--main` since 2026-10-25, so the
+   > external pieces it uses come from the head of their own repositories). `ci.yml` lost 720 lines.
    >
    > What that buys beyond deduplication: the app pipeline's device matrix. `ios-devices`,
    > `android-devices` and `harmony-devices` take one line per device (a phone and a landscape
@@ -6258,10 +6268,10 @@ The `daybrite/actions` companion repository provides reusable workflows for exte
    `cargo publish --workspace --dry-run --no-verify` on Linux, and the `publishable` job runs
    `cargo package --workspace` on macOS, the one host where every member compiles, so each crate
    is built from the archive crates.io would serve; both run on every push. The `publish` job
-   uploads through `scripts/release/crates-io.py`, one crate at a time in dependency order,
-   because crates.io takes 30 new versions at once and then one a minute; it runs in steps of at
-   most 25 uploads, each with a fresh 30-minute token, and skips versions already published, so
-   a re-run finishes a release. It ships the CLI and nothing else: signing, notarizing and
+   uploads through daybrite/actions' `publish-crates` action (the one external pieces and parts
+   publish through too), one crate at a time in dependency order, because crates.io takes 30 new
+   versions at once and then one a minute; it runs in batches of at most 25 uploads, each with a
+   fresh 30-minute token, and skips versions already published, so a re-run finishes a release. It ships the CLI and nothing else: signing, notarizing and
    store distribution of an app all belong to that app's repository, through daybrite/actions
    ([§20.2](#202-release-signing-isolation), [docs/store.md](docs/store.md)). The website's `/showcase/` page
    therefore links the release assets of `daybrite/Day-Showcase` over the API
@@ -7842,7 +7852,7 @@ The Showcase walkthrough samples after groups of screens and ends with a `1G` bu
 | `assert_no_placeholders` | `allow?` | fails if any kind rendered a `⟨kind⟩` placeholder — the one gap no screenshot or other assertion can see. `allow` is the per-target ledger; the generated [docs/coverage-matrix.md](docs/coverage-matrix.md) is its static twin |
 | `screenshot` | name, `window?`, `title?`, `caption?`, `source?` | waits for `ui_idle`; `window` captures the secondary window opened under that key ([docs/windows.md](docs/windows.md)). Desktop captures in-process; macOS GTK first captures the composited native window and crops to the widget so embedded Cocoa views are included (GTK widget rendering remains the offscreen fallback). A device or simulator uses the platform's screen capture, falling back to the in-process one ([docs/window-image.md](docs/window-image.md)). On Android, window checks before and after capture refuse ANR/crash dialogs and failed probes; emulators first try dismissal. Unsafe device captures fall back to the app view, and total capture failure fails the step without retaining a stale PNG. `title`/`caption` (plain string or locale-keyed map) and `source` are runner-side gallery metadata (§14.7) — stripped before the engine, folded into the target's gallery.json; the retired `store` key is stripped with a warning |
 | `pause` | `secs` | demos only |
-| `size_class` | `width`, `height?` | REPORT a size class the window is not actually at, so a nav host re-presents and a piece reading `day::size_class()` rebuilds. Changes no pixels — a screenshot after it shows the new layout at the old size. `width: auto` restores what the backend reports ([docs/size-classes.md](docs/size-classes.md)) |
+| `size_class` | `width`, `height?` | REPORT a size class the window is not actually at, so a nav host re-presents and a piece reading `day::size_class()` rebuilds. Changes no pixels — a screenshot after it shows the new layout at the old size. The forced class holds through the backend's own reports until `width: auto` (or a `resize:`) restores what the backend reports ([docs/size-classes.md](docs/size-classes.md)) |
 | `resize` | `width`, `height`, or `auto` | `size_class`'s complement: change the window's REAL geometry. Runner-side first (a device's window belongs to the system — android-material drives `adb shell wm size`), then the engine half waits for the app to report the new class. A target with no host-side lever FAILS the step rather than passing one that moved nothing ([docs/size-classes.md](docs/size-classes.md)) |
 | `expect_exit` | `within?` | MUST be last: tolerates the app terminating — a dropped connection within `within` s (default 15) is success, surviving is failure. Runner-side; drives crash-reporting tests ([docs/break.md](docs/break.md)) |
 

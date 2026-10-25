@@ -87,9 +87,12 @@ default-members = [
 ]
 
 # crates.io publishing policy: every member publishes, at this version, on a semver tag. The
-# `publish` CI job uploads them one at a time in dependency order (scripts/release/crates-io.py,
-# within crates.io's rate limits). A new member's name is reserved on crates.io the day it is added
-# (`crates-io.py reserve --only <name>`) and gets a Trusted Publisher before the next release.
+# `publish` CI job uploads them one at a time in dependency order (daybrite/actions'
+# publish-crates action, within crates.io's rate limits). A new member's name is reserved on
+# crates.io the day it is added (`crates-io.py --root . reserve --only <name>`, the script beside
+# that action) and gets a Trusted Publisher before the next release. Main's version never falls
+# behind the newest release: an app's CI builds against main through a `[patch.crates-io]` table,
+# and cargo passes over a patch older than what crates.io offers.
 [workspace.package]
 version = "0.6.1"
 authors = ["Daybrite <hello@daybrite.dev>"]

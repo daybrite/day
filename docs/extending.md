@@ -600,8 +600,8 @@ cx.under(node, |cx| { let _ = child.build(cx); });               // mount the Da
 > [!WARNING]
 > **The toolkit SPI is unstable.** Everything a backend implements (day-spec's `Toolkit` and
 > `Platform` traits, `Event`, `Cap`, the per-kind props structs) evolves with this repository and
-> is not published to crates.io. An external toolkit pins the day crates to a **git revision** and
-> expects breakage between revisions. This section describes the `[package.metadata.day.toolkit]`
+> carries no stability promise between releases. An external toolkit pins the day crates to one
+> exact version (`day-spec = "=0.6.1"`) and expects breakage between releases. This section describes the `[package.metadata.day.toolkit]`
 > registration, which is the part that will stay; the contract behind it firms up at SPI
 > stabilization.
 
@@ -682,8 +682,9 @@ piece to live in a separate repository: an iOS/Android-only piece that pulls an 
 on each platform, the lottie-ios SwiftPM package (via the `[package.metadata.day.ios]` mechanism
 above) and `com.airbnb.android:lottie` (Gradle). Its Swift and Java shims each wrap a
 `LottieAnimationView` behind a flat C ABI / static method. It is also the reference for an external
-repository: bare canonical `git = "https://github.com/daybrite/day.git"` dependencies with no ref (so
-the consuming app's `Cargo.lock` picks one day revision for the whole graph), a
+repository: crates.io version requirements on day (`day-core = "0.6"`, so the consuming app's
+`Cargo.lock` picks one day version for the whole graph), its own crates published to crates.io on a
+version tag (`publish-crates: true` in its CI), a
 `[package.metadata.day] compat = "0.5"` line naming the day minor it was tested against, a `demo/`
 app whose dayscript is the on-device test, and a headless `model` module tested on the host. In
 this tree, `scripts/ci/scaffold-check.sh` keeps `swift-packages` exercised on the ios-uikit leg

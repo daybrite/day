@@ -21,7 +21,7 @@ the tweak guide:
 
 ```toml
 [dependencies]
-day-tweak-tooltip = { git = "https://github.com/daybrite/day.git" }
+day-tweak-tooltip = "0.6"
 ```
 
 ## Documentation

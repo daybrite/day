@@ -4,12 +4,23 @@
 # workflow installs the toolchains, builds, runs the dayscripts and packages each target.
 name: "{{repo}}"
 
+# A push or a pull request builds against day's main branch, so a change there that breaks this
+# app shows up before it is released. The nightly run and a version tag build against the newest
+# day release on crates.io: what someone who builds this app gets. A manual run builds against
+# the release too, unless `day-main` is ticked.
 on:
   push:
     branches: ["**"]
     tags: ["v[0-9]+.[0-9]+.[0-9]+*"]
   pull_request:
+  schedule:
+    - cron: "0 7 * * *"
   workflow_dispatch:
+    inputs:
+      day-main:
+        description: Build against day's main branch instead of the newest release
+        type: boolean
+        default: false
 
 # The repository's own jobs, should any be added here, run this checkout's code with a read-only
 # token. The write grants sit on the job that calls the shared workflow, whose release and Pages
@@ -35,10 +46,14 @@ jobs:
       #   targets: macos-appkit, windows-winui, linux-gtk, ios-uikit, android-material, web-dom
       targets: all
 {{#if day_ci_pinned}}
-      # The day CLI the runner installs: the same source Cargo.toml depends on, so the CLI and
-      # the framework crates never disagree. (An app on day's main branch leaves this out: the
-      # workflow installs main by default.)
+      # Cargo.toml takes day from git, so the build uses the revision it pins, and the runner
+      # installs the CLI from the same source, so the two never disagree.
+      day-source: locked
       day-version: "{{day_ci_version}}"
+{{else}}
+      # Which day to build against: `auto` picks day's main branch or the newest release by the
+      # event, as described at the top of this file, and installs the matching day CLI.
+      day-source: $\{{ inputs.day-main && 'main' || 'auto' }}
 {{/if}}
       # Every dayscript under dayscript/ (`scripts: auto`), on every target, in every locale the
       # app ships (resource/locales/) and both appearances: a string that breaks only in one

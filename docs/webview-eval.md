@@ -16,7 +16,7 @@ Add the dependency to your app’s `Cargo.toml`:
 
 ```toml
 [dependencies]
-day-piece-webview = { git = "https://github.com/daybrite/day-piece-webview.git" }
+day-piece-webview = "0.4"
 ```
 
 `day build -t <target>` enables the matching toolkit feature and stages native contributions.

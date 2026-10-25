@@ -97,6 +97,15 @@ jobs:
       - run: cargo fmt --manifest-path crates/day-core/tests/fixtures/element-ids/Cargo.toml --all -- --check
       - run: cargo fmt --manifest-path crates/day-core/tests/fixtures/conformance/Cargo.toml --all -- --check
 
+  # Retired crate names and Rust imports (scripts/ci/check-crate-names.py).
+  crate-names:
+    name: crate names
+    if: ${{ !inputs.website-only && github.event_name != 'repository_dispatch' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - run: python3 scripts/ci/check-crate-names.py
+
   clippy:
     if: ${{ !inputs.website-only && github.event_name != 'repository_dispatch' }}
     runs-on: ubuntu-latest
@@ -461,13 +470,14 @@ jobs:
   # `release` GitHub environment the crates.io Trusted Publisher config is bound to, so only this
   # job, on a semantic tag, can mint that token.
   #
-  # Every workspace member is published, in dependency order, by scripts/release/crates-io.py:
-  # crates.io takes 30 new versions at once and then one a minute, so the upload is a throttled
-  # loop rather than `cargo publish --workspace`, which stops at the first refusal. A token lasts
-  # 30 minutes, so the run is split into steps of at most 25 uploads, each authenticating afresh;
-  # 57 crates take about half an hour. The script skips versions crates.io already has, so
-  # re-running a failed job finishes the release. --no-verify inside the script: `publishable`
-  # built every package from this commit.
+  # Every workspace member is published, in dependency order, by daybrite/actions' publish-crates
+  # action, the one every piece and part repository publishes through too: crates.io takes 30 new
+  # versions at once and then one a minute, so the upload is a throttled loop rather than
+  # `cargo publish --workspace`, which stops at the first refusal. A token lasts 30 minutes, so the
+  # action splits the run into batches of at most 25 uploads, each authenticating afresh; 57 crates
+  # take about half an hour. It skips versions crates.io already has, so re-running a failed job
+  # finishes the release. It does not build the packages again: `publishable` built every one from
+  # this commit's archives.
   # `needs: [release, publishable]` orders it after the version-match check + GitHub release and
   # the package builds, and runs it only if both passed.
   publish:
@@ -488,36 +498,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      # Each batch exchanges the GitHub OIDC token for its own temporary crates.io token.
-      - name: Authenticate to crates.io (batch 1)
-        uses: rust-lang/crates-io-auth-action@v1
-        id: auth1
-      - name: Publish to crates.io (batch 1, up to 25 crates)
-        env:
-          CARGO_REGISTRY_TOKEN: ${{ steps.auth1.outputs.token }}
-        run: python3 scripts/release/crates-io.py publish --max 25
-      - name: Authenticate to crates.io (batch 2)
-        uses: rust-lang/crates-io-auth-action@v1
-        id: auth2
-      - name: Publish to crates.io (batch 2, up to 25 crates)
-        env:
-          CARGO_REGISTRY_TOKEN: ${{ steps.auth2.outputs.token }}
-        run: python3 scripts/release/crates-io.py publish --max 25
-      - name: Authenticate to crates.io (batch 3)
-        uses: rust-lang/crates-io-auth-action@v1
-        id: auth3
-      - name: Publish to crates.io (batch 3, the rest)
-        env:
-          CARGO_REGISTRY_TOKEN: ${{ steps.auth3.outputs.token }}
-        run: python3 scripts/release/crates-io.py publish --max 25
-      - name: Check every crate is published
-        run: |
-          python3 scripts/release/crates-io.py publish --dry-run | tee plan.txt
-          if grep -q 'would publish' plan.txt; then
-            echo "::error::crates remain unpublished; re-run this job to continue"
-            exit 1
-          fi
+      - uses: daybrite/actions/.github/actions/publish-crates@v1
 
   # --- Day-Showcase, through the shared app workflow -------------------------------------------
   # The reference app's build, walkthrough, packaging and capture legs are NOT written here any
@@ -558,7 +539,7 @@ jobs:
       setup-command: |
         git clone --depth 1 --branch "${{ vars.DAY_SHOWCASE_REF || 'main' }}" \
           https://github.com/daybrite/Day-Showcase.git showcase-src
-        "$DAY_BIN" --project showcase-src patch --local "$GITHUB_WORKSPACE" --check
+        "$DAY_BIN" --project showcase-src patch --local "$GITHUB_WORKSPACE" --main --check
       # Spelled out rather than read from this workflow's `env`: a reusable-workflow `with:`
       # block cannot see the `env` context. These are the gallery's variant ids.
       themes: light dark
@@ -766,9 +747,10 @@ jobs:
           # take the plain additive form.
           # shellcheck disable=SC2086
           ( cd scratch-app   && cargo build $LIB --no-default-features --features ${{ matrix.toolkit }} $TARGET )
-          # Structural check of the default (no --local) output: it must reference the remote git dep.
+          # Structural check of the default (no --local) output: it must depend on the published
+          # crates at this CLI's version.
           "$DAY" new app remote-check --toolkit ${{ matrix.combo }} --no-input >/dev/null
-          grep -q 'git = "https://github.com/daybrite/day.git"' remote-check/Cargo.toml
+          grep -q '^day = { package = "day-app", version = "' remote-check/Cargo.toml
 
   # --- The conformance app: `day test` on every toolkit ---------------------------------------
   # The built-in pieces' `#[day::test]` cases (docs/testing.md), run inside apps/conformance

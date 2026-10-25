@@ -19,11 +19,11 @@ feature. Apps using the facade do not need a separate dependency.
 
 The default-enabled `day::prefs` re-export needs no additional dependency.
 For direct use, the API is defined in [`day-part-preferences`](https://github.com/daybrite/day/tree/main/crates/day-part-preferences). Add this optional dependency to your app’s `Cargo.toml`
-`[dependencies]` table, using the same Day Git source as the rest of your app:
+`[dependencies]` table, at the same Day version as the rest of your app:
 
 ```toml
 [dependencies]
-day-part-preferences = { git = "https://github.com/daybrite/day.git" }
+day-part-preferences = "0.6"
 ```
 
 The implementation is selected by the compilation target; no toolkit feature flags

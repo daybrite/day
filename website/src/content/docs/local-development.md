@@ -11,30 +11,34 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-An app's `Cargo.toml` resolves the framework from git:
+An app's `Cargo.toml` takes the framework from crates.io:
 
 ```toml
 [dependencies]
-day = { package = "day-app", git = "https://github.com/daybrite/day.git" }
+day = { package = "day-app", version = "0.6" }
 ```
 
-CI and anyone who clones the app build from that git source. When you are changing a day crate and
-the app screen that demonstrates it, the app has to build against your checkout instead; `day patch`
-makes the switch:
+Anyone who clones the app builds against the published crates. When you are changing a day crate
+and the app screen that demonstrates it, the app has to build against your checkout instead;
+`day patch` makes the switch:
 
 ```sh
 cd my-app
 day patch --local ../day     # build against the checkout at ../day
-day patch --check            # verify: no day crate resolves from git
+day patch --check            # verify: no patched crate still comes from crates.io
 
 # More than one checkout: day and an external piece you are changing together. Each is
 # recognized by what it carries (the `day-app` crate, or its manifest's `repository`).
 day patch --local ../day --local ../day-piece-lottie
 
-# A fork of day, for good: a committable table that redirects the canonical URL for the
-# whole graph, so external pieces build against the fork too, unchanged.
+# The unreleased framework: every Day crate from the head of its repository's default
+# branch, pinned to that commit. This is what CI builds on a push.
+day patch --main
+
+# A fork of day, for good: a committable table that takes day's crates from the fork for
+# the whole graph, so external pieces build against the fork too, unchanged.
 day patch --git https://github.com/acme/day.git@acme
-rm .cargo/config.toml        # back to the git dependency
+rm .cargo/config.toml        # back to the published crates
 ```
 
 ## Trying a version for one build
@@ -76,40 +80,41 @@ and `--day-src` or `--patch-local` when you're comparing.
 `day patch --local <checkout>` writes the app's `.cargo/config.toml` with a Cargo
 [`[patch]` table](https://doc.rust-lang.org/cargo/reference/overriding-dependencies.html)
 mapping every day crate in the app's dependency graph to a path inside the checkout, and relocks
-any of them that `Cargo.lock` still holds from git at another version (cargo would otherwise keep
-the locked copy and ignore the table):
+any of them that `Cargo.lock` still holds from crates.io (cargo would otherwise keep the locked
+copy and ignore the table):
 
 ```toml
-[patch."https://github.com/daybrite/day.git"]
+[patch.crates-io]
 day-app = { path = "/home/you/src/day/crates/day" }
 day-toolkit-material = { path = "/home/you/src/day/crates/day-toolkit-material" }
 # … one entry per day crate the app resolves
 ```
 
-The file is machine-local and stays out of git; the scaffold's `.gitignore` covers it, and
-CI resolves the git dependency exactly as a user's build would. Delete the file to switch
-back.
+The file is machine-local and stays out of git; the scaffold's `.gitignore` covers it. Delete the
+file to switch back.
 
 Writing that table by hand is risky because a missing entry does not fail: cargo resolves the
-missing crate from its git cache, and the build mixes your checkout with a published release, so
+missing crate from crates.io, and the build mixes your checkout with a published release, so
 part of it is not the code you are editing. The table is also hard to keep right:
 
 - The crate set is bigger than the app's manifest. Toolkit backends like `day-toolkit-material` reach
   the app through the `day` umbrella crate's per-target dependency tables, so the app never
-  names them. `day patch` resolves the full graph for every platform Day targets, with every
-  backend feature on, and patches whatever it finds.
+  names them. `day patch` starts from every crate the checkout carries, resolves the full graph
+  for every platform Day targets with every backend feature on, and drops the entries cargo did
+  not use.
 - The crate set changes. Add a `day-part-*` dependency, or pull in a new framework crate,
   and a hand-maintained table is out of date, with no error to tell you so.
 
 After writing the table, the command verifies it: it asks cargo for the resolved graph of
-every platform and fails if any `day*` crate still comes from git.
+every platform and fails if a crate from a patched repository still comes from crates.io.
 
-Cargo treats a `[patch]` entry as a resolution candidate and selects the newest compatible
-version. If the local checkout has a lower version than the Git dependency, Cargo may select
-the Git dependency instead. The check reports both versions. Update the local checkout if
-you intend to build against the latest source. To build against an older commit on purpose, lock the app to it first
-(`cargo update -p day-core --precise <commit>`) and patch again: a locked dependency whose version
-matches its patch resolves to the patch without asking upstream.
+Cargo uses a `[patch]` entry only when its version is one the app accepts. Two cases fail the
+check, and it reports both versions:
+
+- The checkout is older than the newest release. Cargo selects the newest compatible version, so
+  it takes the release. Update the checkout.
+- The checkout carries a version your requirement does not accept, such as `0.7.0` while the
+  app asks for `"0.6"`. Raise the requirement in `Cargo.toml`.
 
 ## Working on the framework and an app in parallel
 
@@ -126,18 +131,20 @@ but any app works the same way.
 3. **Re-run `day patch` when the crate set changes.** A new day dependency in the app's
    `Cargo.toml`, or a new crate in the framework workspace that the app pulls in, needs a
    new table entry. Re-running the command rewrites the whole table.
-4. **Land the framework change first.** The app's git dependency names no revision, and a
-   scaffolded app commits no `Cargo.lock`, so CI and fresh clones resolve day's current
-   `main`. Once the framework side merges, the app change builds everywhere; land it second.
+4. **Land the framework change first.** The app's CI builds a push against day's `main`
+   (`day patch --main`), so once the framework side merges, the app change builds there; land
+   it second. Its nightly run builds against the newest release, so an app change that needs the
+   new framework turns that run red until the next day release. That is the signal that the app
+   is ahead of what users can build.
 5. **Unpatch when you are done, or leave it.** `rm .cargo/config.toml` returns the app to the
-   git dependency. On a machine where you always develop against the checkout, leaving it in
+   published crates. On a machine where you always develop against the checkout, leaving it in
    place is fine: git ignores the file, so it affects no one else.
 
 `day patch --check` is the guard for step 4 and for CI. It writes nothing and exits non-zero
-if any day crate in any platform's graph still resolves from git. Day's CI checks out
-Day-Showcase, locks it to the commit under test, points it at that checkout, and runs
-exactly this check before building, so a green showcase build means the showcase built
-against that commit, with nothing resolved from the git cache.
+if a patched repository's crate in any platform's graph still resolves from crates.io. Day's CI
+checks out Day-Showcase, points it at the commit under test (and its external pieces at their
+own `main`), and runs exactly this check before building, so a green showcase build means the
+showcase built against that commit, with nothing resolved from a release.
 
 ## What not to commit
 

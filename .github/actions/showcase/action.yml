@@ -51,26 +51,14 @@ runs:
         ref: ${{ steps.pick.outputs.ref }}
         path: ${{ inputs.path }}
 
-    # The app's dependency names no revision, so cargo would resolve day's current main, and a
-    # [patch] entry is one more candidate, not an override: cargo keeps the newest version it can
-    # see. A release bump landing on main while this run is in flight therefore outranks the
-    # version this commit carries, every framework crate falls back to git, and the check below
-    # fails for every job still to come. Locking the git source to this commit first settles it:
-    # a locked dependency whose version matches its patch resolves to the patch without asking
-    # upstream. One package is enough: cargo moves the whole git source together. It is day-core,
-    # which every app reaches whatever key or package name its manifest gives the umbrella.
-    - name: Lock the app's day source to this commit
-      shell: bash
-      working-directory: ${{ inputs.path }}
-      run: cargo update -p day-core --precise "$GITHUB_SHA"
-
-    # The app resolves `day` from git, which is what a user's app does and what its own CI tests.
-    # Here it must resolve from this checkout instead, or the walkthrough would exercise a
-    # published framework and report green on a commit it never compiled. `day patch` writes the
-    # [patch] table and then verifies it: a direct dependency without an entry does not fail, it
-    # silently resolves from the git cache.
+    # The app depends on the published crates, which is what a user's app does and what its own
+    # nightly CI tests. Here day must resolve from this checkout instead, or the walkthrough would
+    # exercise a published framework and report green on a commit it never compiled; the external
+    # pieces the app uses come from the head of their own repositories (`--main`), the way the
+    # app's own CI builds them on a push. `day patch` writes the [patch] table and then verifies
+    # it: a crate without an entry does not fail, it silently resolves from crates.io.
     - name: Point the app at this checkout
       shell: bash
       run: |
         set -euo pipefail
-        "${{ inputs.day-bin }}" --project "${{ inputs.path }}" patch --local "$GITHUB_WORKSPACE" --check
+        "${{ inputs.day-bin }}" --project "${{ inputs.path }}" patch --local "$GITHUB_WORKSPACE" --main --check

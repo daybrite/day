@@ -21,7 +21,7 @@ Add this dependency to your app’s `Cargo.toml`:
 
 ```toml
 [dependencies]
-day-piece-crash-reporter = { git = "https://github.com/daybrite/day-piece-break" }
+day-piece-crash-reporter = "0.1"
 ```
 
 Initialize `day_piece_crash_reporter::Config` before launching the app. Its default `ui` feature provides
@@ -40,7 +40,7 @@ Replace the old dependency on `day.git` with the line above and rename Rust refe
 `day_break::` to `day_piece_crash_reporter::`. To preserve existing Rust source temporarily, use a Cargo alias:
 
 ```toml
-day-break = { package = "day-piece-crash-reporter", git = "https://github.com/daybrite/day-piece-break" }
+day-break = { package = "day-piece-crash-reporter", version = "0.1" }
 ```
 
 Existing reports remain readable: the `day-break` storage directory, schema-1 report format,

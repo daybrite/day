@@ -79,14 +79,14 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-# The framework crates come from git until they're on crates.io (`day new piece` writes this).
-day-pieces = { git = "https://github.com/daybrite/day.git" }   # primitives + prelude (row, canvas, Decorate, …)
-day-core = { git = "https://github.com/daybrite/day.git" }     # Piece / BuildCx / RNode / AnyPiece
-day-reactive = { git = "https://github.com/daybrite/day.git" } # Signal (also re-exported through day-pieces' prelude)
-day-localization-ui = { git = "https://github.com/daybrite/day.git" }
+# The framework crates, from crates.io (`day new piece` writes this).
+day-pieces = "0.6"   # primitives + prelude (row, canvas, Decorate, …)
+day-core = "0.6"     # Piece / BuildCx / RNode / AnyPiece
+day-reactive = "0.6" # Signal (also re-exported through day-pieces' prelude)
+day-localization-ui = "0.6"
 
 [build-dependencies]
-day-build = { git = "https://github.com/daybrite/day.git" }
+day-build = "0.6"
 
 # Note what is not here: no [features], no dep:day-toolkit-appkit / day-toolkit-gtk / day-toolkit-material,
 # no build.rs. A composed piece needs no per-toolkit code at all.
@@ -305,10 +305,9 @@ tracked read in the [`canvas`](https://daybrite.dev/api/day_pieces/fn.canvas.htm
 The app depends on `example-star-rating` like any crate, with one line in `Cargo.toml`:
 
 ```toml
-# the app's Cargo.toml (the framework crates come from git until they're on crates.io —
-# `day new app` writes this form for you)
+# the app's Cargo.toml (`day new app` writes this form for you)
 [dependencies]
-day = { package = "day-app", git = "https://github.com/daybrite/day.git" }
+day = { package = "day-app", version = "0.6" }
 example-star-rating = { path = "../example-star-rating" }   # a plain dependency, nothing else to wire
 ```
 

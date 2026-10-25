@@ -15,11 +15,11 @@ feedback: unsupported devices leave calls without an effect.
 
 ## Use
 
-Add this entry to your app’s `Cargo.toml`, using the same Day source as the rest of the app:
+Add this entry to your app’s `Cargo.toml`, at the same Day version as the rest of the app:
 
 ```toml
 [dependencies]
-day-part-haptics = { git = "https://github.com/daybrite/day.git" }
+day-part-haptics = "0.6"
 ```
 
 ## Documentation

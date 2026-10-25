@@ -189,7 +189,7 @@ fn checkout_dir(cache: &Path, spec: &Spec) -> Result<PathBuf, String> {
 /// A URL as directory segments: host first, then its path, minus any `.git` suffix. SSH, HTTPS,
 /// and local paths all reduce to the same shape, so the same repository reached two ways shares
 /// one checkout instead of building twice.
-fn repo_slug(url: &str) -> Result<Vec<String>, String> {
+pub(crate) fn repo_slug(url: &str) -> Result<Vec<String>, String> {
     let start = path_start(url);
     let (authority, path) = if let Some(scheme) = url.find("://") {
         (&url[scheme + 3..start], &url[start..])

@@ -43,6 +43,10 @@ struct WindowAmbient {
     /// The last class the BACKEND reported, kept beside the live one so a script that forces a
     /// class has something true to go back to (`size_class: { width: auto }`).
     reported_class: Signal<Option<SizeClass>>,
+    /// Whether a script forced [`Self::size_class`]. Reports land in `reported_class` alone
+    /// until the script lets go: a piece that rebuilds on the forced class can change the
+    /// window's content, and the backend's report of that would otherwise undo the force.
+    overridden: Signal<bool>,
     safe_area: Signal<day_geometry::Insets>,
 }
 
@@ -67,6 +71,7 @@ fn ambient_of(root: RNode) -> WindowAmbient {
         let ambient = day_reactive::Scope::root().enter(|| WindowAmbient {
             size_class: Signal::global(None),
             reported_class: Signal::global(None),
+            overridden: Signal::global(false),
             safe_area: Signal::global(initial_safe_area()),
         });
         m.push((root, ambient));
@@ -135,6 +140,9 @@ pub fn window_size_class_untracked(root: RNode) -> Option<SizeClass> {
 /// signal only notifies when the bucket changes, so a resize within one class is free.
 pub fn set_window_size_class(root: RNode, class: SizeClass) {
     ambient_of(root).reported_class.set(Some(class));
+    if ambient_of(root).overridden.get_untracked() {
+        return;
+    }
     let signal = ambient_of(root).size_class;
     if signal.get_untracked() == Some(class) {
         return;
@@ -152,9 +160,11 @@ pub fn set_size_class(class: SizeClass) {
 /// Force a class the window is not at: dayscript's `size_class:` step and tests.
 ///
 /// Leaves the reported class alone: this is a claim about the window, not a report from it, so
-/// [`restore_reported_size_class`] can still put back what the backend last said.
+/// [`restore_reported_size_class`] can still put back what the backend last said. The force
+/// holds until then, through any reports the backend makes in the meantime.
 pub fn override_size_class(class: SizeClass) {
     let root = primary_root();
+    ambient_of(root).overridden.set(true);
     let signal = ambient_of(root).size_class;
     if signal.get_untracked() == Some(class) {
         return;
@@ -169,6 +179,7 @@ pub fn override_size_class(class: SizeClass) {
 /// forced class is better than none.
 pub fn restore_reported_size_class() {
     let root = primary_root();
+    ambient_of(root).overridden.set(false);
     let Some(class) = ambient_of(root).reported_class.get_untracked() else {
         return;
     };

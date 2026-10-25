@@ -87,9 +87,10 @@ day version                  # print the CLI version, build profile, and git ref
 `Day.toml` so one source tree ships as several apps. [Build flavors](/docs/how-to/flavors) covers the
 file and what each key changes.
 
-`day patch` switches an app from the published git dependency to a local checkout of day, or
-of an external [piece](/docs/reference/glossary#piece) or part, or to a fork of day, and verifies the switch took; [Developing Day and an app together](/contributing/local-development) covers
-when and how to use it.
+`day patch` switches an app from the published crates to a local checkout of day, or of an
+external [piece](/docs/reference/glossary#piece) or part, to a fork, or to the `main` branch of
+every Day repository (`--main`), and verifies the switch took;
+[Developing Day and an app together](/contributing/local-development) covers when and how to use it.
 
 `day pack` produces a standalone, installable package per [target](/docs/reference/glossary#target). See
 [Packaging & distribution](/docs/how-to/packaging) for formats, signing, and CI:
@@ -107,9 +108,8 @@ when and how to use it.
 Run `day new` with no arguments to be walked through choosing what to create (app / piece / part) and
 which platforms and [toolkits](/docs/reference/glossary#toolkit) to support. Every question has an equivalent flag, so the same choices
 can be made non-interactively, e.g. `day new app my-app --toolkit ios-uikit --toolkit macos-appkit
---appid com.example.myapp --title "My App"`. Scaffolds currently depend on `day` from its git
-remote (the framework crates are not yet published to crates.io); once they are, `--registry`
-pins them to your CLI's version from crates.io and will become the default.
+--appid com.example.myapp --title "My App"`. Scaffolds depend on the Day crates from crates.io at
+your CLI's version; `--git` takes them from the day git repository instead.
 
 `--appid` has to name an id every chosen target accepts, since one id serves them all. Android and
 HarmonyOS read it as a Java package name, so each segment starts with a letter and carries no
@@ -275,7 +275,7 @@ day launch --day-src https://github.com/someone/day.git@fix-482            # a P
 ```
 
 `--patch-local <checkout>` is the same idea for anything `day patch --local` takes: a day checkout,
-or an external piece or part the app depends on from git, each recognized by what it carries. It
+or an external piece or part the app depends on, each recognized by what it carries. It
 repeats, and it sits beside `--day-src`, so a framework branch and the piece you are changing
 against it can be tried in one run:
 
@@ -289,10 +289,10 @@ day launch --day-src https://github.com/daybrite/day.git@experimental-nav \
 `day patch` writes `.cargo/config.toml` and every later build uses it until you delete it;
 `--day-src` and `--patch-local` compute the same `[patch]` table, hand it to one cargo run, and
 leave the project exactly as it found it — `Cargo.lock` included, which cargo rewrites during the
-build and which the CLI puts back afterwards. A lock that already holds the framework from git at
-some other version would make cargo skip the table (it warns the patch "was not used in the crate
-graph"), so those packages are relocked onto the checkout for the build — and only those, so every
-other dependency stays at the version the app has. Use `day patch` when you're developing the
+build and which the CLI puts back afterwards. A lock that already holds the framework from
+crates.io at some other version would make cargo skip the table (it warns the patch "was not used
+in the crate graph"), so those packages are relocked onto the checkout for the build — and only
+those, so every other dependency stays at the version the app has. Use `day patch` when you're developing the
 framework and the app together for a while, and the flags when you want one look.
 
 Each combination of sources gets its own build tree under `build/day/day-src/<slug>/`, so two

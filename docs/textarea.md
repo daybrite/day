@@ -25,7 +25,7 @@ otherwise add it to `Cargo.toml`:
 
 ```toml
 [dependencies]
-day = { package = "day-app", git = "https://github.com/daybrite/day.git" }
+day = { package = "day-app", version = "0.6" }
 ```
 
 No additional piece crate or `Day.toml` dependency is needed. Build with the app’s selected

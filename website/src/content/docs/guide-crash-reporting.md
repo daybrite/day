@@ -27,7 +27,7 @@ startup is still recorded:
 
 ```toml
 [dependencies]
-day-piece-crash-reporter = { git = "https://github.com/daybrite/day-piece-break" }
+day-piece-crash-reporter = "0.1"
 ```
 
 The showcase wraps it in a helper called from every entry point:

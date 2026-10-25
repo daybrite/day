@@ -20,11 +20,11 @@ and list markers.
 ## Add to your app
 
 Defined in [`day-piece-text-editor`](https://github.com/daybrite/day/tree/main/crates/day-piece-text-editor). Add this to your app’s `Cargo.toml`
-`[dependencies]` table, using the same Day Git source as the rest of your app:
+`[dependencies]` table, at the same Day version as the rest of your app:
 
 ```toml
 [dependencies]
-day-piece-text-editor = { git = "https://github.com/daybrite/day.git" }
+day-piece-text-editor = "0.6"
 ```
 
 `day build -t <target>` enables this direct dependency’s matching toolkit feature

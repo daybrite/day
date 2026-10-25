@@ -21,7 +21,7 @@ Use it as a build dependency in `Cargo.toml`:
 
 ```toml
 [build-dependencies]
-day-build = { git = "https://github.com/daybrite/day.git" }
+day-build = "0.6"
 ```
 
 A `build.rs` entry point:

@@ -17,11 +17,11 @@ authentication, caching, redirects, and timeouts.
 ## Add to your app
 
 Defined in [`day-part-http`](https://github.com/daybrite/day/tree/main/crates/day-part-http). Add this to your app’s `Cargo.toml`
-`[dependencies]` table, using the same Day Git source as the rest of your app:
+`[dependencies]` table, at the same Day version as the rest of your app:
 
 ```toml
 [dependencies]
-day-part-http = { git = "https://github.com/daybrite/day.git" }
+day-part-http = "0.6"
 ```
 
 The implementation is selected by the compilation target; no toolkit feature flags

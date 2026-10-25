@@ -14,13 +14,12 @@
 //! box. A piece also gets `demo/`: the app template, written by the same code as `day new app` and
 //! cut to one page that shows the piece (`--no-demo` skips it).
 //!
-//! Dependencies default to the **`day` git remote**, because the framework crates are not published
-//! to crates.io yet; `--registry` writes **versioned crates.io** deps pinned to this CLI's own
-//! version (`day-cli x.y.z` scaffolds against `day x.y.z`) for when they are, and the hidden
-//! `--local <path>` flag (or the `DAY_LOCAL` env var) emits `path` deps rooted at a local `day`
-//! checkout, which CI uses to build a freshly-scaffolded crate against the day tree under test.
-//! `--day-version <spec>` pins whichever of those applies to one day: a `vX.Y.Z` tag, a branch, a
-//! commit, or (with `--registry`) a crates.io version. `day doctor verify` drives that flag to check
+//! Dependencies default to **versioned crates.io** deps at this CLI's own version (`day-cli x.y.z`
+//! scaffolds against `day x.y.z`); `--git` takes them from the **`day` git remote** instead, and the
+//! hidden `--local <path>` flag (or the `DAY_LOCAL` env var) emits `path` deps rooted at a local
+//! `day` checkout, which CI uses to build a freshly-scaffolded crate against the day tree under
+//! test. `--day-version <spec>` pins whichever of those applies to one day: a crates.io version,
+//! or (which implies `--git`) a branch or a commit. `day doctor verify` drives that flag to check
 //! several days from one CLI.
 
 use std::path::{Path, PathBuf};
@@ -49,8 +48,8 @@ const PLATFORMS: &[&str] = &["macos", "ios", "android", "linux", "windows"];
 /// day-cli binary to run, so the tool and the framework it scaffolds against stay in step.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum DaySource {
-    /// A published release, `x.y.z`. The framework crates are not on crates.io yet, so a scaffold
-    /// takes the matching `vX.Y.Z` git tag; `--registry` asks for the crates.io version instead.
+    /// A published release, `x.y.z`: that crates.io version, or under `--git` the matching
+    /// `vX.Y.Z` tag.
     Release(String),
     Branch(String),
     Rev(String),
@@ -127,14 +126,13 @@ fn is_release(s: &str) -> bool {
 
 #[derive(Debug)]
 enum Deps {
-    /// Versioned crates.io deps (`--registry`), pinned to this CLI's version or to
-    /// `--day-version <x.y.z>`: `day = { package = "day-app", version = "x.y.z" }`. Becomes the
-    /// default once the day framework crates are published to crates.io.
+    /// Versioned crates.io deps (the default), at this CLI's version or at
+    /// `--day-version <x.y.z>`: `day = { package = "day-app", version = "x.y.z" }`.
     Version(String),
-    /// The `day` git remote (the current default, because the framework crates are not yet on
-    /// crates.io): `day = { package = "day-app", git = "https://github.com/daybrite/day.git" }`,
-    /// with the `--day-version` pin (tag/branch/rev) when one was given, and the remote's default
-    /// branch when none was.
+    /// The `day` git remote (`--git`, or a `--day-version` that names a branch or a commit):
+    /// `day = { package = "day-app", git = "https://github.com/daybrite/day.git" }`, with the
+    /// `--day-version` pin (tag/branch/rev) when one was given, and the remote's default branch
+    /// when none was.
     Git(Option<DaySource>),
     /// A local `day` checkout (`--local <path>` / `DAY_LOCAL`):
     /// `day = { package = "day-app", path = "<root>/<sub>" }`. A normalized, forward-slash,
@@ -144,7 +142,9 @@ enum Deps {
 
 impl Deps {
     /// The `day-version` the shared CI workflow takes for this source: the release, the branch
-    /// or commit a git dep pins, else the day repository's `main`.
+    /// or commit a git dep pins, else the day repository's `main`. Only a git source writes it
+    /// ([`Deps::ci_pinned`]); for crates.io deps the workflow picks the CLI that matches the day
+    /// it builds against.
     fn ci_version(&self) -> String {
         match self {
             Deps::Version(v) => v.clone(),
@@ -155,11 +155,18 @@ impl Deps {
         }
     }
 
+    /// Whether the scaffolded CI names a `day-version` at all: only for a git source, whose CLI
+    /// has to come from the same branch or commit. A crates.io app leaves it to the workflow,
+    /// which installs the release its lock resolves (or `main`'s CLI on a push).
+    fn ci_pinned(&self) -> bool {
+        matches!(self, Deps::Git(_))
+    }
+
     /// Resolve the dependency source: a local checkout (`--local` or `DAY_LOCAL`) wins, then
-    /// `--registry` (versioned crates.io deps: `--day-version x.y.z` if given, else this CLI's
-    /// own version, so a `day-cli x.y.z` binary scaffolds an app depending on `day x.y.z`),
-    /// otherwise the default, the git remote, because the day framework crates are not yet
-    /// published to crates.io. Flip the default back to Version (and retire `--git`) when they are.
+    /// `--git` (the git remote, at the `--day-version` pin), then the default, versioned
+    /// crates.io deps: `--day-version x.y.z` if given, else this CLI's own version, so a
+    /// `day-cli x.y.z` binary scaffolds an app depending on `day x.y.z`. A `--day-version` that
+    /// names a branch or a commit has no crates.io version, so it takes the git remote too.
     ///
     /// The combinations that name two different days are refused rather than silently ranked.
     fn resolve(
@@ -186,19 +193,23 @@ impl Deps {
             let s = s.strip_prefix("//?/").map(str::to_string).unwrap_or(s);
             return Ok(Deps::Local(s));
         }
-        if registry && !git {
-            return match day {
-                None => Ok(Deps::Version(env!("CARGO_PKG_VERSION").to_string())),
-                Some(DaySource::Release(v)) => Ok(Deps::Version(v)),
-                // A branch or a commit has no crates.io version to ask for.
-                Some(other) => Err(format!(
-                    "--registry needs a released version; --day-version named a {}. \
-                     Drop --registry to take it from the git remote.",
-                    other.label()
-                )),
-            };
+        if registry && git {
+            return Err("--registry and --git name two sources; pass one".into());
         }
-        Ok(Deps::Git(day))
+        if git {
+            return Ok(Deps::Git(day));
+        }
+        match day {
+            None => Ok(Deps::Version(env!("CARGO_PKG_VERSION").to_string())),
+            Some(DaySource::Release(v)) => Ok(Deps::Version(v)),
+            // A branch or a commit has no crates.io version to ask for.
+            Some(other) if registry => Err(format!(
+                "--registry needs a released version; --day-version named a {}. \
+                 Drop --registry to take it from the git remote.",
+                other.label()
+            )),
+            Some(other) => Ok(Deps::Git(Some(other))),
+        }
     }
 
     /// A full dependency line for a day workspace crate, with `extra` (e.g. `, optional = true`)
@@ -1613,13 +1624,11 @@ fn template_context(
     // pin's branch or commit, and `main` for an unpinned git dep or a local checkout, which CI
     // cannot reach.
     ctx.insert("day_ci_version", deps.ci_version());
-    // Whether the scaffolded workflow names that version at all: the shared workflow installs
-    // day's main branch by default, so an app that tracks main carries no `day-version` line.
-    // Empty is Handlebars' false.
-    let pinned = deps.ci_version() != "main";
+    // Whether the scaffolded workflow names that version at all ([`Deps::ci_pinned`]). Empty is
+    // Handlebars' false.
     ctx.insert(
         "day_ci_pinned",
-        if pinned { "true" } else { "" }.to_string(),
+        if deps.ci_pinned() { "true" } else { "" }.to_string(),
     );
     // `deploy-web:` for the same workflow, which refuses the flag when web-dom is not a target.
     ctx.insert(
@@ -3822,6 +3831,33 @@ mod day_version_tests {
         );
     }
 
+    /// With no flag, a scaffold depends on the published crates at this CLI's version; a branch
+    /// or a commit has no crates.io version, so it takes the git remote; `--git` with
+    /// `--registry` names two sources and is refused.
+    #[test]
+    fn crates_io_is_the_default_source() {
+        let d = Deps::resolve(None, false, false, None).unwrap();
+        assert_eq!(
+            d.dep("day", ""),
+            format!(
+                "day = {{ package = \"day-app\", version = \"{}\" }}",
+                env!("CARGO_PKG_VERSION")
+            )
+        );
+        assert!(
+            !d.ci_pinned(),
+            "the workflow picks the CLI for crates.io deps"
+        );
+        let d =
+            Deps::resolve(None, false, false, Some(DaySource::Release("0.3.1".into()))).unwrap();
+        assert_eq!(d.dep("day-core", ""), "day-core = { version = \"0.3.1\" }");
+        let d = Deps::resolve(None, false, false, Some(DaySource::Branch("next".into()))).unwrap();
+        assert!(d.dep("day", "").contains("branch = \"next\""), "{d:?}");
+        assert!(d.ci_pinned());
+        let e = Deps::resolve(None, true, true, None).unwrap_err();
+        assert!(e.contains("two sources"), "{e}");
+    }
+
     /// A local checkout and a named version are two different days; asking for both is refused.
     #[test]
     fn local_and_day_version_together_are_refused() {
@@ -3849,7 +3885,12 @@ mod scaffold_tests {
     fn builtin_app_template_renders_the_key_files() {
         let repl = Repl::new("demo-app", Some("dev.example.demoapp"));
         let targets = vec!["macos-appkit".to_string()];
-        let ctx = template_context(&repl, "Demo App".to_string(), &Deps::Git(None), &targets);
+        let ctx = template_context(
+            &repl,
+            "Demo App".to_string(),
+            &Deps::Version("0.6.1".into()),
+            &targets,
+        );
         let files = crate::template::filter_for_targets(crate::template::builtin_app(), &targets);
         let rendered = crate::template::render(&files, &ctx).expect("builtin template renders");
         let text = |path: &str| -> String {
@@ -3872,8 +3913,8 @@ mod scaffold_tests {
         assert!(!text("src/lib.rs").is_empty());
         assert!(!text("src/main.rs").is_empty());
         // The scaffold ships its CI: the shared workflow, on the targets it was scaffolded with,
-        // the CLI from the same source as the dep (left to the default on main), the write grants on the
-        // calling job alone.
+        // the day it builds against picked per event (and the CLI with it), the write grants on
+        // the calling job alone.
         let ci = text(".github/workflows/ci.yml");
         // Named after the project, so the Actions tab reads as the app rather than as "ci".
         assert!(ci.starts_with("# Demo App's CI"), "{ci}");
@@ -3884,15 +3925,26 @@ mod scaffold_tests {
         );
         // Every target Day.toml declares, so adding one there reaches CI without a second edit.
         assert!(ci.contains("\n      targets: all\n"), "{ci}");
-        // An app on day's main branch leaves the CLI to the workflow's default, which is main.
+        // An app on the published crates leaves the CLI to the workflow, which matches it to the
+        // day it builds against: main on a push, the newest release nightly or when not ticked.
         assert!(!ci.contains("day-version"), "{ci}");
+        assert!(
+            ci.contains("\n      day-source: ${{ inputs.day-main && 'main' || 'auto' }}\n"),
+            "{ci}"
+        );
+        assert!(ci.contains("\n  schedule:\n"), "{ci}");
+        assert!(ci.contains("\n      day-main:\n"), "{ci}");
         assert!(ci.contains("deploy-web: false"), "{ci}");
         assert!(ci.contains("\npermissions:\n  contents: read\n"), "{ci}");
         assert!(
             ci.contains("    permissions:\n      contents: write"),
             "{ci}"
         );
-        assert!(!ci.contains("{{"), "an unrendered placeholder in {ci}");
+        // GitHub's own `${{ … }}` expressions are meant to survive; a handlebars one is not.
+        assert!(
+            !ci.replace("${{", "").contains("{{"),
+            "an unrendered placeholder in {ci}"
+        );
     }
 
     #[test]
@@ -4082,7 +4134,8 @@ mod scaffold_tests {
             assert_eq!(ctx["targets_list"], "ios-uikit, web-dom");
         }
         let files = crate::template::filter_for_targets(crate::template::builtin_app(), &targets);
-        let ctx = template_context(&repl, "Demo App".to_string(), &Deps::Git(None), &targets);
+        let published = Deps::Version("0.4.0".into());
+        let ctx = template_context(&repl, "Demo App".to_string(), &published, &targets);
         let rendered = crate::template::render(&files, &ctx).expect("builtin template renders");
         let (_, ci) = rendered
             .iter()
@@ -4091,11 +4144,11 @@ mod scaffold_tests {
         let ci = String::from_utf8_lossy(ci);
         assert!(ci.contains("\n      targets: all\n"), "{ci}");
         assert!(ci.contains("deploy-web: true"), "{ci}");
-        // An app on day's main branch relies on the workflow's own default, main: no line at
-        // all, and none of the blank space a skipped block could leave behind.
+        // An app on the published crates leaves the CLI to the workflow: no version line, and
+        // none of the blank space a skipped block could leave behind.
         assert!(!ci.contains("day-version"), "{ci}");
         assert!(
-            ci.contains("\n      targets: all\n      # Every dayscript"),
+            ci.contains("\n      targets: all\n      # Which day to build against"),
             "{ci}"
         );
         // A pinned app names its version.
@@ -4108,6 +4161,9 @@ mod scaffold_tests {
             .expect("the workflow is scaffolded");
         let ci = String::from_utf8_lossy(ci);
         assert!(ci.contains("\n      day-version: \"0.3.1\"\n"), "{ci}");
+        // …and builds the revision its git dependency pins, not main or a release.
+        assert!(ci.contains("\n      day-source: locked\n"), "{ci}");
+        assert!(!ci.contains("inputs.day-main &&"), "{ci}");
     }
 
     /// A piece's demo is the app template rendered through `render_app`, the path `day new app`

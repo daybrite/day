@@ -17,11 +17,11 @@ when its last subscription ends.
 ## Add to your app
 
 Add [`day-part-sensors`](https://github.com/daybrite/day/tree/main/crates/day-part-sensors)
-to your app's Cargo dependencies, using the same Day Git source as the rest of the app:
+to your app's Cargo dependencies, at the same Day version as the rest of the app:
 
 ```toml
 [dependencies]
-day-part-sensors = { git = "https://github.com/daybrite/day.git" }
+day-part-sensors = "0.6"
 ```
 
 Platform selection follows the compilation target. There are no toolkit feature flags.

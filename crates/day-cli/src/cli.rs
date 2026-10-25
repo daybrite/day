@@ -472,10 +472,14 @@ enum Cmd {
         /// Local Day, piece, or part checkout to use (repeatable)
         #[arg(long, value_name = "CHECKOUT")]
         local: Vec<std::path::PathBuf>,
-        /// Day Git fork to use for all dependencies; append @REF for a branch, tag, or commit
+        /// Git repository (a fork, or a branch of a Day repository) to take its crates from;
+        /// append @REF for a branch, tag, or commit (repeatable)
         #[arg(long, value_name = "URL[@REF]")]
-        git: Option<String>,
-        /// Fail if patched dependencies still resolve to the original Git source
+        git: Vec<String>,
+        /// Take every other Day crate from the head of its repository's default branch
+        #[arg(long)]
+        main: bool,
+        /// Fail if patched dependencies still resolve to their published or Git source
         #[arg(long)]
         check: bool,
     },
@@ -843,10 +847,10 @@ enum NewKind {
         /// Package ID in reverse-DNS form (default: dev.example.<name>)
         #[arg(long)]
         id: Option<String>,
-        /// Use Day dependencies from Git (default)
+        /// Use Day dependencies from Git
         #[arg(long)]
         git: bool,
-        /// Use Day dependencies from crates.io at the selected version
+        /// Use Day dependencies from crates.io at the selected version (default)
         #[arg(long)]
         registry: bool,
         /// Day dependency version: release, latest, branch, or commit
@@ -882,10 +886,10 @@ enum NewKind {
         /// Package ID in reverse-DNS form (default: dev.example.<name>)
         #[arg(long)]
         id: Option<String>,
-        /// Use Day dependencies from Git (default)
+        /// Use Day dependencies from Git
         #[arg(long)]
         git: bool,
-        /// Use Day dependencies from crates.io at the selected version
+        /// Use Day dependencies from crates.io at the selected version (default)
         #[arg(long)]
         registry: bool,
         /// Day dependency version: release, latest, branch, or commit
@@ -948,10 +952,10 @@ enum NewKind {
         /// Legacy comma-separated target list; prefer --toolkit
         #[arg(long, hide = true)]
         targets: Option<String>,
-        /// Use Day dependencies from Git (default)
+        /// Use Day dependencies from Git
         #[arg(long)]
         git: bool,
-        /// Use Day dependencies from crates.io at the selected version
+        /// Use Day dependencies from crates.io at the selected version (default)
         #[arg(long)]
         registry: bool,
         /// Day dependency version: release, latest, branch, or commit
@@ -1227,10 +1231,10 @@ pub enum DoctorCmd {
         /// Keep the generated test projects
         #[arg(long)]
         keep: bool,
-        /// Use Day dependencies from Git (default)
+        /// Use Day dependencies from Git
         #[arg(long)]
         git: bool,
-        /// Use Day dependencies from crates.io at the selected version
+        /// Use Day dependencies from crates.io at the selected version (default)
         #[arg(long)]
         registry: bool,
         /// Day version to check: release, latest, branch, or commit (default: this CLI)
@@ -1586,7 +1590,12 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
             let json = json || cli.format == OutputFormat::Json;
             Ok(crate::lint::run(project, strict, &allow, json, fix))
         }),
-        Cmd::Patch { local, git, check } => {
+        Cmd::Patch {
+            local,
+            git,
+            main,
+            check,
+        } => {
             // A piece or part crate is a cargo package with no Day.toml, and it depends on day
             // from git exactly like an app, so `day patch` takes any cargo package root, and
             // only falls back to the Day-project search when the directory is not one.
@@ -1605,7 +1614,7 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
                         .map_err(|e| CliError::failure(format!("{}: {e}", dir.display())))?
                 }
             };
-            crate::patch::run(&root, &local, git.as_deref(), check).map(|()| 0)
+            crate::patch::run(&root, &local, &git, main, check).map(|()| 0)
         }
         Cmd::Store { cmd } => with_project(cli.project.as_deref(), |project| {
             crate::store::run(project, &cmd).map(|()| 0)

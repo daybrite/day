@@ -73,7 +73,7 @@ Two additions to the app's `Cargo.toml`:
 
 ```toml
 [dependencies]
-day-piece-swiftui = { git = "https://github.com/daybrite/day.git" }
+day-piece-swiftui = "0.6"
 
 [package.metadata.day.ios]
 swift-packages = [{ path = "swiftui", products = ["MyAppViews"] }]

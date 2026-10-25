@@ -20,7 +20,7 @@ the tweak guide:
 
 ```toml
 [dependencies]
-day-tweak-button-bezel = { git = "https://github.com/daybrite/day.git" }
+day-tweak-button-bezel = "0.6"
 ```
 
 ## Documentation

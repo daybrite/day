@@ -21,7 +21,7 @@ the tweak guide:
 
 ```toml
 [dependencies]
-day-tweak-slider-tick-marks = { git = "https://github.com/daybrite/day.git" }
+day-tweak-slider-tick-marks = "0.6"
 ```
 
 ## Documentation

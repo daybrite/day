@@ -18,11 +18,11 @@ integration requires the AppKit or UIKit toolkit.
 ## Add to your app
 
 Defined in [`day-piece-swiftui`](https://github.com/daybrite/day/tree/main/crates/day-piece-swiftui). Add this to your app’s `Cargo.toml`
-`[dependencies]` table, using the same Day Git source as the rest of your app:
+`[dependencies]` table, at the same Day version as the rest of your app:
 
 ```toml
 [dependencies]
-day-piece-swiftui = { git = "https://github.com/daybrite/day.git" }
+day-piece-swiftui = "0.6"
 ```
 
 `day build -t <target>` enables this direct dependency’s matching toolkit feature
@@ -52,7 +52,7 @@ module in lib.rs:
 
 ```toml
 [dependencies]
-day-piece-swiftui = { git = "https://github.com/daybrite/day.git" }
+day-piece-swiftui = "0.6"
 
 [package.metadata.day.ios]
 swift-packages = [{ path = "swiftui", products = ["MyViews"] }]

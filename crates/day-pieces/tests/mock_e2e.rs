@@ -1397,6 +1397,31 @@ fn widening_from_an_unselected_stack_selects_the_first_item() {
     assert_eq!(probe.find_by_kind("day.nav_page").len(), 2);
 }
 
+/// A forced class (dayscript's `size_class:`) holds through the window's own reports until the
+/// script lets go, then the last report comes back.
+#[test]
+fn a_forced_size_class_outlasts_window_reports() {
+    let sel = Signal::new(String::new());
+    let _probe = boot_splittable(Size::new(1000.0, 700.0), move || sidebar_selector(sel));
+    let compact = day_spec::SizeClass::from_size(390.0, 844.0);
+    day_core::override_size_class(compact);
+    flush_sync();
+    assert_eq!(day_core::size_class(), Some(compact));
+
+    // The rebuild a compact layout causes makes the backend report the window again.
+    day_core::set_size_class(day_spec::SizeClass::from_size(1000.0, 700.0));
+    flush_sync();
+    assert_eq!(day_core::size_class(), Some(compact), "the force holds");
+
+    day_core::restore_reported_size_class();
+    flush_sync();
+    assert_eq!(
+        day_core::size_class(),
+        Some(day_spec::SizeClass::from_size(1000.0, 700.0)),
+        "back to the last report"
+    );
+}
+
 /// A pinned presentation ignores the window entirely, including the breakpoint it would
 /// otherwise cross.
 #[test]

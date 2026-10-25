@@ -15,8 +15,8 @@ Add these entries to your app’s `Cargo.toml`:
 
 ```toml
 [dependencies]
-day = { package = "day-app", git = "https://github.com/daybrite/day.git", features = ["model"] }
-day-persistence = { git = "https://github.com/daybrite/day-persistence.git" }
+day = { package = "day-app", version = "0.6", features = ["model"] }
+day-persistence = "0.1"
 ```
 
 The default features provide bundled SQLite and the live-list adapter. Other options include

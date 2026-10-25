@@ -353,6 +353,10 @@ Everything downstream runs its real path: the host re-presents, a piece reading
 [`day::size_class()`](https://daybrite.dev/api/day/fn.size_class.html) rebuilds. What it does not change is the window's pixels, so a screenshot
 after this step shows the new layout at the old size.
 
+The forced class holds until `width: auto` or a `resize:` step, even when the window reports
+its size in the meantime. An app that swaps its whole shell on a class change rebuilds the
+window's content, and the report that follows would otherwise put the old class straight back.
+
 Where the geometry itself is under test, `resize:` moves it:
 
 ```yaml

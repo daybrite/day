@@ -28,17 +28,16 @@ biometric prompt alone does not sign the person in to that service.
 
 ## Add to your app
 
-The defining crate, `day-part-auth`, lives in a separate source checkout. It is not available on
-crates.io, and its public Git repository and hosted Rustdoc are not available yet. With the crate
-beside the app directory, add this dependency to the app's `Cargo.toml`:
+The defining crate, `day-part-auth`, lives in its own repository,
+[daybrite/day-part-auth](https://github.com/daybrite/day-part-auth), and publishes to crates.io.
+Add this dependency to the app's `Cargo.toml`:
 
 ```toml
 [dependencies]
-day-part-auth = { path = "../day-part-auth" }
+day-part-auth = "0.1"
 ```
 
-This path requires that checkout on every machine that builds the app. The crate uses the same
-Day Git source as other [parts](/docs/reference/parts). Build the app with the
+It takes Day from crates.io like the other [parts](/docs/reference/parts). Build the app with the
 [Day CLI](/docs/reference/cli), which generates and packages its native bridge code. There is no
 `[parts]` entry or toolkit feature to add to `Day.toml`. Provider registration, callback schemes,
 and platform entitlements are separate requirements.

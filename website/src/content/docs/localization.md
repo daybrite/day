@@ -180,10 +180,10 @@ Add these dependencies to the reusable crate. Use the same Day revision as the a
 
 ```toml
 [dependencies]
-day-localization-ui = { git = "https://github.com/daybrite/day.git" }
+day-localization-ui = "0.6"
 
 [build-dependencies]
-day-build = { git = "https://github.com/daybrite/day.git" }
+day-build = "0.6"
 ```
 
 In that crate's `build.rs`:

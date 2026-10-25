@@ -21,7 +21,7 @@ the tweak guide:
 
 ```toml
 [dependencies]
-day-tweak-tree-style = { git = "https://github.com/daybrite/day.git" }
+day-tweak-tree-style = "0.6"
 ```
 
 ## Documentation

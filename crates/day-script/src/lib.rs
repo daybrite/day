@@ -1935,6 +1935,8 @@ fn exec(step: Step, revision: u32) -> Reply {
                 if !with_tree(|t| t.ui_idle()) {
                     return Err(Reply::fail("ui transitions still settling", true));
                 }
+                // Real geometry ends a class an earlier `size_class:` step forced.
+                day_core::restore_reported_size_class();
                 day_reactive::flush_sync();
                 let (Some(w), Some(h)) = (width, height) else {
                     // `resize: auto`, or a resize with no dimensions to check against: the
