@@ -15,7 +15,7 @@ Add these entries to your app’s `Cargo.toml`:
 
 ```toml
 [dependencies]
-day = { git = "https://github.com/daybrite/day.git", features = ["model"] }
+day = { package = "day-app", git = "https://github.com/daybrite/day.git", features = ["model"] }
 day-persistence = { git = "https://github.com/daybrite/day-persistence.git" }
 ```
 

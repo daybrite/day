@@ -1,6 +1,5 @@
 [package]
 name = "day-piece-text-editor"
-publish = false
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -70,7 +69,7 @@ day-toolchain = { workspace = true }
 cc = { workspace = true }
 
 [dev-dependencies]
-day-mock = { workspace = true }
+day-mock = { path = "../day-mock" }
 
 # The editor's Android half: an EditText subclass over a SpannableStringBuilder, with the
 # onSelectionChanged hook the framework only exposes to a subclass.

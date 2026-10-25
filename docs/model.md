@@ -21,7 +21,7 @@ of every row's.
 Enable it with the `day` facade's `model` feature:
 
 ```toml
-day = { version = "0.2", features = ["model"] }
+day = { package = "day-app", version = "0.2", features = ["model"] }
 ```
 
 `use day::prelude::*` then brings `Store`, `Keyed`, `Elem`, `Field`, `Source`, the

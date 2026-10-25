@@ -1,6 +1,5 @@
 [package]
 name = "day-piece-swiftui"
-publish = false
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -39,7 +38,7 @@ objc2-app-kit = { workspace = true, optional = true, features = ["NSView", "NSRe
 objc2-ui-kit = { workspace = true, optional = true, features = ["UIView", "UIResponder"] }
 
 [dev-dependencies]
-day-mock = { workspace = true }
+day-mock = { path = "../day-mock" }
 
 # --- Apple backend contributions (docs/extending.md, docs/swiftui.md) ---
 # One shim file serves both platforms (`#if os(...)` selects): the DaySwiftUIProvider base class,

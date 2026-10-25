@@ -30,7 +30,7 @@ crate-type = ["rlib"]
 [dependencies]
 # The checkout this app lives in, by path: the conformance app is built against the commit it
 # sits in, never against a published Day (docs/testing.md).
-day = { path = "../../crates/day", features = ["conformance"] }
+day = { package = "day-app", path = "../../crates/day", features = ["conformance"] }
 # The pieces inside this checkout, each with its own cases (docs/testing.md). Only these: a
 # piece from another repository is that repository's to test.
 day-piece-settings = { path = "../../crates/day-piece-settings", features = ["conformance"] }

@@ -1,6 +1,5 @@
 [package]
 name = "day-toolkit-qt"
-publish = false
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -28,4 +27,4 @@ day-platform-windows = { workspace = true }
 day-platform-linux = { workspace = true }
 
 [target.'cfg(target_os = "macos")'.dependencies]
-day-platform-macos = { path = "../day-platform-macos" }
+day-platform-macos = { path = "../day-platform-macos", version = "0.6.1" }

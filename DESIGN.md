@@ -292,19 +292,24 @@ Day is not a greenfield guess. It consolidates several years of prior art in thi
 | **Porcelain / plumbing** | User-facing CLI commands vs. stable hidden commands invoked by build systems (`day xcode-backend build`, `day gradle-backend build`) ([§16](#16-the-day-cli), [§17.4](#174-the-build-callback-flutters-pattern-exactly--including-the-details-flutter-learned-the-slow-way)). |
 
 **Crate naming.** All crates are prefixed `day-` (`day-core`, `day-reactive`, `day-toolkit-appkit`, …); the
-umbrella facade crate that apps depend on is `day` with the binary tool in `day-cli` producing a
-binary named `day`. DP-24 ([§22](#22-decision-points-for-review)) deferred crates.io reservation during the design phase; the
-release lane is since **wired for crates.io** (publishability verified per PR; Trusted
-Publishing on semver tags, [§20](#20-continuous-integration)) but the crates are **not yet published** — scaffolds default to
-git dependencies (`day new --git`), with `--registry` ready for the day they are.
+umbrella facade crate that apps depend on is the package `day-app`, whose library is named `day`,
+with the binary tool in `day-cli` producing a binary named `day`. An app writes
+`day = { package = "day-app", … }`, so its code says `use day::prelude::*` and its features say
+`day/appkit`; the macros' literal `day::` paths rely on that library name.
+
+> [!NOTE]
+> **Changed 2026-10-25.** The umbrella was the package `day` until crates.io, where kan-tools
+> owns `day`, became a release target. Every crate name was reserved on crates.io on 2026-10-25,
+> and from 0.6.1 every workspace member publishes on a semver tag ([§20](#20-continuous-integration)).
+> Scaffolds still default to git dependencies (`day new --git`), with `--registry` ready.
 
 **Workspace versions.** Every framework crate inherits `[workspace.package].version` through
-`version.workspace = true`. Internal dependencies use workspace paths, including `day-macros`,
-so unpublished crates do not repeat a release version in dependency requirements. The five
-dependencies used by published packages (`day-fonts`, `day-vector`, `day-toolchain`,
-`day-build`, and `day-script-protocol`) retain explicit versions in `[workspace.dependencies]`:
-crates.io requires them, and Cargo cannot inherit a dependency requirement from `[workspace.package]`. Releases update
-the shared package version and these five requirements; member manifests need no version edits.
+`version.workspace = true`. Every internal entry in `[workspace.dependencies]` carries an
+explicit `version` equal to it: crates.io requires one, and Cargo cannot inherit a dependency
+requirement from `[workspace.package]`. Releases update the shared package version and those
+requirements together; member manifests need no version edits. Internal dev-dependencies are
+plain paths with no version, so `cargo publish` drops them; that is what lets `day-model` test
+against `day-pieces`, which depends on it.
 
 Repeated third-party dependencies also share version requirements in `[workspace.dependencies]`,
 including the Apple bindings, GTK/Windows bindings, serialization, database, and build helpers.
@@ -354,7 +359,7 @@ pillars deliberately build on each other:
 ┌─────────────────────────────────────────────────────────────────────┐
 │ app crate (user code: pieces as plain Rust functions)               │
 ├─────────────────────────────────────────────────────────────────────┤
-│ day (umbrella: prelude, launch(), re-exports)                       │
+│ day-app, library `day` (umbrella: prelude, launch(), re-exports)    │
 ├───────────────┬─────────────────────┬───────────────────────────────┤
 │ day-pieces    │ pieces/ · parts/ ·  │ day-localization-ui → day-localization         │
 │ (built-ins,   │ tweaks/ (external   │ (localization)    day-script  │
@@ -416,7 +421,7 @@ and platform contracts remain in the linked documentation.
 | `day-build` | `build.rs` codegen for apps: typed resource constants `res::{images,assets,fonts,str}` plus the `res::locales` catalog ([§18.5](#185-typed-resource-constants-docsresourcesmd)); the single source of the name-sanitization and Fluent-parsing rules the CLI stagers share | day-fonts, day-localization |
 | `day-fonts` | sfnt name-table parsing ([§18.4](#184-bundled-custom-fonts-docsresourcesmd)), shared by the CLI stagers and the runtimes | — |
 | `day-toolchain` | one place that knows where host toolchains/SDKs live — used by the CLI, the `-sys` build scripts, and generated scaffolds | — |
-| `day` | umbrella: `prelude`, `day::launch`, feature-gated re-export of the selected backend, plus `day::prefs` (day-part-preferences, default-on `prefs` feature — [docs/prefs.md](docs/prefs.md)) | all of the above |
+| `day-app` (library `day`) | umbrella: `prelude`, `day::launch`, feature-gated re-export of the selected backend, plus `day::prefs` (day-part-preferences, default-on `prefs` feature — [docs/prefs.md](docs/prefs.md)) | all of the above |
 | `day-platform-windows` | shared Windows services, including the URL share UI used by WinUI, GTK, and Qt | windows; no Day UI dependencies |
 | `crates/day-toolkit-appkit`, `day-toolkit-uikit`, `day-toolkit-gtk`, `day-toolkit-qt` (+`day-toolkit-qt-sys`), `day-toolkit-material`, `day-toolkit-winui` (+`day-toolkit-xaml-sys`), `day-toolkit-arkui`, `day-toolkit-dom` (whose JS shim ships in `crates/day-cli/resources/web/`) | backend crates | day-spec; day-core for native frame tickets and toolkit-access hooks |
 | `crates/day-platform-macos` | Qt macOS window-tab bridge; forwards the toolkit delegate and routes document add/close requests | day-core, day-reactive, day-spec; macOS-only Objective-C bindings |
@@ -6247,10 +6252,16 @@ The `daybrite/actions` companion repository provides reusable workflows for exte
    showcase is its own repository's business ([§20.2](#202-release-signing-isolation)). It does not
    publish the web dist either — the app deploys its own web build to
    daybrite.github.io/Day-Showcase from its own repository, and daybrite.dev links there.
-5. **Release lane** (semver tags) — publishability check (`cargo publish --workspace
-   --dry-run`), tag-vs-version check, GitHub release with the six CLI binaries and the installers,
-   and crates.io Trusted Publishing (wired; crates not yet published —
-   [§1](#1-glossary-and-naming)). It ships the CLI and nothing else: signing, notarizing and
+5. **Release lane** (semver tags) — publishability checks, tag-vs-version check, GitHub release
+   with the six CLI binaries and the installers, and crates.io Trusted Publishing of every
+   workspace member ([§1](#1-glossary-and-naming)). The `release` job runs
+   `cargo publish --workspace --dry-run --no-verify` on Linux, and the `publishable` job runs
+   `cargo package --workspace` on macOS, the one host where every member compiles, so each crate
+   is built from the archive crates.io would serve; both run on every push. The `publish` job
+   uploads through `scripts/release/crates-io.py`, one crate at a time in dependency order,
+   because crates.io takes 30 new versions at once and then one a minute; it runs in steps of at
+   most 25 uploads, each with a fresh 30-minute token, and skips versions already published, so
+   a re-run finishes a release. It ships the CLI and nothing else: signing, notarizing and
    store distribution of an app all belong to that app's repository, through daybrite/actions
    ([§20.2](#202-release-signing-isolation), [docs/store.md](docs/store.md)). The website's `/showcase/` page
    therefore links the release assets of `daybrite/Day-Showcase` over the API
@@ -6865,7 +6876,9 @@ Fluent (M6) and the walkthrough (M7) read packaged resources.
 > — the web experiment never ran; no web backend exists. **DP-9** — lists later shipped ([§10](#10-native-list-integration)).
 > **DP-10** — doctor shipped; `clean`/`config` did not. **DP-22** — piece-internal
 > scriptability was never needed; dayscript drives everything through Day ids. **DP-24** —
-> crates.io publishing is wired but not yet executed ([§1](#1-glossary-and-naming)). **DP-25** — Android process-death
+> option (A) with one change: kan-tools owns `day` on crates.io, so the umbrella is the package
+> `day-app` with library `day`. Every name was reserved on 2026-10-25, and every workspace crate
+> publishes from 0.6.1 ([§1](#1-glossary-and-naming)). **DP-25** — Android process-death
 > restoration remains cold-restart, as accepted. The table is preserved as written.
 
 Each had a recommendation. **DP-16 (row contract) and DP-23 (navigation) were resolved**

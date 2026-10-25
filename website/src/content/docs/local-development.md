@@ -15,7 +15,7 @@ An app's `Cargo.toml` resolves the framework from git:
 
 ```toml
 [dependencies]
-day = { git = "https://github.com/daybrite/day.git" }
+day = { package = "day-app", git = "https://github.com/daybrite/day.git" }
 ```
 
 CI and anyone who clones the app build from that git source. When you are changing a day crate and
@@ -28,7 +28,7 @@ day patch --local ../day     # build against the checkout at ../day
 day patch --check            # verify: no day crate resolves from git
 
 # More than one checkout: day and an external piece you are changing together. Each is
-# recognized by what it carries (the `day` crate, or its manifest's `repository`).
+# recognized by what it carries (the `day-app` crate, or its manifest's `repository`).
 day patch --local ../day --local ../day-piece-lottie
 
 # A fork of day, for good: a committable table that redirects the canonical URL for the
@@ -81,7 +81,7 @@ the locked copy and ignore the table):
 
 ```toml
 [patch."https://github.com/daybrite/day.git"]
-day = { path = "/home/you/src/day/crates/day" }
+day-app = { path = "/home/you/src/day/crates/day" }
 day-toolkit-material = { path = "/home/you/src/day/crates/day-toolkit-material" }
 # … one entry per day crate the app resolves
 ```
@@ -108,7 +108,7 @@ Cargo treats a `[patch]` entry as a resolution candidate and selects the newest 
 version. If the local checkout has a lower version than the Git dependency, Cargo may select
 the Git dependency instead. The check reports both versions. Update the local checkout if
 you intend to build against the latest source. To build against an older commit on purpose, lock the app to it first
-(`cargo update -p day --precise <commit>`) and patch again: a locked dependency whose version
+(`cargo update -p day-core --precise <commit>`) and patch again: a locked dependency whose version
 matches its patch resolves to the patch without asking upstream.
 
 ## Working on the framework and an app in parallel

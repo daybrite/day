@@ -308,7 +308,7 @@ The app depends on `example-star-rating` like any crate, with one line in `Cargo
 # the app's Cargo.toml (the framework crates come from git until they're on crates.io —
 # `day new app` writes this form for you)
 [dependencies]
-day = { git = "https://github.com/daybrite/day.git" }
+day = { package = "day-app", git = "https://github.com/daybrite/day.git" }
 example-star-rating = { path = "../example-star-rating" }   # a plain dependency, nothing else to wire
 ```
 

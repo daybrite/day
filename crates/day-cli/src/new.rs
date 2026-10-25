@@ -128,16 +128,17 @@ fn is_release(s: &str) -> bool {
 #[derive(Debug)]
 enum Deps {
     /// Versioned crates.io deps (`--registry`), pinned to this CLI's version or to
-    /// `--day-version <x.y.z>`: `day = { version = "x.y.z" }`. Becomes the default once the day
-    /// framework crates are published to crates.io.
+    /// `--day-version <x.y.z>`: `day = { package = "day-app", version = "x.y.z" }`. Becomes the
+    /// default once the day framework crates are published to crates.io.
     Version(String),
     /// The `day` git remote (the current default, because the framework crates are not yet on
-    /// crates.io): `day = { git = "https://github.com/daybrite/day.git" }`, with the
-    /// `--day-version` pin (tag/branch/rev) when one was given, and the remote's default branch
-    /// when none was.
+    /// crates.io): `day = { package = "day-app", git = "https://github.com/daybrite/day.git" }`,
+    /// with the `--day-version` pin (tag/branch/rev) when one was given, and the remote's default
+    /// branch when none was.
     Git(Option<DaySource>),
-    /// A local `day` checkout (`--local <path>` / `DAY_LOCAL`): `day = { path = "<root>/<sub>" }`. A
-    /// normalized, forward-slash, TOML-safe absolute path. Used by CI and framework development.
+    /// A local `day` checkout (`--local <path>` / `DAY_LOCAL`):
+    /// `day = { package = "day-app", path = "<root>/<sub>" }`. A normalized, forward-slash,
+    /// TOML-safe absolute path. Used by CI and framework development.
     Local(String),
 }
 
@@ -203,14 +204,20 @@ impl Deps {
     /// A full dependency line for a day workspace crate, with `extra` (e.g. `, optional = true`)
     /// spliced inside the braces. Version/git forms ignore the subpath (cargo resolves by package name).
     fn dep(&self, name: &str, extra: &str) -> String {
+        // The umbrella is package `day-app` with library `day`; apps keep the key `day`.
+        let package = if name == "day" {
+            format!("package = \"{}\", ", crate::patch::DAY_PACKAGE)
+        } else {
+            String::new()
+        };
         match self {
-            Deps::Version(v) => format!("{name} = {{ version = \"{v}\"{extra} }}"),
+            Deps::Version(v) => format!("{name} = {{ {package}version = \"{v}\"{extra} }}"),
             Deps::Git(pin) => format!(
-                "{name} = {{ git = \"{GIT_URL}\"{pin}{extra} }}",
+                "{name} = {{ {package}git = \"{GIT_URL}\"{pin}{extra} }}",
                 pin = pin.as_ref().map(DaySource::git_pin).unwrap_or_default()
             ),
             Deps::Local(root) => format!(
-                "{name} = {{ path = \"{root}/{sub}\"{extra} }}",
+                "{name} = {{ {package}path = \"{root}/{sub}\"{extra} }}",
                 sub = subpath(name)
             ),
         }
@@ -3766,19 +3773,19 @@ mod day_version_tests {
         };
         assert_eq!(
             git(None),
-            "day = { git = \"https://github.com/daybrite/day.git\" }"
+            "day = { package = \"day-app\", git = \"https://github.com/daybrite/day.git\" }"
         );
         assert_eq!(
             git(Some("0.2.0")),
-            "day = { git = \"https://github.com/daybrite/day.git\", tag = \"v0.2.0\" }"
+            "day = { package = \"day-app\", git = \"https://github.com/daybrite/day.git\", tag = \"v0.2.0\" }"
         );
         assert_eq!(
             git(Some("main")),
-            "day = { git = \"https://github.com/daybrite/day.git\", branch = \"main\" }"
+            "day = { package = \"day-app\", git = \"https://github.com/daybrite/day.git\", branch = \"main\" }"
         );
         assert_eq!(
             git(Some("a1b2c3d4")),
-            "day = { git = \"https://github.com/daybrite/day.git\", rev = \"a1b2c3d4\" }"
+            "day = { package = \"day-app\", git = \"https://github.com/daybrite/day.git\", rev = \"a1b2c3d4\" }"
         );
         // `extra` still lands inside the braces, after the pin.
         assert_eq!(
@@ -3794,7 +3801,10 @@ mod day_version_tests {
     #[test]
     fn registry_takes_a_release_and_refuses_a_ref() {
         let d = Deps::resolve(None, false, true, Some(DaySource::Release("0.3.1".into()))).unwrap();
-        assert_eq!(d.dep("day", ""), "day = { version = \"0.3.1\" }");
+        assert_eq!(
+            d.dep("day", ""),
+            "day = { package = \"day-app\", version = \"0.3.1\" }"
+        );
 
         let e =
             Deps::resolve(None, false, true, Some(DaySource::Branch("main".into()))).unwrap_err();
@@ -3805,7 +3815,10 @@ mod day_version_tests {
         let d = Deps::resolve(None, false, true, None).unwrap();
         assert_eq!(
             d.dep("day", ""),
-            format!("day = {{ version = \"{}\" }}", env!("CARGO_PKG_VERSION"))
+            format!(
+                "day = {{ package = \"day-app\", version = \"{}\" }}",
+                env!("CARGO_PKG_VERSION")
+            )
         );
     }
 

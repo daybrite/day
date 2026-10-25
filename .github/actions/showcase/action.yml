@@ -57,11 +57,12 @@ runs:
     # version this commit carries, every framework crate falls back to git, and the check below
     # fails for every job still to come. Locking the git source to this commit first settles it:
     # a locked dependency whose version matches its patch resolves to the patch without asking
-    # upstream. One package is enough: cargo moves the whole git source together.
+    # upstream. One package is enough: cargo moves the whole git source together. It is day-core,
+    # which every app reaches whatever key or package name its manifest gives the umbrella.
     - name: Lock the app's day source to this commit
       shell: bash
       working-directory: ${{ inputs.path }}
-      run: cargo update -p day --precise "$GITHUB_SHA"
+      run: cargo update -p day-core --precise "$GITHUB_SHA"
 
     # The app resolves `day` from git, which is what a user's app does and what its own CI tests.
     # Here it must resolve from this checkout instead, or the walkthrough would exercise a

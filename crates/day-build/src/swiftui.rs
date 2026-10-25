@@ -898,7 +898,7 @@ mod tests {
 name = "showcase"
 
 [dependencies]
-day = { git = "https://github.com/daybrite/day.git" }
+day = { package = "day-app", git = "https://github.com/daybrite/day.git" }
 day-piece-swiftui = { git = "https://github.com/daybrite/day.git" }
 
 [package.metadata.day.ios]

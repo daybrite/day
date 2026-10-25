@@ -100,14 +100,15 @@ mock = ["day/mock"]
 appkit = ["day/appkit"]
 
 [dependencies]
-day = { git = "https://github.com/daybrite/day" }
+day = { package = "day-app", git = "https://github.com/daybrite/day" }
 
 [build-dependencies]
 day-build = { git = "https://github.com/daybrite/day" }
 ```
 
 Cargo fetches the Day crates from Git and records the selected revision in `Cargo.lock`. Keep
-that lockfile with your app. The empty `[workspace]` makes this project independent of any enclosing
+that lockfile with your app. The umbrella crate's package is `day-app`, and its library is `day`,
+so the dependency keeps the key `day` and the code says `use day::prelude::*`. The empty `[workspace]` makes this project independent of any enclosing
 Cargo workspace. The default `mock` feature supports editor checks; `day build -t macos-appkit`
 selects the real AppKit backend instead. `[lib] name = "dayapp"` gives the shared library the
 name used by `main.rs` and generated native hosts.

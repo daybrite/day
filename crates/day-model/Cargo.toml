@@ -3,7 +3,6 @@
 
 [package]
 name = "day-model"
-publish = false
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -22,8 +21,8 @@ uuid = { workspace = true, default-features = false }
 uuid = { workspace = true, default-features = false, features = ["std", "rng", "v4", "v7"] }
 
 [dev-dependencies]
-day-macros = { workspace = true }
-day-core = { workspace = true }
-day-pieces = { workspace = true }
-day-spec = { workspace = true }
-day-mock = { workspace = true }
+day-macros = { path = "../day-macros" }
+day-core = { path = "../day-core" }
+day-pieces = { path = "../day-pieces" }
+day-spec = { path = "../day-spec" }
+day-mock = { path = "../day-mock" }

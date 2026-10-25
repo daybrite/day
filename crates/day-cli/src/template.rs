@@ -255,7 +255,10 @@ mod tests {
         // The app id's organization segment, which website/site.toml builds its Pages host from.
         m.insert("org", "example".to_string());
         m.insert("scheme", "helloworld".to_string());
-        m.insert("day_dep", "day = { version = \"0.0.0\" }".to_string());
+        m.insert(
+            "day_dep",
+            "day = { package = \"day-app\", version = \"0.0.0\" }".to_string(),
+        );
         m.insert(
             "day_build_dep",
             "day-build = { version = \"0.0.0\" }".to_string(),
@@ -322,7 +325,7 @@ mod tests {
         let cargo = rendered.iter().find(|(p, _)| p == "Cargo.toml").unwrap();
         let cargo = std::str::from_utf8(&cargo.1).unwrap();
         assert!(cargo.contains("name = \"hello-world\""));
-        assert!(cargo.contains("day = { version = \"0.0.0\" }"));
+        assert!(cargo.contains("day = { package = \"day-app\", version = \"0.0.0\" }"));
     }
 
     /// The dot-directory conventions: a template repository keeps its own CI under `.github/`,

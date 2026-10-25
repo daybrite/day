@@ -17,9 +17,8 @@ on:
     # Semantic-release tags run a lean release lane: fmt/msrv → the 3×2 day-CLI release
     # builds → the per-combo framework jobs → the `release` job, which publishes the GitHub
     # release (CLI binaries, installers, attestations) → the `publish` job, which uploads the
-    # crates to crates.io via Trusted Publishing (OIDC, so no API-key secret). The `release` job
-    # also runs on every push/PR, where it only verifies publishability with
-    # `cargo publish --dry-run`. The `showcase` job is branch/PR only: a tagged commit was
+    # crates to crates.io via Trusted Publishing (OIDC, so no API-key secret). The `release` and
+    # `publishable` jobs also run on every push/PR, where they only verify publishability. The `showcase` job is branch/PR only: a tagged commit was
     # already validated on main, and the app releases from its own repository.
     tags: ["v[0-9]+.[0-9]+.[0-9]+*"]
   pull_request:
@@ -318,9 +317,38 @@ jobs:
           path: target/${{ matrix.target }}/release/day.exe
           if-no-files-found: error
 
+  # --- Publishable: every crate builds from the archive crates.io would serve ---------------------
+  # `cargo package --workspace` unpacks each .crate and compiles it, the only check that catches a
+  # package that is not self-contained: `include_str!` or `#[path]` reaching outside its package
+  # compiles in-tree and fails for every crates.io user, which shipped once in 0.0.15 (the web-dom
+  # host trio). It runs on macOS because every member compiles there: AppKit and UIKit natively,
+  # GTK and Qt from Homebrew, and the Windows, Android, ArkUI and web crates with their platform
+  # code `cfg`-gated away. Workspace members resolve against each other's packages, so nothing
+  # needs to be on crates.io first. Runs on every ref, tags included; `publish` needs it.
+  publishable:
+    name: publishable (macOS)
+    if: ${{ !inputs.website-only && github.event_name != 'repository_dispatch' }}
+    needs: [fmt]
+    runs-on: xcode-27
+    env:
+      HOMEBREW_NO_AUTO_UPDATE: "1"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Install toolkit deps (Qt, GTK)
+        run: brew install qt gtk4 libadwaita librsvg pkg-config
+      - name: Build every package from its archive (cargo package --workspace)
+        run: cargo package --workspace --locked
+      # As in `release`: the unpacked sources are not worth caching.
+      - name: Drop the unpacked packages before the cache is saved
+        if: ${{ always() }}
+        run: rm -rf target/package
+
   # --- Release: verify publishability always; publish the GitHub release on a semantic tag ---------
-  # Runs on every push / PR / tag. It always runs `cargo publish --workspace --dry-run` to prove the
-  # whole workspace could be published (versions, MPL-2.0 license, metadata, packaging). On a
+  # Runs on every push / PR / tag. It always runs `cargo publish --workspace --dry-run --no-verify`
+  # to prove the whole workspace could be published (versions, MPL-2.0 license, metadata,
+  # packaging, dependency order); the `publishable` job builds each package from its archive. On a
   # semantic-release tag (`vX.Y.Z`) it additionally: checks the tag matches the workspace version;
   # downloads the six day-<os>-<arch> CLI binaries from the 3×2 release builds; repackages them as
   # target-triple archives; renders installer scripts + Homebrew formula from scripts/release/templates
@@ -330,13 +358,9 @@ jobs:
   # release. The actual crates.io upload is the separate `publish` job (Trusted Publishing).
   # `!cancelled()`: the dry-run is independent of the matrix, so a flaky leg still lets the gate report.
   #
-  # The dry-run verifies (it does not pass `--no-verify`): cargo unpacks each .crate and builds it,
-  # which is the only check that catches a package that is not self-contained. `include_str!` reaching
-  # outside its package compiles in-tree and fails for every `cargo install day-cli` user; that
-  # shipped in 0.0.15 (the web-dom host trio). Verification is cheap here because all publishable
-  # tooling crates (day-build, day-cli, day-fonts, day-toolchain, day-vector, day-macros,
-  # day-script-protocol) are host-only tooling; the per-platform
-  # toolkit crates that can't share a runner are all publish=false and are never packaged.
+  # The dry-run here does not build the packages: the toolkit crates need GTK, Qt and the Apple
+  # SDKs, which this Linux runner lacks. Building each package from its archive is the
+  # `publishable` job's, on macOS, where every member compiles.
   release:
     name: release
     # `!cancelled()` would also run this on a website-only run, whose CLI builds never happened.
@@ -358,8 +382,8 @@ jobs:
 
       # Publishability gate: verify the workspace could publish on every push/PR/tag (a green gate on
       # the tagged commit precedes the real upload in the `publish` job).
-      - name: Verify publishability (cargo publish --workspace --dry-run)
-        run: cargo publish --workspace --dry-run --locked
+      - name: Verify publishability (cargo publish --workspace --dry-run --no-verify)
+        run: cargo publish --workspace --dry-run --no-verify --locked
       # The dry-run leaves each unpacked package in target/package. rust-cache's post-job cleanup
       # reads any `tests/` directory there as trybuild output and logs ENOENT errors for day-cli
       # and day-build. The unpacked sources are not worth caching; the verification build's
@@ -435,23 +459,27 @@ jobs:
   # No API-key secret. crates.io Trusted Publishing exchanges this job's GitHub OIDC token (minted by
   # rust-lang/crates-io-auth-action) for a short-lived, publish-scoped token. The job runs in the
   # `release` GitHub environment the crates.io Trusted Publisher config is bound to, so only this
-  # job, on a semantic tag, can mint that token. It publishes the seven publishable crates in
-  # dependency order (including day-script-protocol before day-cli; every other member is
-  # publish=false); --no-verify because the `release` job's dry-run already unpacked and built
-  # each package from this
-  # same commit, and re-verifying mid-upload would risk failing with some crates already published.
-  # `needs: [release]` orders it after the version-match check + GitHub release, and only runs if the
-  # publishability dry-run passed.
+  # job, on a semantic tag, can mint that token.
+  #
+  # Every workspace member is published, in dependency order, by scripts/release/crates-io.py:
+  # crates.io takes 30 new versions at once and then one a minute, so the upload is a throttled
+  # loop rather than `cargo publish --workspace`, which stops at the first refusal. A token lasts
+  # 30 minutes, so the run is split into steps of at most 25 uploads, each authenticating afresh;
+  # 57 crates take about half an hour. The script skips versions crates.io already has, so
+  # re-running a failed job finishes the release. --no-verify inside the script: `publishable`
+  # built every package from this commit.
+  # `needs: [release, publishable]` orders it after the version-match check + GitHub release and
+  # the package builds, and runs it only if both passed.
   publish:
     name: publish (crates.io)
-    needs: [release]
+    needs: [release, publishable]
     # `!cancelled()` is required here, and its absence is why v0.1.5 and v0.2.0 never reached
     # crates.io: a job whose `if` carries no status function gets an implicit `success()`, and that
     # is false when any ancestor was skipped. `toolkit` skips itself on tags (the lean tag lane), so
     # `publish` was skipped too, even though `release` ran and succeeded on its own `!cancelled()`.
     # Overriding the propagation here means the gate has to be spelled out: publish only when
-    # `release` succeeded, on a semantic tag.
-    if: ${{ !cancelled() && needs.release.result == 'success' && startsWith(github.ref, 'refs/tags/v') }}
+    # `release` and `publishable` succeeded, on a semantic tag.
+    if: ${{ !cancelled() && needs.release.result == 'success' && needs.publishable.result == 'success' && startsWith(github.ref, 'refs/tags/v') }}
     runs-on: ubuntu-24.04
     environment: release
     permissions:
@@ -461,14 +489,35 @@ jobs:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      # Exchange the GitHub OIDC token for a temporary crates.io token (no stored API key).
-      - name: Authenticate to crates.io (Trusted Publishing / OIDC)
+      # Each batch exchanges the GitHub OIDC token for its own temporary crates.io token.
+      - name: Authenticate to crates.io (batch 1)
         uses: rust-lang/crates-io-auth-action@v1
-        id: auth
-      - name: Publish to crates.io
+        id: auth1
+      - name: Publish to crates.io (batch 1, up to 25 crates)
         env:
-          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
-        run: cargo publish --workspace --no-verify --locked
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth1.outputs.token }}
+        run: python3 scripts/release/crates-io.py publish --max 25
+      - name: Authenticate to crates.io (batch 2)
+        uses: rust-lang/crates-io-auth-action@v1
+        id: auth2
+      - name: Publish to crates.io (batch 2, up to 25 crates)
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth2.outputs.token }}
+        run: python3 scripts/release/crates-io.py publish --max 25
+      - name: Authenticate to crates.io (batch 3)
+        uses: rust-lang/crates-io-auth-action@v1
+        id: auth3
+      - name: Publish to crates.io (batch 3, the rest)
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth3.outputs.token }}
+        run: python3 scripts/release/crates-io.py publish --max 25
+      - name: Check every crate is published
+        run: |
+          python3 scripts/release/crates-io.py publish --dry-run | tee plan.txt
+          if grep -q 'would publish' plan.txt; then
+            echo "::error::crates remain unpublished; re-run this job to continue"
+            exit 1
+          fi
 
   # --- Day-Showcase, through the shared app workflow -------------------------------------------
   # The reference app's build, walkthrough, packaging and capture legs are NOT written here any

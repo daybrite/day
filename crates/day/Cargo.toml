@@ -1,12 +1,14 @@
 [package]
-name = "day"
-publish = false
+name = "day-app"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 description.workspace = true
 repository.workspace = true
 license.workspace = true
+
+[lib]
+name = "day"
 
 [features]
 fs = ["dep:day-part-filesystem"]
@@ -84,4 +86,4 @@ day-mock = { workspace = true, optional = true }
 
 [dev-dependencies]
 # The mock toolkit boots a tree for the facade's own wiring tests (install_edit_commands).
-day-mock = { workspace = true }
+day-mock = { path = "../day-mock" }

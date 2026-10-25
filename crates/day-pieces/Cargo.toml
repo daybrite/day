@@ -1,6 +1,5 @@
 [package]
 name = "day-pieces"
-publish = false
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -38,7 +37,7 @@ model = ["dep:day-model"]
 conformance = []
 
 [dev-dependencies]
-day-mock = { workspace = true }
+day-mock = { path = "../day-mock" }
 
 [target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
 objc2 = { workspace = true }

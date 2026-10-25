@@ -574,8 +574,8 @@ temporary directory (`cargo install`), so nothing on your PATH changes. The same
 `day new --day-version`, which is available on its own if you only want to pin a project:
 
 ```bash
-day new app my-app --day-version main       # day = { git = "…", branch = "main" }
-day new app my-app --day-version 0.2.0      # day = { git = "…", tag = "v0.2.0" }
+day new app my-app --day-version main       # day = { package = "day-app", git = "…", branch = "main" }
+day new app my-app --day-version 0.2.0      # day = { package = "day-app", git = "…", tag = "v0.2.0" }
 ```
 
 A release pins the matching `vX.Y.Z` git tag today, because the framework crates aren't on

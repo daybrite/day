@@ -6,7 +6,7 @@
 //! An app outside this repository declares its framework dependencies from git:
 //!
 //! ```toml
-//! day = { git = "https://github.com/daybrite/day.git" }
+//! day = { package = "day-app", git = "https://github.com/daybrite/day.git" }
 //! day-piece-lottie = { git = "https://github.com/daybrite/day-piece-lottie.git" }
 //! ```
 //!
@@ -51,6 +51,10 @@ use crate::ops::status;
 /// table. A checkout that carries the `day` crate stands for this URL whatever its manifest's
 /// `repository` says, so a fork checked out locally still patches the canonical name.
 pub(crate) const DAY_GIT: &str = "https://github.com/daybrite/day.git";
+
+/// The umbrella crate's package name. Apps depend on it under the key `day`, its library name
+/// (`day = { package = "day-app", … }`); a patch table names the package.
+pub(crate) const DAY_PACKAGE: &str = "day-app";
 
 /// One triple per platform Day targets. A day crate reaches an app through the umbrella and the
 /// parts, under `[target.'cfg(…)'.dependencies]` tables the app never names itself, so the set to
@@ -408,12 +412,12 @@ fn outranked(sources: &[Source], missing: &[(String, String, String)]) -> Option
 
 /// The git URL a checkout on disk stands for.
 ///
-/// A checkout carrying the `day` crate is the framework, whatever its manifest says: a fork
+/// A checkout carrying the `day-app` crate is the framework, whatever its manifest says: a fork
 /// cloned locally must patch the canonical URL the app's dependencies name, not the fork's own.
 /// Anything else is identified by its manifest's `repository` (the package's, or the workspace's),
 /// which is the URL its consumers depend on.
 fn checkout_url(root: &Path, crates: &BTreeMap<String, PathBuf>) -> Result<String, String> {
-    if crates.contains_key("day") {
+    if crates.contains_key(DAY_PACKAGE) {
         return Ok(DAY_GIT.to_string());
     }
     let manifest = root.join("Cargo.toml");
@@ -476,9 +480,11 @@ fn manifest_git_deps(root: &Path) -> Result<Vec<(String, String)>, String> {
         let Some(table) = table.as_table() else {
             continue;
         };
-        for (name, spec) in table {
+        for (key, spec) in table {
             if let Some(git) = spec.get("git").and_then(|g| g.as_str()) {
-                let entry = (name.clone(), canon(git));
+                // A patch entry names the package, which `package =` renames away from the key.
+                let name = spec.get("package").and_then(|p| p.as_str()).unwrap_or(key);
+                let entry = (name.to_string(), canon(git));
                 if !names.contains(&entry) {
                     names.push(entry);
                 }
@@ -576,6 +582,16 @@ fn patch_tables(root: &Path, sources: &[Source], header: &str) -> Result<(String
                         }
                         None => missing.push(name.clone()),
                     }
+                }
+                if missing.iter().any(|n| n == "day") && available.contains_key(DAY_PACKAGE) {
+                    return Err(format!(
+                        "the checkout at {} names its umbrella `{DAY_PACKAGE}`, but this graph \
+                         still depends on a package called `day`: the app's manifest needs \
+                         `day = {{ package = \"{DAY_PACKAGE}\", … }}`, and a piece or part \
+                         from git that still says `day` needs that change too (patch its \
+                         checkout with another --local)",
+                        checkout.display()
+                    ));
                 }
                 if !missing.is_empty() {
                     return Err(format!(
@@ -1039,7 +1055,7 @@ pub fn verify_graph(project: &Project) -> Result<(), String> {
             Some(s) => s.to_string(),
             None => format!("path {}", manifest.unwrap_or("?")),
         };
-        if name == "day" {
+        if name == DAY_PACKAGE {
             day_version = Some(version.to_string());
         }
         copies
@@ -1173,9 +1189,9 @@ pub fn resolve_day_src(arg: &str) -> Result<DaySrc, CliError> {
     // failure without this check is a resolver error about a missing crate, several minutes in.
     let crates = checkout_crates(&checkout)
         .map_err(|e| CliError::usage(format!("--day-src {}: {e}", checkout.display())))?;
-    if !crates.contains_key("day") {
+    if !crates.contains_key(DAY_PACKAGE) {
         return Err(CliError::usage(format!(
-            "--day-src {}: a cargo workspace, but not a day checkout (no `day` crate in it) — \
+            "--day-src {}: a cargo workspace, but not a day checkout (no `day-app` crate in it) — \
              for a piece or part checkout use --patch-local",
             checkout.display()
         )));
@@ -1537,7 +1553,7 @@ mod tests {
             "https://example.invalid/service",
         );
         std::fs::write(service.join("Cargo.toml"), "[package]\nname='service'\nversion='0.1.0'\nrepository='https://example.invalid/service'\n[workspace]\n[workspace.dependencies]\nday-platform-android={git='https://github.com/daybrite/day.git'}\n[dependencies]\nday-platform-android.workspace=true\n").unwrap();
-        let day = day_checkout(&tmp.join("day"), &["day", "day-platform-android"]);
+        let day = day_checkout(&tmp.join("day"), &["day-app", "day-platform-android"]);
         let wanted = wanted_by_source(
             &app.root,
             &[
@@ -1594,11 +1610,11 @@ name = "app"
 version = "0.1.0"
 
 [dependencies]
-day = { git = "https://github.com/daybrite/day.git" }
+day = { package = "day-app", git = "https://github.com/daybrite/day.git" }
 day-build = { git = "https://github.com/daybrite/day.git" }
 "#,
         );
-        let checkout = day_checkout(&tmp.join("day"), &["day", "day-build", "day-core"]);
+        let checkout = day_checkout(&tmp.join("day"), &["day-app", "day-build", "day-core"]);
 
         let (table, count) = patch_tables(
             &project.root,
@@ -1611,7 +1627,7 @@ day-build = { git = "https://github.com/daybrite/day.git" }
             table.contains("[patch.\"https://github.com/daybrite/day.git\"]"),
             "{table}"
         );
-        assert!(table.contains("day = { path ="), "{table}");
+        assert!(table.contains("day-app = { path ="), "{table}");
         assert!(table.contains("day-build = { path ="), "{table}");
         assert!(
             !table.contains("day-core = {"),
@@ -1634,11 +1650,11 @@ name = "app"
 version = "0.1.0"
 
 [dependencies]
-day = { git = "https://github.com/daybrite/day.git" }
+day = { package = "day-app", git = "https://github.com/daybrite/day.git" }
 day-piece-lottie = { git = "https://github.com/daybrite/day-piece-lottie.git" }
 "#,
         );
-        let day = day_checkout(&tmp.join("day"), &["day"]);
+        let day = day_checkout(&tmp.join("day"), &["day-app"]);
         let lottie = piece_checkout(
             &tmp.join("lottie"),
             "day-piece-lottie",
@@ -1651,7 +1667,7 @@ day-piece-lottie = { git = "https://github.com/daybrite/day-piece-lottie.git" }
         let (table, count) = patch_tables(&project.root, &sources, "").expect("table");
         assert_eq!(count, 2, "{table}");
         assert!(
-            table.contains("[patch.\"https://github.com/daybrite/day.git\"]\nday = { path ="),
+            table.contains("[patch.\"https://github.com/daybrite/day.git\"]\nday-app = { path ="),
             "{table}"
         );
         assert!(
@@ -1678,7 +1694,7 @@ name = "app"
 version = "0.1.0"
 
 [dependencies]
-day = { git = "https://github.com/daybrite/day.git" }
+day = { package = "day-app", git = "https://github.com/daybrite/day.git" }
 "#,
         );
         let fork = Source {
@@ -1695,8 +1711,9 @@ day = { git = "https://github.com/daybrite/day.git" }
             "{table}"
         );
         assert!(
-            table
-                .contains("day = { git = \"https://github.com/acme/day.git\", branch = \"acme\" }"),
+            table.contains(
+                "day-app = { git = \"https://github.com/acme/day.git\", branch = \"acme\" }"
+            ),
             "{table}"
         );
         let _ = std::fs::remove_dir_all(&tmp);
@@ -1736,7 +1753,7 @@ day = { git = "https://github.com/daybrite/day.git" }
     fn an_outranked_checkout_is_explained_by_version() {
         let tmp = std::env::temp_dir().join(format!("day-patch-outranked-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&tmp);
-        let checkout = day_checkout(&tmp.join("day"), &["day", "day-core"]);
+        let checkout = day_checkout(&tmp.join("day"), &["day-app", "day-core"]);
         assert_eq!(
             checkout_versions(&checkout)
                 .get("day-core")
@@ -1747,13 +1764,13 @@ day = { git = "https://github.com/daybrite/day.git" }
         let sources = [checkout_source(DAY_GIT, &checkout)];
         let at = |v: &str| {
             [
-                ("day".to_string(), canon(DAY_GIT), v.to_string()),
+                ("day-app".to_string(), canon(DAY_GIT), v.to_string()),
                 ("day-core".to_string(), canon(DAY_GIT), v.to_string()),
             ]
         };
         let why = outranked(&sources, &at("0.2.0")).expect("a newer main outranks the checkout");
         assert!(
-            why.contains("day v0.2.0") && why.contains("has v0.1.0"),
+            why.contains("day-app v0.2.0") && why.contains("has v0.1.0"),
             "{why}"
         );
         // Equal versions: the patch would have shadowed git, so the reason lies elsewhere.
@@ -1775,11 +1792,11 @@ name = "app"
 version = "0.1.0"
 
 [dependencies]
-day = { git = "https://github.com/daybrite/day.git" }
+day = { package = "day-app", git = "https://github.com/daybrite/day.git" }
 day-part-http = { git = "https://github.com/daybrite/day.git" }
 "#,
         );
-        let checkout = day_checkout(&tmp.join("day"), &["day"]);
+        let checkout = day_checkout(&tmp.join("day"), &["day-app"]);
         let err = patch_tables(&project.root, &[checkout_source(DAY_GIT, &checkout)], "")
             .expect_err("day-part-http is absent");
         assert!(err.contains("day-part-http"), "{err}");
@@ -1793,7 +1810,7 @@ day-part-http = { git = "https://github.com/daybrite/day.git" }
     fn a_checkout_is_identified_by_what_it_carries() {
         let tmp = std::env::temp_dir().join(format!("day-patch-ident-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&tmp);
-        let day = day_checkout(&tmp.join("day"), &["day", "day-core"]);
+        let day = day_checkout(&tmp.join("day"), &["day-app", "day-core"]);
         let crates = checkout_crates(&day).expect("workspace");
         assert_eq!(checkout_url(&day, &crates).expect("url"), DAY_GIT);
 
@@ -1859,7 +1876,7 @@ day-part-http = { git = "https://github.com/daybrite/day.git" }
             r#"version = 4
 
 [[package]]
-name = "day"
+name = "day-app"
 version = "0.4.10"
 source = "git+https://github.com/daybrite/day.git#9996c0743ca8390a5c6f09eb1631caee55fd2a52"
 
@@ -1869,7 +1886,7 @@ version = "0.4.10"
 source = "git+https://github.com/daybrite/day.git?branch=main#9996c0743ca8390a5c6f09eb1631caee55fd2a52"
 
 [[package]]
-name = "day"
+name = "day-app"
 version = "0.5.0"
 
 [[package]]
@@ -1889,7 +1906,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
             stale,
             vec![
                 (
-                    "day".to_string(),
+                    "day-app".to_string(),
                     "0.4.10".to_string(),
                     "https://github.com/daybrite/day.git".to_string()
                 ),
@@ -2017,7 +2034,7 @@ name = "app"
 version = "0.1.0"
 
 [dependencies]
-day = { git = "https://github.com/daybrite/day.git" }
+day = { package = "day-app", git = "https://github.com/daybrite/day.git" }
 day-part-http = { git = "https://github.com/daybrite/day.git" }
 day-piece-lottie = { git = "https://github.com/daybrite/day-piece-lottie.git" }
 serde = "1"
@@ -2033,7 +2050,7 @@ day-part-device = { git = "https://github.com/daybrite/day.git" }
         assert_eq!(
             deps,
             [
-                ("day".to_string(), day.clone()),
+                ("day-app".to_string(), day.clone()),
                 ("day-part-device".to_string(), day.clone()),
                 ("day-part-http".to_string(), day),
                 (
@@ -2061,7 +2078,7 @@ name = "app"
 version = "0.1.0"
 
 [dependencies]
-day = { git = "https://github.com/daybrite/day.git" }
+day = { package = "day-app", git = "https://github.com/daybrite/day.git" }
 "#,
         );
         let deps = manifest_git_deps(&project.root).expect("deps");
@@ -2088,10 +2105,10 @@ day = { git = "https://github.com/daybrite/day.git" }
             .nth(2)
             .expect("repo root");
         let crates = checkout_crates(here).expect("this repo is a day checkout");
-        assert!(crates.contains_key("day"), "the facade crate");
+        assert!(crates.contains_key(DAY_PACKAGE), "the facade crate");
         assert!(crates.contains_key("day-cli"), "this crate");
         assert!(
-            crates["day"].join("Cargo.toml").is_file(),
+            crates[DAY_PACKAGE].join("Cargo.toml").is_file(),
             "the mapped path is a real crate dir"
         );
     }

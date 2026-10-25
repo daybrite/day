@@ -814,7 +814,7 @@ no longer parses) is ignored rather than restoring a broken state.
 
 [`.restore`](https://daybrite.dev/api/day_pieces/trait.NavBuilder.html#tymethod.restore) reads and writes through the app's preferences: [`day::launch`](https://daybrite.dev/api/day/fn.launch.html) installs
 [`day::prefs::install_nav_store()`](https://daybrite.dev/api/day/prefs/fn.install_nav_store.html) before the UI mounts unless the app installed a store of its
-own with [`day_core::set_nav_store`](https://daybrite.dev/api/day_core/fn.set_nav_store.html) first (or turned off the `day` crate's `prefs` feature).
+own with [`day_core::set_nav_store`](https://daybrite.dev/api/day_core/fn.set_nav_store.html) first (or turned off the `day-app` crate's `prefs` feature).
 
 The prefs store is disk-backed, so restore also survives an **Android process death**: the OS
 reclaims a backgrounded app and rebuilds it on return, and the value is still on disk. With no

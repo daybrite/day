@@ -287,7 +287,7 @@ edition = "2024"
 name = "dayapp"
 
 [dependencies]
-day = { path = "../../crates/day", features = ["mock"] }
+day = { package = "day-app", path = "../../crates/day", features = ["mock"] }
 day-part-http = { path = "../../crates/day-part-http" }
 day-part-filesystem = { path = "../../crates/day-part-filesystem" }
 day-part-permissions = { path = "../../crates/day-part-permissions" }
