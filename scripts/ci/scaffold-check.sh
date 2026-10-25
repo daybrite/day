@@ -154,7 +154,7 @@ done
 if [ -n "$COMBO" ]; then
     case "$COMBO" in
         # The combos `day pack` supports (pack/mod.rs); only these can go on to the rebuild.
-        macos-appkit | ios-uikit | android-mdc | linux-gtk | linux-qt | windows-winui | harmony-arkui) ;;
+        macos-appkit | ios-uikit | android-material | linux-gtk | linux-qt | windows-winui | harmony-arkui) ;;
         *)
             echo "day pack does not support $COMBO yet — stopping after the lint"
             cd "$ROOT"
@@ -222,13 +222,13 @@ SWIFT
     # (whose HarmonyOS staging happened to fill the cache) carried the glyphs and the rebuild's
     # pack carried none (2026-09). Without this step that class of bug is only caught by luck.
     "$DAY" build -t "$COMBO"
-    if [ "$COMBO" = android-mdc ]; then
+    if [ "$COMBO" = android-material ]; then
         python3 "$ROOT/scripts/ci/check-android-manifest-overlay.py" "$PWD"
     fi
 
     "$DAY" pack -t "$COMBO" --profile release --no-version-in-name
 
-    if [ "$COMBO" = android-mdc ]; then
+    if [ "$COMBO" = android-material ]; then
         # AGP only warns when its strip tool is missing. A rebuild can coincidentally match even
         # then, so explicitly check both published formats using the CI runner's selected NDK.
         for PACKAGE in build/day/dist/*.apk build/day/dist/*.aab; do

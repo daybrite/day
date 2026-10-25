@@ -23,7 +23,7 @@ def main():
     app.mkdir(parents=True)
     logs = session / 'logs'
     logs.mkdir()
-    for folder in ('crates', 'parts', 'pieces', 'toolkits', 'tweaks'):
+    for folder in ('crates',):
         (session / folder).symlink_to(ROOT / folder, target_is_directory=True)
     for name in ('Cargo.toml', 'Cargo.lock'):
         shutil.copyfile(ROOT / name, session / name)
@@ -76,7 +76,7 @@ flow:
             'framework_head': subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT).decode().strip(),
             'framework_state': 'working tree; see framework_hashes, not HEAD alone',
             'framework_hashes': {str(p.relative_to(ROOT)): hashlib.sha256(p.read_bytes()).hexdigest()
-                                 for folder in ('crates', 'toolkits', 'parts', 'pieces', 'tweaks')
+                                 for folder in ('crates',)
                                  for p in (ROOT / folder).rglob('*') if p.is_file() and p.suffix in ('.rs', '.toml', '.m', '.mm', '.cpp', '.h', '.swift')},
             'tutorial_sources': sources,
             'app_files': {str(p.relative_to(app)): hashlib.sha256(p.read_bytes()).hexdigest()

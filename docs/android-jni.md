@@ -11,28 +11,28 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 # Android JNI bindings (`java_class!`)
 
 > [!NOTE]
-> **Status: shipped 2026-10.** Every Rust-to-Java call in day-mdc, the first-party pieces,
+> **Status: shipped 2026-10.** Every Rust-to-Java call in day-toolkit-material, the first-party pieces,
 > parts and tweaks, and the code daybridge generates goes through a `java_class!` binding. The
 > hand-typed `DayEnv` helpers (`dcall_static`, `dcall`, `dfield`, `dfind`, `try_make_view_on`) are
 > gone.
 
-`day-android-runtime` owns the JVM, thread attachment, app class loader, Java binding registry,
+`day-platform-android` owns the JVM, thread attachment, app class loader, Java binding registry,
 and shared Java `DayRuntime` context and main-thread handler. It has no widget-backend dependency.
-`day-mdc` implements Material Design Components views and depends on this runtime. Headless
+`day-toolkit-material` implements Material Design Components views and depends on this runtime. Headless
 services depend directly on the runtime; native pieces depend on both crates.
 
 An Android host sets `DayRuntime.ctx` to its current context before initializing the Rust runtime
 with an app-loaded class. It refreshes that context when its activity is recreated or resumed.
 The runtime retains the process-wide JVM and class loader and validates all linked bindings.
-A future Compose or canvas backend can follow this contract without linking MDC. The existing
-`android-mdc` target and its Activity, Gradle plugin, and widget event bridge remain owned by MDC.
+A future Compose or canvas backend can follow this contract without linking Material Components. The existing
+`android-material` target and its Activity, Gradle plugin, and widget event bridge remain owned by Material Components.
 
 A **binding** declares one Java class to Rust once: the methods Rust calls, the fields it reads,
 and the native methods Java calls back. The declaration gives Rust typed calls with cached method
 IDs, a check at launch that the Java still matches, and an R8 keep rule for exactly what is bound.
 
 ```rust
-day_android_runtime::java_class! {
+day_platform_android::java_class! {
     DayCombo => dev.daybrite.day.piece.combobox.DayCombo,
     methods {
         static fn makeCombo(id: jlong, items: JString, text: JString, placeholder: JString)
@@ -42,7 +42,7 @@ day_android_runtime::java_class! {
 }
 
 fn update(_backend: &mut Android, h: &AHandle, text: &str) {
-    day_android_runtime::java(|env| {
+    day_platform_android::java(|env| {
         let text = JString::from_str(env, text)?;
         DayCombo::setComboText(env, h.0.as_obj(), &text)
     });
@@ -102,7 +102,7 @@ A `native_methods` block declares what Java calls. The binding generates a trait
 `<Name>NativeInterface`, implemented on `<Name>API`:
 
 ```rust
-day_android_runtime::java_class! {
+day_platform_android::java_class! {
     DayLocation => dev.daybrite.day.location.DayLocation,
     native_methods {
         static fn nativeError(code: jint),
@@ -110,7 +110,7 @@ day_android_runtime::java_class! {
 }
 
 impl DayLocationNativeInterface for DayLocationAPI {
-    type Error = day_android_runtime::jni::errors::Error;
+    type Error = day_platform_android::jni::errors::Error;
     fn nativeError<'l>(_env: &mut Env<'l>, _class: JClass<'l>, code: i32) -> Result<(), Self::Error> {
         crate::deliver(Err(match code {
             1 => LocationError::PermissionDenied,
@@ -125,7 +125,7 @@ impl DayLocationNativeInterface for DayLocationAPI {
 Each native is registered with the JVM when the startup check resolves the binding, and exported
 under its JNI symbol name as well. jni's wrapper catches a panic and logs a returned error
 (`LogErrorAndDefault`), so neither can unwind into the JVM. A native that should throw into Java
-instead sets `error_policy = day_android_runtime::jni::errors::ThrowRuntimeExAndDefault` in block form.
+instead sets `error_policy = day_platform_android::jni::errors::ThrowRuntimeExAndDefault` in block form.
 
 Natives that start the app (`DayBridge.nativeStart`, `nativeStartWindow`) stay in the app's
 `day_start_android!`, because they name the app's root piece.
@@ -136,7 +136,7 @@ A binding can name any class: Day's own, the Android platform's, or a library's.
 
 - **Bind where a method is declared.** An R8 keep rule names one class, and keeps only members that
   class declares. Material's `Slider` inherits `getValueFrom` from `BaseSlider`, so a binding of
-  `Slider` would leave that method free to be renamed. day-tweak-slider-tickmarks binds both.
+  `Slider` would leave that method free to be renamed. day-tweak-slider-tick-marks binds both.
 - **Core types are jni's.** `java.lang.Object`, `Class`, `String` and `Throwable` cannot be bound;
   jni's `JObject`, `JClass` (with `get_class_loader`), `JString` and `JThrowable` cover them.
 
@@ -146,12 +146,12 @@ day-tweak-tooltip does for `View.setTooltipText`.
 
 ## The startup check
 
-Every binding registers itself in `day_android_runtime::JAVA_CLASSES`. `day_android_runtime::init`, called by the backend, resolves each
+Every binding registers itself in `day_platform_android::JAVA_CLASSES`. `day_platform_android::init`, called by the backend, resolves each
 one: it loads the class, looks up every bound method and field, and registers the natives. A Java
 class missing from the build, or a member renamed or retyped, is named in logcat:
 
 ```text
-day-android-runtime: Java binding dev.daybrite.day.piece.combobox.DayCombo does not match the app's classes: Method not found: setComboText (Landroid/view/View;Ljava/lang/String;)V
+day-platform-android: Java binding dev.daybrite.day.piece.combobox.DayCombo does not match the app's classes: Method not found: setComboText (Landroid/view/View;Ljava/lang/String;)V
 ```
 
 A binding resolves as a whole, so one missing member fails every call through that class. In a
@@ -177,14 +177,14 @@ section of the app's native library:
 ```
 
 After cargo links the library, `day build` reads the section back into
-`build/day/android/day-jni-keep.pro` and hands it to R8 with day-android-runtime's `proguard-rules.pro`.
+`build/day/android/day-jni-keep.pro` and hands it to R8 with day-platform-android's `proguard-rules.pro`.
 Rules come from the library rather than the sources, so they cover exactly the bindings linked into
 this app, including any another macro generates. `includedescriptorclasses` keeps the classes in a
 kept member's signature, whose renaming would change the descriptor jni looks the method up by.
 
 Nothing else in Day's Java is kept by name. Activities, services, providers and receivers are kept
 by the rules AGP generates from the merged manifest; classes with natives keep their native methods
-by day-android-runtime's rule; everything else R8 may shrink and rename. A component that reaches Java by
+by day-platform-android's rule; everything else R8 may shrink and rename. A component that reaches Java by
 reflection ships its own rules in `[package.metadata.day.android].proguard`
 ([extending](extending.md)).
 

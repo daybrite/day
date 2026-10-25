@@ -19,7 +19,7 @@ with a clip, and the player turns either off in its settings.
 
 ## Add to your app
 
-Defined in [`day-part-sound`](https://github.com/daybrite/day/tree/main/parts/day-part-sound). Add this to your app’s `Cargo.toml`
+Defined in [`day-part-sound`](https://github.com/daybrite/day/tree/main/crates/day-part-sound). Add this to your app’s `Cargo.toml`
 `[dependencies]` table, using the same Day Git source as the rest of your app:
 
 ```toml

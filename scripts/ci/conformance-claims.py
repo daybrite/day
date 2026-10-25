@@ -33,7 +33,7 @@ COLUMN = {
     "macos-qt": "qt",
     "windows-qt": "qt",
     "windows-winui": "xaml",
-    "android-mdc": "android",
+    "android-material": "android",
     "harmony-arkui": "arkui",
     "web-dom": "dom",
 }

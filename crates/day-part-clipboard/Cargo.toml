@@ -1,0 +1,51 @@
+[package]
+name = "day-part-clipboard"
+publish = false
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description.workspace = true
+repository.workspace = true
+license.workspace = true
+
+# A headless day-ecosystem crate (no UI Piece): a shared cross-platform API for the system's
+# plain-text clipboard via each platform's native API. Any Rust code can depend on it and call
+# `day_part_clipboard::{set_text, get_text, has_text}`. Platform selection is by `#[cfg(target_os)]`
+# (the clipboard is an OS concern, not a widget-toolkit one), so there are no backend features; it
+# "just works" per target:
+#   macOS:     NSPasteboard (AppKit; toolkit-independent, works under day-toolkit-qt binaries too)
+#   iOS:       UIPasteboard
+#   Windows:   Win32 OpenClipboard/CF_UNICODETEXT (raw FFI)
+#   Linux:     wl-copy/wl-paste (Wayland) falling back to xclip (X11), via std::process
+#   HarmonyOS: native libpasteboard.so + libudmf.so (BasicServicesKit), gated on target_env = "ohos"
+#   Android:   ClipboardManager via the inline Java arm in src/android.rs (docs/bridge.md)
+# See docs/clipboard.md + docs/extending.md.
+
+[dependencies]
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2-app-kit = { workspace = true, features = ["NSPasteboard"] }
+objc2 = { workspace = true }
+objc2-foundation = { workspace = true, features = ["NSString", "NSData", "NSArray", "NSDictionary"] }
+
+[target.'cfg(target_os = "ios")'.dependencies]
+day-async = { workspace = true }
+objc2-ui-kit = { workspace = true, features = ["UIPasteboard"] }
+objc2 = { workspace = true }
+objc2-foundation = { workspace = true, features = ["NSString", "NSData", "NSArray", "NSDictionary"] }
+
+# Android reads ClipboardManager through a Java shim + day-platform-android's cached JVM/Context. This is the
+# one platform where the headless crate rides on the day runtime (like the pieces' Android backends).
+[target.'cfg(target_os = "android")'.dependencies]
+day-platform-android = { workspace = true }
+base64 = "0.23"
+# daybridge (docs/bridge.md): the Java arm and its declaration live in src/android.rs, so the
+# dependency is Android-only too; every other target compiles exactly as it did before.
+day-bridge = { workspace = true }
+
+[build-dependencies]
+day-build = { workspace = true }
+
+[package.metadata.day.android]
+java = ["platform/android/java"]
+manifest-components = ["platform/android/components.xml"]

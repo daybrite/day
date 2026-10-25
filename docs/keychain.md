@@ -17,7 +17,7 @@ may be read, including "only after the device verifies the person, every time".
 
 ## Add to your app
 
-Defined in [`day-part-keychain`](https://github.com/daybrite/day/tree/main/parts/day-part-keychain). Add this to your app's `Cargo.toml`
+Defined in [`day-part-keychain`](https://github.com/daybrite/day/tree/main/crates/day-part-keychain). Add this to your app's `Cargo.toml`
 `[dependencies]` table, using the same Day Git source as the rest of your app:
 
 ```toml

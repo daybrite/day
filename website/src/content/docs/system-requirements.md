@@ -57,7 +57,7 @@ Everything else depends on which targets you build.
 | `windows-winui` | — | — | ✅ |
 | `linux-gtk` / `windows-gtk` / `macos-gtk` | ✅ | ✅ | ✅ |
 | `linux-qt` / `windows-qt` / `macos-qt` | ✅ | ✅ | ✅ |
-| `android-mdc` | ✅ | ✅ | ✅ |
+| `android-material` | ✅ | ✅ | ✅ |
 | `harmony-arkui` | ✅ | ✅ | ✅ |
 | `web-dom` | ✅ | ✅ | ✅ |
 
@@ -100,7 +100,7 @@ Both hosts use the JSON5 `project.xcproj` format introduced in Xcode 27.
 ```bash
 brew install gtk4 libadwaita librsvg pkg-config    # macos-gtk
 brew install qt pkg-config                 # macos-qt
-brew install openjdk@21                    # android-mdc
+brew install openjdk@21                    # android-material
 brew install qemu                          # the HarmonyOS emulator
 ```
 
@@ -286,8 +286,8 @@ emulator -avd <name>
 adb devices                 # confirm it is listed as `device`
 ```
 
-Day can list existing AVDs with `day devices list -t android-mdc` and start one with
-`day devices boot -t android-mdc AVD_NAME --wait`. An AVD stays listed after its system image is
+Day can list existing AVDs with `day devices list -t android-material` and start one with
+`day devices boot -t android-material AVD_NAME --wait`. An AVD stays listed after its system image is
 removed, so `day devices boot` checks the image first and names the package to reinstall. See
 [Android troubleshooting](/docs/how-to/troubleshooting#android-will-not-build-or-find-a-device) if it is not detected. Match the emulator's ABI to an installed Rust target; an x86_64 system image needs
 `x86_64-linux-android`. Set `ANDROID_SERIAL` when more than one device or emulator is attached, so
@@ -455,7 +455,7 @@ and opens a browser.
 
 These are the minimums your *users* need, which the scaffold sets and you can change in your
 project's platform configuration — up to whatever your code needs, or down as far as the
-platform's own tooling still allows. The iOS value is day-uikit's own floor: the toolkit guards
+platform's own tooling still allows. The iOS value is day-toolkit-uikit's own floor: the toolkit guards
 the UIKit calls that arrived after iOS 15, and a piece that needs a newer OS declares that
 `platform` floor, which `day build` applies to the build. They are unrelated to what your
 development machine needs.
@@ -464,7 +464,7 @@ development machine needs.
 |---|---|
 | `macos-appkit` | macOS 13 |
 | `ios-uikit` | iOS 15 |
-| `android-mdc` | API level 24 (Android 7.0), compiled against API 37 |
+| `android-material` | API level 24 (Android 7.0), compiled against API 37 |
 | `harmony-arkui` | API level 18 |
 | `windows-winui` | Windows 10 version 1809 (Windows 11 recommended); packed apps carry the Windows App SDK runtime |
 | `linux-gtk` / `linux-qt` | GTK 4.10 with libadwaita 1.5 / Qt 6 |

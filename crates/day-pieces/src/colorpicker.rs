@@ -52,7 +52,7 @@ pub use day_spec::controls::colorpicker::*;
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum PickerIdiom {
     /// The platform's own chooser where the toolkit has one; Day's composed panel where it does
-    /// not (android-mdc and harmony-arkui). The default, and what an app wants unless it has a
+    /// not (android-material and harmony-arkui). The default, and what an app wants unless it has a
     /// reason to pin the answer.
     #[default]
     Automatic,
@@ -71,7 +71,7 @@ pub enum PickerIdiom {
 /// [`PickerIdiom::Automatic`] resolves against.
 ///
 /// [`Support::Native`] on appkit, uikit, gtk, qt, xaml and web-dom. [`Support::Emulated`] on
-/// android-mdc and harmony-arkui, where `Automatic` gives the composed panel instead.
+/// android-material and harmony-arkui, where `Automatic` gives the composed panel instead.
 ///
 /// This does not report whether the picker works (there is no target where it does not), so an
 /// app showing a "not supported here" banner from this answer would be wrong. Use it to say
@@ -350,7 +350,7 @@ fn composed_well<C: Binding<Color>>(
     .on_tap(move || open.set(Some(open_key.clone())))
     .a11y(|a| {
         a.role(Role::Button)
-            .label(day_l10n::t(day_l10n::key::day_color))
+            .label(day_localization::t(day_localization::key::day_color))
     })
     .id(key.clone())
     .frame(well_width(alpha), WELL_H);
@@ -441,11 +441,11 @@ fn panel<C: Binding<Color>>(
     }
     rows.push(
         row((
-            button(day_l10n::t(day_l10n::key::day_cancel))
+            button(day_localization::t(day_localization::key::day_cancel))
                 .action(cancel)
                 .id(day_core::id!(color_picker_cancel)),
             spacer(),
-            button(day_l10n::t(day_l10n::key::day_done))
+            button(day_localization::t(day_localization::key::day_done))
                 .action(close)
                 .id(day_core::id!(color_picker_done)),
         ))
@@ -509,7 +509,7 @@ fn shade_field(hue: Signal<f64>, sat: Signal<f64>, val: Signal<f64>) -> AnyPiece
     // write the same two values, so a backend that reports both costs nothing.
     .on_drag(move |drag| pick(drag.location))
     .on_tap_at(pick)
-    .a11y(|a| a.label(day_l10n::t(day_l10n::key::day_color_shade)))
+    .a11y(|a| a.label(day_localization::t(day_localization::key::day_color_shade)))
     // The id before the frame, so it names the canvas the gestures live on.
     .id(day_core::id!(color_picker_shade))
     .frame(FIELD_W, FIELD_H)
@@ -532,7 +532,7 @@ fn hue_strip(hue: Signal<f64>) -> AnyPiece {
     })
     .on_drag(move |drag| pick(drag.location))
     .on_tap_at(pick)
-    .a11y(|a| a.label(day_l10n::t(day_l10n::key::day_color_hue)))
+    .a11y(|a| a.label(day_localization::t(day_localization::key::day_color_hue)))
     // The id before the frame, so it names the canvas the gestures live on.
     .id(day_core::id!(color_picker_hue))
     .frame(FIELD_W, STRIP_H)
@@ -560,7 +560,11 @@ fn opacity_strip(current: impl Fn() -> Color + 'static, opacity: Signal<f64>) ->
     })
     .on_drag(move |drag| pick(drag.location))
     .on_tap_at(pick)
-    .a11y(|a| a.label(day_l10n::t(day_l10n::key::day_color_opacity)))
+    .a11y(|a| {
+        a.label(day_localization::t(
+            day_localization::key::day_color_opacity,
+        ))
+    })
     // The id before the frame, so it names the canvas the gestures live on.
     .id(day_core::id!(color_picker_opacity))
     .frame(FIELD_W, STRIP_H)
@@ -705,7 +709,7 @@ fn checkerboard(d: &mut Draw, size: Size) {
 // ---------------------------------------------------------------------------
 // Per-toolkit native renderers, one file per backend, for the six toolkits that have a color
 // chooser. Every module registers a `Renderer` into its backend's `RENDERERS` slice link-time;
-// `dom` registers at runtime from `color_picker`. android-mdc and harmony-arkui carry no arm at
+// `dom` registers at runtime from `color_picker`. android-material and harmony-arkui carry no arm at
 // all: the composed panel above is their picker.
 // ---------------------------------------------------------------------------
 

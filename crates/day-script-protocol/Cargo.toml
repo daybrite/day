@@ -1,0 +1,16 @@
+[package]
+name = "day-script-protocol"
+publish = true
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Shared dayscript wire protocol and YAML format for Day"
+repository.workspace = true
+license.workspace = true
+keywords = ["dayscript", "automation", "ui-testing", "yaml", "protocol"]
+categories = ["development-tools::testing", "gui"]
+
+[dependencies]
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+serde_norway = { workspace = true }

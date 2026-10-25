@@ -491,7 +491,7 @@ pub fn died_on_signal(code: i32) -> bool {
     matches!(code, 132 | 134 | 135 | 136 | 138 | 139 | 141)
 }
 
-/// Export the app identity (Day.toml `[app]`) to a cargo/build or launch command. day-piece-break's
+/// Export the app identity (Day.toml `[app]`) to a cargo/build or launch command. day-piece-crash-reporter's
 /// `build.rs` bakes these into the binary so crash reports carry id/version/build without
 /// reading platform manifests at runtime (docs/break.md); on launch commands they double as the
 /// runtime fallback for dev flows whose binary predates the vars.
@@ -760,7 +760,7 @@ pub fn build(
     // wipes the res tree (docs/deep-links.md "Shortcuts are saved deep links"). Unlike the
     // best-effort staging above, a failure here is a config error (a missing translation, a
     // manifest with no scheme), so it fails the build.
-    if target.toolkit == "mdc" {
+    if target.toolkit == "material" {
         crate::shortcuts::sync_android(project)?;
     }
     // macos-appkit builds through the Xcode host project (§17.4, platform/macos/), always:
@@ -1279,13 +1279,13 @@ pub fn desktop_launch_plan(
             "DAY_VECTOR_RASTER_ROOT".to_string(),
             crate::resources::vector_fallback_dir(project, target.toolkit).into_os_string(),
         );
-        // The glyph SVGs themselves; day-appkit prefers these (NSImage renders SVG at display
+        // The glyph SVGs themselves; day-toolkit-appkit prefers these (NSImage renders SVG at display
         // size on macOS 11+), so vectors stay vector on the desktop too.
         env.insert(
             "DAY_VECTOR_SVG_ROOT".to_string(),
             crate::resources::vector_svg_dir(project).into_os_string(),
         );
-        // The XAML geometry; day-winui draws these as real Path geometry, which is what keeps a
+        // The XAML geometry; day-toolkit-winui draws these as real Path geometry, which is what keeps a
         // Windows glyph vector at any size and lets a tint be a brush rather than a second asset
         // (docs/vectors.md).
         env.insert(
@@ -1324,14 +1324,14 @@ pub fn desktop_launch_plan(
     }
     if target.toolkit == "gtk" {
         env.insert("GSK_RENDERER".to_string(), OsString::from("cairo"));
-        // Native GResource blob (§18.3); day-gtk registers it and loads via g_resources_*.
+        // Native GResource blob (§18.3); day-toolkit-gtk registers it and loads via g_resources_*.
         let g = crate::resources::gtk::gresource_path(project);
         if g.exists() {
             env.insert("DAY_GRESOURCE".to_string(), g.into_os_string());
         }
     }
     if target.toolkit == "qt" {
-        // Native Qt resource blob (§18.3); the day-qt shim registers it (QResource).
+        // Native Qt resource blob (§18.3); the day-toolkit-qt shim registers it (QResource).
         let q = crate::resources::qt::qresource_path(project);
         if q.exists() {
             env.insert("DAY_QRESOURCE".to_string(), q.into_os_string());
@@ -1634,7 +1634,7 @@ pub(crate) fn headless_wrap(
     match toolkit {
         // Both linux toolkits take a real (virtual) X display. Qt's offscreen platform could
         // render without one, but X selections need a display server, so the system clipboard
-        // (parts/day-part-clipboard/src/linux.rs) would be a silent no-op; the offscreen
+        // (crates/day-part-clipboard/src/linux.rs) would be a silent no-op; the offscreen
         // fallback survives in `desktop_launch_plan` for hosts without xvfb-run.
         "gtk" | "qt" => HeadlessWrap::Xvfb {
             width: width.max(1.0) as u32,
@@ -1684,7 +1684,7 @@ mod build_root_tests {
         std::fs::write(tmp.join("Day.toml"), "schema = 1\n[app]\nid = 'dev.example.games'\ntitle = 'Fork Games'\n[app.macos]\ntitle = 'Mac Games'\n[app.macos-appkit]\ntitle = 'Native Games'\n").unwrap();
         let mut project = crate::meta::find_project(Some(&tmp)).unwrap();
         assert_eq!(
-            app_identity_env(&project, "android-mdc")["DAY_APP_TITLE"],
+            app_identity_env(&project, "android-material")["DAY_APP_TITLE"],
             "Fork Games"
         );
         assert_eq!(
@@ -1805,8 +1805,8 @@ mod log_format_tests {
         // Splitting on the first space eats the logger's alignment; it has to be put back, or
         // `WARN`/`INFO` lines sit a column left of `ERROR`/`DEBUG`.
         assert_eq!(
-            rendered(LogStream::Err, "WARN  day_gtk: no bundled font"),
-            "^[33m[macos-appkit] WARN ^[0m day_gtk: no bundled font"
+            rendered(LogStream::Err, "WARN  day_toolkit_gtk: no bundled font"),
+            "^[33m[macos-appkit] WARN ^[0m day_toolkit_gtk: no bundled font"
         );
     }
 
@@ -1969,7 +1969,7 @@ pub fn native_project(
             crate::pieces::write_macos_pieces(project)?;
             (crate::xcode::ensure(project, "macos")?, "Xcode")
         }
-        "android-mdc" => (
+        "android-material" => (
             crate::native_host::prepare_android(project)?,
             "Android Studio",
         ),

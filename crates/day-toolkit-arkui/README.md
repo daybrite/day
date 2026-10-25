@@ -1,0 +1,38 @@
+<!--
+Copyright © The Daybrite Project
+SPDX-License-Identifier: CC-BY-SA-4.0
+-->
+
+# day-toolkit-arkui
+
+Day's HarmonyOS / OpenHarmony backend, built on ArkUI's native C API.
+
+Pieces become real ArkUI nodes — text, buttons, sliders, swipers — created from native
+code and mounted into a slot provided by a small ArkTS host, which owns the window while
+Rust owns the widget tree. The shape mirrors Day's Android backend. This is the backend
+behind the `harmony-arkui` target; `day devices boot -t harmony-arkui` helps with emulators, and the details live in
+Day's HarmonyOS guide.
+
+The whole backend is Rust. The NDK is bound by openharmony-rs's
+[`ohos-sys`](https://crates.io/crates/ohos-sys) (ArkUI's node, gesture, animate and drag APIs,
+OH_Drawing, the image kit, rawfile, VSync, UDMF and hilog), and the module the ArkTS host
+imports from `libentry.so` is registered and marshaled by ohos-rs's
+[`napi-ohos`](https://crates.io/crates/napi-ohos). A standalone piece that needs a node kind
+this crate does not wrap drives it through `day_toolkit_arkui::node` and the raw `day_toolkit_arkui::arkui_sys`
+bindings, with no C++ of its own.
+
+You don't add this crate to a project yourself. Backends are chosen by a cargo feature on
+[`day`](https://crates.io/crates/day) — each app binary contains exactly one — and the
+`day` CLI selects the right one for the target you're building.
+
+## Part of Day
+
+This crate is one piece of [Day](https://daybrite.dev), a Rust framework for building apps
+out of each platform's own widgets — AppKit, UIKit, Android's Material widgets, GTK 4, Qt 6,
+WinUI, and ArkUI — from one codebase. When you write `button("Save")`, macOS shows an
+`NSButton` and Android shows a Material button. The framework also ships the tooling around
+the app: the `day` CLI, a VS Code extension, GitHub CI workflows, localization,
+accessibility, and dayscript automation.
+
+New to Day? Start at [daybrite.dev](https://daybrite.dev), or browse the
+[source repository](https://github.com/daybrite/day).

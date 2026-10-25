@@ -38,7 +38,7 @@ pub struct ListDriver {
     pub swipe: Option<ListSwipeDriver>,
     /// Section headers, present when the piece declared `.sections` (docs/list.md
     /// "Sections"). Every closure above still speaks item indices; day-core inserts the
-    /// header rows and translates at the toolkit boundary (see [`SectionMap`]).
+    /// header rows and translates item indices at the toolkit boundary.
     pub sections: Option<ListSectionsDriver>,
 }
 

@@ -220,7 +220,7 @@ between the install and the start, with the platform's own tool (`pm grant` on A
 privacy grant` on the iOS Simulator), so the app's first [`status`](https://daybrite.dev/api/day_part_permissions/fn.status.html) already reads `Granted`.
 
 ```sh
-day launch -t android-mdc --grant camera --script dayscript/capture.yaml
+day launch -t android-material --grant camera --script dayscript/capture.yaml
 ```
 
 Where no tool exists the flag is refused before the build: HarmonyOS, a physical iPhone,

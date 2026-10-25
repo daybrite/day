@@ -25,7 +25,7 @@ pub fn stage_piece_assets(project: &Project) -> Result<(), String> {
     let dir = project.root.join("build/day/android/assets");
     let _ = fs::remove_dir_all(&dir);
     fs::create_dir_all(&dir).map_err(|e| format!("mkdir {}: {e}", dir.display()))?;
-    super::stage_piece_assets(project, "mdc", &dir)
+    super::stage_piece_assets(project, "material", &dir)
 }
 
 pub fn stage(

@@ -19,7 +19,7 @@ The command runs from the project directory and requires the target’s
 [packaging tools](/docs/reference/system-requirements#optional-packaging-tools). For an Android APK:
 
 ```bash
-day pack -t android-mdc --formats apk
+day pack -t android-material --formats apk
 ```
 
 Configure release credentials before distributing the result. Without them, Day can produce a
@@ -35,7 +35,7 @@ credentials and check the destination store’s submission requirements.
 |---|---|---|
 | `macos-appkit` | `.dmg`; `.pkg` with `--formats pkg` | Disk image for direct download; installer package for the [Mac App Store](#the-mac-app-store) |
 | `ios-uikit` | `.ipa` | Device app archive |
-| `android-mdc` | `.apk`, `.aab` | Direct installation or Google Play |
+| `android-material` | `.apk`, `.aab` | Direct installation or Google Play |
 | `linux-gtk`, `linux-qt` | `.flatpak`, `.appimage` | Flatpak bundle or executable with bundled libraries |
 | `windows-winui` | `.msix`, `-setup.exe` | Self-contained MSIX package or per-user installer |
 | `harmony-arkui` | `.hap` | HarmonyOS application package |

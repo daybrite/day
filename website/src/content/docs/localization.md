@@ -42,8 +42,8 @@ can keep them beside its code. Within a crate, you can split the catalog by sour
 | Catalog | Build function | Include macro | Generated accessor |
 | --- | --- | --- | --- |
 | App resources | [`day_build::prebuild_project()`](https://daybrite.dev/api/day_build/fn.prebuild_project.html) | `day::resources!()` | `res::str::greeting(name)` |
-| Private crate catalog | [`day_build::generate_locales()`](https://daybrite.dev/api/day_build/fn.generate_locales.html) | `day_fluent::locales!()` | `blockblast::res::str::game_title()` |
-| Private file catalog, such as `board.ftl` | [`day_build::generate_locales()`](https://daybrite.dev/api/day_build/fn.generate_locales.html) | `day_fluent::locales!()` | `blockblast::res::board::str::moves(count)` |
+| Private crate catalog | [`day_build::generate_locales()`](https://daybrite.dev/api/day_build/fn.generate_locales.html) | `day_localization_ui::locales!()` | `blockblast::res::str::game_title()` |
+| Private file catalog, such as `board.ftl` | [`day_build::generate_locales()`](https://daybrite.dev/api/day_build/fn.generate_locales.html) | `day_localization_ui::locales!()` | `blockblast::res::board::str::moves(count)` |
 
 The app resource generator keeps its existing behavior: files within a locale share the app's
 namespace. Private catalogs give each crate and named file a separate namespace. Two games can
@@ -147,10 +147,10 @@ last_saved = Saved { DATETIME($when, dateStyle: "long", timeStyle: "short") }
 
 `DATETIME()` accepts civil date/time strings or Unix seconds rendered as UTC. The
 [formatting reference](/docs/reference/localization#formatted-values-number-and-datetime)
-lists the supported options. Day also provides [`format_decimal`](https://daybrite.dev/api/day_fluent/fn.format_decimal.html), locale-aware sorting, and
+lists the supported options. Day also provides [`format_decimal`](https://daybrite.dev/api/day_localization_ui/fn.format_decimal.html), locale-aware sorting, and
 search matching for values outside messages.
 
-Use [`.format()`](https://daybrite.dev/api/day_fluent/struct.LocalizedText.html#method.format) when an API needs a `String`. It resolves the value at the time of the call.
+Use [`.format()`](https://daybrite.dev/api/day_localization_ui/struct.LocalizedText.html#method.format) when an API needs a `String`. It resolves the value at the time of the call.
 Put that call inside a reactive closure if the text must follow later changes.
 
 For a choice of labels, select generated values:
@@ -171,7 +171,7 @@ play_again = Play again
 resume = Resume
 ```
 
-The dynamic [`tr(key)`](https://daybrite.dev/api/day_fluent/fn.tr.html) API remains available for keys known only at runtime. It uses the global
+The dynamic [`tr(key)`](https://daybrite.dev/api/day_localization_ui/fn.tr.html) API remains available for keys known only at runtime. It uses the global
 app/core lookup and cannot check a key or its arguments at compile time.
 
 ## Give a crate a private catalog
@@ -180,7 +180,7 @@ Add these dependencies to the reusable crate. Use the same Day revision as the a
 
 ```toml
 [dependencies]
-day-fluent = { git = "https://github.com/daybrite/day.git" }
+day-localization-ui = { git = "https://github.com/daybrite/day.git" }
 
 [build-dependencies]
 day-build = { git = "https://github.com/daybrite/day.git" }
@@ -197,7 +197,7 @@ fn main() {
 In its `src/lib.rs`:
 
 ```rust
-day_fluent::locales!();
+day_localization_ui::locales!();
 ```
 
 The generator reads the crate's `resource/locales/` directory and writes `day_locales.rs` into
@@ -279,7 +279,7 @@ Migrate one component at a time so the remaining app strings keep working:
 
 1. Move the component's messages into its `resource/locales/` directory for every language.
    Keep app identity, permission reasons, and platform shortcut labels at the app root.
-2. Add [`generate_locales()`](https://daybrite.dev/api/day_build/fn.generate_locales.html) to its build script and `day_fluent::locales!()` to its crate root.
+2. Add [`generate_locales()`](https://daybrite.dev/api/day_build/fn.generate_locales.html) to its build script and `day_localization_ui::locales!()` to its crate root.
 3. Replace string-key calls with generated accessors, including calls from the parent app.
    Select accessor functions or localized values when a label depends on state.
 4. Update DayScript text assertions to use qualified keys. Element IDs and routes stay the same.
@@ -447,7 +447,7 @@ captures, and gallery metadata.
 
 ## Check message lifetime and build failures
 
-Use generated message values directly where a piece accepts `IntoText`; call [`.format()`](https://daybrite.dev/api/day_fluent/struct.LocalizedText.html#method.format) only
+Use generated message values directly where a piece accepts `IntoText`; call [`.format()`](https://daybrite.dev/api/day_localization_ui/struct.LocalizedText.html#method.format) only
 where an API needs a `String`. Formatting creates a snapshot. To follow locale changes, keep
 message inputs in state and format inside a tracked UI closure. A callback with a `Send` bound
 should send data through a `Setter`; do not format UI messages on its worker thread.
@@ -460,8 +460,8 @@ input can fail [`prebuild_project`](https://daybrite.dev/api/day_build/fn.prebui
 in `build.rs` so generation failure stops the build.
 
 Source: [generation entry points](https://github.com/daybrite/day/blob/main/crates/day-build/src/lib.rs),
-[Fluent runtime](https://github.com/daybrite/day/tree/main/crates/day-fluent), and
-[locale runtime](https://github.com/daybrite/day/tree/main/crates/day-l10n).
+[Fluent runtime](https://github.com/daybrite/day/tree/main/crates/day-localization-ui), and
+[locale runtime](https://github.com/daybrite/day/tree/main/crates/day-localization).
 A compile check is not translation-quality or all-locale rendering validation.
 
 ## Bind complete messages to state

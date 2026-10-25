@@ -125,7 +125,7 @@ promo = "Thirty-five live demos, all drawn by UIKit."
 [storefront.ios-uikit.apple-app-store.metadata.fr]
 subtitle = "UIKit natif, écrit en Rust"
 
-[storefront.android-mdc.google-play-store.metadata]
+[storefront.android-material.google-play-store.metadata]
 short = "Live demos of the framework: Material widgets from one Rust codebase."
 
 [storefront.web-dom.metadata]
@@ -323,7 +323,7 @@ target:
 
 ```text
 build/day/store/ios-uikit/fastlane/{Appfile,Fastfile,metadata/…}
-build/day/store/android-mdc/fastlane/{Appfile,Fastfile,metadata/android/…}
+build/day/store/android-material/fastlane/{Appfile,Fastfile,metadata/android/…}
 build/day/store/macos-appkit/fastlane/{Appfile,Fastfile,metadata/…}
 ```
 
@@ -383,7 +383,7 @@ ipad = ["home", "canvas", "grid", "layout"]          # the iPad row shows these
 iphone = ["canvas", { name = "controls", theme = "dark" }, "layout"]
 # ipad is not named, so the App Store's iPad set is the target's ipad list above
 
-[storefront.android-mdc.google-play-store.screenshots]
+[storefront.android-material.google-play-store.screenshots]
 default = ["canvas", "controls", "layout"]           # every device kind not named
 tablet = ["canvas", "layout", "grid"]
 
@@ -554,7 +554,7 @@ day store export --out build/day/store/storefront.json
   "schema": 1,
   "generator": "day 0.4.8",
   "project": { "name": "…", "id": "…", "title": "…", "version": "…", "build": 7, "artifact": "…",
-               "targets": ["ios-uikit", "android-mdc"],
+               "targets": ["ios-uikit", "android-material"],
                "store": { "apple-app-id": "…", "google-play-id": "…", "apple-url": "…", "google-url": "…" } },
   "default-locale": "en",
   "locales": ["en", "fr"],

@@ -183,7 +183,7 @@ same mechanism.
 ## Pitfalls
 
 - Strings inside the Swift package don't go through Fluent. Pass them in as arguments
-  ([`res::str::…().format()`](https://daybrite.dev/api/day_fluent/struct.LocalizedText.html#method.format) closures on the Rust side), so the hosted view follows the app's locale,
+  ([`res::str::…().format()`](https://daybrite.dev/api/day_localization_ui/struct.LocalizedText.html#method.format) closures on the Rust side), so the hosted view follows the app's locale,
   including right-to-left layout, which the hosting view inherits.
 - Declare the floor you need. SwiftUI APIs like `Grid` need iOS 16 / macOS 13; declare `platform`
   and `day build` raises the deployment target for you. Xcode ⌘R builds don't see the override;

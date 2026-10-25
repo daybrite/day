@@ -12,7 +12,7 @@ const targets = new Map(platforms.filter(p => !p.deviceClass).map(p => [p.id, p]
 const aliases = new Map([
   ['macos', ['macos-appkit']], ['appkit', ['macos-appkit']],
   ['ios', ['ios-uikit']], ['ipados', ['ios-uikit']], ['uikit', ['ios-uikit']],
-  ['android mdc', ['android-mdc']], ['android', ['android-mdc']], ['mdc', ['android-mdc']],
+  ['android material', ['android-material']], ['android', ['android-material']], ['material', ['android-material']],
   ['gtk 4', ['linux-gtk']], ['gtk4', ['linux-gtk']], ['gtk', ['linux-gtk']],
   ['qt 6', ['linux-qt']], ['qt6', ['linux-qt']], ['qt', ['linux-qt']],
   ['windows', ['windows-winui']], ['winui 3', ['windows-winui']], ['winui', ['windows-winui']],

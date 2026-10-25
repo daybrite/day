@@ -51,7 +51,7 @@ test('lowercase, mixed markup, and mid-heading names receive marks without chang
   assert.equal(content(tree), before);
   assert.deepEqual(labels(tree).map(n => n.properties['data-pf']), [
     'ios-uikit', 'linux-gtk', 'linux-qt', 'windows-winui', 'macos-appkit', 'linux-qt',
-    'android-mdc', 'harmony-arkui',
+    'android-material', 'harmony-arkui',
   ]);
   assert.equal(link.properties.href, 'https://developer.apple.com/documentation/appkit/nssplitview');
   assert.equal(labels(link).length, 0);

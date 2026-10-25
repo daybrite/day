@@ -122,7 +122,7 @@ Check height as well, particularly for landscape phones and half-open devices.
 
 Use Jetpack WindowManager's [Java callback adapter](https://developer.android.com/reference/androidx/window/java/layout/WindowInfoTrackerCallbackAdapter)
 for lifecycle-bound WindowInfoTracker observation. Declare required window/window-java
-artifacts in day-mdc's existing Gradle metadata channel; do not rely on the old
+artifacts in day-toolkit-material's existing Gradle metadata channel; do not rely on the old
 transitive WindowManager dependency from SlidingPaneLayout.
 
 The proposed fold policies are:

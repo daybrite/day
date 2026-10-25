@@ -1,0 +1,96 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
+// The search-field piece's C++/WinRT shim, parallel to src/lib-qt-shim.cpp. A single
+// AutoSuggestBox (the XAML search control: a text box with a query magnifier icon), boxed into a
+// Day handle via the day_xaml_box/day_xaml_unbox functions that day-toolkit-xaml-sys exports, so this
+// piece carries its own XAML native code with no edits to day's toolkit crates.
+//
+// TextChanged reports edits back to Rust as a UTF-8 C string (valid only during the callback; Rust
+// copies it). Programmatic Text(...) re-fires TextChanged, but the front-end's bind only re-patches
+// on a real change and guards the echo, so there is no runaway loop.
+//
+// Windows-only; compiled by build.rs (like the Qt shim) and linked alongside day-toolkit-xaml-sys.
+
+#include <winrt/Windows.Foundation.h>
+// One shim, two XAML stacks (docs/winui.md): windows-xaml builds it against system XAML,
+// windows-winui (DAY_WINUI) against WinUI 3. The namespaces differ; the controls do not.
+#ifdef DAY_WINUI
+#define DAY_XAML_NS winrt::Microsoft::UI::Xaml
+#else
+#define DAY_XAML_NS winrt::Windows::UI::Xaml
+#endif
+#ifdef DAY_WINUI
+#include <winrt/Microsoft.UI.Xaml.h>
+#else
+#include <winrt/Windows.UI.Xaml.h>
+#endif
+#ifdef DAY_WINUI
+#include <winrt/Microsoft.UI.Xaml.Controls.h>
+#else
+#include <winrt/Windows.UI.Xaml.Controls.h>
+#endif
+
+#include <windows.h>
+
+#include <cstdint>
+#include <string>
+
+using namespace winrt;
+namespace WUX = DAY_XAML_NS;
+namespace WUXC = DAY_XAML_NS::Controls;
+
+// The boxing functions, exported by day-toolkit-xaml-sys (already linked into the app).
+extern "C" void *day_xaml_box(void *iinspectable_abi);
+extern "C" void *day_xaml_unbox(void *handle);
+
+static winrt::hstring hs(const char *s) {
+    if (!s || !*s)
+        return winrt::hstring{};
+    int len = MultiByteToWideChar(CP_UTF8, 0, s, -1, nullptr, 0);
+    if (len <= 1)
+        return winrt::hstring{};
+    std::wstring w(static_cast<size_t>(len - 1), L'\0');
+    MultiByteToWideChar(CP_UTF8, 0, s, -1, w.data(), len);
+    return winrt::hstring{w};
+}
+
+static std::string to_utf8(winrt::hstring const &h) {
+    if (h.empty())
+        return std::string{};
+    int len = WideCharToMultiByte(CP_UTF8, 0, h.c_str(), -1, nullptr, 0, nullptr, nullptr);
+    if (len <= 1)
+        return std::string{};
+    std::string s(static_cast<size_t>(len - 1), '\0');
+    WideCharToMultiByte(CP_UTF8, 0, h.c_str(), -1, s.data(), len, nullptr, nullptr);
+    return s;
+}
+
+extern "C" {
+
+void *day_search_xaml_new(const char *placeholder, const char *initial, uint64_t id,
+                           void (*cb)(uint64_t, const char *)) {
+    WUXC::AutoSuggestBox box;
+    box.QueryIcon(WUXC::SymbolIcon(WUXC::Symbol::Find));
+    box.PlaceholderText(hs(placeholder));
+    if (initial && *initial)
+        box.Text(hs(initial));
+    box.TextChanged([id, cb](WUXC::AutoSuggestBox const &s,
+                             WUXC::AutoSuggestBoxTextChangedEventArgs const &) {
+        std::string t = to_utf8(s.Text());
+        cb(id, t.c_str());
+    });
+    return day_xaml_box(winrt::get_abi(box));
+}
+
+void day_search_xaml_set_text(void *handle, const char *text) {
+    WUX::UIElement e{nullptr};
+    winrt::copy_from_abi(e, day_xaml_unbox(handle));
+    if (auto box = e.try_as<WUXC::AutoSuggestBox>()) {
+        auto nt = hs(text);
+        if (box.Text() != nt)
+            box.Text(nt);
+    }
+}
+
+} // extern "C"

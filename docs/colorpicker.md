@@ -84,15 +84,15 @@ Platform guidance: [Apple: color](https://developer.apple.com/design/human-inter
 |---|---|---|---|
 | macos-appkit | **Native** | [`NSColorWell`](https://developer.apple.com/documentation/appkit/nscolorwell) → the shared [`NSColorPanel`](https://developer.apple.com/documentation/appkit/nscolorpanel) | wheel, sliders, palettes, image spectrum, crayons, screen eyedropper |
 | ios-uikit | **Native** | [`UIColorWell`](https://developer.apple.com/documentation/uikit/uicolorwell) → [`UIColorPickerViewController`](https://developer.apple.com/documentation/uikit/uicolorpickerviewcontroller) | grid / spectrum / sliders, eyedropper, iPad popover anchoring — all from the well |
-| gtk | **Native** | [`GtkColorDialogButton`](https://docs.gtk.org/gtk4/class.ColorDialogButton.html) → [`GtkColorDialog`](https://docs.gtk.org/gtk4/class.ColorDialog.html) | GTK 4.10+, which day-gtk already requires |
+| gtk | **Native** | [`GtkColorDialogButton`](https://docs.gtk.org/gtk4/class.ColorDialogButton.html) → [`GtkColorDialog`](https://docs.gtk.org/gtk4/class.ColorDialog.html) | GTK 4.10+, which day-toolkit-gtk already requires |
 | qt | **Native** | swatch [`QPushButton`](https://doc.qt.io/qt-6/qpushbutton.html) → [`QColorDialog`](https://doc.qt.io/qt-6/qcolordialog.html) | Qt has no color-well widget; the shim paints the swatch |
 | windows-winui | **Native** | swatch [`Button`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.button) → [`ColorPicker`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.colorpicker) in a `Flyout` | `Microsoft.UI.Xaml.Controls.ColorPicker` |
 | web-dom | **Native** | `<input type="color">` | the browser's own picker, which on desktop IS the system chooser |
-| android-mdc | Composed | — | Android ships no color picker in the framework, in Material, or in AndroidX |
+| android-material | Composed | — | Android ships no color picker in the framework, in Material, or in AndroidX |
 | harmony-arkui | Composed | — | the ArkUI C node API has no picker node, and ArkTS has no `ColorPicker` component |
 | mock | Native leaf | — | records the leaf's realize/patch traffic; `tests/mock.rs` drives both idioms |
 
-Neither android-mdc nor harmony-arkui grew a hand-written chooser in Java or ArkTS. Writing one
+Neither android-material nor harmony-arkui grew a hand-written chooser in Java or ArkTS. Writing one
 twice, in two languages, would have produced two dialogs that matched neither the platform nor each
 other, for more work than one panel written once in Rust that every other target can also opt
 into.

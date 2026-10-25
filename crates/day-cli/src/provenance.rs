@@ -263,7 +263,7 @@ fn tool_table(toolkit: &str) -> Vec<(&'static str, &'static str, &'static str)> 
                 "ships with Xcode; selected by xcode-select",
             ),
         ]),
-        "mdc" => t.extend([
+        "material" => t.extend([
             (
                 "gradle",
                 "Gradle",

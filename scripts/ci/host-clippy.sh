@@ -12,13 +12,13 @@ cargo clippy --locked --all-targets "$@"
 cargo clippy --locked -p day-cli -p day-script -p day-pieces \
     --features day-pieces/dyn-registry --all-targets "$@"
 # Persistence has its own CI. Cover the core model and the portable Android runtime helpers.
-cargo clippy --locked -p day-model -p day-android-runtime -p day-windows-runtime --all-targets "$@"
+cargo clippy --locked -p day-model -p day-platform-android -p day-platform-windows --all-targets "$@"
 # Validate both native/default routing and the opt-in HTTP/WebSocket provider.
 cargo clippy --locked -p day-part-http --features reqwest --all-targets "$@"
 
 # Retained optional pieces have conformance-only code; compile it even without a native SDK.
-cargo clippy --locked -p day-piece-settings -p day-piece-texteditor \
-    --features day-piece-settings/conformance,day-piece-texteditor/conformance --all-targets "$@"
+cargo clippy --locked -p day-piece-settings -p day-piece-text-editor \
+    --features day-piece-settings/conformance,day-piece-text-editor/conformance --all-targets "$@"
 # The standalone conformance app links the whole provider set through the public facade.
 # Its scaffold is generated, so a fresh checkout must prepare it before linting the app.
 bash apps/conformance/generate.sh

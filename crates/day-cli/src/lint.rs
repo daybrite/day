@@ -635,7 +635,7 @@ fn scan_routes_macro_keys(dir: &Path, out: &mut Vec<Hit>) {
 ///
 /// `screenLayout` and `smallestScreenSize` are the two that matter and the two that were missing:
 /// entering split-screen or dragging a desktop-windowing edge across a size bucket changes both,
-/// and an activity that has not claimed them is destroyed and recreated. day-mdc does not
+/// and an activity that has not claimed them is destroyed and recreated. day-toolkit-material does not
 /// survive a second `nativeStart` in one process, so what the user sees is an app that comes back
 /// without whatever it installed once at startup. The rest are here because a resizable window
 /// crosses them too: a window dragged to another display changes `density`, an accessibility
@@ -647,7 +647,7 @@ const ANDROID_CONFIG_CHANGES: &[&str] = &[
     "orientation",
     "keyboardHidden",
     // Claimed, even though a light/dark switch does need the activity recreated: an app-level
-    // `setApplicationNightMode` does not make the platform recreate it, so day-mdc performs
+    // `setApplicationNightMode` does not make the platform recreate it, so day-toolkit-material performs
     // that recreation itself (docs/settings.md "Appearance on Android"). Unclaiming this was
     // tried and measured: the theme change then did nothing at all.
     "uiMode",
@@ -1185,7 +1185,7 @@ fn collect(project: &Project) -> Vec<Finding> {
         .app
         .targets
         .iter()
-        .any(|t| t == "android-mdc")
+        .any(|t| t == "android-material")
     {
         let kotlin_arms = crate::bridge::kotlin_arm_crates(project);
         if !kotlin_arms.is_empty() && !crate::bridge::android_compiles_kotlin(project) {
@@ -1569,7 +1569,7 @@ fn collect(project: &Project) -> Vec<Finding> {
     }
 
     // --- Fluent formatting functions (docs/localization.md "Formatted values") ---
-    // day-l10n registers exactly `NUMBER()` and `DATETIME()` on every bundle; anything else
+    // day-localization registers exactly `NUMBER()` and `DATETIME()` on every bundle; anything else
     // renders as an error marker at runtime, and a misspelled option silently falls back to
     // defaults. Both are author mistakes worth catching per locale file here.
     if let Ok(entries) = std::fs::read_dir(&locales_dir) {
@@ -1869,9 +1869,9 @@ fn write_step_summary(active: &[&Finding], waived: &BTreeMap<&str, (usize, &str)
     }
 }
 
-/// The keys of Day's core catalog (`crates/day-l10n/catalog/en.ftl`, docs/localization.md): the
+/// The keys of Day's core catalog (`crates/day-localization/catalog/en.ftl`, docs/localization.md): the
 /// `day_*` strings every app can reach through `day::tr` without defining them.
-/// Bundle the catalog in the CLI package: day-l10n is not published, so a sibling-crate
+/// Bundle the catalog in the CLI package: day-localization is not published, so a sibling-crate
 /// include works in the workspace but breaks `cargo package` and crates.io installs.
 fn core_catalog_keys() -> BTreeSet<String> {
     day_build::message_keys(include_str!("../resources/core-en.ftl"))
@@ -1879,7 +1879,7 @@ fn core_catalog_keys() -> BTreeSet<String> {
         .collect()
 }
 
-/// day-l10n provides exactly `NUMBER()` and `DATETIME()`; unknown names render as error markers
+/// day-localization provides exactly `NUMBER()` and `DATETIME()`; unknown names render as error markers
 /// at runtime, and a misspelled/invalid option silently falls back to defaults.
 fn lint_ftl_call(locale: &str, file: &str, src: &str, call: &day_build::FtlCall) -> Vec<Finding> {
     let at = format!("resource/locales/{locale}: {}", call.key);
@@ -2060,7 +2060,7 @@ fn lint_vectors(project: &Project, findings: &mut Vec<Finding>) {
                     .app
                     .targets
                     .iter()
-                    .any(|t| t == "android-mdc")
+                    .any(|t| t == "android-material")
                     && let Err(why) = day_vector::to_vector_drawable(&tree)
                 {
                     findings.push(Finding {
@@ -2264,13 +2264,14 @@ mod tests {
 
     #[test]
     fn bundled_core_catalog_matches_framework() {
-        let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("../day-l10n/catalog/en.ftl");
+        let source =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../day-localization/catalog/en.ftl");
         // The source catalog exists in the workspace, not in a standalone CLI package.
         if source.exists() {
             assert_eq!(
                 include_str!("../resources/core-en.ftl"),
                 std::fs::read_to_string(source).expect("read framework catalog"),
-                "sync resources/core-en.ftl from day-l10n/catalog/en.ftl"
+                "sync resources/core-en.ftl from day-localization/catalog/en.ftl"
             );
         }
         assert!(core_catalog_keys().contains("day_ok"));
@@ -2289,7 +2290,7 @@ mod tests {
             )
             .expect("manifest"),
         };
-        let targets = "targets = [\"ios-uikit\", \"android-mdc\", \"harmony-arkui\"]\n";
+        let targets = "targets = [\"ios-uikit\", \"android-material\", \"harmony-arkui\"]\n";
 
         let mut findings = Vec::new();
         lint_app_ids(
@@ -2303,7 +2304,7 @@ mod tests {
         let messages: Vec<&str> = findings.iter().map(|f| f.message.as_str()).collect();
         assert_eq!(messages.len(), 2, "{messages:?}");
         assert!(messages.iter().all(|m| m.contains("io.github.demo_app")));
-        assert!(messages.iter().any(|m| m.starts_with("android-mdc:")));
+        assert!(messages.iter().any(|m| m.starts_with("android-material:")));
         assert!(messages.iter().any(|m| m.starts_with("harmony-arkui:")));
         assert_eq!(severity_of(findings[0].code), Severity::Error);
 

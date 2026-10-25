@@ -33,7 +33,7 @@ impl Default for DayDate {
 /// `SystemTime::now()` traps on `wasm32-unknown-unknown`: the target has no clock, and the trap
 /// is not a panic that can be caught, it aborts the module. So a `DayDate::today()` anywhere on
 /// the startup path took the whole web app down with `RuntimeError: Unreachable code`. The web
-/// build reads the host's clock through the same JS shim day-dom imports everything else from.
+/// build reads the host's clock through the same JS shim day-toolkit-dom imports everything else from.
 fn now_epoch_secs() -> i64 {
     #[cfg(target_arch = "wasm32")]
     {

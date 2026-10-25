@@ -57,13 +57,13 @@ then whatever context that toolkit needs:
 
 | toolkit | accessor | closure gets | tier |
 |---|---|---|---|
-| AppKit  | `day_appkit::with_native` / `.appkit(…)` | `&Retained<NSView>`, `class`, `MainThreadMarker` (objc2 `downcast_ref` to the class) | typed |
-| UIKit   | `day_uikit::with_native` / `.uikit(…)`   | `&Retained<UIView>`, `class`, marker | typed |
-| GTK     | `day_gtk::with_native` / `.gtk(…)`       | `&gtk4::Widget`, `class` (`downcast_ref` to the class) | typed |
-| Android | `day_mdc::with_native` / `.android(…)` | `&GlobalRef`, `class`, attached `&mut JNIEnv` | typed (JNI) |
-| Qt      | `day_qt::with_native_raw` / `.qt_raw(…)` | the raw [`QWidget*`](https://doc.qt.io/qt-6/qwidget.html), `class`; bring your own C++ (below) | raw |
-| WinUI   | `day_winui::with_native_raw` / `.xaml_raw(…)` | the **borrowed** `IUIElement*` ABI pointer, `class`; bring your own C++/WinRT (below) | raw |
-| ArkUI   | `day_arkui::with_native_raw` / `.arkui_raw(…)` | the raw `ArkUI_NodeHandle`, `class`; NDK C API | raw |
+| AppKit  | `day_toolkit_appkit::with_native` / `.appkit(…)` | `&Retained<NSView>`, `class`, `MainThreadMarker` (objc2 `downcast_ref` to the class) | typed |
+| UIKit   | `day_toolkit_uikit::with_native` / `.uikit(…)`   | `&Retained<UIView>`, `class`, marker | typed |
+| GTK     | `day_toolkit_gtk::with_native` / `.gtk(…)`       | `&gtk4::Widget`, `class` (`downcast_ref` to the class) | typed |
+| Android | `day_toolkit_material::with_native` / `.android(…)` | `&GlobalRef`, `class`, attached `&mut JNIEnv` | typed (JNI) |
+| Qt      | `day_toolkit_qt::with_native_raw` / `.qt_raw(…)` | the raw [`QWidget*`](https://doc.qt.io/qt-6/qwidget.html), `class`; bring your own C++ (below) | raw |
+| WinUI   | `day_toolkit_winui::with_native_raw` / `.xaml_raw(…)` | the **borrowed** `IUIElement*` ABI pointer, `class`; bring your own C++/WinRT (below) | raw |
+| ArkUI   | `day_toolkit_arkui::with_native_raw` / `.arkui_raw(…)` | the raw `ArkUI_NodeHandle`, `class`; NDK C API | raw |
 
 The `windows` crate ships no XAML bindings (neither WinUI 3's `Microsoft.UI.Xaml` nor the system
 `Windows.UI.Xaml`), which is why WinUI is a raw tier: the pointer is real and the C++/WinRT recipe
@@ -71,7 +71,7 @@ below is short, but there is no typed Rust surface to hand you.
 
 ```rust
 // Inline, per-toolkit (each trait exists only under its backend's cargo feature):
-use day_appkit::AppKitExt;
+use day_toolkit_appkit::AppKitExt;
 button(res::str::save()).appkit(|view, class, _mtm| {
     // `class` is "NSButton" here — see "Knowing the native class" below.
     if let Some(btn) = view.downcast_ref::<objc2_app_kit::NSButton>() {
@@ -145,16 +145,16 @@ calls per toolkit and **no-ops where it has no coverage**; the consuming app wri
 
 | crate | scope | demonstrates |
 |---|---|---|
-| `tweaks/day-tweak-button-bezel` | AppKit only | the minimal shape: one enum of symbolic constants, one setter |
-| `tweaks/day-tweak-tooltip` | AppKit, GTK, Android | one modifier across three access tiers (objc2 / gtk4-rs / JNI) |
-| `tweaks/day-tweak-slider-tickmarks` | AppKit, GTK, Android, Qt, WinUI, ArkUI | a configurable feature (`Tickmarks { count, snap, position }`), including the crate's own Qt C++, WinRT C++, and NDK C++ |
-| `tweaks/day-tweak-tree-style` | AppKit, GTK | styling a composite control's subcontrols (`with_native_subcontrol` reaches the [`NSOutlineView`](https://developer.apple.com/documentation/appkit/nsoutlineview) inside the tree's scroll host; GTK adds a CSS class to the [`GtkListView`](https://docs.gtk.org/gtk4/class.ListView.html)) |
+| `crates/day-tweak-button-bezel` | AppKit only | the minimal shape: one enum of symbolic constants, one setter |
+| `crates/day-tweak-tooltip` | AppKit, GTK, Android | one modifier across three access tiers (objc2 / gtk4-rs / JNI) |
+| `crates/day-tweak-slider-tick-marks` | AppKit, GTK, Android, Qt, WinUI, ArkUI | a configurable feature (`Tickmarks { count, snap, position }`), including the crate's own Qt C++, WinRT C++, and NDK C++ |
+| `crates/day-tweak-tree-style` | AppKit, GTK | styling a composite control's subcontrols (`with_native_subcontrol` reaches the [`NSOutlineView`](https://developer.apple.com/documentation/appkit/nsoutlineview) inside the tree's scroll host; GTK adds a CSS class to the [`GtkListView`](https://docs.gtk.org/gtk4/class.ListView.html)) |
 
 The Cargo shape mirrors piece crates: per-toolkit `[features]` gating optional deps, plus
 
 ```toml
 [package.metadata.day.piece]
-backends = ["appkit", "gtk", "mdc", "qt", "xaml", "winui", "arkui"]
+backends = ["appkit", "gtk", "material", "qt", "xaml", "winui", "arkui"]
 ```
 
 so `day build` unions `<crate>/<backend>` into the app's features automatically (Tier A.2,
@@ -167,7 +167,7 @@ Pass the `class` the accessor gave you across the FFI so your C++ can guard the 
 type the pointer for you, but it can tell you what it is.
 
 **Qt.** The handle is the [`QWidget*`](https://doc.qt.io/qt-6/qwidget.html). Compile a few lines of C++ in your crate's `build.rs` with
-`cc` + `pkg-config Qt6Widgets` (Qt itself is already linked by day-qt-sys):
+`cc` + `pkg-config Qt6Widgets` (Qt itself is already linked by day-toolkit-qt-sys):
 
 ```rust
 slider(v).qt_raw(|w, class| {
@@ -189,7 +189,7 @@ extern "C" void my_ticks(void* w, const char* cls, int interval) {
 
 **WinUI.** `with_native_raw` hands you a *borrowed* ABI pointer via the shim's `day_xaml_unbox`
 function, plus the class. In your C++/WinRT (compiled with `cc`; mirror
-`tweaks/day-tweak-slider-tickmarks/build.rs`, which adds
+`crates/day-tweak-slider-tick-marks/build.rs`, which adds
 [`day_toolchain::winappsdk::shim_includes(&cppwinrt)`](https://daybrite.dev/api/day_toolchain/winappsdk/fn.shim_includes.html) and defines `DAY_WINUI` when
 [`day_toolchain::winappsdk::shim_is_winui()`](https://daybrite.dev/api/day_toolchain/winappsdk/fn.shim_is_winui.html)). For `windows-winui`, use `Microsoft.UI.Xaml`:
 
@@ -206,12 +206,12 @@ extern "C" void my_ticks(void* abi, const char* cls, double freq) {
 }
 ```
 
-The crate also declares a `winui` feature (`winui = ["xaml", "day-winui/winui"]`) and lists
+The crate also declares a `winui` feature (`winui = ["xaml", "day-toolkit-winui/winui"]`) and lists
 `"winui"` in its `backends`.
 
 **ArkUI.** The handle is the NDK `ArkUI_NodeHandle` and the class is the node type name
 (`"Slider"`); resolve the node API with [`OH_ArkUI_GetModuleInterface`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-arkui/capi-arkui-nativemodule.md) and `setAttribute` away (see
-`tweaks/day-tweak-slider-tickmarks/src/ticks-arkui.cpp`).
+`crates/day-tweak-slider-tick-marks/src/ticks-arkui.cpp`).
 
 ## Rules
 

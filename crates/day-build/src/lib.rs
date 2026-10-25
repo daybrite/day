@@ -803,7 +803,7 @@ fn comma(names: &Vars) -> String {
 ///
 /// Not fallible: unlike [`plan_strings`], which validates keys and parameters, a locale
 /// directory carries no name rules of its own. A tag that Fluent can't parse degrades to `en`
-/// at runtime (`day_l10n::build_bundles`), which is the engine's call, not the build's.
+/// at runtime (`day_localization::build_bundles`), which is the engine's call, not the build's.
 fn plan_locales(dir: &Path) -> Vec<LocaleEntry> {
     let mut by_locale: std::collections::BTreeMap<String, Vec<PathBuf>> = Default::default();
     for path in ftl_files(dir) {
@@ -1262,7 +1262,7 @@ pub fn render_app(plan: &ResourcePlan, app_title: Option<&str>, window: WindowGe
 /// from, rather than the crate, so each source is named from the crate root through
 /// [`include_source`]. Several `.ftl` files
 /// in one locale directory `concat!` into a single source (Fluent bundles are per-locale, and
-/// `day_l10n::install` keys them by tag, so two entries for one tag would shadow, not merge).
+/// `day_localization::install` keys them by tag, so two entries for one tag would shadow, not merge).
 fn render_locales(s: &mut String, locales: &[LocaleEntry]) {
     render_locales_for(s, locales, None);
 }
@@ -1316,9 +1316,9 @@ fn render_locales_for(s: &mut String, locales: &[LocaleEntry], scope: Option<&st
     if let Some(name) = scope {
         s.push_str(&format!(
             "    /// Private namespace; ordinary app installation never replaces this catalog.\n\
-             pub static SCOPE: day_fluent::Catalog = day_fluent::Catalog {{ name: {name:?}, default: DEFAULT, locales: CATALOG }};\n\
+             pub static SCOPE: day_localization_ui::Catalog = day_localization_ui::Catalog {{ name: {name:?}, default: DEFAULT, locales: CATALOG }};\n\
              /// Register for qualified scripting lookups. Accessors also do this automatically.\n\
-             pub fn register() {{ day_fluent::register_catalog(&SCOPE); }}\n"
+             pub fn register() {{ day_localization_ui::register_catalog(&SCOPE); }}\n"
         ));
     } else {
         s.push_str(
@@ -2187,7 +2187,7 @@ mod tests {
         assert_eq!(plan.locales.len(), 1, "one bundle per locale, not per file");
         assert_eq!(plan.locales[0].sources.len(), 2);
         // Both keys are still generated, and the sources join into one catalog entry (a second
-        // entry for the same tag would shadow the first in day_l10n's per-locale bundle map).
+        // entry for the same tag would shadow the first in day_localization's per-locale bundle map).
         let keys: Vec<_> = plan.strings.iter().map(|e| e.key.as_str()).collect();
         assert_eq!(keys, vec!["hello", "oops"]);
         let code = render(&plan);
@@ -2224,7 +2224,7 @@ mod tests {
     #[test]
     fn no_locales_yields_an_empty_catalog() {
         // An app with no `resource/locales/` still compiles: `install()` registers nothing and
-        // day-l10n's built-in core catalog keeps answering framework keys.
+        // day-localization's built-in core catalog keeps answering framework keys.
         let root = tmp("locales-none");
         touch(&root.join("resource/images"), "logo.png", b"x");
         let plan = plan_resources(&root).unwrap();

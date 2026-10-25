@@ -271,7 +271,7 @@ Secondary windows have app-owned lifetimes and do not extend captured page-local
 
 Evidence: [navigation builders](https://github.com/daybrite/day/blob/main/crates/day-pieces/src/nav.rs),
 [route dispatch](https://github.com/daybrite/day/blob/main/crates/day-core/src/nav.rs), and
-[prefs nav store](https://github.com/daybrite/day/blob/main/parts/day-part-prefs/src/lib.rs).
+[prefs nav store](https://github.com/daybrite/day/blob/main/crates/day-part-preferences/src/lib.rs).
 Test unknown routes, back behavior, restoration, and close/reopen on the target you ship.
 
 ## Share state between sections

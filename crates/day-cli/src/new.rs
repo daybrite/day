@@ -34,7 +34,7 @@ use crate::targets;
 const GIT_URL: &str = "https://github.com/daybrite/day.git";
 
 /// The toolkits a native piece can carry a backend renderer for.
-const TOOLKITS: &[&str] = &["appkit", "gtk", "qt", "uikit", "mdc", "winui", "xaml"];
+const TOOLKITS: &[&str] = &["appkit", "gtk", "qt", "uikit", "material", "winui", "xaml"];
 /// The platforms a part can carry a native impl for.
 const PLATFORMS: &[&str] = &["macos", "ios", "android", "linux", "windows"];
 
@@ -219,16 +219,7 @@ impl Deps {
 
 /// The workspace-relative directory of a day crate (used only by the local-path form).
 fn subpath(crate_name: &str) -> String {
-    match crate_name {
-        "day" => "crates/day".into(),
-        n if n.starts_with("day-piece-") => format!("pieces/{n}"),
-        n if n.starts_with("day-part-") => format!("parts/{n}"),
-        "day-appkit" | "day-gtk" | "day-qt" | "day-qt-sys" | "day-uikit" | "day-mdc"
-        | "day-winui" | "day-xaml-sys" | "day-arkui" => {
-            format!("toolkits/{crate_name}")
-        }
-        n => format!("crates/{n}"),
-    }
+    format!("crates/{crate_name}")
 }
 
 // ---------------------------------------------------------------------------
@@ -676,6 +667,7 @@ fn parse_toolkits(csv: &str) -> Result<Vec<String>, CliError> {
     let mut v = Vec::new();
     for t in csv.split(',') {
         let t = t.trim().to_ascii_lowercase();
+        let t = targets::canonical(&t).to_string();
         if t.is_empty() {
             continue;
         }
@@ -734,7 +726,7 @@ fn toolkit_label(tk: &str) -> String {
         "gtk" => "GTK — Linux / macOS / Windows",
         "qt" => "Qt — Linux / macOS / Windows",
         "uikit" => "UIKit — iOS",
-        "mdc" => "Android — Material Design Components",
+        "material" => "Android — Material Design Components",
         "winui" => "WinUI 3 — Windows",
         "xaml" => "XAML (deprecated) — Windows",
         _ => tk,
@@ -853,11 +845,11 @@ pub fn piece(
         Vec::new()
     };
 
-    // Only the Android backend has Java to place. Naming the flag without `mdc` is a mistake; the
+    // Only the Android backend has Java to place. Naming the flag without `material` is a mistake; the
     // default has nothing to move.
-    if java_in_src == Some(true) && !toolkits.iter().any(|t| t == "mdc") {
+    if java_in_src == Some(true) && !toolkits.iter().any(|t| t == "material") {
         return Err(CliError::usage(
-            "--java-in-src places a native piece's Android Java; add mdc to --toolkits.",
+            "--java-in-src places a native piece's Android Java; add material to --toolkits.",
         ));
     }
     let java_in_src = java_in_src.unwrap_or(true);
@@ -1676,7 +1668,7 @@ pub fn add_target(
     }
     if wanted.is_empty() {
         return Err(CliError::usage(
-            "no target given\n       usage: day project add-target <target>… (e.g. android-mdc)",
+            "no target given\n       usage: day project add-target <target>… (e.g. android-material)",
         ));
     }
     for t in &wanted {
@@ -1948,17 +1940,19 @@ fn native_piece_files(
     for t in toolkits {
         let entry = match t.as_str() {
             "appkit" => {
-                "appkit = [\"dep:day-appkit\", \"dep:objc2\", \"dep:objc2-app-kit\", \"dep:objc2-foundation\"]"
+                "appkit = [\"dep:day-toolkit-appkit\", \"dep:objc2\", \"dep:objc2-app-kit\", \"dep:objc2-foundation\"]"
             }
-            "gtk" => "gtk = [\"dep:day-gtk\", \"dep:gtk4\"]",
-            "qt" => "qt = [\"dep:day-qt\"]",
+            "gtk" => "gtk = [\"dep:day-toolkit-gtk\", \"dep:gtk4\"]",
+            "qt" => "qt = [\"dep:day-toolkit-qt\"]",
             "uikit" => {
-                "uikit = [\"dep:day-uikit\", \"dep:objc2\", \"dep:objc2-ui-kit\", \"dep:objc2-foundation\", \"dep:objc2-core-foundation\"]"
+                "uikit = [\"dep:day-toolkit-uikit\", \"dep:objc2\", \"dep:objc2-ui-kit\", \"dep:objc2-foundation\", \"dep:objc2-core-foundation\"]"
             }
-            "mdc" => "mdc = [\"dep:day-mdc\", \"dep:day-android-runtime\"]",
-            "xaml" => "xaml = [\"dep:day-winui\", \"dep:day-xaml-sys\"]",
+            "material" => "material = [\"dep:day-toolkit-material\", \"dep:day-platform-android\"]",
+            "xaml" => "xaml = [\"dep:day-toolkit-winui\", \"dep:day-toolkit-xaml-sys\"]",
             // Enable WinUI in both the Rust toolkit and its C++ shim.
-            "winui" => "winui = [\"xaml\", \"day-winui/winui\", \"day-xaml-sys/winui\"]",
+            "winui" => {
+                "winui = [\"xaml\", \"day-toolkit-winui/winui\", \"day-toolkit-xaml-sys/winui\"]"
+            }
             _ => continue,
         };
         features.push_str(entry);
@@ -1979,24 +1973,24 @@ fn native_piece_files(
         day_deps.push('\n');
     };
     if has("appkit") {
-        push_dep(deps.dep("day-appkit", ", optional = true"));
+        push_dep(deps.dep("day-toolkit-appkit", ", optional = true"));
     }
     if has("gtk") {
-        push_dep(deps.dep("day-gtk", ", optional = true"));
+        push_dep(deps.dep("day-toolkit-gtk", ", optional = true"));
     }
     if has("qt") {
-        push_dep(deps.dep("day-qt", ", optional = true"));
+        push_dep(deps.dep("day-toolkit-qt", ", optional = true"));
     }
     if has("uikit") {
-        push_dep(deps.dep("day-uikit", ", optional = true"));
+        push_dep(deps.dep("day-toolkit-uikit", ", optional = true"));
     }
-    if has("mdc") {
-        push_dep(deps.dep("day-mdc", ", optional = true"));
-        push_dep(deps.dep("day-android-runtime", ", optional = true"));
+    if has("material") {
+        push_dep(deps.dep("day-toolkit-material", ", optional = true"));
+        push_dep(deps.dep("day-platform-android", ", optional = true"));
     }
     if has("xaml") {
-        push_dep(deps.dep("day-winui", ", optional = true"));
-        push_dep(deps.dep("day-xaml-sys", ", optional = true"));
+        push_dep(deps.dep("day-toolkit-winui", ", optional = true"));
+        push_dep(deps.dep("day-toolkit-xaml-sys", ", optional = true"));
     }
 
     // crates.io deps for the native bindings (only for chosen toolkits).
@@ -2018,10 +2012,10 @@ fn native_piece_files(
 
     // Android / iOS backend-contribution metadata.
     let mut meta = String::new();
-    if has("mdc") {
+    if has("material") {
         meta.push_str(&format!(
             "\n# Standalone-piece Android contribution: `day build` reads this from `cargo metadata`\n\
-             # and folds the piece's own Java into the app's Gradle build, without touching day-mdc.\n\
+             # and folds the piece's own Java into the app's Gradle build, without touching day-toolkit-material.\n\
              # `java` takes source dirs or single files; a file is linked in by its `package` line.\n\
              [package.metadata.day.android]\n\
              java = [\"{java_entry}\"]\n\
@@ -2137,7 +2131,7 @@ linkme = "0.3"
     if has("uikit") {
         files.push(("src/lib-uikit.rs".into(), r.expand(UIKIT_IMPL)));
     }
-    if has("mdc") {
+    if has("material") {
         files.push(("src/lib-android.rs".into(), r.expand(ANDROID_IMPL)));
         files.push((java_file, r.expand(ANDROID_JAVA)));
     }
@@ -2208,14 +2202,14 @@ fn part_files(
         .map(|p| format!("target_os = \"{p}\""))
         .collect();
 
-    // Target-gated deps: only Android rides on the day runtime (its Java shim needs day-android-runtime).
+    // Target-gated deps: only Android rides on the day runtime (its Java shim needs day-platform-android).
     let mut dep_sections = String::new();
     if has("android") {
         dep_sections.push_str(&format!(
-            "\n# Android reads through a Java shim + day-android-runtime's cached JVM/Context, the one platform\n\
+            "\n# Android reads through a Java shim + day-platform-android's cached JVM/Context, the one platform\n\
              # where a headless part rides on the day runtime (like the pieces' Android backends).\n\
              [target.'cfg(target_os = \"android\")'.dependencies]\n{}\n",
-            deps.dep("day-android-runtime", ""),
+            deps.dep("day-platform-android", ""),
         ));
     }
 
@@ -2224,7 +2218,7 @@ fn part_files(
     if has("android") {
         meta.push_str(&format!(
             "\n# `day build` stages this Java into the app's Gradle build (and merges any permissions),\n\
-             # without touching day-mdc. This headless part registers no renderer. `java` takes\n\
+             # without touching day-toolkit-material. This headless part registers no renderer. `java` takes\n\
              # source dirs or single files; a file is linked in by its `package` line.\n\
              [package.metadata.day.android]\n\
              java = [\"{java_entry}\"]\n\
@@ -2478,7 +2472,8 @@ impl Piece for __PASCAL__ {
                 let from_native = g.borrow_mut().take().as_deref() == Some(t.as_str());
                 if !from_native {
                     with_tree(|tr| {
-                        tr.patch(node, Box::new(__PASCAL__Patch::SetText(t.clone())), false)
+                        let patch = Box::new(__PASCAL__Patch::SetText(t.clone()));
+                        tr.patch(node, patch, false)
                     });
                 }
             },
@@ -2510,7 +2505,7 @@ use super::*;
 use std::cell::RefCell;
 use std::collections::HashMap;
 
-use day_appkit::AppKit;
+use day_toolkit_appkit::AppKit;
 use day_spec::{NodeId, Proposal, Size};
 use objc2::rc::Retained;
 use objc2::runtime::{NSObjectProtocol, ProtocolObject};
@@ -2539,7 +2534,7 @@ define_class!(
             if let Some(obj) = notification.object()
                 && let Ok(tf) = obj.downcast::<NSTextField>()
             {
-                day_appkit::emit(node, Event::TextChanged(tf.stringValue().to_string()));
+                day_toolkit_appkit::emit(node, Event::TextChanged(tf.stringValue().to_string()));
             }
         }
     }
@@ -2590,7 +2585,7 @@ fn measure(_backend: &mut AppKit, h: &Retained<NSView>, p: Proposal) -> Size {
     Size::new(w, fit.height.ceil().max(22.0))
 }
 
-day_pieces::renderer!(day_appkit::RENDERERS, AppKit,
+day_pieces::renderer!(day_toolkit_appkit::RENDERERS, AppKit,
     kind: KIND, props: __PASCAL__Props, patch: __PASCAL__Patch,
     make: make, update: update, measure: measure);
 "#;
@@ -2603,7 +2598,7 @@ use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::rc::Rc;
 
-use day_gtk::Gtk;
+use day_toolkit_gtk::Gtk;
 use day_spec::{NodeId, Proposal, Size};
 use gtk4::prelude::*;
 
@@ -2634,7 +2629,7 @@ fn make(_backend: &mut Gtk, p: &__PASCAL__Props, id: NodeId) -> gtk4::Widget {
         if sup.get() {
             return;
         }
-        day_gtk::emit(id, Event::TextChanged(e.text().to_string()));
+        day_toolkit_gtk::emit(id, Event::TextChanged(e.text().to_string()));
     });
     let w: gtk4::Widget = entry.clone().upcast();
     STATE.with(|m| {
@@ -2666,7 +2661,7 @@ fn measure(_backend: &mut Gtk, h: &gtk4::Widget, p: Proposal) -> Size {
     Size::new(w, (nat_h as f64).max(24.0))
 }
 
-day_pieces::renderer!(day_gtk::RENDERERS, Gtk,
+day_pieces::renderer!(day_toolkit_gtk::RENDERERS, Gtk,
     kind: KIND, props: __PASCAL__Props, patch: __PASCAL__Patch,
     make: make, update: update, measure: measure);
 "#;
@@ -2678,7 +2673,7 @@ use super::*;
 use std::ffi::{CStr, CString};
 use std::os::raw::{c_char, c_void};
 
-use day_qt::{Qt, QtHandle};
+use day_toolkit_qt::{Qt, QtHandle};
 use day_spec::{NodeId, Proposal, Size};
 
 unsafe extern "C" {
@@ -2689,7 +2684,7 @@ unsafe extern "C" {
         cb: extern "C" fn(u64, *const c_char),
     ) -> *mut c_void;
     fn day___SNAKE___set_text(w: *mut c_void, text: *const c_char);
-    // From day-qt-sys (already linked into the binary):
+    // From day-toolkit-qt-sys (already linked into the binary):
     fn day_qt_size_hint(w: *mut c_void, out_w: *mut f64, out_h: *mut f64);
 }
 
@@ -2701,7 +2696,7 @@ extern "C" fn on_text(id: u64, text: *const c_char) {
             .to_string_lossy()
             .into_owned()
     };
-    day_qt::emit(NodeId(id), Event::TextChanged(s));
+    day_toolkit_qt::emit(NodeId(id), Event::TextChanged(s));
 }
 
 fn cstr(s: &str) -> CString {
@@ -2732,14 +2727,14 @@ fn measure(_backend: &mut Qt, h: &QtHandle, p: Proposal) -> Size {
     Size::new(width, hh.max(24.0))
 }
 
-day_pieces::renderer!(day_qt::RENDERERS, Qt,
+day_pieces::renderer!(day_toolkit_qt::RENDERERS, Qt,
     kind: KIND, props: __PASCAL__Props, patch: __PASCAL__Patch,
     make: make, update: update, measure: measure);
 "#;
 
 const QT_SHIM: &str = r#"// This piece's Qt shim behind a flat C ABI: a QLineEdit. textChanged reports edits back to Rust as
 // a UTF-8 C string (valid only during the callback; Rust copies it); programmatic setText is wrapped in
-// blockSignals so it never echoes back as a change. Qt libs are already linked by day-qt-sys.
+// blockSignals so it never echoes back as a change. Qt libs are already linked by day-toolkit-qt-sys.
 
 #include <QLineEdit>
 #include <QString>
@@ -2788,7 +2783,7 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 
 use day_spec::{NodeId, Proposal, Size};
-use day_uikit::Uikit;
+use day_toolkit_uikit::Uikit;
 use objc2::rc::Retained;
 use objc2::runtime::{AnyObject, NSObjectProtocol};
 use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send, sel};
@@ -2814,7 +2809,7 @@ define_class!(
         fn fire(&self, sender: &AnyObject) {
             if let Some(tf) = sender.downcast_ref::<UITextField>() {
                 let s = tf.text().map(|s| s.to_string()).unwrap_or_default();
-                day_uikit::emit(self.ivars().node, Event::TextChanged(s));
+                day_toolkit_uikit::emit(self.ivars().node, Event::TextChanged(s));
             }
         }
     }
@@ -2872,24 +2867,24 @@ fn measure(_backend: &mut Uikit, h: &Retained<UIView>, p: Proposal) -> Size {
     Size::new(w, fit.height.ceil().max(28.0))
 }
 
-day_pieces::renderer!(day_uikit::RENDERERS, Uikit,
+day_pieces::renderer!(day_toolkit_uikit::RENDERERS, Uikit,
     kind: KIND, props: __PASCAL__Props, patch: __PASCAL__Patch,
     make: make, update: update, measure: measure);
 "#;
 
 const ANDROID_IMPL: &str = r#"// Android: an EditText. This crate's Java factory (Day__PASCAL__), declared by `java` in
 // [package.metadata.day.android], is pulled into the app's Gradle build without any edits to
-// day-mdc. A TextWatcher dispatches edits back to Rust via DayBridge.nativeOnEvent(id, 1, …)
+// day-toolkit-material. A TextWatcher dispatches edits back to Rust via DayBridge.nativeOnEvent(id, 1, …)
 // (kind 1 = TextChanged).
 
 use super::*;
-use day_mdc::jni::objects::JString;
-use day_mdc::{AHandle, Android, java};
+use day_toolkit_material::jni::objects::JString;
+use day_toolkit_material::{AHandle, Material, java};
 use day_spec::{NodeId, Proposal, Size};
 
 // The Java factory, bound by its own names (docs/android-jni.md): a signature that stops matching
 // the Java is named when the app launches, and R8 keeps exactly these methods.
-day_mdc::java_class! {
+day_toolkit_material::java_class! {
     Day__PASCAL__ => "__PKG_DOTS__.Day__PASCAL__",
     methods {
         static fn makeField(id: jlong, placeholder: JString, text: JString) -> android.view.View,
@@ -2897,15 +2892,15 @@ day_mdc::java_class! {
     },
 }
 
-fn make(_backend: &mut Android, p: &__PASCAL__Props, id: NodeId) -> AHandle {
-    day_mdc::realize("__SNAKE__", |env| {
+fn make(_backend: &mut Material, p: &__PASCAL__Props, id: NodeId) -> AHandle {
+    day_toolkit_material::realize("__SNAKE__", |env| {
         let placeholder = JString::from_str(env, &p.placeholder)?;
         let text = JString::from_str(env, &p.text)?;
         Day__PASCAL__::makeField(env, id.0 as i64, &placeholder, &text)
     })
 }
 
-fn update(_backend: &mut Android, h: &AHandle, patch: &__PASCAL__Patch) {
+fn update(_backend: &mut Material, h: &AHandle, patch: &__PASCAL__Patch) {
     let __PASCAL__Patch::SetText(t) = patch;
     java(|env| {
         let text = JString::from_str(env, t)?;
@@ -2913,19 +2908,19 @@ fn update(_backend: &mut Android, h: &AHandle, patch: &__PASCAL__Patch) {
     });
 }
 
-fn measure(_backend: &mut Android, _h: &AHandle, p: Proposal) -> Size {
+fn measure(_backend: &mut Material, _h: &AHandle, p: Proposal) -> Size {
     // Fill the proposed width (grow_w leaf); natural single-line height.
     Size::new(p.width.unwrap_or(180.0), p.height.unwrap_or(44.0))
 }
 
-day_pieces::renderer!(day_mdc::RENDERERS, Android,
+day_pieces::renderer!(day_toolkit_material::RENDERERS, Material,
     kind: KIND, props: __PASCAL__Props, patch: __PASCAL__Patch,
     make: make, update: update, measure: measure);
 "#;
 
 const ANDROID_JAVA: &str = r#"// This piece's Android factory, bundled with the crate and pulled into the app's Gradle
-// build via [package.metadata.day.android], without touching day-mdc. It uses only
-// day-mdc's public Java surface: DayBridge.ctx (the Android Context) and
+// build via [package.metadata.day.android], without touching day-toolkit-material. It uses only
+// day-toolkit-material's public Java surface: DayBridge.ctx (the Android Context) and
 // DayBridge.nativeOnEvent (the event trampoline).
 package __PKG_DOTS__;
 
@@ -2970,7 +2965,7 @@ public final class Day__PASCAL__ {
 "#;
 
 const XAML_IMPL: &str = r#"// XAML: this crate's C++/WinRT shim (src/lib-xaml-shim.cpp), a TextBox boxed into a Day handle
-// via the day_xaml_box/unbox functions that day-xaml-sys exports. Windows-only; built in CI, not
+// via the day_xaml_box/unbox functions that day-toolkit-xaml-sys exports. Windows-only; built in CI, not
 // verified on non-Windows hosts.
 
 use super::*;
@@ -2978,7 +2973,7 @@ use std::ffi::{CStr, CString};
 use std::os::raw::{c_char, c_void};
 
 use day_spec::{NodeId, Proposal, Size};
-use day_winui::{WinHandle, Xaml};
+use day_toolkit_winui::{WinHandle, Xaml};
 
 unsafe extern "C" {
     fn day___SNAKE___xaml_new(
@@ -2988,7 +2983,7 @@ unsafe extern "C" {
         cb: extern "C" fn(u64, *const c_char),
     ) -> *mut c_void;
     fn day___SNAKE___xaml_set_text(w: *mut c_void, text: *const c_char);
-    // Generic size hint from day-xaml-sys (already linked).
+    // Generic size hint from day-toolkit-xaml-sys (already linked).
     fn day_xaml_measure(
         w: *mut c_void,
         avail_w: f64,
@@ -3006,7 +3001,7 @@ extern "C" fn on_text(id: u64, text: *const c_char) {
             .to_string_lossy()
             .into_owned()
     };
-    day_winui::emit(NodeId(id), Event::TextChanged(s));
+    day_toolkit_winui::emit(NodeId(id), Event::TextChanged(s));
 }
 
 fn cstr(s: &str) -> CString {
@@ -3037,13 +3032,13 @@ fn measure(_backend: &mut Xaml, h: &WinHandle, p: Proposal) -> Size {
     Size::new(width, hh.max(32.0))
 }
 
-day_pieces::renderer!(day_winui::RENDERERS, Xaml,
+day_pieces::renderer!(day_toolkit_winui::RENDERERS, Xaml,
     kind: KIND, props: __PASCAL__Props, patch: __PASCAL__Patch,
     make: make, update: update, measure: measure);
 "#;
 
 const XAML_SHIM: &str = r#"// This piece's C++/WinRT shim: a TextBox boxed into a Day handle via the day_xaml_box/unbox
-// functions that day-xaml-sys exports. TextChanged reports edits back to Rust as a UTF-8 C string;
+// functions that day-toolkit-xaml-sys exports. TextChanged reports edits back to Rust as a UTF-8 C string;
 // programmatic Text(...) is guarded so it only re-writes when the value differs. Windows-only;
 // compiled by build.rs, once per XAML stack: against WinUI 3 (Microsoft.UI.Xaml) for
 // windows-winui, where build.rs defines DAY_WINUI, and against system XAML (Windows.UI.Xaml) for
@@ -3072,7 +3067,7 @@ namespace WUX = winrt::Windows::UI::Xaml;
 namespace WUXC = winrt::Windows::UI::Xaml::Controls;
 #endif
 
-// The boxing functions, exported by day-xaml-sys (already linked into the app).
+// The boxing functions, exported by day-toolkit-xaml-sys (already linked into the app).
 extern "C" void *day_xaml_box(void *iinspectable_abi);
 extern "C" void *day_xaml_unbox(void *handle);
 
@@ -3134,7 +3129,7 @@ void day___SNAKE___xaml_set_text(void *handle, const char *text) {
 
 const BUILD_RS: &str = r#"//! Compiles this piece's native shims when their feature is on: a native Day piece carrying C++
 //! without touching Day's toolkit crates. Qt uses `cc` + pkg-config; XAML uses `cc` (MSVC) + the
-//! Windows SDK cppwinrt projection, mirroring day-xaml-sys.
+//! Windows SDK cppwinrt projection, mirroring day-toolkit-xaml-sys.
 
 fn main() {
     println!("cargo:rerun-if-changed=src/lib-qt-shim.cpp");
@@ -3163,7 +3158,7 @@ fn build_qt() {
     }
     build.flag_if_supported("-Wno-unused-parameter");
     build.compile("day__SNAKE__qtshim");
-    // Qt libs themselves are already linked by day-qt-sys.
+    // Qt libs themselves are already linked by day-toolkit-qt-sys.
 }
 
 fn build_xaml() {
@@ -3190,7 +3185,7 @@ fn build_xaml() {
         build.define("DAY_WINUI", None);
     }
     build.compile("day__SNAKE__xamlshim");
-    // WindowsApp.lib + the day_xaml_box/unbox functions are already linked by day-xaml-sys.
+    // WindowsApp.lib + the day_xaml_box/unbox functions are already linked by day-toolkit-xaml-sys.
 }
 
 "#;
@@ -3219,12 +3214,12 @@ fn view() -> impl Piece {
 ## Build a single backend
 
 ```sh
-cargo build --features appkit    # or gtk / qt / uikit / mdc / xaml
+cargo build --features appkit    # or gtk / qt / uikit / material / xaml
 ```
 
 - `appkit` / `uikit` build on macOS with the iOS-sim target respectively.
 - `qt` / `xaml` compile a small C++ shim (`build.rs`).
-- `mdc` carries its own Java factory, declared by `java` in `[package.metadata.day.android]` and staged
+- `material` carries its own Java factory, declared by `java` in `[package.metadata.day.android]` and staged
   into the app's Gradle build.
 
 ## Next steps
@@ -3405,12 +3400,12 @@ mod tests {
 
 const PART_ANDROID: &str = r#"// Android: read through this crate's Java shim (Day__PASCAL__.java, declared by `java` in
 // [package.metadata.day.android]), staged into the app's Gradle build by `day build` without
-// touching day-android-runtime (it registers no renderer). The Java uses day-android-runtime's cached Context
+// touching day-platform-android (it registers no renderer). The Java uses day-platform-android's cached Context
 // (DayRuntime.ctx); Rust calls it through a `java_class!` binding (docs/android-jni.md).
 
-use day_android_runtime::java;
+use day_platform_android::java;
 
-day_android_runtime::java_class! {
+day_platform_android::java_class! {
     Day__PASCAL__ => "__PKG_DOTS__.Day__PASCAL__",
     methods {
         static fn read() -> jlong,
@@ -3427,7 +3422,7 @@ pub fn status() -> Option<super::Sample> {
 "#;
 
 const PART_ANDROID_JAVA: &str = r#"// __CRATE__'s Android backend: a headless capability shim (no UI), bundled with this crate and
-// folded into the app's Gradle build via [package.metadata.day.android], without touching day-android-runtime.
+// folded into the app's Gradle build via [package.metadata.day.android], without touching day-platform-android.
 package __PKG_DOTS__;
 
 public final class Day__PASCAL__ {
@@ -3688,8 +3683,8 @@ mod tests {
     #[test]
     fn day_toml_append_preserves_comments_and_formatting() {
         let input = "# my app\nschema = 1\n\n[app]\nid = \"dev.example.foo\"   # bundle id\n# the platforms we ship on\ntargets = [\"ios-uikit\", \"macos-appkit\"]\n\n[window]\nwidth = 960\n";
-        let out = add_targets_to_day_toml(input, &["android-mdc"]).unwrap();
-        let expected = "# my app\nschema = 1\n\n[app]\nid = \"dev.example.foo\"   # bundle id\n# the platforms we ship on\ntargets = [\"ios-uikit\", \"macos-appkit\", \"android-mdc\"]\n\n[window]\nwidth = 960\n";
+        let out = add_targets_to_day_toml(input, &["android-material"]).unwrap();
+        let expected = "# my app\nschema = 1\n\n[app]\nid = \"dev.example.foo\"   # bundle id\n# the platforms we ship on\ntargets = [\"ios-uikit\", \"macos-appkit\", \"android-material\"]\n\n[window]\nwidth = 960\n";
         assert_eq!(out, expected);
     }
 
@@ -3789,8 +3784,8 @@ mod day_version_tests {
         assert_eq!(
             Deps::resolve(None, true, false, Some(DaySource::Branch("main".into())))
                 .unwrap()
-                .dep("day-gtk", ", optional = true"),
-            "day-gtk = { git = \"https://github.com/daybrite/day.git\", branch = \"main\", optional = true }"
+                .dep("day-toolkit-gtk", ", optional = true"),
+            "day-toolkit-gtk = { git = \"https://github.com/daybrite/day.git\", branch = \"main\", optional = true }"
         );
     }
 
@@ -3897,7 +3892,7 @@ mod scaffold_tests {
             targets: vec![
                 "macos-appkit".into(),
                 "ios-uikit".into(),
-                "android-mdc".into(),
+                "android-material".into(),
                 "harmony-arkui".into(),
             ],
             template: None,
@@ -4215,7 +4210,11 @@ mod scaffold_tests {
             assert!(text("src/lib.rs").contains("day_pieces::glue_modules!(xaml);"));
             let manifest: toml::Value = toml::from_str(text("Cargo.toml")).unwrap();
             let winui = manifest["features"]["winui"].as_array().unwrap();
-            for feature in ["xaml", "day-winui/winui", "day-xaml-sys/winui"] {
+            for feature in [
+                "xaml",
+                "day-toolkit-winui/winui",
+                "day-toolkit-xaml-sys/winui",
+            ] {
                 assert!(winui.iter().any(|value| value.as_str() == Some(feature)));
             }
             assert!(!text("src/lib-xaml.rs").is_empty());
@@ -4229,7 +4228,7 @@ mod scaffold_tests {
     #[test]
     fn java_in_src_writes_the_factory_beside_the_rust_arms() {
         let r = Repl::new("day-piece-field", Some("dev.example.daypiecefield"));
-        let toolkits = vec!["mdc".to_string()];
+        let toolkits = vec!["material".to_string()];
         let deps = Deps::Git(None);
         let paths = |files: &[(String, String)]| -> Vec<String> {
             files.iter().map(|(p, _)| p.clone()).collect()

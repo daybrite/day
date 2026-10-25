@@ -25,7 +25,7 @@ follow the [part tutorial](/contributing/tutorials/part).
 Generate a crate and its demo app with the toolkits you intend to support:
 
 ```sh
-day new piece day-piece-example-control --toolkits appkit,gtk,qt,uikit,mdc,winui
+day new piece day-piece-example-control --toolkits appkit,gtk,qt,uikit,material,winui
 ```
 
 The generated package contains a shared frontend, per-toolkit renderer modules, Cargo features,
@@ -33,7 +33,7 @@ and the native build metadata required by those toolkits. Its demo supplies a pl
 the control independently. Add `--local <path-to-day>` to use a local framework checkout.
 
 The maintained in-repository example is
-[`day-piece-texteditor`](https://github.com/daybrite/day/tree/main/pieces/day-piece-texteditor).
+[`day-piece-text-editor`](https://github.com/daybrite/day/tree/main/crates/day-piece-text-editor).
 It owns its renderer modules and native shims. Core controls have a different ownership model:
 frontends live in `day-pieces`, protocol types in `day-spec`, and renderers in each toolkit.
 Do not add toolkit dependencies to `day-pieces` when implementing a new core control.

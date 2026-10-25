@@ -335,7 +335,7 @@ pub fn has_launch_deeplink() -> bool {
 
 /// A key/value sink a nav surface's `.restore` persists its state through, so navigation
 /// survives a relaunch or an Android process death (docs/navigation.md). `day::launch` installs
-/// the preferences store (`day_part_prefs::install_nav_store`) unless the app installed one
+/// the preferences store (`day_part_preferences::install_nav_store`) unless the app installed one
 /// first; an app marks the surfaces it wants remembered with `.restore(key)`. With no store installed,
 /// `.restore` is a silent no-op, so a surface's `.restore` call never fails to build.
 ///

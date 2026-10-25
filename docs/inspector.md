@@ -44,7 +44,7 @@ inspector(show, editor(), || form((section((/* property rows */,)),)))
   inspector. Default `PaneEdge::Trailing`. On AppKit the leading pane is a plain pinned
   split item (not the system inspector item, whose treatment is trailing-specific); GTK
   makes the panel the [`GtkPaned`](https://docs.gtk.org/gtk4/class.Paned.html)'s start child; Qt puts the splitter's panel pane
-  first (the panes are positional; day-qt maps roles onto positions at realize). The composed form mounts the pane
+  first (the panes are positional; day-toolkit-qt maps roles onto positions at realize). The composed form mounts the pane
   before the content, and, unlike the trailing pane, it stays a side pane at every width
   rather than re-homing into the compact sheet, because a layer panel beside a narrow canvas
   works better than a fullscreen modal, which on iOS also detaches the presenting view from
@@ -85,7 +85,7 @@ Platform guidance: [Apple: layout](https://developer.apple.com/design/human-inte
 | linux-gtk / macos-gtk | Native | A [`GtkPaned`](https://docs.gtk.org/gtk4/class.Paned.html) with the panel as its end child (start for `PaneEdge::Leading`), each pane a filling `DayCell` so Day's frames never become pane minimums; the divider is draggable down to 160pt and the panel keeps its dragged width across a hide and a reveal; visibility flips at once, no transition (the screenshot rule). Since 2026-09 — the [`AdwOverlaySplitView`](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/class.OverlaySplitView.html) it replaced pinned the width by the GNOME idiom ([docs/navigation](navigation.md) records the decision). |
 | linux-qt / macos-qt | Native | The nav [`QSplitter`](https://doc.qt.io/qt-6/qsplitter.html) mirrored: content pane stretches, panel pane trailing at its preferred width, divider draggable. It is not a [`QDockWidget`](https://doc.qt.io/qt-6/qdockwidget.html); `DayWindow` is a plain [`QWidget`](https://doc.qt.io/qt-6/qwidget.html) with hand-managed chrome, and dock areas need [`QMainWindow`](https://doc.qt.io/qt-6/qmainwindow.html) (the same trade the toolbar records in the shim). |
 | windows-winui | Native | [`SplitView`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.splitview) with `PanePlacement=Right`, `DisplayMode=Inline`: the pane sits beside the content, never over it. |
-| ios-uikit, android-mdc, harmony-arkui, web-dom, mock | Unsupported | The piece composes the pane from plain containers (same panel, same signal, a divider but no drag) and presents the compact sheet described above. |
+| ios-uikit, android-material, harmony-arkui, web-dom, mock | Unsupported | The piece composes the pane from plain containers (same panel, same signal, a divider but no drag) and presents the compact sheet described above. |
 
 On the native tier the `INSPECTOR` node's two `INSPECTOR_PANE` children have **native-owned
 frames**: the split sizes each pane and reports it via `Event::FrameChanged`, and Day lays the

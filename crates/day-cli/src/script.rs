@@ -12,7 +12,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{Duration, Instant};
 
-use day_script_proto::{DialogMode, FailurePolicy, Reply, Request, Script, ScriptStep, Step};
+use day_script_protocol::{DialogMode, FailurePolicy, Reply, Request, Script, ScriptStep, Step};
 
 use crate::meta::Project;
 use crate::targets::{Target, TargetKind};
@@ -379,7 +379,7 @@ pub(crate) fn connect(port: u16, window_secs: u64) -> Result<TcpStream, String> 
 /// Keep protocol/catalog errors separate: relaunching cannot repair an invalid registry.
 fn startup_catalog(
     reply: Result<String, String>,
-) -> Result<day_script_proto::IdCatalog, ScriptError> {
+) -> Result<day_script_protocol::IdCatalog, ScriptError> {
     let reply = reply.map_err(|detail| ScriptError::EngineLost {
         steps_failed: 0,
         before_steps: true,
@@ -394,7 +394,7 @@ fn startup_catalog(
                 .unwrap_or("app did not provide an element registry".into()),
         ));
     }
-    let catalog: day_script_proto::IdCatalog = serde_json::from_value(
+    let catalog: day_script_protocol::IdCatalog = serde_json::from_value(
         reply
             .data
             .ok_or_else(|| ScriptError::Other("missing compiled element registry".into()))?,
@@ -2044,6 +2044,7 @@ fn gate_platform(target_name: &str) -> &str {
 /// the XAML backend (`xaml`, `windows-xaml`) names it too: a step written for XAML's behavior is
 /// WinUI's behavior as well. `winui` / `windows-winui` single the WinUI build out.
 fn gate_names(token: &str, target: &crate::targets::Target, flavor_gate: &str) -> bool {
+    let token = crate::targets::canonical(token);
     let xaml_family = target.toolkit == "winui" && matches!(token, "xaml" | "windows-xaml");
     token == target.name
         || token == target.toolkit
@@ -2055,6 +2056,7 @@ fn gate_names(token: &str, target: &crate::targets::Target, flavor_gate: &str) -
 /// Whether a gate token could name anything at all (some target, toolkit or platform in the
 /// catalog, or a `flavor:` token), so a misspelling is reported rather than matching nothing.
 fn gate_is_known(token: &str) -> bool {
+    let token = crate::targets::canonical(token);
     token.starts_with("flavor:")
         || crate::targets::TARGETS
             .iter()
@@ -2239,10 +2241,10 @@ mod gate_tests {
             let mut line = String::new();
             fixture_line(&mut reader, &mut stream, &mut line).unwrap();
             assert!(matches!(
-                serde_json::from_str::<day_script_proto::Request>(&line)
+                serde_json::from_str::<day_script_protocol::Request>(&line)
                     .unwrap()
                     .step,
-                day_script_proto::Step::WaitIdle
+                day_script_protocol::Step::WaitIdle
             ));
             writeln!(stream, "{{\"ok\":true}}").unwrap();
             line.clear();
@@ -2298,7 +2300,7 @@ mod gate_tests {
 
     #[test]
     fn memory_budgets_are_target_gated_and_count_as_non_retryable_failures() {
-        use day_script_proto::{MemorySize, Reply, Request, Step};
+        use day_script_protocol::{MemorySize, Reply, Request, Step};
         use std::io::Write;
 
         let root = std::env::temp_dir().join(format!("day-memory-budget-{}", std::process::id()));
@@ -2387,7 +2389,7 @@ mod gate_tests {
         assert_eq!(script.steps[0].annotations["only_on"][0], "macos-appkit");
         assert!(matches!(
             script.steps[1].step,
-            day_script_proto::Step::Resize { restore: true, .. }
+            day_script_protocol::Step::Resize { restore: true, .. }
         ));
         for text in [
             "flow:\n- wait_idle:\n- tap: {}",
@@ -2425,7 +2427,7 @@ mod gate_tests {
             for index in 0..3 {
                 let mut line = String::new();
                 assert!(fixture_line(&mut reader, &mut stream, &mut line).unwrap() > 0);
-                let request: day_script_proto::Request = serde_json::from_str(&line).unwrap();
+                let request: day_script_protocol::Request = serde_json::from_str(&line).unwrap();
                 assert_eq!(request.token, "fixture-token");
                 let wire: serde_json::Value = serde_json::from_str(&line).unwrap();
                 for annotation in [
@@ -2472,10 +2474,10 @@ mod gate_tests {
         )
         .unwrap();
         let seen = server.join().unwrap();
-        assert_eq!(seen[0], day_script_proto::Step::WaitIdle);
-        assert_eq!(seen[1], day_script_proto::Step::WaitIdle);
+        assert_eq!(seen[0], day_script_protocol::Step::WaitIdle);
+        assert_eq!(seen[1], day_script_protocol::Step::WaitIdle);
         assert!(
-            matches!(&seen[2], day_script_proto::Step::Screenshot { name, in_process: true, .. } if name == "fixture")
+            matches!(&seen[2], day_script_protocol::Step::Screenshot { name, in_process: true, .. } if name == "fixture")
         );
         assert_eq!(run.steps_total, 3);
         assert_eq!(run.steps_failed, 1);
@@ -2678,7 +2680,7 @@ mod gate_tests {
         assert!(super::parse_flow_text("on_failure: typo\nflow: []", root).is_err());
         assert_eq!(
             super::parse_flow_text("flow: []", root).unwrap().on_failure,
-            day_script_proto::FailurePolicy::Continue,
+            day_script_protocol::FailurePolicy::Continue,
         );
     }
 
@@ -2701,7 +2703,7 @@ mod gate_tests {
         for token in ["ios-uikit", "uikit", "ios", "flavor:none"] {
             assert!(gate_names(token, ios, "flavor:none"), "{token}");
         }
-        for token in ["android", "mdc", "web-dom", "flavor:paid", "iOS", ""] {
+        for token in ["android", "material", "web-dom", "flavor:paid", "iOS", ""] {
             assert!(!gate_names(token, ios, "flavor:none"), "{token}");
         }
         assert!(gate_names("web", web, "flavor:none"));

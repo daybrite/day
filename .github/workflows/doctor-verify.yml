@@ -68,7 +68,7 @@ jobs:
           - ios-uikit
           - linux-gtk
           - linux-qt
-          - android-mdc
+          - android-material
           - harmony-arkui
           - windows-winui
           - windows-qt
@@ -82,7 +82,7 @@ jobs:
           - { combo: ios-uikit,     os: xcode-27 }
           - { combo: linux-gtk,     os: ubuntu-latest }
           - { combo: linux-qt,      os: ubuntu-latest }
-          - { combo: android-mdc,   os: ubuntu-latest }
+          - { combo: android-material,   os: ubuntu-latest }
           - { combo: harmony-arkui, os: ubuntu-latest }
           - { combo: windows-winui, os: windows-latest }
           - { combo: windows-qt,    os: windows-latest }

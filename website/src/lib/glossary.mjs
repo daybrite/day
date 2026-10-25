@@ -89,14 +89,14 @@ export const glossary = [
     id: 'target',
     term: 'Target',
     definition:
-      "A Day build selection identified by an OS/toolkit pair, such as `macos-appkit` or `android-mdc`, in the CLI target registry. It is distinct from a Rust compiler target triple; registry entries also record host constraints, experimental status, and deprecation.",
+      "A Day build selection identified by an OS/toolkit pair, such as `macos-appkit` or `android-material`, in the CLI target registry. It is distinct from a Rust compiler target triple; registry entries also record host constraints, experimental status, and deprecation.",
     see: { title: 'Overview', href: '/docs/explanation/overview#the-targets' },
   },
   {
     id: 'backend',
     term: 'Toolkit implementation',
     definition:
-      "The implementation of the `Toolkit` contract for a particular UI system, typically a crate such as `day-appkit` or `day-gtk`. The toolkit implements realization, updates, events, and capabilities; its presence does not establish complete feature support or a maintenance tier.",
+      "The implementation of the `Toolkit` contract for a particular UI system, typically a crate such as `day-toolkit-appkit` or `day-toolkit-gtk`. The toolkit implements realization, updates, events, and capabilities; its presence does not establish complete feature support or a maintenance tier.",
     see: { title: 'Architecture', href: '/contributing/architecture' },
   },
   {

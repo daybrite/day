@@ -53,7 +53,7 @@ def main():
     (session / 'root-lock.original').write_bytes(lock)
     for name in ('Cargo.toml', 'Cargo.lock'):
         shutil.copyfile(ROOT / name, session / name)
-    for folder in ('crates', 'parts', 'pieces', 'toolkits', 'tweaks'):
+    for folder in ('crates',):
         (session / folder).symlink_to(ROOT / folder, target_is_directory=True)
     app = session / 'apps/excerpts'
     texts = {name: (ROOT / f'website/src/content/docs/{name}.md').read_text() for name in PAGES}
@@ -96,7 +96,7 @@ version = "0.1.0"
 edition = "2024"
 [workspace]
 [dependencies]
-day-fluent = { path = "../../crates/day-fluent" }
+day-localization-ui = { path = "../../crates/day-localization-ui" }
 [build-dependencies]
 day-build = { path = "../../crates/day-build" }
 ''')

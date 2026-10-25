@@ -247,13 +247,13 @@ pub fn sync_android(project: &Project) -> Result<(), String> {
     // The scaffold's manifest spells the scheme as the `${dayScheme}` placeholder the Gradle
     // plugin fills from Day.toml; a shortcut's link needs the value itself, not the placeholder.
     let scheme = if scheme.starts_with("${") {
-        project.manifest.resolve("android-mdc").scheme()
+        project.manifest.resolve("android-material").scheme()
     } else {
         scheme
     };
     let activity = android_launcher_activity(&text)
         .ok_or_else(|| format!("{}: no LAUNCHER activity found", manifest.display()))?;
-    let app_id = project.manifest.resolve("android-mdc").id;
+    let app_id = project.manifest.resolve("android-material").id;
 
     let xml_dir = res.join("xml");
     std::fs::create_dir_all(&xml_dir).map_err(|e| format!("mkdir {}: {e}", xml_dir.display()))?;

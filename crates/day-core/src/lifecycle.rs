@@ -308,7 +308,7 @@ fn dispatch_handlers(phase: Lifecycle) {
             // unwind. Contain each handler like the event pump does (DESIGN.md §8.5): a panic here
             // (classically an `eprintln!` hitting a closed stderr pipe during teardown) would
             // otherwise turn a clean exit into a spurious crash. `notify_contained_panic` runs
-            // per-panic so a crash reporter (day-piece-break) downgrades that handler's report to
+            // per-panic so a crash reporter (day-piece-crash-reporter) downgrades that handler's report to
             // contained, not fatal.
             if std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| f())).is_err() {
                 any_panicked = true;

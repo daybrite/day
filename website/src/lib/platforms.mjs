@@ -96,7 +96,7 @@ export const platforms = /** @type {Platform[]} */ ([
     tier: 1,
   },
   {
-    id: 'android-mdc',
+    id: 'android-material',
     os: 'Android',
     toolkit: 'Material Components',
     chip: 'Android',
@@ -107,7 +107,7 @@ export const platforms = /** @type {Platform[]} */ ([
     tier: 1,
   },
   {
-    id: 'android-mdc-tablet',
+    id: 'android-material-tablet',
     deviceClass: 'tablet',
     os: 'Android',
     toolkit: 'Material Components',

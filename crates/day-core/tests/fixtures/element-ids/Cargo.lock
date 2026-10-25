@@ -89,7 +89,7 @@ dependencies = [
  "anstyle",
  "day-async",
  "day-geometry",
- "day-l10n",
+ "day-localization",
  "day-macros",
  "day-reactive",
  "day-spec",
@@ -116,7 +116,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "day-l10n"
+name = "day-localization"
 version = "0.6.0"
 dependencies = [
  "day-reactive",

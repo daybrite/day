@@ -18,7 +18,7 @@
       { "name": "ohos.permission.INTERNET" }
     ],
     // Both abilities and both pages ($profile:main_pages) are the framework's: `day build`
-    // stages them into ets/day/ from the day-arkui crate (docs/harmonyos.md), so the paths
+    // stages them into ets/day/ from the day-toolkit-arkui crate (docs/harmonyos.md), so the paths
     // below are fixed and never edited per app.
     "abilities": [
       {

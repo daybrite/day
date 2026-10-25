@@ -55,7 +55,7 @@ pub(crate) const DAY_GIT: &str = "https://github.com/daybrite/day.git";
 /// One triple per platform Day targets. A day crate reaches an app through the umbrella and the
 /// parts, under `[target.'cfg(…)'.dependencies]` tables the app never names itself, so the set to
 /// patch is the resolved graph of every platform, not the app's manifest. Resolving for the
-/// host alone is what let `day-mdc` build from the git cache while a local checkout sat
+/// host alone is what let `day-toolkit-material` build from the git cache while a local checkout sat
 /// patched in beside it, silently, on every Android build.
 const PATCH_TRIPLES: &[&str] = &[
     "aarch64-apple-darwin",
@@ -205,7 +205,7 @@ fn resolved_git_packages(
             "--filter-platform",
             triple,
             // Backends are optional dependencies behind per-toolkit features, so the default
-            // resolve sees none of them: an app's gtk build would take day-gtk from the git
+            // resolve sees none of them: an app's gtk build would take day-toolkit-gtk from the git
             // cache while every other crate came from the checkout.
             "--all-features",
         ])
@@ -239,8 +239,8 @@ fn resolved_git_packages(
 /// Every crate a checkout publishes: package name → absolute directory.
 ///
 /// Read from the checkout's own workspace members rather than a hardcoded list, so a crate added
-/// to the framework needs no change here. A single-crate repository (an external piece) is its
-/// own one-entry map.
+/// to the framework needs no change here. Also include independent packages in the same Git
+/// checkout when their repository metadata identifies the same source (for example galleries).
 fn checkout_crates(root: &Path) -> Result<BTreeMap<String, PathBuf>, String> {
     let manifest = root.join("Cargo.toml");
     let text = std::fs::read_to_string(&manifest)
@@ -274,6 +274,57 @@ fn checkout_crates(root: &Path) -> Result<BTreeMap<String, PathBuf>, String> {
             .and_then(|n| n.as_str())
         {
             out.insert(name.to_string(), dir);
+        }
+    }
+    if let Ok(url) = checkout_url(root, &out)
+        && let Ok(files) = Command::new("git")
+            .args([
+                "ls-files",
+                "--cached",
+                "--others",
+                "--exclude-standard",
+                "-z",
+            ])
+            .current_dir(root)
+            .output()
+        && files.status.success()
+    {
+        for name in files.stdout.split(|b| *b == 0) {
+            let Ok(name) = std::str::from_utf8(name) else {
+                continue;
+            };
+            if !name.ends_with("/Cargo.toml") {
+                continue;
+            }
+            let path = root.join(name);
+            let Ok(text) = std::fs::read_to_string(&path) else {
+                continue;
+            };
+            let Ok(doc) = toml::from_str::<toml::Value>(&text) else {
+                continue;
+            };
+            let Some(package) = doc.get("package") else {
+                continue;
+            };
+            let Some(repo) = package.get("repository").and_then(|v| v.as_str()) else {
+                continue;
+            };
+            if canon(repo) != canon(&url) {
+                continue;
+            }
+            let Some(name) = package.get("name").and_then(|v| v.as_str()) else {
+                continue;
+            };
+            let Some(dir) = path.parent() else { continue };
+            if let Some(previous) = out.insert(name.to_string(), dir.to_path_buf())
+                && previous != dir
+            {
+                return Err(format!(
+                    "duplicate package {name} in {} and {}",
+                    previous.display(),
+                    dir.display()
+                ));
+            }
         }
     }
     if out.is_empty() {
@@ -404,6 +455,9 @@ fn manifest_git_deps(root: &Path) -> Result<Vec<(String, String)>, String> {
     // Plain dependencies plus every `[target.<cfg>.dependencies]` table: the backend crates an
     // app pulls in per platform live there, and they are exactly the ones easiest to forget.
     let mut tables: Vec<&toml::Value> = Vec::new();
+    if let Some(dependencies) = doc.get("workspace").and_then(|w| w.get("dependencies")) {
+        tables.push(dependencies);
+    }
     for key in ["dependencies", "dev-dependencies", "build-dependencies"] {
         if let Some(t) = doc.get(key) {
             tables.push(t);
@@ -462,6 +516,16 @@ fn wanted_by_source(
     };
     for (name, url) in manifest_git_deps(root)? {
         add(name, url);
+    }
+    // A coordinated rename may not resolve against Git at all yet. Read the selected local
+    // consumers too, so a renamed transitive dependency is patched before the first resolve.
+    for (_, checkout) in &checkouts {
+        let packages = checkout_crates(checkout)?;
+        for directory in packages.values().chain(std::iter::once(checkout)) {
+            for (name, url) in manifest_git_deps(directory)? {
+                add(name, url);
+            }
+        }
     }
     for triple in PATCH_TRIPLES {
         for (name, url) in resolved_git_packages(root, triple, &checkouts) {
@@ -1458,6 +1522,63 @@ mod tests {
         }
     }
 
+    #[test]
+    fn local_consumers_supply_inherited_dependencies_before_resolution() {
+        let tmp =
+            std::env::temp_dir().join(format!("day-patch-local-graph-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        let app = fixture(
+            &tmp.join("app"),
+            "[package]\nname='app'\nversion='0.1.0'\n[dependencies]\nservice={git='https://example.invalid/service'}\n",
+        );
+        let service = piece_checkout(
+            &tmp.join("service"),
+            "service",
+            "https://example.invalid/service",
+        );
+        std::fs::write(service.join("Cargo.toml"), "[package]\nname='service'\nversion='0.1.0'\nrepository='https://example.invalid/service'\n[workspace]\n[workspace.dependencies]\nday-platform-android={git='https://github.com/daybrite/day.git'}\n[dependencies]\nday-platform-android.workspace=true\n").unwrap();
+        let day = day_checkout(&tmp.join("day"), &["day", "day-platform-android"]);
+        let wanted = wanted_by_source(
+            &app.root,
+            &[
+                checkout_source(DAY_GIT, &day),
+                checkout_source("https://example.invalid/service", &service),
+            ],
+        )
+        .unwrap();
+        assert_eq!(wanted[&canon(DAY_GIT)], ["day-platform-android"]);
+        let _ = std::fs::remove_dir_all(tmp);
+    }
+
+    #[test]
+    fn independent_gallery_packages_belong_to_the_same_checkout() {
+        let tmp = std::env::temp_dir().join(format!("day-patch-gallery-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        let root = piece_checkout(&tmp, "piece", "https://example.invalid/piece");
+        piece_checkout(
+            &root.join("gallery"),
+            "piece-gallery",
+            "https://example.invalid/piece",
+        );
+        piece_checkout(
+            &root.join("fixture"),
+            "unrelated",
+            "https://example.invalid/other",
+        );
+        assert!(
+            Command::new("git")
+                .args(["init", "-q"])
+                .current_dir(&root)
+                .status()
+                .unwrap()
+                .success()
+        );
+        let packages = checkout_crates(&root).unwrap();
+        assert!(packages.contains_key("piece-gallery"));
+        assert!(!packages.contains_key("unrelated"));
+        let _ = std::fs::remove_dir_all(tmp);
+    }
+
     /// The table names every git-sourced day dependency, and points each at the checkout. This is
     /// the text both lifetimes use: `day patch` writes it to `.cargo/config.toml`, `--day-src`
     /// hands it to one cargo run.
@@ -1928,7 +2049,7 @@ day-part-device = { git = "https://github.com/daybrite/day.git" }
 
     /// The manifest floor is a floor, not the answer: a toolkit crate reaches an app only
     /// through the umbrella, under a `cfg(target_os)` table nobody writes by hand, and patching
-    /// just what the manifest names is what let a stale `day-mdc` build for months.
+    /// just what the manifest names is what let a stale `day-toolkit-material` build for months.
     #[test]
     fn the_manifest_floor_does_not_see_transitive_toolkits() {
         let tmp = std::env::temp_dir().join(format!("day-patch-transitive-{}", std::process::id()));
@@ -1946,7 +2067,7 @@ day = { git = "https://github.com/daybrite/day.git" }
         let deps = manifest_git_deps(&project.root).expect("deps");
         assert_eq!(deps.len(), 1, "the manifest names one crate");
         assert!(
-            !deps.iter().any(|(d, _)| d == "day-mdc"),
+            !deps.iter().any(|(d, _)| d == "day-toolkit-material"),
             "and the toolkit it pulls in per platform is invisible here — which is why \
              `wanted_by_source` also resolves each platform's graph"
         );

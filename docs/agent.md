@@ -117,7 +117,7 @@ host can produce:
 - **Harmony faultlogger reports**: the current app's fresh native or ArkTS crash report
   from `/data/log/faultlog/faultlogger` on the selected device, including the reason and
   faulting thread. Report age is measured using the guest clock to tolerate clock skew.
-- **[day-piece-break](/docs/reference/break)'s own artifacts** ([docs/break](break.md)), when the app arms it: the kind of death, the
+- **[day-piece-crash-reporter](/docs/reference/break)'s own artifacts** ([docs/break](break.md)), when the app arms it: the kind of death, the
   panic message and location, the signal, how long the app lived, and the backtrace it captured.
   Reports are finalized on the app's next launch, so a fresh crash shows its raw session artifacts
   instead; either way, only the ones whose toolkit and session start match the run that just
@@ -153,7 +153,7 @@ crash without anyone opening the log.
 > [!NOTE]
 > **Desktop targets only, for now.** The diagnosis triggers where day can observe the app's death:
 > the desktop launches, whose app is day's own child, and any target whose engine connection drops
-> mid-script. On `ios-uikit` and `android-mdc` the app runs on a simulator/device and the process
+> mid-script. On `ios-uikit` and `android-material` the app runs on a simulator/device and the process
 > day waits on is a log pump that outlives it, so an interactive crash there still passes
 > unnoticed. Closing that needs a liveness poll (`simctl spawn booted launchctl list <bundle-id>`,
 > `adb shell pidof <app-id>`) while a launch is attached.

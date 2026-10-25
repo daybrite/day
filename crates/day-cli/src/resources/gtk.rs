@@ -4,7 +4,7 @@
 //! GTK resource staging (§18.3): native GResource packing.
 //!
 //! Generates a `.gresource.xml` and compiles it with `glib-compile-resources` into a binary
-//! `app.gresource` blob under `build/day/gtk/`. `day launch` points `DAY_GRESOURCE` at it; day-gtk
+//! `app.gresource` blob under `build/day/gtk/`. `day launch` points `DAY_GRESOURCE` at it; day-toolkit-gtk
 //! registers it at startup (`gio::resources_register`) and then loads data via
 //! `g_resources_lookup_data` (zero-copy from the mmapped blob) and images via
 //! `gtk_picture_new_for_resource`. Data lives at `/day/assets/<name>`, images at `/day/images/<stem>`
@@ -40,7 +40,7 @@ pub fn stage(project: &Project, set: &ResourceSet) -> Result<(), String> {
     let mut files = String::new();
     for d in &set.data {
         // Alias data to assets/<name>, the exact `/day/assets/<name>` path the opener reads
-        // (day-gtk `open_resource`); `name` is the `/`-relative tree path (§18.5), which the
+        // (day-toolkit-gtk `open_resource`); `name` is the `/`-relative tree path (§18.5), which the
         // alias carries verbatim.
         let rel = d.path.strip_prefix(&project.root).unwrap_or(&d.path);
         files += &format!(

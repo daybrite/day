@@ -1119,7 +1119,7 @@ impl<T: 'static> Signal<T> {
     /// runs, so it never dies with a transient caller. **Every lazily-initialized global
     /// registry must use this, not [`Signal::new`]**, because a lazy global first touched inside a
     /// presented cover / pushed page / `when` arm otherwise inherits that scope and is
-    /// disposed with it, and every later read panics (the day-l10n locale signal was the
+    /// disposed with it, and every later read panics (the day-localization locale signal was the
     /// observed case).
     #[track_caller]
     pub fn global(value: T) -> Self {

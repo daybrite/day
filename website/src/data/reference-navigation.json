@@ -140,7 +140,7 @@
       "system-requirements",
       "platforms/macos-appkit",
       "platforms/ios-uikit",
-      "platforms/android-mdc",
+      "platforms/android-material",
       "platforms/windows-winui",
       "platforms/linux-gtk",
       "platforms/linux-qt",

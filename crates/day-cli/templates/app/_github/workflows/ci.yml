@@ -32,7 +32,7 @@ jobs:
       # Every target Day.toml declares (`[app] targets`), so `day project add-target` reaches CI
       # on its own. To refine what CI builds, add or remove targets in Day.toml, or name the CI
       # targets here instead:
-      #   targets: macos-appkit, windows-winui, linux-gtk, ios-uikit, android-mdc, web-dom
+      #   targets: macos-appkit, windows-winui, linux-gtk, ios-uikit, android-material, web-dom
       targets: all
 {{#if day_ci_pinned}}
       # The day CLI the runner installs: the same source Cargo.toml depends on, so the CLI and

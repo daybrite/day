@@ -31,7 +31,7 @@ def main():
     (session / 'tmp').mkdir()
     lock = (ROOT / 'Cargo.lock').read_bytes()
     (session / 'root-lock.original').write_bytes(lock)
-    for folder in ('crates', 'parts', 'pieces', 'toolkits', 'tweaks'):
+    for folder in ('crates',):
         (session / folder).symlink_to(ROOT / folder, target_is_directory=True)
     shutil.copyfile(ROOT / 'Cargo.toml', session / 'Cargo.toml')
     shutil.copyfile(ROOT / 'Cargo.lock', session / 'Cargo.lock')
@@ -103,10 +103,10 @@ fn command_guard_and_preference_round_trip() {
 
 #[test]
 fn file_paths_and_round_trip() {
-    assert!(matches!(day_part_fs::read("../outside"), Err(day_part_fs::FsError::BadPath)));
-    day_part_fs::write("fixture/data.txt", b"synthetic fixture").unwrap();
-    assert_eq!(day_part_fs::read("fixture/data.txt").unwrap(), b"synthetic fixture");
-    assert_eq!(day_part_fs::list("fixture").unwrap(), vec!["data.txt"]);
+    assert!(matches!(day_part_filesystem::read("../outside"), Err(day_part_filesystem::FsError::BadPath)));
+    day_part_filesystem::write("fixture/data.txt", b"synthetic fixture").unwrap();
+    assert_eq!(day_part_filesystem::read("fixture/data.txt").unwrap(), b"synthetic fixture");
+    assert_eq!(day_part_filesystem::list("fixture").unwrap(), vec!["data.txt"]);
 }
 ''')
     # Test-only dependencies and synthetic fixtures do not alter the published modules.

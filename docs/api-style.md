@@ -65,7 +65,7 @@ SwiftUI-like terseness where it doesn't. The rules, in priority order:
 
 8. **Anything a person reads is `impl IntoText<M>`**: a label, a title, a prompt, a tooltip, a
    menu entry, a delete affordance, an accessibility string. The caller passes a literal, a
-   `LocalizedText` (`res::str::x()`, no [`.format()`](https://daybrite.dev/api/day_fluent/struct.LocalizedText.html#method.format)), a `Signal<String>` or a closure, and the
+   `LocalizedText` (`res::str::x()`, no [`.format()`](https://daybrite.dev/api/day_localization_ui/struct.LocalizedText.html#method.format)), a `Signal<String>` or a closure, and the
    text is live. Filenames, ids and keys are the only `Into<String>` text.
 
 9. **Modifiers are classified**, and a piece's docs name its semantic target. Identity modifiers

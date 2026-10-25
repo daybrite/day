@@ -6,7 +6,7 @@
 //! Every bridged crate declares its arms in its `src/**.rs`. This module finds those crates in
 //! the app's dependency graph, renders the adapter for the target being built, and hands it to the
 //! host project that compiles it: Swift into the generated `DayPieces` package, Kotlin or Java
-//! into a Gradle `srcDir`, ArkTS into the hvigor module, JavaScript into the day-dom shim.
+//! into a Gradle `srcDir`, ArkTS into the hvigor module, JavaScript into the day-toolkit-dom shim.
 //!
 //! **Adapters are rendered from source, not read out of build output.** day-build writes the
 //! *Rust* half into `OUT_DIR` while cargo runs, which is far too late for staging that has to
@@ -215,7 +215,7 @@ fn builds_for_openharmony_only(profile: &str) -> Result<bool, String> {
     Ok(openharmony)
 }
 
-/// Write every staged ES module into `dist/bridge/`, returning the import lines the day-dom shim
+/// Write every staged ES module into `dist/bridge/`, returning the import lines the day-toolkit-dom shim
 /// needs. Each module exports `register(rt)`; the shim spreads the results into its wasm imports,
 /// which is what keeps a bridged crate's web arm in its own crate instead of in the shim.
 pub fn write_js(dist: &Path, staged: &Staged) -> Result<Vec<String>, String> {
@@ -293,7 +293,7 @@ pub fn platform_of(target_name: &str) -> Option<&'static str> {
     match target_name {
         "macos-appkit" => Some("macos"),
         "ios-uikit" => Some("ios"),
-        "android-mdc" => Some("android"),
+        "android-material" => Some("android"),
         "harmony-arkui" => Some("ohos"),
         "web-dom" => Some("web"),
         _ => None,
@@ -465,7 +465,7 @@ pub fn kotlin_plugin_help(crates: &[String]) -> String {
          and the same JNI binding, and `.java` compiles in every Android project with no plugin at \
          all. This is what the shipped parts do (docs/bridge.md).\n\
          \n\
-         2. Run `day project add-target android-mdc --persist-native-project` if using a generated \
+         2. Run `day project add-target android-material --persist-native-project` if using a generated \
          project, then apply the Kotlin plugin in platform/android/app/build.gradle.kts:\n\
          \n\
          \x20      plugins {{\n\

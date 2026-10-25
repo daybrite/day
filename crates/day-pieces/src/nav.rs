@@ -4427,7 +4427,7 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Nav<S, K>, cx: &mut BuildCx) -> 
     // chrome backends: `NavPatch::Select` names a page by attach order, while the chrome draws
     // the rows, so a suite can only pair the two when page i is row i. Letting the bind build the
     // selected destination first breaks that: restoring a saved section (`.restore`, which
-    // android-mdc installs for every app as its instance-state contract) rebuilds with a
+    // android-material installs for every app as its instance-state contract) rebuilds with a
     // non-first selection, whose page then attaches at 0 and highlights row 0.
     let build_all = {
         let (show, typed_a, sel_a) = (show.clone(), typed.clone(), selection.clone());

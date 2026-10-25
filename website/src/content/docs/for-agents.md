@@ -49,7 +49,7 @@ nothing diffs or rebuilds it.
 5. **Localize user-facing text** with Fluent files. Scaffolded apps generate a typed function
    per key (`res::str::my_key()`, parameters become typed arguments), so a missing key or
    wrong arity is a compile error. Always call those, never [`tr("key")`](https://daybrite.dev/api/day/fn.tr.html) with a literal (`day lint`
-   reports it as `string-key`); Day's own strings are there too ([`res::str::day_cancel()`](https://daybrite.dev/api/day_fluent/res/str/fn.day_cancel.html)). Messages
+   reports it as `string-key`); Day's own strings are there too ([`res::str::day_cancel()`](https://daybrite.dev/api/day_localization_ui/res/str/fn.day_cancel.html)). Messages
    with multiple variables take generated named-field structs. Include accessibility labels,
    hints, errors, and units in the catalog. Provider data and synthetic test inputs stay verbatim.
 6. **Edit `Day.toml` + Rust; never hand-edit the generated Xcode/Gradle scaffolds.** `day` regenerates
@@ -60,7 +60,7 @@ nothing diffs or rebuilds it.
 ## Setup (canonical)
 
 ```bash
-day new app my-app --toolkit macos-appkit,ios-uikit,android-mdc
+day new app my-app --toolkit macos-appkit,ios-uikit,android-material
 cd my-app
 day launch -t macos-appkit                 # build + run
 day launch -t macos-appkit --script dayscript/demo.yaml    # build + run + assert
@@ -74,7 +74,7 @@ schema = 1
 [app]
 id = "dev.example.my-app"
 title = "My App"
-targets = ["macos-appkit", "ios-uikit", "android-mdc"]
+targets = ["macos-appkit", "ios-uikit", "android-material"]
 
 [window]
 width = 480
@@ -93,11 +93,11 @@ height = 640
   [`label(res::str::counter_value(count))`](https://daybrite.dev/api/day_pieces/fn.label.html). For computed values, format the message inside
   a label's closure. [`label(res::str::hi())`](https://daybrite.dev/api/day_pieces/fn.label.html) also follows locale changes.
 - A **target** is `(OS, toolkit)`: `macos-appkit`, `macos-gtk`, `macos-qt`, `ios-uikit`,
-  `android-mdc`, `harmony-arkui`, `linux-gtk`, `linux-qt`, `windows-winui`, `windows-gtk`,
+  `android-material`, `harmony-arkui`, `linux-gtk`, `linux-qt`, `windows-winui`, `windows-gtk`,
   `windows-qt`, `web-dom` (wasm in a browser; no process
   environment, so pass runtime flags with `day launch --env K=V` and read them with [`day::env("K")`](https://daybrite.dev/api/day/fn.env.html), which is portable to every target).
 - Each target has a **support tier** ([definitions](/docs/reference/platforms#support-tiers)), which tells
-  you how much to trust it: `ios-uikit`, `android-mdc`, `macos-appkit` are Tier 1 (thoroughly
+  you how much to trust it: `ios-uikit`, `android-material`, `macos-appkit` are Tier 1 (thoroughly
   tested); `linux-gtk`, `linux-qt`, `windows-winui` are Tier 2; `harmony-arkui` and `web-dom` are
   Tier 3 (experimental, with real gaps); `macos-gtk`, `macos-qt`, `windows-gtk`, `windows-qt` are
   Tier 4 development combos that no app ships on and `day pack` refuses. Verify a user-facing

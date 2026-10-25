@@ -71,7 +71,7 @@ icon, and `resource/icons/ios/AppIcon.icon/` supplies an Icon Composer bundle fo
 
 ## Native projects and CI
 
-`day open -t ios-uikit` prepares assets before opening Xcode; `day open -t android-mdc` does the
+`day open -t ios-uikit` prepares assets before opening Xcode; `day open -t android-material` does the
 same for Android Studio. The corresponding VS Code commands also prepare assets first.
 
 CI can check whether generated files are current without writing them:
@@ -120,7 +120,7 @@ at build time.
 - SVG text must be converted to outlines. Both app icons and interface icons reject `<text>` elements.
 - Android VectorDrawable supports solid fills and strokes; art with
   gradients, clips, masks, or filters falls back to the 256 px raster, and `day lint` flags it
-  as `day::lint::vector-raster-fallback` when `android-mdc` is a declared target. `day lint`
+  as `day::lint::vector-raster-fallback` when `android-material` is a declared target. `day lint`
   also catches unreadable art, empty `.symbolset` bundles, and glyph-embedded text.
 - Tint has coverage limits. AppKit, UIKit, Android, GTK, and ArkUI recolor; Qt, WinUI, and
   web draw the authored colors. Use authored colors when the color must match across backends.

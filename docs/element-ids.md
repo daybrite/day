@@ -162,7 +162,7 @@ always fails the invocation independently of coverage.
 ## Validation and limits
 
 Regression coverage lives in `day-core/src/element_id.rs` (exact names, key escaping,
-exactly-once evaluation, unused generic retention, framing), `day-script-proto/src/ids.rs`
+exactly-once evaluation, unused generic retention, framing), `day-script-protocol/src/ids.rs`
 (namespace/shape/canonical locator validation), and the CLI lint/coverage tests (tokenization,
 set unions, thresholds, exclusions, missing/mixed evidence). The app walkthroughs exercise
 real native and web registration. Release retention must be checked on final packaged modules

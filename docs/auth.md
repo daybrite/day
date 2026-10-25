@@ -361,7 +361,7 @@ account_sign_in_failed = Sign-in could not be completed. Try again.
 account_sign_in_cancelled = Sign-in cancelled.
 ```
 
-Map error variants to messages such as [`res::str::account_sign_in_failed().format()`](https://daybrite.dev/api/day_fluent/struct.LocalizedText.html#method.format) on the UI
+Map error variants to messages such as [`res::str::account_sign_in_failed().format()`](https://daybrite.dev/api/day_localization_ui/struct.LocalizedText.html#method.format) on the UI
 thread. `AuthError::to_string()` contains diagnostic English and provider details; it is not a
 localized user-message API. See [localization](/docs/reference/localization) and
 [symbolic element IDs](/docs/reference/accessibility). Keep tokens out of diagnostic reports.

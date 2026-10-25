@@ -1,0 +1,199 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
+// day-piece-colorpicker's C++/WinRT shim, parallel to src/lib-qt-shim.cpp. A swatch `Button`
+// whose `Flyout` holds the system `ColorPicker` (Windows.UI.Xaml.Controls, since Windows 10 1703;
+// the spectrum, the channel sliders, the hex field and the alpha channel all come from the OS).
+// Elements are boxed into Day handles via the day_xaml_box/day_xaml_unbox functions day-toolkit-xaml-sys
+// exports, so no day toolkit crate is touched.
+//
+// The swatch is a `Border` filled with a `SolidColorBrush` and captioned with its own hex, which is
+// the arrangement `set` walks back down: Button → Content(Border) → Background(SolidColorBrush)
+// and Child(TextBlock); and Button → Flyout → Content(ColorPicker). Keeping the state in the visual
+// tree is what lets this shim avoid a pointer-keyed side map (and the address-reuse hazard that
+// comes with one) entirely.
+//
+// Windows-only; compiled by build.rs, built in CI. Driven by hand on Windows 11 since; the flyout
+// and the pick behind it are what no script can reach; docs/colorpicker.md records what that check
+// covered and what it left open.
+
+#include <winrt/Windows.Foundation.h>
+#include <winrt/Windows.Foundation.Collections.h> // IVector methods; else C3779
+#include <winrt/Windows.UI.h>
+#include <winrt/Windows.UI.Text.h>
+// One shim, two XAML stacks (docs/winui.md): windows-xaml builds it against system XAML,
+// windows-winui (DAY_WINUI) against WinUI 3. The namespaces differ; the controls do not.
+#ifdef DAY_WINUI
+#define DAY_XAML_NS winrt::Microsoft::UI::Xaml
+#else
+#define DAY_XAML_NS winrt::Windows::UI::Xaml
+#endif
+#ifdef DAY_WINUI
+#include <winrt/Microsoft.UI.Xaml.h>
+#else
+#include <winrt/Windows.UI.Xaml.h>
+#endif
+#ifdef DAY_WINUI
+#include <winrt/Microsoft.UI.Xaml.Controls.h>
+#else
+#include <winrt/Windows.UI.Xaml.Controls.h>
+#endif
+#ifdef DAY_WINUI
+#include <winrt/Microsoft.UI.Xaml.Controls.Primitives.h>
+#else
+#include <winrt/Windows.UI.Xaml.Controls.Primitives.h>
+#endif
+#ifdef DAY_WINUI
+#include <winrt/Microsoft.UI.Xaml.Media.h>
+#else
+#include <winrt/Windows.UI.Xaml.Media.h>
+#endif
+
+#include <windows.h>
+
+#include <cmath>
+#include <cstdint>
+#include <string>
+
+using namespace winrt;
+namespace WF = winrt::Windows::Foundation;
+namespace WU = winrt::Windows::UI;
+namespace WUX = DAY_XAML_NS;
+namespace WUXC = DAY_XAML_NS::Controls;
+namespace WUXM = DAY_XAML_NS::Media;
+
+// The boxing functions, exported by day-toolkit-xaml-sys (already linked into the app).
+extern "C" void *day_xaml_box(void *iinspectable_abi);
+extern "C" void *day_xaml_unbox(void *handle);
+
+static uint8_t toByte(double v) {
+    if (v < 0.0) v = 0.0;
+    if (v > 1.0) v = 1.0;
+    return static_cast<uint8_t>(std::lround(v * 255.0));
+}
+
+static WU::Color toWinColor(double r, double g, double b, double a) {
+    return WU::ColorHelper::FromArgb(toByte(a), toByte(r), toByte(g), toByte(b));
+}
+
+static bool sameColor(WU::Color const &x, WU::Color const &y) {
+    return x.A == y.A && x.R == y.R && x.G == y.G && x.B == y.B;
+}
+
+/// UTF-8 → UTF-16, the same helper every other xaml shim in the tree carries.
+static std::wstring wide(const char *s) {
+    if (!s || !*s) return std::wstring();
+    const int len = MultiByteToWideChar(CP_UTF8, 0, s, -1, nullptr, 0);
+    if (len <= 1) return std::wstring();
+    std::wstring w(static_cast<size_t>(len - 1), L'\0');
+    MultiByteToWideChar(CP_UTF8, 0, s, -1, w.data(), len);
+    return w;
+}
+
+// `ColorPicker::Color` raises `ColorChanged`, a dependency-property callback, so it runs
+// synchronously, inside the assignment below. Day pushing the model's value in (a new selection
+// in an inspector, an undo) would therefore be reported straight back as if the user had picked
+// it, and the app would rewrite the value it just sent: a no-op write that still lands as an undo
+// unit and buries the user's real one. Nothing in XAML sets the value quietly, so the write is
+// bracketed by this flag and the callback reads it, the same echo guard day-piece-colorpicker's
+// GTK backend keeps (src/lib-gtk.rs), for the same reason. The UI thread is the only thread
+// touching either.
+static bool g_pushing = false;
+
+struct Pushing {
+    bool prev;
+    Pushing() : prev(g_pushing) { g_pushing = true; }
+    ~Pushing() { g_pushing = prev; }
+};
+
+static std::wstring hexOf(WU::Color const &c, bool withAlpha) {
+    wchar_t buf[16];
+    if (withAlpha && c.A != 255) {
+        swprintf(buf, 16, L"#%02x%02x%02x%02x", c.R, c.G, c.B, c.A);
+    } else {
+        swprintf(buf, 16, L"#%02x%02x%02x", c.R, c.G, c.B);
+    }
+    return std::wstring(buf);
+}
+
+// Paint the swatch: fill the border, and flip the caption color with the fill's Rec. 709
+// luminance so the hex stays readable on a near-black and a near-white pick alike.
+static void paintSwatch(WUXC::Border const &border, WU::Color const &c, bool withAlpha) {
+    border.Background(WUXM::SolidColorBrush(c));
+    if (auto text = border.Child().try_as<WUXC::TextBlock>()) {
+        const double lum = (0.2126 * c.R + 0.7152 * c.G + 0.0722 * c.B) / 255.0;
+        text.Foreground(WUXM::SolidColorBrush(lum > 0.55 ? WU::Colors::Black() : WU::Colors::White()));
+        text.Text(hexOf(c, withAlpha));
+    }
+}
+
+extern "C" {
+
+void *day_colorpicker_xaml_new(double r, double g, double b, double a, int with_alpha,
+                               const char *title, uint64_t id,
+                               void (*cb)(uint64_t, double, double, double, double)) {
+    const bool alpha = with_alpha != 0;
+    const WU::Color value = toWinColor(r, g, b, a);
+
+    WUXC::TextBlock caption;
+    caption.Text(hexOf(value, alpha));
+    caption.FontFamily(WUXM::FontFamily(L"Consolas"));
+
+    WUXC::Border swatch;
+    swatch.CornerRadius(WUX::CornerRadius{4, 4, 4, 4});
+    swatch.Padding(WUX::Thickness{10, 4, 10, 4});
+    swatch.Child(caption);
+    paintSwatch(swatch, value, alpha);
+
+    WUXC::ColorPicker picker;
+    picker.IsAlphaEnabled(alpha);
+    picker.IsHexInputVisible(true);
+    picker.Color(value);
+    picker.ColorChanged([id, cb, swatch, alpha](WUXC::ColorPicker const &,
+                                                WUXC::ColorChangedEventArgs const &args) {
+        const WU::Color c = args.NewColor();
+        // The swatch follows the picker either way; only the report back to day is a PICK.
+        paintSwatch(swatch, c, alpha);
+        if (g_pushing) return;
+        cb(id, c.R / 255.0, c.G / 255.0, c.B / 255.0, c.A / 255.0);
+    });
+
+    WUXC::Flyout flyout;
+    flyout.Content(picker);
+
+    WUXC::Button button;
+    button.Content(swatch);
+    button.Padding(WUX::Thickness{0, 0, 0, 0});
+    button.Flyout(flyout);
+    const std::wstring heading = wide(title);
+    if (!heading.empty()) {
+        // A flyout has no title slot, so the heading rides the button's tooltip, the one place a
+        // XAML flyout button can carry explanatory text without inventing chrome for it.
+        WUXC::ToolTipService::SetToolTip(button, WF::PropertyValue::CreateString(heading));
+    }
+    return day_xaml_box(winrt::get_abi(button));
+}
+
+void day_colorpicker_xaml_set(void *handle, double r, double g, double b, double a) {
+    WF::IInspectable e{nullptr};
+    winrt::copy_from_abi(e, day_xaml_unbox(handle));
+    auto button = e.try_as<WUXC::Button>();
+    if (!button) return;
+    const WU::Color value = toWinColor(r, g, b, a);
+    if (auto flyout = button.Flyout().try_as<WUXC::Flyout>()) {
+        if (auto picker = flyout.Content().try_as<WUXC::ColorPicker>()) {
+            // Two guards, against two different loops: the comparison drops the flush that
+            // carries a pick back to the picker it came from (day rewrites every bound value,
+            // changed or not), and `Pushing` keeps the `ColorChanged` that a real change
+            // does raise from being reported as a pick of its own.
+            if (sameColor(picker.Color(), value)) return;
+            Pushing pushing;
+            picker.Color(value);
+        }
+    }
+    if (auto swatch = button.Content().try_as<WUXC::Border>()) {
+        paintSwatch(swatch, value, value.A != 255);
+    }
+}
+
+} // extern "C"

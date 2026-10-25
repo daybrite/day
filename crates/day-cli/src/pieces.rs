@@ -21,7 +21,7 @@
 //! linked into `build/day/android/piece-java/<package path>/`, a generated source root that joins
 //! the directories ([`link_java_files`]).
 //! The resolved contributions are written to `build/day/android/day-pieces.json`, which Day's Gradle
-//! plugin (`toolkits/day-mdc/gradle-plugin`, staged into `build/day/android/gradle-plugin`) reads
+//! plugin (`crates/day-toolkit-material/gradle-plugin`, staged into `build/day/android/gradle-plugin`) reads
 //! generically (loops over the lists; no per-piece Gradle edits, ever).
 //! Permissions additionally go into a generated manifest overlay (`day-pieces-manifest.xml`) that the
 //! plugin registers with every app variant, so AGP merges them into the app manifest.
@@ -70,18 +70,18 @@ struct PermissionsMeta {
 /// The build-side contribution list handed to Gradle (serialized to day-pieces.json).
 #[derive(Debug, Default, Serialize)]
 pub struct AndroidPieces {
-    /// The day-mdc framework Java shim (DayActivity, DayBridge, …), resolved from the
-    /// `day-mdc` crate the app depends on, wherever cargo has it (workspace path, git
+    /// The day-toolkit-material framework Java shim (DayActivity, DayBridge, …), resolved from the
+    /// `day-toolkit-material` crate the app depends on, wherever cargo has it (workspace path, git
     /// checkout, or registry source). Without this dir in the dex, the APK installs and then
     /// crashes with ClassNotFoundException at launch; the Gradle scaffold hard-fails instead.
     #[serde(rename = "dayJavaSrcDir")]
     pub day_java_src_dir: Option<String>,
     /// The Android runtime's shared R8/ProGuard keep rules (bridge classes + native methods),
-    /// resolved from the day-android-runtime crate. Applied to every release build so minification never
+    /// resolved from the day-platform-android crate. Applied to every release build so minification never
     /// renames the JNI-reached bridge (docs/extending.md).
     #[serde(rename = "dayProguardFile")]
     pub day_proguard_file: Option<String>,
-    /// Day's Gradle plugins (`gradle-plugin/` beside the day-mdc crate), which
+    /// Day's Gradle plugins (`gradle-plugin/` beside the day-toolkit-material crate), which
     /// `write_android_manifest` stages into `build/day/android/gradle-plugin` for the app's
     /// `settings.gradle.kts` to include. Never written to day-pieces.json.
     #[serde(skip)]
@@ -216,7 +216,7 @@ impl<'de> Deserialize<'de> for StringOrVec {
 /// so contribute nothing.
 #[derive(Deserialize, Default)]
 struct PieceMeta {
-    /// Backend toolkit names (`appkit`, `gtk`, `qt`, `uikit`, `mdc`, `xaml`, `mock`) this piece
+    /// Backend toolkit names (`appkit`, `gtk`, `qt`, `uikit`, `material`, `xaml`, `mock`) this piece
     /// declares a `[features]` entry for. Only these get `<pkg>/<backend>` unioned in.
     #[serde(default)]
     backends: Vec<String>,
@@ -624,7 +624,7 @@ fn is_env_name(name: &str) -> bool {
 
 /// Resolve every piece in the app's Android dependency closure and collect its contributions.
 /// The `features` are the ones the Android build compiles with (so only pieces actually pulled in
-/// by that feature set contribute); currently `["mdc"]`, no default features.
+/// by that feature set contribute); currently `["material"]`, no default features.
 pub fn resolve_android(project: &Project, features: &[&str]) -> Result<AndroidPieces, String> {
     let meta = cargo_metadata_for_contributions(project, features)?;
 
@@ -637,16 +637,16 @@ pub fn resolve_android(project: &Project, features: &[&str]) -> Result<AndroidPi
         if !in_closure.contains(&pkg.id) {
             continue;
         }
-        // The framework's Java shim rides with the day-mdc crate (§17.1); resolve it
+        // The framework's Java shim rides with the day-toolkit-material crate (§17.1); resolve it
         // from wherever cargo checked the crate out instead of assuming a day repo layout.
-        if pkg.name == "day-mdc" {
+        if pkg.name == "day-toolkit-material" {
             let java = Path::new(&pkg.manifest_path)
                 .parent()
                 .unwrap_or(Path::new("."))
                 .join("java");
             if !java.is_dir() {
                 return Err(format!(
-                    "day-mdc crate at {:?} has no java/ dir — the Android Java shim is \
+                    "day-toolkit-material crate at {:?} has no java/ dir — the Android Java shim is \
                      missing from this day checkout",
                     pkg.manifest_path
                 ));
@@ -660,9 +660,9 @@ pub fn resolve_android(project: &Project, features: &[&str]) -> Result<AndroidPi
                 pieces.gradle_plugin_dir = Some(plugin);
             }
         }
-        if pkg.name == "day-android-runtime" {
+        if pkg.name == "day-platform-android" {
             // The framework's R8 keep rules ride alongside the Java shim (optional: an older
-            // day-android-runtime checkout without the file contributes none).
+            // day-platform-android checkout without the file contributes none).
             let rules = Path::new(&pkg.manifest_path)
                 .parent()
                 .unwrap_or(Path::new("."))
@@ -1084,7 +1084,7 @@ fn elf_section<'a>(elf: &'a [u8], name: &str) -> Option<&'a [u8]> {
 /// when pieces contribute Android permissions, a `day-pieces-manifest.xml` overlay the scaffold
 /// merges). Always writes (an empty manifest when there are no pieces) so a stale file never lingers.
 pub fn write_android_manifest(project: &Project) -> Result<(), String> {
-    let mut pieces = resolve_android(project, &["mdc"]).unwrap_or_else(|e| {
+    let mut pieces = resolve_android(project, &["material"]).unwrap_or_else(|e| {
         eprintln!("day: piece discovery failed ({e}); building with framework pieces only");
         AndroidPieces::default()
     });
@@ -1094,7 +1094,7 @@ pub fn write_android_manifest(project: &Project) -> Result<(), String> {
     // Day.toml's [permissions] joins the pieces' raw contributions here, so both reach the overlay
     // through one path. `pieces.permissions` must carry every name: scaffolds generated before
     // manifest components existed gate the overlay on that list being non-empty.
-    let contributed = contributed_permissions(project, &["mdc"]);
+    let contributed = contributed_permissions(project, &["material"]);
     let declared = crate::permissions::resolve_project(project, "android", &contributed)
         .map_err(|e| format!("Day.toml: {e}"))?;
     let mut entries = crate::permissions::android_entries(&declared);
@@ -1129,7 +1129,7 @@ pub fn write_android_manifest(project: &Project) -> Result<(), String> {
     if let Some(dir) = link_java_files(&project.root, &pieces.java_files)? {
         pieces.java_src_dirs.push(dir.display().to_string());
     }
-    // Day's Gradle plugins, from the same day-mdc crate as the Java shim, so the build logic
+    // Day's Gradle plugins, from the same day-toolkit-material crate as the Java shim, so the build logic
     // always matches the shim it configures.
     if let Some(src) = &pieces.gradle_plugin_dir {
         stage_gradle_plugin(src, &dir.join("gradle-plugin"))?;
@@ -1747,7 +1747,7 @@ pub fn write_ios_pieces(project: &Project) -> Result<Option<String>, String> {
 
     // Bundled fonts (§18.4): copied verbatim into the target so SwiftPM `.copy`s the directory
     // into the DayPieces bundle (`DayPieces_DayPieces.bundle/fonts/…`; fonts must not be
-    // `.process`ed). day-uikit registers every file in there with CoreText at launch, and
+    // `.process`ed). day-toolkit-uikit registers every file in there with CoreText at launch, and
     // build_ios lists the same paths in the app Info.plist's UIAppFonts.
     let fonts = crate::resources::scan_fonts(project)?;
     if !fonts.is_empty() {
@@ -1764,7 +1764,7 @@ pub fn write_ios_pieces(project: &Project) -> Result<Option<String>, String> {
     collect_files(&sources.join("fonts"), &mut expected);
     prune_except(&sources, &expected.into_iter().collect());
 
-    // A project declaring no target at all gets day-uikit's floor, the scaffold's value.
+    // A project declaring no target at all gets day-toolkit-uikit's floor, the scaffold's value.
     let app_floor = apple_ios_target(project).unwrap_or_else(|| "15.0".into());
     let floor = ios_package_floor(&app_floor, pieces.platform.as_deref());
     write_if_changed(
@@ -1889,9 +1889,9 @@ pub fn contributed_ohos_permissions(project: &Project) -> Vec<String> {
 /// The resolved HarmonyOS contributions across all pieces in the app's dependency closure.
 #[derive(Default)]
 struct OhosPieces {
-    /// The framework's ArkTS host (`platform/harmony/` in the day-arkui crate: both abilities,
+    /// The framework's ArkTS host (`platform/harmony/` in the day-toolkit-arkui crate: both abilities,
     /// both pages, the native module's typings; docs/harmonyos.md), resolved from wherever cargo
-    /// has the crate, like the Java shim on Android. `None` when the day-arkui checkout predates
+    /// has the crate, like the Java shim on Android. `None` when the day-toolkit-arkui checkout predates
     /// the host moving out of the app scaffold.
     host_dir: Option<String>,
     /// `(namespace, absolute dir)` ArkTS dirs to stage; the namespace (the piece's crate name)
@@ -1911,9 +1911,9 @@ fn resolve_ohos(project: &Project, features: &[&str]) -> Result<OhosPieces, Stri
         if !in_closure.contains(&pkg.id) {
             continue;
         }
-        // The framework's ArkTS host rides with the day-arkui crate (§17.1), the way the Java
-        // shim rides with day-mdc, resolved from wherever cargo checked it out.
-        if pkg.name == "day-arkui" {
+        // The framework's ArkTS host rides with the day-toolkit-arkui crate (§17.1), the way the Java
+        // shim rides with day-toolkit-material, resolved from wherever cargo checked it out.
+        if pkg.name == "day-toolkit-arkui" {
             let host = Path::new(&pkg.manifest_path)
                 .parent()
                 .unwrap_or(Path::new("."))
@@ -2013,7 +2013,7 @@ fn write_ohos_host(harmony: &Path, host_dir: Option<&str>) -> Result<(), String>
             crate::ops::status(
                 "Note",
                 "platform/harmony carries its own ArkTS host page (entry/src/main/ets/pages/Index.ets); \
-                 day now stages the framework's from the day-arkui crate — delete the app's copies \
+                 day now stages the framework's from the day-toolkit-arkui crate — delete the app's copies \
                  (ets/pages, ets/entryability, cpp/types, main_pages.json, sign-hap.mjs) and point \
                  module.json5's srcEntry at ./ets/day/ to adopt it (docs/harmonyos.md)",
             );
@@ -2022,7 +2022,7 @@ fn write_ohos_host(harmony: &Path, host_dir: Option<&str>) -> Result<(), String>
     }
     let Some(host) = host_dir else {
         return Err(
-            "the day-arkui crate this app depends on ships no platform/harmony/ host (its ArkTS \
+            "the day-toolkit-arkui crate this app depends on ships no platform/harmony/ host (its ArkTS \
              abilities and pages) — the app's hvigor project declares no host of its own either, so \
              there is nothing for hvigor to build. Depend on a day checkout from 2026-09 or later, \
              or restore the app's own host page under entry/src/main/ets/pages/ (docs/harmonyos.md)"
@@ -2197,7 +2197,7 @@ fn sync_ets_dir(
 
 /// Render the generated `DayPieces/Package.swift` for one Apple leg. When `has_resources`, the
 /// target processes the generated `Media.xcassets` (§18.3); SwiftPM runs `actool` → an optimized
-/// `Assets.car` in the package's resource bundle, which `day-uikit` loads images from by name.
+/// `Assets.car` in the package's resource bundle, which `day-toolkit-uikit` loads images from by name.
 /// When `has_fonts`, the staged `fonts/` directory is `.copy`d verbatim into the same bundle
 /// (§18.4). The macOS leg passes `static_product` (its archive is linked into the cargo binary)
 /// and neither resource kind (`pack/macos.rs` ships those via `Contents/Resources`).

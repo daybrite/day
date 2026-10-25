@@ -47,4 +47,4 @@ flow:
   - navigate: { route: settings/general }
   - wait_for: { id: language_picker }
   - screenshot: settings
-  - screenshot: { name: settings-window, window: day.preferences, skip_on: [uikit, mdc, arkui, dom] }
+  - screenshot: { name: settings-window, window: day.preferences, skip_on: [uikit, material, arkui, dom] }

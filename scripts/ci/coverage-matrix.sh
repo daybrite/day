@@ -31,14 +31,14 @@ def crate_link(crate):
     return f"[`{crate}`]({route})" if route else f"`{crate}`"
 
 BACKENDS = [
-    ("appkit", "toolkits/day-appkit/src/lib.rs", "lib-appkit.rs"),
-    ("uikit", "toolkits/day-uikit/src/lib.rs", "lib-uikit.rs"),
-    ("gtk", "toolkits/day-gtk/src/lib.rs", "lib-gtk.rs"),
-    ("qt", "toolkits/day-qt/src/lib.rs", "lib-qt.rs"),
-    ("xaml", "toolkits/day-winui/src/lib.rs", "lib-xaml.rs"),
-    ("android", "toolkits/day-mdc/src/lib.rs", "lib-android.rs"),
-    ("arkui", "toolkits/day-arkui/src/lib.rs", "lib-arkui.rs"),
-    ("dom", "toolkits/day-dom/src/lib.rs", "lib-dom.rs"),
+    ("appkit", "crates/day-toolkit-appkit/src/lib.rs", "lib-appkit.rs"),
+    ("uikit", "crates/day-toolkit-uikit/src/lib.rs", "lib-uikit.rs"),
+    ("gtk", "crates/day-toolkit-gtk/src/lib.rs", "lib-gtk.rs"),
+    ("qt", "crates/day-toolkit-qt/src/lib.rs", "lib-qt.rs"),
+    ("xaml", "crates/day-toolkit-winui/src/lib.rs", "lib-xaml.rs"),
+    ("android", "crates/day-toolkit-material/src/lib.rs", "lib-android.rs"),
+    ("arkui", "crates/day-toolkit-arkui/src/lib.rs", "lib-arkui.rs"),
+    ("dom", "crates/day-toolkit-dom/src/lib.rs", "lib-dom.rs"),
 ]
 spec = Path("crates/day-spec/src/lib.rs").read_text()
 sources = {name: Path(path).read_text() for name, path, _ in BACKENDS}
@@ -91,7 +91,7 @@ kinds = [(variant, key) for variant, _const, key in kinds if variant != "ListCel
 # A piece implements a backend when it ships that backend's arm file. An empty feature (e.g.
 # a package's `qt = []`) exists so an app can enable it uniformly, but registers no renderer.
 pieces = []
-for crate in sorted(Path("pieces").iterdir()):
+for crate in sorted(Path("crates").glob("day-piece-*")):
     src = crate / "src"
     if not (crate / "Cargo.toml").exists() or not src.is_dir():
         continue
@@ -112,9 +112,9 @@ caps = re.findall(r"\n    (\w+),", body_of(spec, re.compile(r"\bpub enum Cap\s*\
 def cap_answer(backend: str, cap: str) -> str:
     """Parse one backend's `capability()` match. Handles the shapes in the tree: a grouped arm
     (which may carry `//` comments BETWEEN variants), a braced arm body, and an answer decided
-    at run time, reported `?` because a static table cannot resolve it: a conditional (day-dom's
-    NavSplit depends on the viewport width), a call (day-arkui asks its host whether the
-    device has color modes and app badges), or a guarded arm (day-qt's WindowTabbing is
+    at run time, reported `?` because a static table cannot resolve it: a conditional (day-toolkit-dom's
+    NavSplit depends on the viewport width), a call (day-toolkit-arkui asks its host whether the
+    device has color modes and app badges), or a guarded arm (day-toolkit-qt's WindowTabbing is
     `if cfg!(target_os = "macos")`, so the one backend answers differently per host)."""
     body = re.sub(r"//[^\n]*", "", cap_bodies[backend])
     for m in re.finditer(
@@ -167,7 +167,7 @@ for protocol in sorted(Path("crates/day-spec/src/controls").glob("*.rs")):
     if not keys:
         continue
     row = [protocol.stem, ", ".join(f"`{key}`" for key in keys)]
-    row += ["✓" if Path(f"toolkits/day-{n}/src/controls/{protocol.stem}.rs").exists() else "·" for n in names]
+    row += ["✓" if Path(f"crates/day-toolkit-{n}/src/controls/{protocol.stem}.rs").exists() else "·" for n in names]
     out.append("| " + " | ".join(row) + " |")
 
 out += [
@@ -196,8 +196,8 @@ out += [
     "## Capabilities",
     "",
     "What each backend answers for `Cap` ([`capability()`](https://daybrite.dev/api/day_spec/trait.Toolkit.html#method.capability)): `N` native, `E` emulated, `–`",
-    "unsupported, `?` decided at runtime (day-dom answers `NavSplit` from the viewport width;",
-    "day-qt answers `WindowTabbing` natively on macOS alone).",
+    "unsupported, `?` decided at runtime (day-toolkit-dom answers `NavSplit` from the viewport width;",
+    "day-toolkit-qt answers `WindowTabbing` natively on macOS alone).",
     "An app branches on this rather than on the target name.",
     "",
     "| cap | " + " | ".join(names) + " |",

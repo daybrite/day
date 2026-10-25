@@ -54,7 +54,7 @@ Doctor uses toolkit names, while build and launch commands use target names:
 |---|---|
 | `macos-appkit` | `appkit` |
 | `ios-uikit` | `uikit` |
-| `android-mdc` | `android` |
+| `android-material` | `android` |
 | `linux-gtk`, `macos-gtk`, `windows-gtk` | `gtk` |
 | `linux-qt`, `macos-qt`, `windows-qt` | `qt` |
 | `windows-winui` | `winui` |
@@ -230,7 +230,7 @@ either way.
 For a launch failure:
 
 ```bash
-day devices list -t android-mdc
+day devices list -t android-material
 adb devices
 ```
 
@@ -245,7 +245,7 @@ directory to `PATH`. Interpret its device list as follows:
 | More than one device | Set `ANDROID_SERIAL` to the serial of the device you intend to use. |
 | `device` | The connection is ready; check the subsequent install or launch error. |
 
-You can also boot an existing AVD with `day devices boot -t android-mdc AVD_NAME --wait`, using
+You can also boot an existing AVD with `day devices boot -t android-material AVD_NAME --wait`, using
 its name from the Day device list. The emulator’s architecture must match an installed Rust
 target. Android’s [ADB documentation](https://developer.android.com/tools/adb) covers device
 connections and selection in more detail.
@@ -403,9 +403,9 @@ These are the errors you may meet running the web build's tests and checks:
 |---|---|
 | A scripted run (`day launch -t web-dom --script …`) fails at its first `screenshot` step | A page cannot screenshot itself; the runner needs the headless browser driver. Install Playwright and set `DAY_WEB_DRIVER`, `DAY_WEB_DRIVER_PLAYWRIGHT` and `DAY_WEB_DRIVER_BROWSER` as the [web platform guide](/docs/reference/platforms/web-dom#running-dayscripts) shows. Interactive `day launch` never needs it. |
 | A scripted web run stops with `engine connection lost` after the driver prints `Playwright requires Node.js 20 or higher` | An older `node` is first on `PATH`. The OpenHarmony command-line tools bundle Node 18, so sourcing their environment (for `harmony-arkui`) shadows a newer system Node. Run the web script from a shell without it, or name the Node to use in the driver command: `DAY_WEB_DRIVER="/path/to/node $(day web driver)"`. |
-| File-storage steps fail under WebKit on Linux | Playwright's Linux WebKit has no Origin Private File System, which [`day-part-fs`](/docs/reference/fs) needs. Set `DAY_WEB_DRIVER_BROWSER=chromium`. |
-| `cargo check --target wasm32-unknown-unknown` on a Day crate fails in `getrandom` with "The wasm32/64-unknown-unknown are not supported by default" | `day build` routes getrandom to day-dom's entropy bridge with a cfg flag that plain `cargo` does not pass. Pass it yourself: `RUSTFLAGS='--cfg getrandom_backend="custom"' cargo check --target wasm32-unknown-unknown -p <crate>`. The `wasm_js` backend that getrandom's error message suggests needs the wasm-bindgen runtime, which Day's web build does not use. |
-| A plain `cargo check` of `day-dom` passes but the web build fails | `day-dom` compiles only for `wasm32` (the whole crate is `#![cfg(target_arch = "wasm32")]`), so a host check compiles nothing. Check it for the web target as above. |
+| File-storage steps fail under WebKit on Linux | Playwright's Linux WebKit has no Origin Private File System, which [`day-part-filesystem`](/docs/reference/fs) needs. Set `DAY_WEB_DRIVER_BROWSER=chromium`. |
+| `cargo check --target wasm32-unknown-unknown` on a Day crate fails in `getrandom` with "The wasm32/64-unknown-unknown are not supported by default" | `day build` routes getrandom to day-toolkit-dom's entropy bridge with a cfg flag that plain `cargo` does not pass. Pass it yourself: `RUSTFLAGS='--cfg getrandom_backend="custom"' cargo check --target wasm32-unknown-unknown -p <crate>`. The `wasm_js` backend that getrandom's error message suggests needs the wasm-bindgen runtime, which Day's web build does not use. |
+| A plain `cargo check` of `day-toolkit-dom` passes but the web build fails | `day-toolkit-dom` compiles only for `wasm32` (the whole crate is `#![cfg(target_arch = "wasm32")]`), so a host check compiles nothing. Check it for the web target as above. |
 
 ## The app starts but does not work as expected
 

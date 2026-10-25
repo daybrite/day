@@ -335,7 +335,7 @@ pub fn stage(project: &Project, target: &Target) -> Result<(), String> {
     // the assets pieces ship go to a second one of their own, regenerated every build so a piece
     // dropped from the app takes its files with it. Before the early return below, which would
     // otherwise leave the last build's files behind.
-    if target.toolkit == "mdc" {
+    if target.toolkit == "material" {
         android::stage_piece_assets(project)?;
     }
     let set = ResourceSet::scan(project, target.toolkit);
@@ -348,7 +348,7 @@ pub fn stage(project: &Project, target: &Target) -> Result<(), String> {
         // (during build_ios), fonts as its `.copy("fonts")` bundle dir + the app's UIAppFonts;
         // data rides the existing bundle copy phase + default file opener.
         "uikit" => Ok(()),
-        "mdc" => android::stage(project, &set, &fonts, &vectors),
+        "material" => android::stage(project, &set, &fonts, &vectors),
         "arkui" => arkui::stage(project, &set, &fonts),
         // Desktop toolkits load fonts as loose files: DAY_FONT_ROOT under `day launch`, a
         // `fonts/` dir next to the binary / in Resources when packed (§18.4).
@@ -367,7 +367,7 @@ pub struct VectorAsset {
     pub glyph: String,
     /// XAML geometry was emitted for this glyph; windows-xaml draws it without a raster.
     pub xaml: bool,
-    /// The glyph converts to an Android VectorDrawable; android-mdc needs no raster for it.
+    /// The glyph converts to an Android VectorDrawable; android-material needs no raster for it.
     pub vd: bool,
 }
 
@@ -389,7 +389,7 @@ pub fn vector_raster_dir(project: &Project) -> PathBuf {
 fn toolkit_draws_vectors(toolkit: &str) -> bool {
     matches!(
         toolkit,
-        "appkit" | "uikit" | "mdc" | "arkui" | "dom" | "xaml" | "winui" | "qt" | "gtk"
+        "appkit" | "uikit" | "material" | "arkui" | "dom" | "xaml" | "winui" | "qt" | "gtk"
     )
 }
 
@@ -402,7 +402,7 @@ fn vector_fallback_names(toolkit: &str, vectors: &[VectorAsset]) -> Vec<String> 
             // Staged as SVG, which these render natively for every glyph; nothing falls back.
             "appkit" | "uikit" | "arkui" | "dom" | "qt" | "gtk" => false,
             "xaml" | "winui" => !v.xaml,
-            "mdc" => !v.vd,
+            "material" => !v.vd,
             // No vector arm: the raster IS the glyph here.
             _ => true,
         })
@@ -463,13 +463,13 @@ pub fn write_vector_fallbacks(
 }
 
 /// Where the prepared glyph SVGs live (docs/vectors.md): the Apple catalogs copy these in as
-/// preserve-vector imagesets, and day-appkit's `DAY_VECTOR_SVG_ROOT` probe loads them directly
+/// preserve-vector imagesets, and day-toolkit-appkit's `DAY_VECTOR_SVG_ROOT` probe loads them directly
 /// (NSImage renders SVG at display size on macOS 11+).
 pub fn vector_svg_dir(project: &Project) -> PathBuf {
     crate::ops::staged_root(project).join("vectors/svg")
 }
 
-/// Where the prepared XAML geometry lives (docs/vectors.md): day-winui loads these as real
+/// Where the prepared XAML geometry lives (docs/vectors.md): day-toolkit-winui loads these as real
 /// `Path`/`PathIcon` geometry, which is what lets a Windows glyph stay vector at any size and
 /// take its tint as a brush at runtime. Converted here, in the CLI, so the backend needs no SVG
 /// parser, the same split Android's VectorDrawable emission uses. A glyph outside the
@@ -570,7 +570,7 @@ pub fn prepare_vectors(project: &Project) -> Result<Vec<VectorAsset>, String> {
                 .map_err(|e| format!("vector svg {staged}: {e}"))?;
             // XAML geometry, when the art converts. Unlike the Android emission this is not a
             // declared-target concern: every project stages it, and a glyph that cannot convert
-            // just leaves day-winui on the raster, so there is nothing to warn about here.
+            // just leaves day-toolkit-winui on the raster, so there is nothing to warn about here.
             let xaml_ok = match day_vector::to_xaml_geometry(&tree) {
                 Ok(g) => {
                     std::fs::create_dir_all(&geom)
@@ -626,7 +626,7 @@ mod vector_tests {
     fn drawing_toolkits_ship_rasters_only_for_unconvertible_art() {
         let g = glyphs();
         assert_eq!(vector_fallback_names("xaml", &g), ["fancy"]);
-        assert_eq!(vector_fallback_names("mdc", &g), ["fancy"]);
+        assert_eq!(vector_fallback_names("material", &g), ["fancy"]);
         // These stage an SVG for every glyph, so nothing falls back at all.
         for toolkit in ["appkit", "uikit", "arkui", "dom", "qt", "gtk"] {
             assert!(
@@ -752,8 +752,8 @@ mod tests {
         ).unwrap();
         // Every glyph converts natively, so there are no fallback images, fonts or data.
         // The empty raster ResourceSet must not skip Android's vector staging.
-        super::stage(&project, crate::targets::find("android-mdc").unwrap()).unwrap();
-        assert!(super::ResourceSet::scan(&project, "mdc").is_empty());
+        super::stage(&project, crate::targets::find("android-material").unwrap()).unwrap();
+        assert!(super::ResourceSet::scan(&project, "material").is_empty());
         let xml = std::fs::read_to_string(root.join("build/day/android/res/drawable/network.xml"))
             .unwrap();
         assert!(xml.contains("<vector"));

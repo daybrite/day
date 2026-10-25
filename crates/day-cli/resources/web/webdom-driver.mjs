@@ -9,7 +9,7 @@
 //
 // The engine comes from DAY_WEB_DRIVER_BROWSER (webkit | chromium | firefox), default WebKit.
 // Linux CI sets chromium: Playwright's Linux WebKit (the WPE port) ships no OPFS at all, so
-// day-part-fs, which is OPFS-only (docs/fs.md), can only be exercised there under
+// day-part-filesystem, which is OPFS-only (docs/fs.md), can only be exercised there under
 // Chromium; macOS WebKit has OPFS and stays the local default.
 //
 // Playwright is resolved from DAY_WEB_DRIVER_PLAYWRIGHT (a directory whose node_modules holds
@@ -45,7 +45,7 @@ if (!browserType) {
 }
 
 // A throwaway persistent profile, not the default ephemeral context: WebKit gives an
-// ephemeral (private-browsing-style) session no OPFS backing, so every day-part-fs operation
+// ephemeral (private-browsing-style) session no OPFS backing, so every day-part-filesystem operation
 // fails with a generic UnknownError (playwright#18235). A fresh temp profile per run keeps
 // the isolation ephemeral contexts were giving us and real storage; removed again on /quit.
 const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'day-webdom-profile-'));

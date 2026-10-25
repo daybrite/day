@@ -18,8 +18,8 @@ pub struct PackOptions {
     pub no_notarize: bool,
     /// Submit for notarization but do not wait for the verdict.
     pub no_wait: bool,
-    /// Embed the app version in artifact filenames (`app-1.0.0-android-mdc.aab`). When false,
-    /// names are version-less (`app-android-mdc.aab`), so a `releases/latest/download/<name>`
+    /// Embed the app version in artifact filenames (`app-1.0.0-android-material.aab`). When false,
+    /// names are version-less (`app-android-material.aab`), so a `releases/latest/download/<name>`
     /// URL stays stable across releases. Defaults to true; `day pack --no-version-in-name`
     /// (and CI) turns it off.
     pub version_in_name: bool,

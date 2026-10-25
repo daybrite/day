@@ -6,7 +6,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 /// Generate private crate/file catalogs into `day_locales.rs`.
 ///
-/// Call from each reusable crate's build script, then `day_fluent::locales!()` in its lib.rs.
+/// Call from each reusable crate's build script, then `day_localization_ui::locales!()` in its lib.rs.
 /// `resource/locales/<locale>/app.ftl` exposes `res::str::<key>()`;
 /// `settings.ftl` exposes `res::settings::str::<key>()`, importing app.ftl's messages and terms.
 /// This is independent of the legacy app-global `generate_resources()` API.
@@ -140,8 +140,8 @@ fn render_scope(
     render_strings_for(
         out,
         &strings,
-        "day_fluent",
-        "day_fluent::tr_in(&super::locales::SCOPE, ",
+        "day_localization_ui",
+        "day_localization_ui::tr_in(&super::locales::SCOPE, ",
     );
     Ok(())
 }
@@ -193,8 +193,10 @@ mod tests {
         assert!(code.contains("name: \"my_crate::menu\""));
         assert_eq!(code.matches("pub fn close(").count(), 3);
         assert_eq!(code.matches("pub fn game_title(").count(), 2);
-        assert!(code.contains("n: impl day_fluent::IntoNumberFArg<M0>"));
-        assert!(code.contains("day_fluent::tr_in(&super::locales::SCOPE, \"game_title\")"));
+        assert!(code.contains("n: impl day_localization_ui::IntoNumberFArg<M0>"));
+        assert!(
+            code.contains("day_localization_ui::tr_in(&super::locales::SCOPE, \"game_title\")")
+        );
         assert!(!code.contains("day::"));
         assert!(!code.contains("pub fn install"));
         assert_eq!(code, f.render().unwrap(), "output must be deterministic");

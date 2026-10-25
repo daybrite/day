@@ -66,13 +66,13 @@ nothing derived from `realize` can.
 | piece | kind(s) | appkit | uikit | gtk | qt | xaml | android | arkui | dom |
 |---|---|---|---|---|---|---|---|---|---|
 | [`day-piece-swiftui`](/docs/reference/swiftui) | `day.piece.swiftui` | ✓ | ✓ | · | · | · | · | · | · |
-| [`day-piece-texteditor`](/docs/reference/texteditor) | `day.piece.texteditor` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| [`day-piece-text-editor`](/docs/reference/texteditor) | `day.piece.texteditor` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 
 ## Capabilities
 
 What each backend answers for `Cap` ([`capability()`](https://daybrite.dev/api/day_spec/trait.Toolkit.html#method.capability)): `N` native, `E` emulated, `–`
-unsupported, `?` decided at runtime (day-dom answers `NavSplit` from the viewport width;
-day-qt answers `WindowTabbing` natively on macOS alone).
+unsupported, `?` decided at runtime (day-toolkit-dom answers `NavSplit` from the viewport width;
+day-toolkit-qt answers `WindowTabbing` natively on macOS alone).
 An app branches on this rather than on the target name.
 
 | cap | appkit | uikit | gtk | qt | xaml | android | arkui | dom |

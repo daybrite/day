@@ -44,7 +44,7 @@ User-supplied text can be passed through directly. See the
 | Android | nothing; the platform is Java | **yes**, for every platform API |
 | Web | nothing; wasm cannot touch the DOM or browser APIs | **yes** |
 
-`parts/day-part-device` is the reference for the negative case: five of its six arms are Rust
+`crates/day-part-device` is the reference for the negative case: five of its six arms are Rust
 because IOKit, `GetSystemPowerStatus`, sysfs, and `libohbattery_info.so` are C APIs. Writing those
 in a foreign language would add a toolchain to the build and buy nothing.
 
@@ -343,7 +343,7 @@ back the same way; strings and bytes come back only through a `Done<T>`.
 
 **A toolkit can carry arms too.** The CLI stages every crate in the app's graph that depends on
 day-bridge, not only parts, so a backend reaches a platform duty that exists only in the platform
-language the same way: day-arkui's `src/host.rs` sets the application color mode, sets the app
+language the same way: day-toolkit-arkui's `src/host.rs` sets the application color mode, sets the app
 badge, and streams color-mode changes back, all as ArkTS arms, with no shim or host-page change.
 
 **Kotlin `suspend` arms** are not built.
@@ -444,7 +444,7 @@ need no such gate: cargo compiles them itself.
 | `swift` | the generated `DayPieces` SwiftPM module | the Xcode host projects' SwiftPM reference ([docs/swiftui](swiftui.md)) |
 | `kotlin`, `java` | a Gradle `srcDirs` entry | the selected Gradle host project, JNI, `day-pieces.json` |
 | `arkts` | a module with a generated `Index.ets` | the ohos host project, hvigor ([docs/harmonyos](harmonyos.md)) |
-| `js` | `build/day/web/bridge/<crate>.js` | the day-dom shim, which imports it ([docs/web](web.md)) |
+| `js` | `build/day/web/bridge/<crate>.js` | the day-toolkit-dom shim, which imports it ([docs/web](web.md)) |
 | `c`, `cpp` | `OUT_DIR/daybridge/<crate>.c` \| `.cpp` | `cc` from the crate's `build.rs` |
 | `rust` | `OUT_DIR/daybridge/mod.rs` | nothing; it is ordinary Rust |
 
@@ -467,9 +467,9 @@ staged root into the Kotlin source set the project already has and mark the file
 
 The Rust half reaches that class through a [`java_class!`](android-jni.md) binding day-build
 generates beside the wrappers, with each method named as declared (`speak_native` binds
-`speak_native`). So the generated calls are typed and cached, `day_android_runtime::init` checks the class
+`speak_native`). So the generated calls are typed and cached, `day_platform_android::init` checks the class
 at launch, and the binding's keep rule keeps exactly these methods through R8. The completion
-natives (`dayComplete_<fn>`, `dayEmit_<fn>`) stay exported symbols, kept by day-android-runtime's rule for
+natives (`dayComplete_<fn>`, `dayEmit_<fn>`) stay exported symbols, kept by day-platform-android's rule for
 native methods.
 
 **A part published for other people's apps should use `java`.** It cannot know whether its
@@ -655,7 +655,7 @@ can be cut without stranding the phases before them.
 | 2 | **C / C++** — `cc` from the crate's `build.rs`, `#line` mapping, `link`/`pkg_config`/`encoding` attributes | a C arm builds on macOS, Linux, and Windows in CI, and an injected syntax error names the `.rs` line |
 | 3 | **Swift** — adapters into the generated `DayPieces` module | an inline Swift arm calls AVFoundation on `macos-appkit` and `ios-uikit`; a Swift type error names the `.rs` line |
 | 4 | **Kotlin / JNI** — generated object into a Gradle `srcDir`, `RegisterNatives` in `JNI_OnLoad`, thread attach, `GlobalRef` promotion | [`day-part-device`](/docs/reference/battery) migrates: its `DayBattery.java`, its `java = [...]` table, and its packed-`i64` protocol all deleted, emulator walkthrough green |
-| 5 | **JavaScript** — per-crate ES module under `build/day/web/bridge/`, imported by the day-dom shim, merged into the wasm import table | headless WebKit walkthrough green; two bridge crates linked together produce no duplicate or missing import |
+| 5 | **JavaScript** — per-crate ES module under `build/day/web/bridge/`, imported by the day-toolkit-dom shim, merged into the wasm import table | headless WebKit walkthrough green; two bridge crates linked together produce no duplicate or missing import |
 | 6 | **ArkTS** — generated module with its `Index.ets`, wired through hvigor | the arm runs on the ohos leg in CI; that leg is the verification, with no local emulator run in the acceptance criteria (harmony-arkui is Tier 3, and its emulator is the least reliable part of the local loop) |
 | 7 | **`day-part-speech`** — the reference crate, six arms, plus a Day-Showcase Platform-services demo and dayscript step (cross-repo) | `speak`/`stop` work on every target that claims support, the walkthrough drives the demo on each target's CI leg, and `available()` matches the generated matrix |
 | 8 | **Migrate the synchronous parts** — battery (in 4), then haptics, deviceinfo, clipboard, prefs, network, http | every `platform/android/java` directory in those seven crates is gone, walkthroughs green |

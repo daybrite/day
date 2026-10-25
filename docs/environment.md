@@ -15,7 +15,7 @@ covers automatic discovery and environment-variable overrides.
 
 Day locates host toolchains and SDKs through one shared implementation
 (`crates/day-toolchain`), used by the `day` CLI, by every crate build script that compiles its
-own native shim (day-xaml-sys, the `day-piece-*`/`day-tweak-*` crates, and the scaffolds
+own native shim (day-toolkit-xaml-sys, the `day-piece-*`/`day-tweak-*` crates, and the scaffolds
 `day new` generates). Two rules apply everywhere:
 
 1. **An environment variable always wins** over probing.

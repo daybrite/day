@@ -57,7 +57,7 @@ Run it on a configured target:
 
 ```bash
 day launch -t macos-appkit --script dayscript/counter.yaml
-day launch -t android-mdc --script dayscript/counter.yaml
+day launch -t android-material --script dayscript/counter.yaml
 ```
 
 `day launch` builds, starts the app with scripting enabled, executes the steps, and
@@ -131,7 +131,7 @@ A bare `nav_back` pops the navigation model and updates the toolkit. `nav_back:
 system back on Android — so the toolkit handles the back action: the bar's veto for a guarded
 page, the native pop, and the report back to Day. That is the code a real tap runs and the bare
 step never reaches, which is why a walkthrough that guards a page should back out of it both
-ways. Desktops have no native back for a nested stack, so gate the step `only_on: [uikit, mdc]`.
+ways. Desktops have no native back for a nested stack, so gate the step `only_on: [uikit, material]`.
 The native form waits for the toolkit's transitions to settle before pressing, as `screenshot`
 does, so it never races the push it is meant to undo.
 
@@ -324,7 +324,7 @@ Drive the app by hand; `recording.yaml` is rewritten as you go and holds everyth
 action even if the app is killed. Because it's an ordinary dayscript, you replay it on any target:
 
 ```bash
-day launch -t android-mdc --script recording.yaml
+day launch -t android-material --script recording.yaml
 ```
 
 Or record and replay inside the app. [`day::record::start_into(buffer)`](https://daybrite.dev/api/day/record/fn.start_into.html) streams the script into a

@@ -239,7 +239,7 @@ use day_spec::{Platform, WindowOptions};
 
 /// Observer called after day-core contains a panic at one of its trampoline boundaries
 /// (`contain_posted_panic` here, `tree::pump_events`), on the panicking thread, after the
-/// reactive-runtime reset. A crash reporter (day-piece-break, docs/break.md) registers one to
+/// reactive-runtime reset. A crash reporter (day-piece-crash-reporter, docs/break.md) registers one to
 /// downgrade the report its panic hook just wrote: the panic was caught, the process is not
 /// dying. A plain `fn` (no closure) so the containment path allocates nothing.
 static CONTAINED_PANIC_OBSERVER: std::sync::OnceLock<fn()> = std::sync::OnceLock::new();
@@ -350,9 +350,9 @@ mod title_tag_tests {
 
 /// Where a formatted line goes. Unset means the process's own stderr, which is right on every
 /// native target: a terminal on the desktop, Xcode's console on Apple, and logcat on Android
-/// (day-mdc `dup2`s fd 2 into it). `wasm32-unknown-unknown` is the one target where that is
+/// (day-toolkit-material `dup2`s fd 2 into it). `wasm32-unknown-unknown` is the one target where that is
 /// wrong rather than merely different (std's stdio there accepts the bytes and drops them, so
-/// every line vanishes), and day-dom installs a sink reaching the browser console instead.
+/// every line vanishes), and day-toolkit-dom installs a sink reaching the browser console instead.
 static LOG_SINK: std::sync::OnceLock<fn(log::Level, &str)> = std::sync::OnceLock::new();
 
 /// Install the line sink. First registration wins (one host per process). Called before launch;
@@ -426,7 +426,7 @@ impl log::Log for DayLogger {
         if !self.enabled(record.metadata()) {
             return;
         }
-        // `WARN day_gtk: could not register bundled font …`: the level first so a scan down
+        // `WARN day_toolkit_gtk: could not register bundled font …`: the level first so a scan down
         // the column finds problems, then the emitting crate, which is what says which backend
         // or piece is unhappy. The old hand-written `day: ` prefixes said only that it was us.
         let sink = LOG_SINK.get();

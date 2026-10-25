@@ -71,9 +71,9 @@ class ReadinessTests(unittest.TestCase):
 
     def test_piece_manifests_are_inputs_to_the_staged_coverage_check(self):
         # Removing only a manifest must change coverage even when all Rust files remain.
-        self.run_cmd("git", "rm", "--force", "pieces/day-piece-texteditor/Cargo.toml")
+        self.run_cmd("git", "rm", "--force", "crates/day-piece-text-editor/Cargo.toml")
         result = self.run_cmd("bash", "scripts/ci/check-matrices.sh", "--staged", ok=False)
-        self.assertIn("day-piece-texteditor", result.stderr)
+        self.assertIn("day-piece-text-editor", result.stderr)
         self.run_cmd("bash", "scripts/ci/coverage-matrix.sh")
         self.run_cmd("git", "add", "docs/coverage-matrix.md")
         self.run_cmd("bash", "scripts/ci/check-matrices.sh", "--staged")
@@ -117,25 +117,25 @@ class ReadinessTests(unittest.TestCase):
 
     def test_android_runtime_rejects_backend_dependencies_and_java_references(self):
         self.run_cmd("python3", "scripts/ci/check-platform-runtimes.py")
-        manifest = self.root / "crates/day-android-runtime/Cargo.toml"
+        manifest = self.root / "crates/day-platform-android/Cargo.toml"
         original = manifest.read_text()
-        manifest.write_text(original.replace("[dependencies]", "[dependencies]\nday-mdc.workspace = true"))
+        manifest.write_text(original.replace("[dependencies]", "[dependencies]\nday-toolkit-material.workspace = true"))
         result = self.run_cmd("python3", "scripts/ci/check-platform-runtimes.py", ok=False)
-        self.assertIn("day-android-runtime -> day-mdc", result.stderr)
+        self.assertIn("day-platform-android -> day-toolkit-material", result.stderr)
         manifest.write_text(original)
-        java = self.root / "parts/day-part-sensors/src/DaySensors.java"
+        java = self.root / "crates/day-part-sensors/src/DaySensors.java"
         java.write_text(java.read_text() + "\nimport dev.daybrite.day.bridge.DayBridge;\n")
         result = self.run_cmd("python3", "scripts/ci/check-platform-runtimes.py", ok=False)
         self.assertIn("DaySensors.java", result.stderr)
 
     def test_windows_runtime_rejects_ui_dependencies(self):
-        manifest = self.root / "crates/day-windows-runtime/Cargo.toml"
+        manifest = self.root / "crates/day-platform-windows/Cargo.toml"
         original = manifest.read_text()
-        for dependency in ("day-winui", "day-xaml-sys", "day-core"):
+        for dependency in ("day-toolkit-winui", "day-toolkit-xaml-sys", "day-core"):
             with self.subTest(dependency=dependency):
                 manifest.write_text(original + f"\n{dependency}.workspace = true\n")
                 result = self.run_cmd("python3", "scripts/ci/check-platform-runtimes.py", ok=False)
-                self.assertIn(f"day-windows-runtime -> {dependency}", result.stderr)
+                self.assertIn(f"day-platform-windows -> {dependency}", result.stderr)
         manifest.write_text(original)
         self.run_cmd("python3", "scripts/ci/check-platform-runtimes.py")
 

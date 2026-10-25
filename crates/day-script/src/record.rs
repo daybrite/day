@@ -26,7 +26,7 @@ use day_spec::{Event, NodeId};
 use crate::Step;
 
 // The recorder and CLI use the same canonical format; preserve the recorder's public paths.
-pub use day_script_proto::{steps_from_yaml, steps_to_yaml};
+pub use day_script_protocol::{steps_from_yaml, steps_to_yaml};
 
 /// Like [`steps_to_yaml`], but each step's identifying line carries a trailing `# "label"` comment
 /// naming the control it came from (§14.6): its accessibility label, or its visible text. The

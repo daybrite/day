@@ -36,7 +36,7 @@ use crate::cli::CliError;
 use crate::targets::{Target, TargetKind};
 
 /// The mobile targets this command reports on, in the order a listing shows them.
-const MOBILE: [&str; 3] = ["ios-uikit", "android-mdc", "harmony-arkui"];
+const MOBILE: [&str; 3] = ["ios-uikit", "android-material", "harmony-arkui"];
 
 /// One target's enumeration: what can be launched onto, and what could be started first.
 struct Report {
@@ -775,7 +775,7 @@ pub fn boot(target: &str, spec: &BootSpec<'_>) -> Result<i32, CliError> {
                                 "Warning",
                                 &format!(
                                     "no AVD could be enumerated on this machine; trying {want} \
-                                     anyway — `day devices list -t android-mdc` shows what the \
+                                     anyway — `day devices list -t android-material` shows what the \
                                      tools report"
                                 ),
                             );
@@ -792,7 +792,7 @@ pub fn boot(target: &str, spec: &BootSpec<'_>) -> Result<i32, CliError> {
                 }
                 (None, None) => {
                     return Err(CliError::usage(
-                        "name an AVD: `day devices boot -t android-mdc <AVD>`, or --device"
+                        "name an AVD: `day devices boot -t android-material <AVD>`, or --device"
                             .to_string(),
                     ));
                 }
@@ -838,7 +838,7 @@ pub fn boot(target: &str, spec: &BootSpec<'_>) -> Result<i32, CliError> {
                 rotate_android(&serial, o)?;
             }
             // The serial on stdout (status lines go to stderr), so a workflow can capture it:
-            //   SERIAL=$(day devices boot -t android-mdc --device pixel_tablet --wait)
+            //   SERIAL=$(day devices boot -t android-material --device pixel_tablet --wait)
             println!("{serial}");
             Ok(0)
         }
@@ -3046,7 +3046,7 @@ mod tests {
             seen.insert(name, kind_str(t.kind));
         }
         assert_eq!(seen["ios-uikit"], "iosSim");
-        assert_eq!(seen["android-mdc"], "android");
+        assert_eq!(seen["android-material"], "android");
         assert_eq!(seen["harmony-arkui"], "harmonyOs");
     }
 }

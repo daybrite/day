@@ -279,7 +279,7 @@ pub fn app_menu_installed() -> bool {
 /// Did the app install a menu model of its own (`app_menu`)? `false` means it is running on the
 /// backend's default menu bar, which the backend builds before `root()` runs, so a backend that
 /// puts registration-dependent items there (Settings…, File ▸ New Window) has to rebuild it once
-/// the app's registrations are in. day-appkit does exactly that.
+/// the app's registrations are in. day-toolkit-appkit does exactly that.
 pub fn has_app_menu() -> bool {
     APP_MENU_MODEL.with(|m| !m.borrow().is_empty())
 }
@@ -412,7 +412,7 @@ fn inject_about(mut items: Vec<day_spec::MenuItem>) -> Vec<day_spec::MenuItem> {
     // Only an app-owned Help menu takes them here; without one the stock Help menu does.
     if let Some(M::Submenu { items: help, .. }) = items.iter_mut().find(|it| {
         matches!(it, M::Submenu { role, label, .. }
-            if *role == Some(day_spec::MenuBarRole::Help) || *label == day_l10n::t(day_l10n::key::day_help))
+            if *role == Some(day_spec::MenuBarRole::Help) || *label == day_localization::t(day_localization::key::day_help))
     }) {
         help.extend(missing);
     }
@@ -514,7 +514,7 @@ impl MenuBarStyle {
         };
         let sub = |key: &str, items: Vec<MI>| {
             Some(MI::Submenu {
-                label: day_l10n::t(key),
+                label: day_localization::t(key),
                 items,
                 role: None,
             })
@@ -642,7 +642,7 @@ fn role_title(role: day_spec::MenuBarRole) -> Option<String> {
         B::Help => "day_help",
         _ => return None,
     };
-    Some(day_l10n::t(key))
+    Some(day_localization::t(key))
 }
 
 fn submenu_label(item: &day_spec::MenuItem) -> Option<&str> {

@@ -40,11 +40,11 @@
           "blurb": "The backend-neutral toolkit specification that pieces emit and each toolkit renders."
         },
         {
-          "pkg": "day-fluent",
-          "blurb": "The piece-facing Project Fluent localization layer over the day-l10n engine."
+          "pkg": "day-localization-ui",
+          "blurb": "The piece-facing Project Fluent localization layer over the day-localization engine."
         },
         {
-          "pkg": "day-l10n",
+          "pkg": "day-localization",
           "blurb": "The low-level localization engine and the built-in core string catalog."
         },
         {
@@ -84,7 +84,7 @@
           "blurb": "Bundled font metadata and processing."
         },
         {
-          "pkg": "day-script-proto",
+          "pkg": "day-script-protocol",
           "blurb": "Script commands, events, and capture configuration."
         }
       ]
@@ -102,7 +102,7 @@
           "blurb": "Host custom SwiftUI views."
         },
         {
-          "pkg": "day-piece-texteditor",
+          "pkg": "day-piece-text-editor",
           "blurb": "Rich-text editing and styled documents."
         }
       ]
@@ -148,7 +148,7 @@
           "blurb": "Keep the screen on while something is showing."
         },
         {
-          "pkg": "day-part-prefs",
+          "pkg": "day-part-preferences",
           "blurb": "A persistent native key/value preference store."
         },
         {
@@ -156,7 +156,7 @@
           "blurb": "Managed downloads and progress."
         },
         {
-          "pkg": "day-part-fs",
+          "pkg": "day-part-filesystem",
           "blurb": "Application files and streaming reads."
         },
         {

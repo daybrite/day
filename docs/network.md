@@ -17,7 +17,7 @@ Show whether the device has a network connection and what kind it is, such as Wi
 
 ## Add to your app
 
-Defined in [`day-part-connectivity`](https://github.com/daybrite/day/tree/main/parts/day-part-connectivity). Add this to your app’s `Cargo.toml`
+Defined in [`day-part-connectivity`](https://github.com/daybrite/day/tree/main/crates/day-part-connectivity). Add this to your app’s `Cargo.toml`
 `[dependencies]` table, using the same Day Git source as the rest of your app:
 
 ```toml
@@ -47,7 +47,7 @@ failed), which is distinct from a successful reading that says offline (`Some` w
 `Wifi | Cellular | Ethernet | Other | None`.
 
 There are no crate features; platform selection is purely `#[cfg(target_os)]`, because connectivity is
-an OS concern rather than a widget-toolkit one. `parts/day-part-connectivity/examples/network.rs` is a plain
+an OS concern rather than a widget-toolkit one. `crates/day-part-connectivity/examples/network.rs` is a plain
 `main` that uses it with no Day framework at all.
 
 ## Per-platform native realization
@@ -61,7 +61,7 @@ Platform guidance: [Android: network operations](https://developer.android.com/d
 | Windows | [`GetNetworkConnectivityHint`](https://learn.microsoft.com/en-us/windows/win32/api/netioapi/nf-netioapi-getnetworkconnectivityhint) (iphlpapi, resolved dynamically) | raw FFI (kernel32 + runtime lookup) |
 | Linux | `/sys/class/net` interface scan | std only |
 | HarmonyOS | [`OH_NetConn_HasDefaultNet`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-network-kit/capi-netconnection.md) / [`GetNetCapabilities`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-network-kit/capi-netconnection.md) (`libnet_connection.so`) | raw FFI (NetworkKit) |
-| Android | [`ConnectivityManager`](https://developer.android.com/reference/android/net/ConnectivityManager) + [`NetworkCapabilities`](https://developer.android.com/reference/android/net/NetworkCapabilities) via a Java shim | `day-mdc` + `[package.metadata.day.android]` |
+| Android | [`ConnectivityManager`](https://developer.android.com/reference/android/net/ConnectivityManager) + [`NetworkCapabilities`](https://developer.android.com/reference/android/net/NetworkCapabilities) via a Java shim | `day-toolkit-material` + `[package.metadata.day.android]` |
 
 ## What each platform can report
 
@@ -105,4 +105,4 @@ into any toolkit's `RENDERERS` slice. It additionally exercises the **manifest-p
 (from the webview work, [docs/extending](extending.md)): `[package.metadata.day.android]` stages its own Java shim
 and contributes `android.permission.ACCESS_NETWORK_STATE`, which `day build` merges into the app
 manifest with no changes to any core Day crate. On Android the crate rides on the Day runtime
-(day-mdc's cached JVM + `DayBridge.ctx`); on every other platform it is fully day-independent.
+(day-toolkit-material's cached JVM + `DayBridge.ctx`); on every other platform it is fully day-independent.

@@ -24,9 +24,9 @@ Day has two kinds of pieces:
 |---|---|---|
 | What it wraps | a *new* native control (`NSComboBox`, `WKWebView`, …) | *existing* Day pieces |
 | Per-toolkit code | one renderer per backend (Obj-C, C++, Java…) | none |
-| Cargo features | `appkit` / `gtk` / `qt` / `uikit` / `mdc` / `xaml` / `winui` | none |
+| Cargo features | `appkit` / `gtk` / `qt` / `uikit` / `material` / `xaml` / `winui` | none |
 | Extra build assets | `build.rs`, shims, Gradle/SwiftPM entries | none |
-| Reference | [the native-piece tutorial](/contributing/tutorials/native-piece) · [`day-piece-texteditor`](/docs/reference/texteditor) | this tutorial · `example-star-rating` |
+| Reference | [the native-piece tutorial](/contributing/tutorials/native-piece) · [`day-piece-text-editor`](/docs/reference/texteditor) | this tutorial · `example-star-rating` |
 
 A native piece exists to introduce a native widget Day does not already have. A star rating is a
 row of small drawings that react to taps, and Day already gives you [`row`](https://daybrite.dev/api/day_pieces/fn.row.html), [`canvas`](https://daybrite.dev/api/day_pieces/fn.canvas.html) (a native 2D
@@ -83,12 +83,12 @@ edition = "2024"
 day-pieces = { git = "https://github.com/daybrite/day.git" }   # primitives + prelude (row, canvas, Decorate, …)
 day-core = { git = "https://github.com/daybrite/day.git" }     # Piece / BuildCx / RNode / AnyPiece
 day-reactive = { git = "https://github.com/daybrite/day.git" } # Signal (also re-exported through day-pieces' prelude)
-day-fluent = { git = "https://github.com/daybrite/day.git" }
+day-localization-ui = { git = "https://github.com/daybrite/day.git" }
 
 [build-dependencies]
 day-build = { git = "https://github.com/daybrite/day.git" }
 
-# Note what is not here: no [features], no dep:day-appkit / day-gtk / day-mdc,
+# Note what is not here: no [features], no dep:day-toolkit-appkit / day-toolkit-gtk / day-toolkit-material,
 # no build.rs. A composed piece needs no per-toolkit code at all.
 
 # The scaffolder appends this so the crate is its own cargo workspace and builds standalone.
@@ -118,7 +118,7 @@ the shipped piece accepts any `Binding<usize>` and reactive editability.
 
 Give the piece a [private catalog](/docs/how-to/localization#give-a-crate-a-private-catalog).
 In `build.rs`, call [`day_build::generate_locales().expect("localization codegen");`](https://daybrite.dev/api/day_build/fn.generate_locales.html) from
-`main`, and add `day_fluent::locales!();` at the root of `src/lib.rs`. In
+`main`, and add `day_localization_ui::locales!();` at the root of `src/lib.rs`. In
 `resource/locales/en-US/app.ftl`:
 
 ```ftl
@@ -335,7 +335,7 @@ fn review_form() -> impl Piece {
 }
 ```
 
-Run `day launch -t macos-appkit`, then `-t android-mdc`, then `-t linux-gtk`. The same rating
+Run `day launch -t macos-appkit`, then `-t android-material`, then `-t linux-gtk`. The same rating
 renders natively on each, drawn by that platform's 2D API from the one [`canvas`](https://daybrite.dev/api/day_pieces/fn.canvas.html) closure.
 
 ## 6. Going further

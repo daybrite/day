@@ -1,0 +1,49 @@
+[package]
+name = "day-part-sensors"
+publish = false
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description.workspace = true
+repository.workspace = true
+license.workspace = true
+
+# Event-driven, headless sensor subscriptions selected by the compilation target.
+
+[dependencies]
+
+[target.'cfg(target_os = "ios")'.dependencies]
+objc2 = { workspace = true }
+block2 = { workspace = true }
+objc2-foundation = { workspace = true, features = ["NSOperation", "NSError"] }
+objc2-core-motion = { workspace = true, default-features = false, features = [
+    "std",
+    "block2",
+    "CMMotionManager",
+    "CMAccelerometer",
+    "CMGyro",
+    "CMMagnetometer",
+    "CMDeviceMotion",
+    "CMAttitude",
+    "CMLogItem",
+] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows = { workspace = true, features = ["Devices_Sensors", "Foundation", "Win32_System_WinRT"] }
+
+# Android reads SensorManager through a Java shim + day-platform-android's cached JVM/Context. This is the one
+# platform where the headless crate rides on the day runtime (like the pieces' Android backends).
+[target.'cfg(target_os = "android")'.dependencies]
+day-platform-android = { workspace = true }
+
+# --- Android backend contribution (docs/extending.md) ---
+# The same mechanism the UI pieces use, but this crate registers no renderer. `day build` stages
+# this Java and adds it to the app's Gradle build, without touching any core day crate.
+[package.metadata.day.android]
+java = ["src/DaySensors.java"]
+
+# --- iOS framework linking (docs/extending.md) ---
+# CMMotionManager lives in CoreMotion, which the cargo staticlib's own link line never reaches the
+# Xcode link with: without this the class lookup panics the first time a reading is asked for.
+[package.metadata.day.ios]
+frameworks = ["CoreMotion"]

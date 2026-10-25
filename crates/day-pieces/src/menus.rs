@@ -199,7 +199,7 @@ fn role_catalog_key(role: day_spec::MenuRole) -> &'static str {
 
 /// Lower app-side entries to the spec model, registering action closures with day-core. A standard
 /// `role` item with no explicit label gets its label from the localized core catalog here, so the
-/// backends receive a ready, locale-correct label instead of each hardcoding English (day-l10n).
+/// backends receive a ready, locale-correct label instead of each hardcoding English (day-localization).
 ///
 /// This variant registers process-lived closures, correct for the app menu and toolbars, whose
 /// ids day-core manages by shape-rebinding, toolbar slots and explicit sweeps. Menus owned by a piece build
@@ -296,7 +296,7 @@ fn lower_menu_with(
                 }
                 let label = e.label.resolve();
                 let label = match (label.is_empty(), e.role) {
-                    (true, Some(role)) => day_l10n::t(role_catalog_key(role)),
+                    (true, Some(role)) => day_localization::t(role_catalog_key(role)),
                     _ => label,
                 };
                 day_spec::MenuItem::Action {
@@ -385,7 +385,7 @@ fn install_menu(
                 // Track the locale even when the entries carry no localized reads, so
                 // role-label fallbacks still refresh; every entry's title, availability and
                 // check state is a tracked read of its own inside `lower_menu`.
-                let _ = day_l10n::locale().get();
+                let _ = day_localization::locale().get();
                 lower_menu(source.entries())
             },
             move |items: &Vec<day_spec::MenuItem>| install(items.clone()),

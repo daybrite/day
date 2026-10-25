@@ -16,7 +16,7 @@ cannot report a field.
 
 ## Add to your app
 
-Defined in [`day-part-device`](https://github.com/daybrite/day/tree/main/parts/day-part-device). Add this to your app’s `Cargo.toml`
+Defined in [`day-part-device`](https://github.com/daybrite/day/tree/main/crates/day-part-device). Add this to your app’s `Cargo.toml`
 `[dependencies]` table, using the same Day Git source as the rest of your app:
 
 ```toml
@@ -55,7 +55,7 @@ pub struct DeviceInfo {
 
 There are no cargo features; platform selection is purely `#[cfg(target_os)]`/`#[cfg(target_env)]`,
 because device identity is an OS concern rather than a toolkit one.
-`parts/day-part-device/examples/deviceinfo.rs` is a plain `main` that uses it with no Day
+`crates/day-part-device/examples/deviceinfo.rs` is a plain `main` that uses it with no Day
 framework at all.
 
 ## Per-platform native realization
@@ -67,7 +67,7 @@ framework at all.
 | Windows | [`RtlGetVersion`](https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/wdm/nf-wdm-rtlgetversion) (ntdll, resolved via `#[link]`) | raw FFI |
 | Linux | [`/etc/os-release`](https://www.freedesktop.org/software/systemd/man/latest/os-release.html) + `/sys/.../dmi/id/product_name` | std only |
 | HarmonyOS | [`OH_GetOSFullName`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-basic-services-kit/capi-deviceinfo.md) / [`OH_GetDisplayVersion`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-basic-services-kit/capi-deviceinfo.md) / [`OH_GetProductModel`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-basic-services-kit/capi-deviceinfo.md) (`libdeviceinfo_ndk.so`) | raw FFI (deviceinfo.h) |
-| Android | [`android.os.Build.*`](https://developer.android.com/reference/android/os/Build) via a Java shim | `day-mdc` + `[package.metadata.day.android]` |
+| Android | [`android.os.Build.*`](https://developer.android.com/reference/android/os/Build) via a Java shim | `day-toolkit-material` + `[package.metadata.day.android]` |
 
 ## What each platform reports
 
@@ -103,6 +103,6 @@ Every field is best-effort; each platform reports what it can:
 
 Like [`day-part-device`](/docs/reference/battery) and [`day-part-connectivity`](/docs/reference/network), this is a headless external crate: it has no UI Piece
 and registers nothing into any toolkit's `RENDERERS` slice. On Android it rides the Day runtime only
-for its attached JNIEnv (via `day-mdc`); the Java shim is staged into the app's Gradle build by
+for its attached JNIEnv (via `day-toolkit-material`); the Java shim is staged into the app's Gradle build by
 `[package.metadata.day.android]` without touching any core day crate, and it contributes no manifest
 permission. On every other platform the crate is fully day-independent: pure native FFI or std.

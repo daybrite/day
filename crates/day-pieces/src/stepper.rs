@@ -9,7 +9,7 @@
 //! control; the pair is the platform idiom, see any inspector in Keynote), `GtkSpinButton`,
 //! and a `QDoubleSpinBox` shim. `Composed` builds the same field from ordinary Day pieces
 //! (a − button, a text field, a + button), which is what every backend without an arm gets
-//! (uikit, mdc, arkui, dom, xaml and mock), so the piece works on all nine targets.
+//! (uikit, material, arkui, dom, xaml and mock), so the piece works on all nine targets.
 //!
 //! The native leaf also accepts `Event::TextChanged` (a typed value, dayscript's `input:`
 //! step) and `Event::ValueChanged`/`ValueCommitted` (dayscript's `set_value:`), and mirrors

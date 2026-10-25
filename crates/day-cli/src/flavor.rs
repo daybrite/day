@@ -567,7 +567,7 @@ mod tests {
         let mut base = app();
         merge_app(&mut base, flavor("[app]\nbuild = 2\n").app);
         assert_eq!(base.version, "1.0.0");
-        // An empty version would name an artifact `fair-games--android-mdc.aab`.
+        // An empty version would name an artifact `fair-games--android-material.aab`.
         let err = parse("[app]\nversion = \"\"\n").expect_err("caught");
         assert!(err.contains("version is empty"), "{err}");
     }

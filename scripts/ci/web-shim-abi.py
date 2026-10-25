@@ -62,13 +62,13 @@ def rust_files(*roots):
 
 # Imports come only from code in the web build: the backend and each piece/part/tweak's `-dom`
 # arm. A tweak's qt arm declares qt imports, which shim.js has no business providing.
-import_sources = [os.path.join(ROOT, "toolkits", "day-dom", "src", "lib.rs")]
-import_sources += [f for f in rust_files("pieces", "parts", "tweaks") if f.endswith("-dom.rs")]
+import_sources = [os.path.join(ROOT, "crates", "day-toolkit-dom", "src", "lib.rs")]
+import_sources += [f for f in rust_files("crates") if f.endswith("-dom.rs")]
 
 # Exports can live anywhere (`day_dom_main` is written by a macro in `crates/day`, and the parts
 # export their own completion callbacks), so this half looks at every crate.
 imports, exports = set(), set()
-for path in rust_files("crates", "toolkits", "pieces", "parts", "tweaks"):
+for path in rust_files("crates"):
     try:
         rs = open(path, encoding="utf-8").read()
     except OSError:
@@ -90,7 +90,7 @@ missing_exports = sorted(n for n in called if n.startswith("day_") and n not in 
 # Crates with a browser half of their own.
 module_problems = []
 module_crates = 0
-for group in ("crates", "pieces", "parts", "tweaks"):
+for group in ("crates",):
     base = os.path.join(ROOT, group)
     for name in sorted(os.listdir(base)) if os.path.isdir(base) else []:
         manifest = os.path.join(base, name, "Cargo.toml")

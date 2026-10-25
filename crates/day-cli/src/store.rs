@@ -789,7 +789,7 @@ pub struct TargetEntry {
 /// iphone = [{ name = "controls", theme = "dark" }, "layout"]   # a bare name is the light theme
 /// # ipad is not named: the target's ipad list above
 ///
-/// [storefront.android-mdc.google-play-store.screenshots]
+/// [storefront.android-material.google-play-store.screenshots]
 /// default = ["canvas", "list"]
 /// ```
 ///
@@ -844,6 +844,13 @@ impl Storefront {
                     return Err("storefront.screenshots: screenshots are declared per target, `[storefront.<target>.screenshots]`".into());
                 }
                 target => {
+                    let original = target;
+                    let target = crate::targets::canonical(target);
+                    if original != target && root.contains_key(target) {
+                        return Err(format!(
+                            "storefront.{original} and storefront.{target} name the same target; keep only storefront.{target}"
+                        ));
+                    }
                     let at = format!("storefront.{target}");
                     let table = value
                         .as_object()
@@ -949,6 +956,13 @@ impl Storefront {
                     return Err(only(format!("storefront.{key}")));
                 }
                 target => {
+                    let original = target;
+                    let target = crate::targets::canonical(target);
+                    if original != target && root.contains_key(target) {
+                        return Err(format!(
+                            "storefront.{original} and storefront.{target} name the same target; keep only storefront.{target}"
+                        ));
+                    }
                     let at = format!("storefront.{target}");
                     let Some(te) = self.targets.get_mut(target) else {
                         return Err(format!(
@@ -2711,7 +2725,7 @@ fn play_fastfile_text() -> String {
 # No metrics: fastlane reports usage to its own servers unless a Fastfile opts out, and a lane
 # that publishes an app is not a place to send anything anywhere but the store.
 opt_out_usage
-# The .aab comes from `day pack -t android-mdc`; this only uploads what that produced.
+# The .aab comes from `day pack -t android-material`; this only uploads what that produced.
 default_platform(:android)
 
 # __dir__ is <project>/build/day/store/<target>/fastlane, so ../../../dist is build/day/dist.
@@ -2727,7 +2741,7 @@ end
 def day_aab
   return ENV["DAY_AAB"] unless ENV["DAY_AAB"].to_s.empty?
   Dir[File.expand_path("../../../dist/*.aab", __dir__)].first ||
-    UI.user_error!("no .aab in build/day/dist — run `day pack -t android-mdc` first")
+    UI.user_error!("no .aab in build/day/dist — run `day pack -t android-material` first")
 end
 
 platform :android do
@@ -3969,6 +3983,20 @@ mod tests {
         Storefront::parse(doc, &source())
     }
 
+    #[test]
+    fn material_storefront_aliases_are_canonical_and_conflicts_fail() {
+        let store = parse_src(&serde_json::json!({"storefront": {"android-mdc": {}}})).unwrap();
+        assert!(store.targets.contains_key("android-material"));
+        assert!(!store.targets.contains_key("android-mdc"));
+        assert!(
+            parse_src(&serde_json::json!({"storefront": {
+                "android-mdc": {}, "android-material": {}
+            }}))
+            .unwrap_err()
+            .contains("name the same target")
+        );
+    }
+
     /// A listing built in memory: the default locale's fields are the shared base table, every
     /// other locale a table over it.
     fn listing_of(default: &str, locales: &[(&str, &[(Field, &str)])]) -> Listing {
@@ -4050,7 +4078,7 @@ mod tests {
             Some("apple-app-store")
         );
         assert_eq!(
-            rules.store_for("android-mdc").map(|(k, _)| k),
+            rules.store_for("android-material").map(|(k, _)| k),
             Some("google-play-store")
         );
         // The Mac App Store is staged, but opt-in: a macOS app is not a store app by default.
@@ -4061,18 +4089,21 @@ mod tests {
         assert!(!rules.is_store_target("macos-appkit"));
         assert!(rules.known("mac-app-store") && !rules.known("apple-appstore"));
         assert_eq!(rules.capture_kind("ios-uikit", None), "iphone");
-        assert_eq!(rules.capture_kind("android-mdc", Some("tablet")), "tablet");
+        assert_eq!(
+            rules.capture_kind("android-material", Some("tablet")),
+            "tablet"
+        );
         assert_eq!(rules.capture_kind("web-dom", None), "default");
         // A desktop capture keeps the kind it always had.
         assert_eq!(rules.capture_kind("macos-appkit", None), "default");
         let lanes = rules.lanes(
-            &["android-mdc".into(), "web-dom".into()],
+            &["android-material".into(), "web-dom".into()],
             &Storefront::default(),
         );
         assert_eq!(lanes.len(), 1);
         assert_eq!(
             (lanes[0].0, lanes[0].2.as_str()),
-            ("google-play-store", "android-mdc")
+            ("google-play-store", "android-material")
         );
         assert_eq!(
             play.screenshots["tablet-7"].folder.as_deref(),
@@ -4231,7 +4262,7 @@ mod tests {
                 .contains("FASTLANE_OPT_OUT_USAGE=1")
         );
 
-        let android = crate::targets::find("android-mdc").expect("android");
+        let android = crate::targets::find("android-material").expect("android");
         let out = tmp.join("out-android");
         stage(&project, android, &listing, &out, None, rules).expect("stage android");
         // Google: `zh-CN`, supply's names, and the changelog keyed by versionCode (= [app] build).
@@ -4334,7 +4365,7 @@ mod tests {
         std::fs::write(
             tmp.join("Day.toml"),
             "schema = 1\n[app]\nid = \"dev.example.app-x\"\nbuild = 7\n\
-             targets = [\"ios-uikit\", \"android-mdc\"]\n\
+             targets = [\"ios-uikit\", \"android-material\"]\n\
              [app.android]\nid = \"dev.example.app_x\"\n",
         )
         .expect("Day.toml");
@@ -4347,7 +4378,7 @@ mod tests {
         let rules = StoreRules::builtin();
         let listing = listing_of("en", &[("en", &[(Field::Name, "Example")])]);
 
-        let android = crate::targets::find("android-mdc").expect("android");
+        let android = crate::targets::find("android-material").expect("android");
         stage(
             &project,
             android,
@@ -4385,7 +4416,7 @@ mod tests {
         std::fs::write(
             tmp.join("Day.toml"),
             "schema = 1\n[app]\nid = \"dev.example.app\"\nbuild = 7\n\
-             targets = [\"ios-uikit\", \"android-mdc\"]\n",
+             targets = [\"ios-uikit\", \"android-material\"]\n",
         )
         .expect("Day.toml");
         std::fs::write(
@@ -4413,9 +4444,9 @@ mod tests {
             ("ios-uikit", "iphone", "light", "fr", "home", Some(1)),
             ("ios-uikit", "ipad", "light", "en", "home", Some(1)),
             ("ios-uikit", "ipad", "light", "fr", "home", Some(1)),
-            ("android-mdc", "phone", "light", "en", "home", Some(1)),
-            ("android-mdc", "phone", "light", "fr", "home", Some(1)),
-            ("android-mdc", "tablet", "light", "en", "home", Some(1)),
+            ("android-material", "phone", "light", "en", "home", Some(1)),
+            ("android-material", "phone", "light", "fr", "home", Some(1)),
+            ("android-material", "tablet", "light", "en", "home", Some(1)),
         ];
         for (target, device, theme, locale, shot, store) in captures {
             let variant = if locale == "en" {
@@ -4471,7 +4502,7 @@ mod tests {
             "deliver uploads what was staged: {fastfile}"
         );
 
-        let android = crate::targets::find("android-mdc").expect("android");
+        let android = crate::targets::find("android-material").expect("android");
         let out = tmp.join("out-android");
         stage(&project, android, &listing, &out, Some(&source), &rules).expect("stage android");
         let placed = |rel: &str| out.join(rel).is_file();
@@ -4510,7 +4541,7 @@ mod tests {
     ) -> serde_json::Value {
         let platform = match os {
             "ios" => "ios-uikit",
-            "android" => "android-mdc",
+            "android" => "android-material",
             other => other,
         };
         serde_json::json!({
@@ -4571,7 +4602,7 @@ mod tests {
     #[test]
     fn the_stores_rules_refuse_what_the_stores_refuse() {
         let ios = crate::targets::find("ios-uikit").expect("ios");
-        let android = crate::targets::find("android-mdc").expect("android");
+        let android = crate::targets::find("android-material").expect("android");
         let rules = StoreRules::parse(DEFAULT_RULES).expect("the CLI's own rules parse");
         let ok = |t, i: &serde_json::Value| screenshot_problems(i, t, &rules);
 
@@ -4713,7 +4744,7 @@ mod tests {
         let problems = ok(android, &none);
         assert_eq!(problems.len(), 1, "{problems:?}");
         assert!(
-            problems[0].contains("[storefront.android-mdc.google-play-store.screenshots]"),
+            problems[0].contains("[storefront.android-material.google-play-store.screenshots]"),
             "{problems:?}"
         );
         let odd = index(
@@ -4911,13 +4942,13 @@ iphone = ["text", "layout"]
 [storefront.ios-uikit.altstore.screenshots]
 default = ["map"]
 
-[storefront.android-mdc.google-play-store.submission-info]
+[storefront.android-material.google-play-store.submission-info]
 review-notes = "Play only."
 
-[storefront.android-mdc.google-play-store.metadata.zh-CN]
+[storefront.android-material.google-play-store.metadata.zh-CN]
 short = "一行。"
 
-[storefront.android-mdc.google-play-store.screenshots]
+[storefront.android-material.google-play-store.screenshots]
 tablet = ["grid"]
 
 [storefront.macos-appkit.screenshots]
@@ -4972,7 +5003,7 @@ storefront:
     altstore:
       screenshots:
         default: [map]
-  android-mdc:
+  android-material:
     google-play-store:
       submission-info:
         review-notes: Play only.
@@ -5009,7 +5040,7 @@ storefront:
                 "another store of the target sees no Apple category"
             );
             assert_eq!(alt.contact_email.as_deref(), Some("ios@example.com"));
-            let play = s.submission("android-mdc", "google-play-store");
+            let play = s.submission("android-material", "google-play-store");
             assert_eq!(play.review_notes.as_deref(), Some("Play only."));
             assert_eq!(play.contact_email.as_deref(), Some("support@example.com"));
             assert_eq!(play.bundle_id, None);
@@ -5063,10 +5094,10 @@ storefront:
                 "another store of the target: the target's subtitle"
             );
             assert_eq!(get(&alt_fr, Field::Promo), None);
-            let play_zh = s.metadata("android-mdc", "google-play-store", "zh-CN");
+            let play_zh = s.metadata("android-material", "google-play-store", "zh-CN");
             assert_eq!(get(&play_zh, Field::Short).as_deref(), Some("一行。"));
             assert_eq!(get(&play_zh, Field::Name).as_deref(), Some("Example"));
-            let play_frca = s.metadata("android-mdc", "google-play-store", "fr-CA");
+            let play_frca = s.metadata("android-material", "google-play-store", "fr-CA");
             assert_eq!(
                 get(&play_frca, Field::Short).as_deref(),
                 Some("Une ligne."),
@@ -5135,11 +5166,11 @@ storefront:
                 ["home:light", "canvas:light", "grid:light"]
             );
             assert_eq!(
-                names(s.store_kind("android-mdc", "google-play-store", "tablet", "en")),
+                names(s.store_kind("android-material", "google-play-store", "tablet", "en")),
                 ["grid:light"]
             );
             assert_eq!(
-                names(s.store_kind("android-mdc", "google-play-store", "phone", "en")),
+                names(s.store_kind("android-material", "google-play-store", "phone", "en")),
                 Vec::<String>::new()
             );
             assert_eq!(
@@ -5169,7 +5200,7 @@ storefront:
                 "a locale's default covers its unnamed kinds too"
             );
             assert_eq!(
-                names(s.website("android-mdc", "phone", "en")),
+                names(s.website("android-material", "phone", "en")),
                 Vec::<String>::new()
             );
             assert_eq!(s.stores("ios-uikit"), ["altstore", "apple-app-store"]);
@@ -5183,7 +5214,7 @@ storefront:
             );
             assert_eq!(s.declared_locales("ios-uikit", "altstore"), ["fr"]);
             assert_eq!(
-                s.declared_kinds("android-mdc", "google-play-store"),
+                s.declared_kinds("android-material", "google-play-store"),
                 ["tablet"]
             );
             assert_eq!(s.shot_names().len(), 8);
@@ -5562,7 +5593,7 @@ storefront:
     #[test]
     fn the_rules_file_is_read_in_order_of_precedence() {
         let own = StoreRules::parse(DEFAULT_RULES).expect("the CLI's own rules parse");
-        let android = crate::targets::find("android-mdc").expect("android");
+        let android = crate::targets::find("android-material").expect("android");
         assert_eq!(
             own.0["apple-app-store"]
                 .kinds()
@@ -5581,7 +5612,7 @@ storefront:
                 .is_err()
         );
 
-        let (tmp, project) = temp_project("rules", "\"android-mdc\"", &["en"]);
+        let (tmp, project) = temp_project("rules", "\"android-material\"", &["en"]);
         assert_eq!(
             StoreRules::load(&project, None)
                 .expect("own")
@@ -5592,7 +5623,7 @@ storefront:
         // A project's file replaces the CLI's whole, so it has to say which store stages what.
         std::fs::write(
             tmp.join("store/rules.toml"),
-            "[google-play-store]\nlayout = \"supply\"\ntargets = [\"android-mdc\"]\n\
+            "[google-play-store]\nlayout = \"supply\"\ntargets = [\"android-material\"]\n\
              [google-play-store.screenshots.phone]\nmax = 3\n",
         )
         .expect("project rules");
@@ -5607,7 +5638,7 @@ storefront:
         let named = tmp.join("named.toml");
         std::fs::write(
             &named,
-            "[google-play-store]\nlayout = \"supply\"\ntargets = [\"android-mdc\"]\n\
+            "[google-play-store]\nlayout = \"supply\"\ntargets = [\"android-material\"]\n\
              [google-play-store.screenshots.phone]\nmax = 4\n[google-play-store.screenshots.tablet]\n\
              [google-play-store.screenshots.tv]\n",
         )
@@ -5800,7 +5831,7 @@ storefront:
         );
         refused(
             "app.de.toml",
-            "[storefront.android-mdc.metadata]\nname = \"x\"\n",
+            "[storefront.android-material.metadata]\nname = \"x\"\n",
             "not a target the main storefront file declares",
         );
         refused(
@@ -5887,8 +5918,11 @@ storefront:
     /// table; each reads back through the same loader.
     #[test]
     fn migrate_init_and_localize_edit_the_tables() {
-        let (tmp, project) =
-            temp_project("migrate", "\"ios-uikit\", \"android-mdc\"", &["en", "fr"]);
+        let (tmp, project) = temp_project(
+            "migrate",
+            "\"ios-uikit\", \"android-material\"",
+            &["en", "fr"],
+        );
         for (tag, name) in [("en", "Example"), ("fr", "Exemple")] {
             let dir = tmp.join("store").join(tag);
             std::fs::create_dir_all(&dir).expect("mkdir");
@@ -5982,7 +6016,8 @@ storefront:
     /// referenced file, and reports what each store's record lacks per locale.
     #[test]
     fn lint_names_each_place_and_what_the_stores_lack() {
-        let (tmp, project) = temp_project("lint", "\"ios-uikit\", \"android-mdc\"", &["en", "fr"]);
+        let (tmp, project) =
+            temp_project("lint", "\"ios-uikit\", \"android-material\"", &["en", "fr"]);
         std::fs::create_dir_all(tmp.join("store/text")).expect("mkdir");
         std::fs::write(tmp.join("store/text/description.txt"), "  Padded.  \n").expect("desc");
         std::fs::write(
@@ -5990,7 +6025,7 @@ storefront:
             "[storefront.metadata]\nname = \"Example\"\nsubtitle = \"TODO: 30 characters\"\n\
              description-ref = \"store/text/description.txt\"\nkeywords = [\"a\"]\n\
              support-url = \"http://x\"\n\
-             [storefront.android-mdc.google-play-store.metadata]\nshort = \"Play only.\"\n",
+             [storefront.android-material.google-play-store.metadata]\nshort = \"Play only.\"\n",
         )
         .expect("storefront.toml");
         let listing = read(&project).expect("reads");
@@ -6127,7 +6162,7 @@ storefront:
             "localization"
         );
         assert!(
-            sf["targets"]["android-mdc"].is_object(),
+            sf["targets"]["android-material"].is_object(),
             "a target the file names and the app does not build is still exported"
         );
         assert!(doc["permissions"].is_array());
@@ -6280,12 +6315,12 @@ storefront:
     #[test]
     fn staging_scales_a_halved_tablet_capture_up_for_play() {
         use day_vector::tiny_skia;
-        let (tmp, project) = temp_project("upscale", "\"android-mdc\"", &["en"]);
+        let (tmp, project) = temp_project("upscale", "\"android-material\"", &["en"]);
         let listing = listing_of("en", &[("en", &[(Field::Name, "Example")])]);
         let tree = tmp.join("screenshots");
         let mut entries = Vec::new();
         for (device, w, h) in [("phone", 1080u32, 1920u32), ("tablet", 1280, 800)] {
-            let rel = format!("android-mdc/{device}/light/home.png");
+            let rel = format!("android-material/{device}/light/home.png");
             let path = tree.join(&rel);
             std::fs::create_dir_all(path.parent().expect("dir")).expect("mkdir");
             let mut pm = tiny_skia::Pixmap::new(w, h).expect("pixmap");
@@ -6293,7 +6328,7 @@ storefront:
             std::fs::write(&path, pm.encode_png().expect("png")).expect("capture");
             entries.push(serde_json::json!({
                 "path": format!("gallery/{rel}"), "shot": "home", "device": device,
-                "os": "android", "platform": "android-mdc", "theme": "light", "locale": "en",
+                "os": "android", "platform": "android-material", "theme": "light", "locale": "en",
                 "store": 1, "width": w, "height": h,
             }));
         }
@@ -6301,7 +6336,7 @@ storefront:
         std::fs::write(&index_path, index(&["en"], entries).to_string()).expect("index");
         let source = ScreenshotSource::parse(index_path.to_str().expect("utf-8"));
         let rules = StoreRules::parse(DEFAULT_RULES).expect("rules");
-        let android = crate::targets::find("android-mdc").expect("android");
+        let android = crate::targets::find("android-material").expect("android");
         let out = tmp.join("out-android");
         stage(&project, android, &listing, &out, Some(&source), &rules).expect("stage");
         let dims =

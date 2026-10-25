@@ -149,7 +149,7 @@
             "type": "string",
             "examples": [
               "macos-appkit", "macos-gtk", "macos-qt",
-              "ios-uikit", "android-mdc",
+              "ios-uikit", "android-material",
               "linux-gtk", "linux-qt",
               "windows-xaml", "windows-winui", "windows-qt", "windows-gtk",
               "harmony-arkui"

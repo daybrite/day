@@ -13,7 +13,7 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 Day's ninth backend renders in a browser. The DOM is the toolkit: a Day [`button`](https://daybrite.dev/api/day_pieces/fn.button.html) is a real
 `<button>`, a slider is `<input type="range">`, and a dialog is `<dialog>`, all semantic HTML
-plus ARIA. The backend is `toolkits/day-dom`, the target name is
+plus ARIA. The backend is `crates/day-toolkit-dom`, the target name is
 `web-dom`, and the feature is `dom`. Status: **experimental**
 ([Tier 3](/docs/reference/platforms#support-tiers)); the capability subset below is
 implemented, and the known gaps are listed at the end.
@@ -44,13 +44,13 @@ directly, so the toolchain is rustc alone.
 
 ```text
 index.html                        app.wasm (Rust cdylib)
-  #day-root                        day-dom   (Toolkit/Platform over the shim imports)
-  shim.js  ──instantiate──▶        day-core / day-pieces / day-fluent
+  #day-root                        day-toolkit-dom   (Toolkit/Platform over the shim imports)
+  shim.js  ──instantiate──▶        day-core / day-pieces / day-localization-ui
      │  env.day_dom_create/insert/set_frame/…   (imports: the DOM verbs)
      └── wasm.day_dom_main/event/posted/frame/… (exports: entry + callbacks)
 ```
 
-- **`toolkits/day-dom/src/lib.rs`** — the `Toolkit`/`Platform` impl. Pieces map to elements
+- **`crates/day-toolkit-dom/src/lib.rs`** — the `Toolkit`/`Platform` impl. Pieces map to elements
   (`<div>`, `<button>`, `<input>`, `<select>`, `<progress>`, `<img>`, `<canvas>`, `<dialog>`…);
   layout stays day-core-owned `position:absolute` frames, with two exceptions below.
 - **`crates/day-cli/resources/web/`** — `shim.js` (the DOM half: element table, event dispatch,
@@ -90,9 +90,9 @@ A label with [styled runs](text-runs.md) is measured from clones of its spans ra
 flat text: a bold span is wider than the same words in the base font, and measuring the flat
 text under-counted a wrapped paragraph by a line, which clipped its last word (2026-09).
 
-**Typography is rem-based, scaled per form factor.** The style ramp (`font_rem` in day-dom) is the
+**Typography is rem-based, scaled per form factor.** The style ramp (`font_rem` in day-toolkit-dom) is the
 Apple text-style ratios with `Body` = 1, and a step becomes a length through one multiplier:
-day-dom emits `calc(<step>rem * var(--day-text-scale))`, so day.css's `--day-text-scale` is the only
+day-toolkit-dom emits `calc(<step>rem * var(--day-text-scale))`, so day.css's `--day-text-scale` is the only
 place the size is decided, with nothing in Rust to keep in step with it. Controls (and the picker
 measurer, `measure_str`) take the same expression at `Body`, as on every native toolkit, where a
 button's caption and a label are one size.
@@ -116,7 +116,7 @@ scaling text but not geometry would corrupt drawings.
 
 ## Web modules
 
-The shim implements day-dom's imports. A crate whose wasm half needs JavaScript of its own
+The shim implements day-toolkit-dom's imports. A crate whose wasm half needs JavaScript of its own
 ships it as ES modules, which the page imports before it instantiates the app. Two things
 produce them:
 
@@ -180,7 +180,7 @@ areas, all three picker styles, progress and spinners, images, dividers, scrolli
 with back bar, tabs, the emulated recycling list with multi-selection, alert/confirm/prompt
 dialogs (`<dialog>`), fonts bundled via `FontFace` with a generated `fonts.json`, localization
 including RTL mirroring, dark mode, lifecycle (`DidBecomeActive`/`WillResignActive` from page
-visibility), routes in the URL (below), [day-part-prefs](/docs/reference/prefs) backed by `localStorage`
+visibility), routes in the URL (below), [day-part-preferences](/docs/reference/prefs) backed by `localStorage`
 ([docs/prefs](prefs.md), so app state bound through [`day::prefs::bind`](https://daybrite.dev/api/day/prefs/fn.bind.html) survives a reload), and
 [day-part-http](/docs/reference/http) backed by the browser's `fetch()` ([docs/http](http.md)): `fetch_async` and
 `fetch_future` work in full, with drop-cancel through an `AbortController`; the blocking
@@ -220,7 +220,7 @@ runs on every platform. The differences from native are all internal:
   `<cmd> <url> <control-port>`; the driver serves `GET /screenshot` (PNG) and `GET /quit` on
   the control port. The bundled driver opens a throwaway persistent profile
   (`launchPersistentContext`), not Playwright's default ephemeral context; WebKit gives an
-  ephemeral session no OPFS backing, and [day-part-fs](/docs/reference/fs) is OPFS-only ([docs/fs](fs.md)). Its engine
+  ephemeral session no OPFS backing, and [day-part-filesystem](/docs/reference/fs) is OPFS-only ([docs/fs](fs.md)). Its engine
   comes from `DAY_WEB_DRIVER_BROWSER` (`webkit` default, `chromium`, `firefox`): macOS WebKit
   has OPFS and is the local default, but Playwright's Linux WebKit (the WPE port) ships no
   OPFS at all, so Linux CI runs the walkthrough under Chromium. Without a driver, scripted
@@ -262,8 +262,8 @@ Known gaps, in rough order of interest:
   `.muted(true)`. [`day-pieces`](/docs/reference/colorpicker) renders `<input type="color">`
   ([docs/colorpicker](colorpicker.md)), the browser's own picker, which on desktop is the system
   chooser; its value is 8-bit `#rrggbb`, and the `alpha` attribute is set but honored only where the
-  browser has shipped it. The registry is open for the others: day-dom exposes a runtime renderer registry
-  (`day_dom::register_renderer`) rather than the `linkme` distributed slice the other eight backends
+  browser has shipped it. The registry is open for the others: day-toolkit-dom exposes a runtime renderer registry
+  (`day_toolkit_dom::register_renderer`) rather than the `linkme` distributed slice the other eight backends
   use, because `#[distributed_slice]` does not compile for wasm32; a piece self-registers from its
   own constructor. A piece that needs to report back asks for the shim's listeners with
   `Dom::listen(&handle, listen::INPUT)`, the same wiring the built-in kinds get, exposed for
@@ -273,7 +273,7 @@ Known gaps, in rough order of interest:
   [`day-part-location`](/docs/reference/location) rides `navigator.geolocation`, and [`day-part-permissions`](/docs/reference/permissions) answers from
   `navigator.permissions`. All three need a secure context, and iOS Safari's motion prompt must be
   requested from inside a button action while the user gesture is still live.
-- **[day-piece-break](/docs/reference/break)** — no signal handlers on wasm; init succeeds and every API degrades to its
+- **[day-piece-crash-reporter](/docs/reference/break)** — no signal handlers on wasm; init succeeds and every API degrades to its
   documented stub.
 - **Window control** — the page can set `document.title` and go fullscreen through the
   Fullscreen API ([`WindowHandle::state()`](https://daybrite.dev/api/day_core/windows/struct.WindowHandle.html#method.state), [docs/windows](windows.md)), which browsers allow
@@ -373,7 +373,7 @@ jobs:
     uses: daybrite/actions/.github/workflows/dayapp.yml@v1   # pin @<tag> to match your day dep
     secrets: inherit
     with:
-      targets: macos-appkit, ios-uikit, android-mdc, web-dom
+      targets: macos-appkit, ios-uikit, android-material, web-dom
       deploy-web: true           # publish the web-dom build to GitHub Pages
       release-mode: pre-release  # or choose "latest" to perform full releases
 ```

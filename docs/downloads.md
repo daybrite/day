@@ -16,7 +16,7 @@ OS download service when they need to continue while the app is suspended or clo
 
 ## Add to your app
 
-Defined in [`day-part-downloads`](https://github.com/daybrite/day/tree/main/parts/day-part-downloads). Add this to your app’s `Cargo.toml`
+Defined in [`day-part-downloads`](https://github.com/daybrite/day/tree/main/crates/day-part-downloads). Add this to your app’s `Cargo.toml`
 `[dependencies]` table, using the same Day Git source as the rest of your app:
 
 ```toml
@@ -38,7 +38,7 @@ or dependency entry in `Day.toml` are needed.
 use day_part_downloads::{Download, Downloads};
 use day_part_http::Request;
 
-let downloads = Downloads::open(day_part_fs::data_dir()?.join("downloads"))?;
+let downloads = Downloads::open(day_part_filesystem::data_dir()?.join("downloads"))?;
 let id = downloads.enqueue(
     Download::new(Request::get("https://example.com/big.bin"), &dest)
         .expect_len(32 << 20)
@@ -171,7 +171,7 @@ code building for the web.
 | `<id>.resume` | the Apple system tier, when a paused or failed transfer left resume data |
 | `<id>.part.bits` | the Windows system tier, while BITS completes a job |
 
-Put the directory under [day-part-fs](fs.md)'s [`data_dir()`](https://daybrite.dev/api/day_part_fs/fn.data_dir.html), which keeps it beside the app's other
+Put the directory under [day-part-filesystem](fs.md)'s [`data_dir()`](https://daybrite.dev/api/day_part_filesystem/fn.data_dir.html), which keeps it beside the app's other
 files and out of the user's documents.
 
 ## Platform guidance

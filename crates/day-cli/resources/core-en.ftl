@@ -2,8 +2,8 @@
 # commands). Keys are namespaced `day_*` so an app's own catalog never clashes; an app can override
 # any of these by defining the same key in its own `.ftl`. English is the ultimate fallback.
 #
-# Every key must be a Rust identifier: day-l10n's build script reads this file and generates
-# `day_l10n::key::<key>` and the typed `day::res::str::<key>()` from it (docs/localization.md),
+# Every key must be a Rust identifier: day-localization's build script reads this file and generates
+# `day_localization::key::<key>` and the typed `day::res::str::<key>()` from it (docs/localization.md),
 # which is how code names these strings. Adding a message here adds its accessors.
 
 # Dialog buttons (docs/dialogs.md)

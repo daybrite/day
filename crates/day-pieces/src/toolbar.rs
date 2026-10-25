@@ -308,7 +308,7 @@ impl<F: Fn() -> Vec<ToolbarEntry> + 'static> ToolbarContent<DerivedMark> for F {
 pub fn sidebar_toggle_item(host: day_core::RNode) -> ToolbarEntry {
     toolbar_button(
         day_core::id!(day::sidebar_toggle),
-        day_l10n::t(day_l10n::key::day_toggle_sidebar),
+        day_localization::t(day_localization::key::day_toggle_sidebar),
     )
     .icon(Symbol::Sidebar)
     .placement(day_spec::ToolbarPlacement::Navigation)
@@ -377,7 +377,7 @@ pub fn contribute(chrome: day_core::Chrome, content: ToolbarSource) {
             outer.enter(|| {
                 day_reactive::Effect::new(move || {
                     // Track the locale even when the builder has no localized reads of its own.
-                    let _ = day_l10n::locale().get();
+                    let _ = day_localization::locale().get();
                     // Reactions rerun in the caller's ambient scope. Capture the owner
                     // explicitly, and keep both entry construction (AnyBinding slots) and
                     // lowering (value callbacks/bindings) in the same owned pass. A root

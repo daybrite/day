@@ -6,7 +6,7 @@ import { url } from '../lib/site';
 const setup: Record<string, { hosts: string[]; needs: string; section: string }> = {
   'macos-appkit': { hosts: ['macOS'], needs: 'Full Xcode for the generated app project.', section: 'macos' },
   'ios-uikit': { hosts: ['macOS'], needs: 'Full Xcode, an iOS Rust target, and a booted iOS Simulator. Physical devices also need signing configured in Xcode.', section: 'ios' },
-  'android-mdc': { hosts: ['macOS', 'Linux', 'Windows'], needs: 'Android SDK and NDK, JDK 17 or newer, cargo-ndk, and a Rust target matching your device or emulator. Start the emulator or connect a device before launching.', section: 'android' },
+  'android-material': { hosts: ['macOS', 'Linux', 'Windows'], needs: 'Android SDK and NDK, JDK 17 or newer, cargo-ndk, and a Rust target matching your device or emulator. Start the emulator or connect a device before launching.', section: 'android' },
   'linux-gtk': { hosts: ['Linux'], needs: 'GTK 4.10 or newer, libadwaita 1.5 or newer, and pkg-config, including development packages.', section: 'linux' },
   'linux-qt': { hosts: ['Linux'], needs: 'Qt 6 development packages and pkg-config.', section: 'linux' },
   'windows-winui': { hosts: ['Windows'], needs: 'Visual Studio C++ Build Tools, the Windows SDK, the MSVC Rust toolchain, and the Windows App Runtime 2.5.1 or newer to run development builds. The build downloads the Windows App SDK itself.', section: 'windows' },

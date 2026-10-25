@@ -893,9 +893,9 @@
     "type": "reference",
     "audience": "app developer"
   },
-  "docs/platforms/android-mdc": {
-    "route": "/docs/reference/platforms/android-mdc",
-    "source": "website/src/content/docs/platforms/android-mdc.mdx",
+  "docs/platforms/android-material": {
+    "route": "/docs/reference/platforms/android-material",
+    "source": "website/src/content/docs/platforms/android-material.mdx",
     "type": "reference",
     "audience": "app developer"
   },

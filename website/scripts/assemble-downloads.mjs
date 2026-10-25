@@ -39,8 +39,9 @@ const REPO = process.env.DAY_RELEASE_REPO || 'daybrite/Day-Showcase';
 // and changes between apps. The extension anchors the match, which is also what keeps the
 // provenance sidecars (`….dmg.buildinfo.json`) out of the cards. Order within a platform is the
 // order the card lists them.
+// Older published releases retain their original asset filenames; only the card ID changes.
 const PLATFORM_ASSETS = [
-  { id: 'android-mdc', match: (n) => /-android-mdc\.(apk|aab)$/i.test(n) },
+  { id: 'android-material', match: (n) => /-android-(?:material|mdc)\.(apk|aab)$/i.test(n) },
   { id: 'ios-uikit', match: (n) => /-ios-uikit\.ipa$/i.test(n) },
   { id: 'harmony-arkui', match: (n) => /-harmony-arkui\.hap$/i.test(n) },
   { id: 'macos-appkit', match: (n) => /-macos-appkit\.dmg$/i.test(n) },

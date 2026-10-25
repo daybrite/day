@@ -46,7 +46,7 @@ fail CI; the HarmonyOS job also tolerates build and packaging failures.
 |---|---|---|---|
 | `macos-appkit` | [Tier 1](/docs/reference/platforms#support-tiers) | Full | `.dmg` |
 | `ios-uikit` | [Tier 1](/docs/reference/platforms#support-tiers) | Full, Simulator | `.ipa` |
-| `android-mdc` | [Tier 1](/docs/reference/platforms#support-tiers) | Full, emulator; failures tolerated | `.apk`, `.aab` |
+| `android-material` | [Tier 1](/docs/reference/platforms#support-tiers) | Full, emulator; failures tolerated | `.apk`, `.aab` |
 | `linux-gtk` | [Tier 2](/docs/reference/platforms#support-tiers) | Full, headless X | `.flatpak`, `.appimage` |
 | `linux-qt` | [Tier 2](/docs/reference/platforms#support-tiers) | Full, headless X | `.flatpak`, `.appimage` |
 | `windows-winui` | [Tier 2](/docs/reference/platforms#support-tiers) | Full | `.msix`, installer |
@@ -96,7 +96,7 @@ development targets the Simulator; App Store `.ipa` export exists in `day pack` 
 Apple credentials. Without `signing.ios` configuration, the output is an unsigned device archive
 with an `-unsigned.ipa` filename. Physical-device debugging gets less use than the Simulator.
 
-### Android (`android-mdc`) — [full page](/docs/reference/platforms/android-mdc)
+### Android (`android-material`) — [full page](/docs/reference/platforms/android-material)
 [Tier 1 · Supported](/docs/reference/platforms#support-tiers)
 Day renders Material Components widgets over JNI, with a generated Gradle project and the same
 callback-build pattern. `day launch` installs on every connected device/emulator at once, each
@@ -173,7 +173,7 @@ interaction, accessibility quality, screenshots, or release readiness. Query cap
 operation you use and handle its return/error contract.
 
 Evidence: [Toolkit and Cap](https://github.com/daybrite/day/blob/main/crates/day-spec/src/lib.rs),
-[DOM capability implementation](https://github.com/daybrite/day/blob/main/toolkits/day-dom/src/lib.rs),
+[DOM capability implementation](https://github.com/daybrite/day/blob/main/crates/day-toolkit-dom/src/lib.rs),
 [key and pinch decorators](https://github.com/daybrite/day/blob/main/crates/day-pieces/src/decorators.rs),
 and [target registry](https://github.com/daybrite/day/blob/main/crates/day-cli/src/targets.rs).
 HarmonyOS emulator acceptance belongs in CI; local validation must stop at compile/lint checks.

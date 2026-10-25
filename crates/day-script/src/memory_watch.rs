@@ -61,7 +61,7 @@ impl Drop for Watch {
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
     use super::*;
-    use day_script_proto::{Request, Step};
+    use day_script_protocol::{Request, Step};
     use std::io::{BufRead, BufReader};
     use std::net::TcpListener;
 

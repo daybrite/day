@@ -1,0 +1,247 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
+//! day-tweak-slider-tick-marks — the full-range packaged-tweak example (docs/tweaks.md): native
+//! tick marks (and, where the platform supports it, snap-to-tick) on Day's `slider(…)`, across
+//! six toolkits, exercising every tweak access tier:
+//!
+//! | toolkit | mechanism | count | position | snap |
+//! |---|---|---|---|---|
+//! | AppKit  | objc2 (`NSSlider` tick API)                  | ✓ | Above/Below | ✓ |
+//! | GTK     | gtk4-rs (`Scale::add_mark`)                  | ✓ | ✓ (incl. Both) | ✗ (no native snap) |
+//! | Android | JNI (Material `Slider` step size)            | ✓ | ✗ (Material draws its own) | always on (Material snaps with steps) |
+//! | Qt      | own C++ (`QSlider` ticks; docs/tweaks.md recipe) | ✓ | ✓ | ✗ (no native snap) |
+//! | XAML   | own C++/WinRT (`Slider` TickFrequency/SnapsTo)   | ✓ | ✓ | ✓ |
+//! | ArkUI   | the NDK node API (`NODE_SLIDER_STEP`) | ✓ | ✗ | always on (steps snap) |
+//! | UIKit   | — `UISlider` has NO native tick API: documented no-op | | | |
+//!
+//! ```ignore
+//! use day_tweak_slider_tick_marks::{SliderTickmarksTweak, TickPosition, Tickmarks};
+//! slider(volume).range(0.0..=100.0).tickmarks(Tickmarks::count(11).snap(true))
+//! ```
+//!
+//! Tick configuration is UNMANAGED (Day never patches it), so it survives Day's own value
+//! updates. Where a column says ✗ or "always on", that's the platform's reality — the tweak
+//! reports it here instead of faking it.
+
+use day_core::RNode;
+use day_pieces::Decorate;
+
+/// Where tick marks are drawn, on toolkits that let you choose.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum TickPosition {
+    #[default]
+    Below,
+    Above,
+    /// Both sides (GTK, Qt); falls back to Below where only one side is supported (AppKit).
+    Both,
+}
+
+/// The tick configuration: how many marks, whether values snap to them, where they draw.
+#[derive(Clone, Copy, Debug)]
+pub struct Tickmarks {
+    pub count: u32,
+    pub snap: bool,
+    pub position: TickPosition,
+}
+
+impl Tickmarks {
+    /// `count` marks (≥ 2: one at each end plus evenly spaced between), no snapping, below.
+    pub fn count(count: u32) -> Self {
+        Tickmarks {
+            count: count.max(2),
+            snap: false,
+            position: TickPosition::Below,
+        }
+    }
+    pub fn snap(mut self, snap: bool) -> Self {
+        self.snap = snap;
+        self
+    }
+    pub fn position(mut self, position: TickPosition) -> Self {
+        self.position = position;
+        self
+    }
+}
+
+/// `.tickmarks(…)` on any piece whose native widget is a slider (i.e. `slider(…)`).
+pub trait SliderTickmarksTweak: Decorate + Sized {
+    #[allow(unused_variables)]
+    fn tickmarks(self, ticks: Tickmarks) -> day_pieces::Decorated<Self> {
+        self.tweak(move |n| apply(n, ticks))
+    }
+}
+
+impl<P: Decorate> SliderTickmarksTweak for P {}
+
+#[allow(unused_variables)]
+fn apply(node: RNode, t: Tickmarks) {
+    #[cfg(feature = "appkit")]
+    {
+        use objc2_app_kit::{NSSlider, NSTickMarkPosition};
+        let _ = day_toolkit_appkit::with_native(node, |view, _class, _mtm| {
+            if let Some(s) = view.downcast_ref::<NSSlider>() {
+                s.setNumberOfTickMarks(t.count as isize);
+                s.setAllowsTickMarkValuesOnly(t.snap);
+                s.setTickMarkPosition(match t.position {
+                    TickPosition::Above => NSTickMarkPosition::Above,
+                    _ => NSTickMarkPosition::Below, // Both unsupported on AppKit
+                });
+                // Tick marks add to the control's intrinsic height.
+                day_core::invalidate_size(node);
+            }
+        });
+    }
+    #[cfg(feature = "gtk")]
+    {
+        use gtk4::prelude::*;
+        let _ = day_toolkit_gtk::with_native(node, |w, _class| {
+            if let Some(scale) = w.downcast_ref::<gtk4::Scale>() {
+                let (lo, hi) = (scale.adjustment().lower(), scale.adjustment().upper());
+                scale.clear_marks();
+                for i in 0..t.count {
+                    let v = lo + (hi - lo) * f64::from(i) / f64::from(t.count - 1);
+                    match t.position {
+                        TickPosition::Below => scale.add_mark(v, gtk4::PositionType::Bottom, None),
+                        TickPosition::Above => scale.add_mark(v, gtk4::PositionType::Top, None),
+                        TickPosition::Both => {
+                            scale.add_mark(v, gtk4::PositionType::Bottom, None);
+                            scale.add_mark(v, gtk4::PositionType::Top, None);
+                        }
+                    }
+                }
+                day_core::invalidate_size(node);
+            }
+        });
+        // snap: GtkScale has no native snap-to-marks — documented, not emulated.
+    }
+    #[cfg(all(feature = "material", target_os = "android"))]
+    {
+        // Material Slider: a step size yields visible ticks and snapping (Material always snaps
+        // when stepped — `snap: false` is not honorable here, per the table above).
+        let _ = day_toolkit_material::with_native(node, |view, _class, env| {
+            day_toolkit_material::java_in(env, |env| {
+                let base = day_toolkit_material::downcast::<android::BaseSlider>(env, view)?;
+                let lo = base.getValueFrom(env)?;
+                let hi = base.getValueTo(env)?;
+                let step = (hi - lo) / (t.count.saturating_sub(1).max(1)) as f32;
+                base.setStepSize(env, step)?;
+                // A stepped Material slider requires every value to sit on the step grid — it
+                // hard-crashes at the next layout pass otherwise (BaseSlider.validateValues).
+                // Snap the current value now. NOTE: a programmatic setValue does not notify the
+                // bound Signal (fromUser=false), so an off-grid initial value diverges from the
+                // widget until the next user interaction — start stepped sliders on a grid value.
+                let slider = day_toolkit_material::downcast::<android::Slider>(env, view)?;
+                let value = slider.getValue(env)?;
+                let snapped = (lo + ((value - lo) / step).round() * step).clamp(lo, hi);
+                if snapped != value {
+                    slider.setValue(env, snapped)?;
+                }
+                base.setTickVisible(env, true)
+            });
+        });
+    }
+    #[cfg(feature = "qt")]
+    {
+        // Own C++ against the raw QWidget* (src/ticks-qt.cpp) — the bring-your-own recipe.
+        // day-toolkit-qt sliders use a fixed 0..1000 integer range (day-toolkit-qt-sys shim). The class name the
+        // ext hands us lets the C++ guard its `static_cast` instead of casting a blind pointer.
+        unsafe extern "C" {
+            fn day_tweak_slider_ticks_qt(
+                w: *mut std::os::raw::c_void,
+                cls: *const std::os::raw::c_char,
+                interval: std::os::raw::c_int,
+                position: std::os::raw::c_int,
+            );
+        }
+        if let Some((w, class)) = day_toolkit_qt::with_native_raw(node) {
+            let cls = std::ffi::CString::new(class).unwrap_or_default();
+            let interval = (1000 / (t.count.saturating_sub(1).max(1))) as std::os::raw::c_int;
+            let pos = match t.position {
+                TickPosition::Below => 0,
+                TickPosition::Above => 1,
+                TickPosition::Both => 2,
+            };
+            unsafe { day_tweak_slider_ticks_qt(w, cls.as_ptr(), interval, pos) };
+            day_core::invalidate_size(node);
+        }
+        // snap: QSlider has no native snap-to-ticks — documented, not emulated.
+    }
+    #[cfg(all(feature = "xaml", windows))]
+    {
+        // Own C++/WinRT against the borrowed ABI pointer (src/ticks-xaml.cpp). The class name
+        // lets the C++ confirm the element is a Slider before `try_as`.
+        unsafe extern "C" {
+            fn day_tweak_slider_ticks_xaml(
+                abi: *mut std::os::raw::c_void,
+                cls: *const std::os::raw::c_char,
+                count: std::os::raw::c_int,
+                position: std::os::raw::c_int,
+                snap: std::os::raw::c_int,
+            );
+        }
+        if let Some((abi, class)) = day_toolkit_winui::with_native_raw(node) {
+            let cls = std::ffi::CString::new(class).unwrap_or_default();
+            let pos = match t.position {
+                TickPosition::Below => 0,
+                TickPosition::Above => 1,
+                TickPosition::Both => 2,
+            };
+            unsafe {
+                day_tweak_slider_ticks_xaml(
+                    abi,
+                    cls.as_ptr(),
+                    t.count as std::os::raw::c_int,
+                    pos,
+                    t.snap as std::os::raw::c_int,
+                )
+            };
+            day_core::invalidate_size(node);
+        }
+    }
+    #[cfg(all(feature = "arkui", target_env = "ohos"))]
+    {
+        // The NDK node handle, driven through day-toolkit-arkui's node module (docs/tweaks.md). ArkUI's
+        // stepped slider always snaps; `NODE_SLIDER_STEP` is a percentage of the range. The node
+        // type name is the guard before acting on the handle.
+        use day_toolkit_arkui::arkui_sys::native_node::ArkUI_NodeAttributeType as Attr;
+        if let Some((h, "Slider")) = day_toolkit_arkui::with_native_raw(node) {
+            let step = 100.0 / (t.count.saturating_sub(1).max(1)) as f32;
+            day_toolkit_arkui::node::set_f32(h.cast(), Attr::NODE_SLIDER_STEP, step);
+            day_toolkit_arkui::node::set_i32(h.cast(), Attr::NODE_SLIDER_SHOW_STEPS, 1);
+        }
+    }
+    #[cfg(not(any(
+        feature = "appkit",
+        feature = "gtk",
+        all(feature = "material", target_os = "android"),
+        feature = "qt",
+        all(feature = "xaml", windows),
+        all(feature = "arkui", target_env = "ohos")
+    )))]
+    let _ = node; // UIKit (and mock): documented no-op — UISlider has no native tick API.
+}
+
+/// Material's slider, bound where each method is declared: the range, step and tick methods on
+/// `BaseSlider`, the value on `Slider`. An R8 keep rule names the declaring class, so binding the
+/// subclass would leave the inherited methods free to be renamed.
+#[cfg(all(feature = "material", target_os = "android"))]
+mod android {
+    day_toolkit_material::java_class! {
+        pub BaseSlider => com.google.android.material.slider.BaseSlider,
+        methods {
+            fn getValueFrom() -> jfloat,
+            fn getValueTo() -> jfloat,
+            fn setStepSize(step: jfloat),
+            fn setTickVisible(visible: jboolean),
+        },
+    }
+
+    day_toolkit_material::java_class! {
+        pub Slider => com.google.android.material.slider.Slider,
+        methods {
+            fn getValue() -> jfloat,
+            fn setValue(value: jfloat),
+        },
+    }
+}

@@ -335,7 +335,7 @@ jobs:
   # outside its package compiles in-tree and fails for every `cargo install day-cli` user; that
   # shipped in 0.0.15 (the web-dom host trio). Verification is cheap here because all publishable
   # tooling crates (day-build, day-cli, day-fonts, day-toolchain, day-vector, day-macros,
-  # day-script-proto) are host-only tooling; the per-platform
+  # day-script-protocol) are host-only tooling; the per-platform
   # toolkit crates that can't share a runner are all publish=false and are never packaged.
   release:
     name: release
@@ -436,7 +436,7 @@ jobs:
   # rust-lang/crates-io-auth-action) for a short-lived, publish-scoped token. The job runs in the
   # `release` GitHub environment the crates.io Trusted Publisher config is bound to, so only this
   # job, on a semantic tag, can mint that token. It publishes the seven publishable crates in
-  # dependency order (including day-script-proto before day-cli; every other member is
+  # dependency order (including day-script-protocol before day-cli; every other member is
   # publish=false); --no-verify because the `release` job's dry-run already unpacked and built
   # each package from this
   # same commit, and re-verifying mid-upload would risk failing with some crates already published.
@@ -496,7 +496,7 @@ jobs:
     uses: daybrite/actions/.github/workflows/dayapp.yml@v1
     secrets: inherit
     with:
-      targets: macos-appkit, ios-uikit, android-mdc, linux-gtk, linux-qt, windows-winui, harmony-arkui, web-dom
+      targets: macos-appkit, ios-uikit, android-material, linux-gtk, linux-qt, windows-winui, harmony-arkui, web-dom
       # This run's CLI, not a published one: `day-cli-macos`/`-linux`/`-windows` upload the
       # `day-<os>-<arch>` artifact each leg downloads.
       day-source: artifact
@@ -520,7 +520,7 @@ jobs:
       target-scripts: |
         macos-appkit: dayscript/walkthrough.yaml dayscript/windows.yaml dayscript/speech.yaml dayscript/clipboard-roundtrip.yaml dayscript/crash.yaml dayscript/crash-report.yaml
         ios-uikit: dayscript/walkthrough.yaml dayscript/speech.yaml
-        android-mdc: dayscript/walkthrough.yaml dayscript/clipboard-roundtrip.yaml dayscript/speech.yaml
+        android-material: dayscript/walkthrough.yaml dayscript/clipboard-roundtrip.yaml dayscript/speech.yaml
         web-dom: dayscript/walkthrough.yaml dayscript/speech.yaml
         linux-gtk, linux-qt, windows-winui, harmony-arkui: dayscript/walkthrough.yaml
       # The crash pair runs ONCE rather than across the eight theme/locale variants: `crash.yaml`
@@ -585,7 +585,7 @@ jobs:
           - { toolkit: uikit,  combo: ios-uikit,     os: xcode-27,    rust_target: aarch64-apple-ios-sim,     clippy: "--lib" }
           - { toolkit: gtk,    combo: linux-gtk,     os: ubuntu-24.04, rust_target: "",                        clippy: "--all-targets" }
           - { toolkit: qt,     combo: linux-qt,      os: ubuntu-24.04, rust_target: "",                        clippy: "--all-targets" }
-          - { toolkit: mdc,    combo: android-mdc,   os: ubuntu-24.04, rust_target: aarch64-linux-android,     clippy: "--lib" }
+          - { toolkit: material,    combo: android-material,   os: ubuntu-24.04, rust_target: aarch64-linux-android,     clippy: "--lib" }
           - { toolkit: winui,  combo: windows-winui, os: windows-2025, rust_target: "",                      clippy: "--all-targets" }
     defaults:
       run:
@@ -617,11 +617,11 @@ jobs:
       # The android backend links through the NDK, so the cross-clippy and the scaffold build need
       # cargo-ndk, but not Gradle, which only the packaging step uses.
       - uses: taiki-e/install-action@v2
-        if: matrix.toolkit == 'mdc'
+        if: matrix.toolkit == 'material'
         with:
           tool: cargo-ndk
       - name: Android NDK env
-        if: matrix.toolkit == 'mdc'
+        if: matrix.toolkit == 'material'
         run: |
           echo "ANDROID_NDK_HOME=$ANDROID_NDK_LATEST_HOME" >> "$GITHUB_ENV"
           # bundled SQLite (day-persistence, in the showcase's non-wasm graph) compiles C, and
@@ -664,11 +664,11 @@ jobs:
             --no-default-features --features ${{ matrix.toolkit }}
       - name: Native AppKit links, menus, scrolling and document layout
         if: matrix.toolkit == 'appkit'
-        run: cargo test --locked -p day-appkit --test native_links --test native_main_menu --test native_list_scroll --test native_document_layout
+        run: cargo test --locked -p day-toolkit-appkit --test native_links --test native_main_menu --test native_list_scroll --test native_document_layout
       - name: Native Qt resize delivery, menu lifetime, tree and list hosts
         if: matrix.toolkit == 'qt'
         run: |
-          cmake -S toolkits/day-qt-sys/tests -B target/qt-native-tests
+          cmake -S crates/day-toolkit-qt-sys/tests -B target/qt-native-tests
           cmake --build target/qt-native-tests
           ctest --test-dir target/qt-native-tests --output-on-failure
       # The Windows implementation of this part compiles only here, so its lint rides the winui
@@ -738,7 +738,7 @@ jobs:
       contents: read
     uses: daybrite/actions/.github/workflows/dayapp.yml@v1
     with:
-      targets: macos-appkit, ios-uikit, android-mdc, macos-gtk, macos-qt, linux-gtk, linux-qt, windows-winui, windows-gtk, windows-qt, harmony-arkui, web-dom
+      targets: macos-appkit, ios-uikit, android-material, macos-gtk, macos-qt, linux-gtk, linux-qt, windows-winui, windows-gtk, windows-qt, harmony-arkui, web-dom
       day-source: artifact
       project-path: apps/conformance
       # The scaffold around the app's own files (Day.toml, build.rs, resource/, platform/) is
@@ -1037,8 +1037,8 @@ jobs:
       - name: Scaffold check (new + lint + build + pack + rebuild + launch)
         shell: bash
         run: scripts/ci/scaffold-check.sh "$DAY_BIN" ${{ matrix.combo }}
-  android-mdc:
-    name: day-android-mdc
+  android-material:
+    name: day-android-material
     runs-on: ubuntu-24.04
     needs: [day-cli-linux]
     steps:
@@ -1083,7 +1083,7 @@ jobs:
       # trial launch: the emulator boots later, only for the walkthrough.
       - name: Scaffold check (new + lint + build + pack + rebuild)
         shell: bash
-        run: scripts/ci/scaffold-check.sh "$DAY_BIN" android-mdc
+        run: scripts/ci/scaffold-check.sh "$DAY_BIN" android-material
       # Keep native inputs for any future stripping or reproducibility regression. A failed check
       # leaves both trees in place; `day rebuild` already names the differing ELF sections.
       - name: Resolve the scaffold diagnostic path
@@ -1101,7 +1101,7 @@ jobs:
           name: android-rebuild-libraries
           path: |
             ${{ steps.scaffold-diagnostics.outputs.root }}/build/day/jniLibs/
-            /tmp/day-rebuild-ci-sample-android-mdc/src/ci-sample/build/day/jniLibs/
+            /tmp/day-rebuild-ci-sample-android-material/src/ci-sample/build/day/jniLibs/
           if-no-files-found: ignore
           retention-days: 14
   harmony-arkui:
@@ -1292,9 +1292,9 @@ jobs:
           echo "DAY_BIN=$BIN" >> "$GITHUB_ENV"
           echo "day CLI: $BIN"
       - name: Clippy (winui backend)
-        run: cargo clippy --locked -p day-winui -p day-windows-runtime --features winui --all-targets
+        run: cargo clippy --locked -p day-toolkit-winui -p day-platform-windows --features winui --all-targets
       - name: Windows backend and runtime tests
-        run: cargo test --locked -p day-winui -p day-windows-runtime --features winui --lib
+        run: cargo test --locked -p day-toolkit-winui -p day-platform-windows --features winui --lib
       - name: Scaffold check (new + lint + build + pack + rebuild + launch)
         run: scripts/ci/scaffold-check.sh "$DAY_BIN" windows-winui
   # The host-portable tests (scripts/ci/host-test.sh) under the windows-gnu toolchain, which the
@@ -1372,14 +1372,14 @@ jobs:
 
   # ---------------------------------------------------------------------------
   # web-dom: build the showcase for the web-dom backend (docs/web.md), a wasm32 cdylib plus
-  # the day-dom host page, assembled by `day build` into a fully static dist/. The dist is built
+  # the day-toolkit-dom host page, assembled by `day build` into a fully static dist/. The dist is built
   # here as the wasm build test and to drive the walkthrough, but it is not published: the app
   # deploys its web build to showcase.daybrite.dev/webapp from its own repository, and this
   # site links there. Then the same walkthrough script the
   # native combos run drives the page in headless Chromium (day-cli's bundled page-driver,
   # `day web driver`, is the DAY_WEB_DRIVER browser; the dayscript engine runs in the wasm over the launch server's
   # WebSocket bridge) and uploads gallery screenshots like every other combo. Chromium, not
-  # WebKit, because Playwright's Linux WebKit (the WPE port) ships no OPFS and day-part-fs is
+  # WebKit, because Playwright's Linux WebKit (the WPE port) ships no OPFS and day-part-filesystem is
   # OPFS-only (docs/fs.md); the sensors step below stays on WebKit, which it works fine on.
   # ---------------------------------------------------------------------------
   web-dom:
@@ -1432,7 +1432,7 @@ jobs:
         # `--lib` like the other non-desktop backends: wasm has no `day::launch` (desktop-only), so
         # `src/main.rs` is not part of this build. The cargo feature is `dom`; `web-dom` is the
         # platform name `day build` takes (Cargo.toml [features], §9). The getrandom_backend cfg
-        # mirrors what `day build` sets for every web app (crates/day-cli/web.rs): day-dom carries
+        # mirrors what `day build` sets for every web app (crates/day-cli/web.rs): day-toolkit-dom carries
         # getrandom's custom-backend hook, and getrandom refuses to compile for raw wasm until a
         # backend is chosen.
         working-directory: showcase-src

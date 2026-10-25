@@ -42,7 +42,7 @@ apple-category = "PRODUCTIVITY"
 iphone = ["home", "editor", "search"]
 ipad = ["home", "editor", "search"]
 
-[storefront.android-mdc.google-play-store.screenshots]
+[storefront.android-material.google-play-store.screenshots]
 default = ["home", "editor", "search"]
 
 [storefront.macos-appkit.mac-app-store.submission-info]
@@ -119,7 +119,7 @@ Add these inputs to the `app` job in the [CI workflow](/docs/how-to/github-actio
 
 ```yaml
 with:
-  targets: ios-uikit, macos-appkit, android-mdc
+  targets: ios-uikit, macos-appkit, android-material
   scripts: auto
   locales: all
   themes: light dark

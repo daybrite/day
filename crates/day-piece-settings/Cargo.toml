@@ -1,0 +1,90 @@
+[package]
+name = "day-piece-settings"
+publish = false
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description.workspace = true
+repository.workspace = true
+license.workspace = true
+build = "build.rs"
+
+# The settings and About surface every Day app shares (docs/settings.md): typed persisted
+# values (`Pref<T>`), a semantic declaration of groups and rows, and one `install()` that wires
+# the Preferences window, the About window, the Settings…/About/Check for Updates… menu items,
+# the mobile navigation presentation and the string routes. The declaration is composed from
+# ordinary Day pieces on every backend; the per-toolkit features below add native presentation
+# where the platform has a stronger idiom (a toolbar-tab panel on macOS, AdwPreferencesDialog
+# rows and AdwAboutDialog on GTK, inset-grouped cells on iOS, Material preference rows on
+# Android, settings cards on Windows, list-item rows on HarmonyOS).
+
+[features]
+# The piece's `#[day::test]` cases (docs/testing.md): compiled only into a test build, which
+# the conformance app turns on.
+conformance = ["dep:day-macros"]
+appkit = ["dep:day-toolkit-appkit", "dep:objc2", "dep:objc2-app-kit", "dep:objc2-foundation"]
+gtk = ["dep:day-toolkit-gtk", "dep:gtk4", "dep:libadwaita"]
+qt = ["dep:day-toolkit-qt"]                  # + build.rs compiles src/lib-qt-shim.cpp (the KDE-style preferences dialog), Qt libs linked by day-toolkit-qt-sys
+uikit = ["dep:day-toolkit-uikit", "dep:objc2", "dep:objc2-ui-kit", "dep:objc2-foundation", "dep:objc2-core-foundation"]
+material = ["dep:day-toolkit-material", "dep:day-platform-android"]        # + [package.metadata.day.android] stages src/DaySettingsRow.java
+# XAML: build.rs compiles src/lib-xaml-shim.cpp (the settings-card row, boxed via day-toolkit-xaml-sys's
+# day_xaml_box functions like the searchfield piece). Windows-only, built in CI, not verified locally.
+xaml = ["dep:day-toolkit-winui", "dep:day-toolkit-xaml-sys"]
+winui = ["xaml", "day-toolkit-winui/winui", "day-toolkit-xaml-sys/winui"]
+arkui = ["dep:day-toolkit-arkui"]
+dom = []
+mock = []
+
+[package.metadata.day.piece]
+backends = ["appkit", "gtk", "qt", "uikit", "material", "xaml", "winui", "arkui", "dom", "mock"]
+
+[dependencies]
+day-macros = { workspace = true, optional = true }
+day-pieces = { workspace = true }
+day-core = { workspace = true }
+day-spec = { workspace = true }
+day-reactive = { workspace = true }
+day-localization-ui = { workspace = true }
+day-localization = { workspace = true }
+day-part-preferences = { workspace = true }
+day-part-clipboard = { workspace = true }
+linkme = { workspace = true }
+log = { workspace = true }
+day-toolkit-appkit = { workspace = true, optional = true }
+day-toolkit-gtk = { workspace = true, optional = true }
+day-toolkit-qt = { workspace = true, optional = true }
+day-toolkit-uikit = { workspace = true, optional = true }
+day-toolkit-material = { workspace = true, optional = true }
+day-platform-android = { workspace = true, optional = true }
+day-toolkit-winui = { workspace = true, optional = true }
+day-toolkit-xaml-sys = { workspace = true, optional = true }
+day-toolkit-arkui = { workspace = true, optional = true }
+objc2 = { workspace = true, optional = true }
+objc2-foundation = { workspace = true, optional = true }
+objc2-app-kit = { workspace = true, optional = true }
+objc2-core-foundation = { workspace = true, default-features = true, optional = true, features = ["CFCGTypes"] }
+objc2-ui-kit = { workspace = true, optional = true, features = [
+    "UIView", "UIResponder", "UILabel", "UIImage", "UIImageView", "UIColor", "UIFont",
+    "UIFontDescriptor", "UIInterface", "UIImageConfiguration", "UIImageSymbolConfiguration",
+    "UITraitCollection", "NSText", "objc2-core-foundation",
+    # The inset grouped settings pages (lib-uikit.rs): a UITableView of configured cells.
+    "UIScrollView", "UITableView", "UITableViewCell", "UIListContentConfiguration",
+    "UIContentConfiguration", "UIListContentTextProperties", "UIListContentImageProperties",
+    "UIBackgroundConfiguration", "UIGeometry", "NSLayoutConstraint", "NSIndexPath_UIKitAdditions",
+] }
+gtk4 = { workspace = true, optional = true }
+libadwaita = { version = "0.9", features = ["v1_5"], optional = true }
+
+[build-dependencies]
+day-build = { workspace = true }
+# The XAML shim (src/lib-xaml-shim.cpp): compiled by build.rs on Windows when `xaml` is on.
+day-toolchain = { workspace = true }
+cc = { workspace = true }
+
+[package.metadata.day.android]
+# The Material preference row (src/DaySettingsRow.java, class name = file name), a DayFixed
+# hosting the Day control as its child; no library beyond the ones day-toolkit-material already carries.
+java = ["src/DaySettingsRow.java"]
+gradle-dependencies = []
+gradle-repositories = []
+permissions = []

@@ -113,7 +113,7 @@ impl NativeRef {
         live.then_some(node)
     }
 
-    /// Run `f` with the live node (e.g. inside `day_appkit::with_native`); `None` if disposed.
+    /// Run `f` with the live node (e.g. inside `day_toolkit_appkit::with_native`); `None` if disposed.
     pub fn with<R>(&self, f: impl FnOnce(day_core::RNode) -> R) -> Option<R> {
         self.node().map(f)
     }
@@ -1457,7 +1457,7 @@ pub trait Decorate: Piece + Sized {
 
     /// Apply a **tweak**: `f` runs once at mount, after the native widget exists, with the
     /// realized node (docs/tweaks.md). Reach the typed native handle through the compiled
-    /// backend's ext accessor (`day_appkit::with_native`, `day_gtk::with_native`, …), or apply
+    /// backend's ext accessor (`day_toolkit_appkit::with_native`, `day_toolkit_gtk::with_native`, …), or apply
     /// a packaged `day-tweak-*` crate's modifier instead of calling this directly. If the native
     /// change affects the widget's intrinsic size, follow it with
     /// [`day_core::invalidate_size`]. Day may overwrite *managed* properties (title, value,

@@ -10,7 +10,7 @@
 //!   day-showcase-macos-appkit.dmg
 //!   day-showcase-windows-xaml-setup.exe
 //!   day-showcase-linux-gtk-x86_64.flatpak
-//!   day-showcase-1.2.0-android-mdc.aab          (without --no-version-in-name)
+//!   day-showcase-1.2.0-android-material.aab          (without --no-version-in-name)
 //! ```
 //!
 //! The target combo is part of the name the CLI writes, not something release CI splices in
@@ -163,8 +163,8 @@ mod tests {
             "day-showcase-ios-uikit-unsigned.ipa"
         );
         assert_eq!(
-            file("android-mdc", &[], "aab"),
-            "day-showcase-android-mdc.aab"
+            file("android-material", &[], "aab"),
+            "day-showcase-android-material.aab"
         );
         assert_eq!(
             file("windows-xaml", &["setup"], "exe"),
@@ -185,10 +185,10 @@ mod tests {
     #[test]
     fn the_version_infix_precedes_the_target_combo() {
         let project = fixture(Some("Day Showcase"), None);
-        let target = crate::targets::find("android-mdc").unwrap();
+        let target = crate::targets::find("android-material").unwrap();
         assert_eq!(
             artifact_file(&project, target, &PackOptions::default(), &[], "aab"),
-            "day-showcase-1.2.0-android-mdc.aab"
+            "day-showcase-1.2.0-android-material.aab"
         );
     }
 
@@ -223,8 +223,8 @@ mod tests {
             std::path::Path::new("/dist/day-showcase-macos-appkit.dmg.buildinfo.json")
         );
         // The extension stays IN the stem, so the .apk and .aab sidecars of one pack differ.
-        let apk = std::path::Path::new("/dist/day-showcase-android-mdc.apk");
-        let aab = std::path::Path::new("/dist/day-showcase-android-mdc.aab");
+        let apk = std::path::Path::new("/dist/day-showcase-android-material.apk");
+        let aab = std::path::Path::new("/dist/day-showcase-android-material.aab");
         assert_ne!(sidecar(apk, "sbom-cdx.json"), sidecar(aab, "sbom-cdx.json"));
     }
 }

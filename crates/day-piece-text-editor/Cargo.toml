@@ -1,0 +1,85 @@
+[package]
+name = "day-piece-text-editor"
+publish = false
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description.workspace = true
+repository.workspace = true
+license.workspace = true
+build = "build.rs"
+
+# A styled-text editor (docs/texteditor.md): `text_editor(Signal<StyledText>)` edits the same
+# `Vec<TextRun>` labels render and `.markdown()` produces, in each platform's own rich-text view.
+# All eight toolkits have one (NSTextView, UITextView, GtkTextView, QTextEdit, EditText over a
+# SpannableStringBuilder, RichEditBox, the ArkTS RichEditor, and a contenteditable element), so
+# unlike day-piece-colorpicker this piece has no composed tier and must not have one: a hand-rolled
+# editor loses IME, bidi, undo, dictation and the accessibility tree.
+
+[features]
+# The piece's `#[day::test]` cases (docs/testing.md): compiled only into a test build, which
+# the conformance app turns on.
+conformance = ["dep:day-macros"]
+appkit = ["dep:day-toolkit-appkit", "dep:objc2", "dep:objc2-app-kit", "dep:objc2-foundation"]
+gtk = ["dep:day-toolkit-gtk", "dep:gtk4"]
+qt = ["dep:day-toolkit-qt"]                 # + build.rs compiles src/lib-qt-shim.cpp (QTextEdit)
+uikit = ["dep:day-toolkit-uikit", "dep:objc2", "dep:objc2-ui-kit", "dep:objc2-foundation", "dep:objc2-core-foundation"]
+material = ["dep:day-toolkit-material", "dep:day-platform-android"]           # + [package.metadata.day.android] carries DayTextEditor.java
+# XAML: build.rs compiles src/lib-xaml-shim.cpp, a RichEditBox driven through its TOM
+# ITextDocument. Windows-only, built in CI, not verified locally.
+xaml = ["dep:day-toolkit-winui", "dep:day-toolkit-xaml-sys"]
+# WinUI 3 (windows-winui, docs/winui.md): the xaml half, built against Microsoft.UI.Xaml.
+winui = ["xaml", "day-toolkit-winui/winui", "day-toolkit-xaml-sys/winui"]
+# HarmonyOS: the ArkUI C node API has no rich editor, so the component is this crate's own ArkTS.
+arkui = ["dep:day-toolkit-arkui"]
+# web-dom: a contenteditable element, which is the browser's own rich text editing.
+dom = ["dep:day-toolkit-dom"]
+# No renderer; the feature exists so an app can enable `day-piece-text-editor/mock` uniformly.
+mock = []
+
+[package.metadata.day.piece]
+backends = ["appkit", "gtk", "qt", "uikit", "material", "xaml", "winui", "arkui", "dom", "mock"]
+
+[dependencies]
+day-macros = { workspace = true, optional = true }
+log = { workspace = true }
+day-spec = { workspace = true }
+day-core = { workspace = true }
+day-pieces = { workspace = true }
+day-reactive = { workspace = true }
+linkme = { workspace = true }
+day-toolkit-appkit = { workspace = true, optional = true }
+day-toolkit-gtk = { workspace = true, optional = true }
+day-toolkit-qt = { workspace = true, optional = true }
+day-toolkit-uikit = { workspace = true, optional = true }
+day-toolkit-material = { workspace = true, optional = true }
+day-platform-android = { workspace = true, optional = true }
+day-toolkit-winui = { workspace = true, optional = true }
+day-toolkit-xaml-sys = { workspace = true, optional = true }
+day-toolkit-arkui = { workspace = true, optional = true }
+day-toolkit-dom = { workspace = true, optional = true }
+gtk4 = { workspace = true, optional = true }
+objc2 = { workspace = true, optional = true }
+objc2-app-kit = { workspace = true, optional = true, features = ["NSAttributedString", "NSColor", "NSFont", "NSFontManager", "NSParagraphStyle", "NSScrollView", "NSText", "NSTextField", "NSTextView", "NSTextStorage", "NSTextContainer", "NSLayoutManager", "NSControl", "NSView", "NSResponder", "NSStringDrawing"] }
+objc2-ui-kit = { workspace = true, optional = true, features = ["NSParagraphStyle", "NSText", "UIColor", "UIFont", "UIFontDescriptor", "UIResponder", "UIScrollView", "UITextView", "UITextInput", "UIView"] }
+objc2-foundation = { workspace = true, optional = true, features = ["NSAttributedString", "NSObject", "NSString", "NSValue", "NSDictionary", "NSArray", "NSGeometry", "NSNotification"] }
+objc2-core-foundation = { workspace = true, default-features = true, optional = true, features = ["CFCGTypes"] }
+
+[build-dependencies]
+day-toolchain = { workspace = true }
+cc = { workspace = true }
+
+[dev-dependencies]
+day-mock = { workspace = true }
+
+# The editor's Android half: an EditText subclass over a SpannableStringBuilder, with the
+# onSelectionChanged hook the framework only exposes to a subclass.
+[package.metadata.day.android]
+java = ["src/DayTextEditor.java"]
+gradle-dependencies = []
+gradle-repositories = []
+permissions = []
+
+# The HarmonyOS half: the ArkTS `RichEditor`, which the ArkUI C node API has no equivalent for.
+[package.metadata.day.ohos]
+ets = ["platform/harmony/ets"]

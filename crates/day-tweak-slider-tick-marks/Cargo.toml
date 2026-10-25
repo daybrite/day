@@ -1,0 +1,43 @@
+[package]
+name = "day-tweak-slider-tick-marks"
+publish = false
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+license.workspace = true
+description = "Tweak: native slider tick marks (and snapping) across seven toolkits — the full-range packaged-tweak example, including bring-your-own C++."
+
+[dependencies]
+day-core = { workspace = true }
+day-pieces = { workspace = true }
+day-toolkit-appkit = { workspace = true, optional = true }
+objc2-app-kit = { workspace = true, optional = true, features = ["NSSlider", "NSSliderCell", "NSControl", "NSView", "NSResponder", "NSCell", "NSActionCell"] }
+day-toolkit-gtk = { workspace = true, optional = true }
+gtk4 = { workspace = true, optional = true, features = ["v4_10"] }
+day-toolkit-material = { workspace = true, optional = true }
+day-platform-android = { workspace = true, optional = true }
+day-toolkit-qt = { workspace = true, optional = true }
+day-toolkit-winui = { workspace = true, optional = true }
+day-toolkit-arkui = { workspace = true, optional = true }
+
+[build-dependencies]
+day-toolchain = { workspace = true }
+cc = { workspace = true }
+
+[features]
+appkit = ["dep:day-toolkit-appkit", "dep:objc2-app-kit"]
+gtk = ["dep:day-toolkit-gtk", "dep:gtk4"]
+material = ["dep:day-toolkit-material", "dep:day-platform-android"]
+qt = ["dep:day-toolkit-qt"]
+xaml = ["dep:day-toolkit-winui"]
+# WinUI 3 (windows-winui, docs/winui.md): the xaml half, built against Microsoft.UI.Xaml.
+winui = ["xaml", "day-toolkit-winui/winui"]
+arkui = ["dep:day-toolkit-arkui"]
+# uikit intentionally absent: UISlider has no native tick API — the tweak is a documented no-op
+# there (see lib.rs), and declaring no backend keeps `day build` from enabling a dead feature.
+
+# Tweak crates reuse the piece backends table so `day build` unions `<pkg>/<backend>`
+# features into the app automatically (Tier A.2 — crates/day-cli/src/pieces.rs).
+[package.metadata.day.piece]
+backends = ["appkit", "gtk", "material", "qt", "xaml", "winui", "arkui"]

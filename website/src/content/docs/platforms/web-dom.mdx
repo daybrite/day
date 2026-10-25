@@ -65,7 +65,7 @@ day launch -t web-dom --script dayscript/walkthrough.yaml
 ```
 
 On Linux use Chromium: Playwright's Linux WebKit has no Origin Private File System, which
-[`day-part-fs`](/docs/reference/fs) needs. Several `--script` flags run in one launch, against one app instance, which is
+[`day-part-filesystem`](/docs/reference/fs) needs. Several `--script` flags run in one launch, against one app instance, which is
 how state from a seed script reaches the scripts after it; the browser profile, and the origin's
 storage with it, lasts exactly as long as the launch.
 
@@ -121,7 +121,7 @@ this table adds links and notes.
 | [`list`](https://daybrite.dev/api/day_pieces/fn.list.html) | scrolling `<div>` of absolutely positioned cells |
 | [`nav`](https://daybrite.dev/api/day_pieces/fn.nav.html) / `nav_menu` / `tabs` | `<div>`s (with `<button>`s for the tab strip and back control) |
 | [`image`](https://daybrite.dev/api/day_pieces/fn.image.html) | [`<img>`](https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/img) |
-| [`vector`](https://daybrite.dev/api/day_pieces/fn.vector.html) | [`<img>`](https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/img) loading the staged SVG: day-dom requests `.svg` for names in the page's vector list, and the browser renders it at display size; the raster PNG sits beside it as the older-host fallback |
+| [`vector`](https://daybrite.dev/api/day_pieces/fn.vector.html) | [`<img>`](https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/img) loading the staged SVG: day-toolkit-dom requests `.svg` for names in the page's vector list, and the browser renders it at display size; the raster PNG sits beside it as the older-host fallback |
 | [`canvas`](https://daybrite.dev/api/day_pieces/fn.canvas.html) | [`<canvas>`](https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/canvas), display list replayed on a 2-D context |
 | dialogs / alerts / prompts | [`<dialog>`](https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/dialog) via `showModal()` |
 | *external* `media()` | [`<video>`](https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/video) |

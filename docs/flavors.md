@@ -18,7 +18,7 @@ white-label build per customer, a demo build with a smaller target list. It is a
 ```sh
 day build  --flavor custom -t ios-uikit
 day launch --flavor custom -t macos-appkit
-day pack   --flavor custom -t android-mdc
+day pack   --flavor custom -t android-material
 ```
 
 The flag is global, so every command takes it — `metadata`, `lint`, `store`, `screenshot`,
@@ -45,7 +45,7 @@ version = "1.9.0"                   # this flavor's release train, where Cargo's
 title = "Notes Custom"
 scheme = "notescustom"              # the deep-link scheme is published, so a separate app takes a separate one
 build = 7
-targets = ["macos-appkit", "ios-uikit", "android-mdc", "web-dom"]
+targets = ["macos-appkit", "ios-uikit", "android-material", "web-dom"]
 
 [app.android]                       # the per-platform tables of Day.toml, same spelling
 id = "dev.example.notes_custom"     # Android package names take no hyphens
@@ -191,7 +191,7 @@ jobs:
   app:
     uses: daybrite/actions/.github/workflows/dayapp.yml@v1
     with:
-      targets: macos-appkit,ios-uikit,android-mdc,web-dom
+      targets: macos-appkit,ios-uikit,android-material,web-dom
       flavors: custom
 ```
 

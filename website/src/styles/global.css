@@ -45,7 +45,7 @@ SPDX-License-Identifier: CC-BY-SA-4.0
      Windows the classic-desktop Teal, HarmonyOS the Huawei Red, the web HTML's Orange. */
   --pf-macos-appkit: #5e5ce6;  /* indigo */
   --pf-ios-uikit: #0a84ff;     /* blue */
-  --pf-android-mdc: #30d158;   /* green */
+  --pf-android-material: #30d158;   /* green */
   --pf-linux-gtk: #63e6e2;     /* mint */
   --pf-linux-qt: #64d2ff;      /* cyan */
   --pf-windows-winui: #40c8e0; /* teal */
@@ -71,7 +71,7 @@ SPDX-License-Identifier: CC-BY-SA-4.0
   /* OS-level aliases (the hero carousel is keyed by OS) resolve to the canonical target. */
   --pf-macos: var(--pf-macos-appkit);
   --pf-ios: var(--pf-ios-uikit);
-  --pf-android: var(--pf-android-mdc);
+  --pf-android: var(--pf-android-material);
   --pf-linux: var(--pf-linux-gtk);
   --pf-windows: var(--pf-windows-winui);
   --pf-harmony: var(--pf-harmony-arkui);
@@ -128,7 +128,7 @@ SPDX-License-Identifier: CC-BY-SA-4.0
   /* The iOS palette's LIGHT variants — the shades Apple tuned for white backgrounds. */
   --pf-macos-appkit: #5856d6;  /* indigo */
   --pf-ios-uikit: #007aff;     /* blue */
-  --pf-android-mdc: #34c759;   /* green */
+  --pf-android-material: #34c759;   /* green */
   --pf-linux-gtk: #00c7be;     /* mint */
   --pf-linux-qt: #32ade6;      /* cyan */
   --pf-windows-winui: #30b0c7; /* teal */
@@ -154,7 +154,7 @@ SPDX-License-Identifier: CC-BY-SA-4.0
    `--pf`. The secondary desktop combos take their toolkit family's color. */
 [data-pf='macos-appkit'] { --pf: var(--pf-macos-appkit); }
 [data-pf='ios-uikit'] { --pf: var(--pf-ios-uikit); }
-[data-pf='android-mdc'] { --pf: var(--pf-android-mdc); }
+[data-pf='android-material'] { --pf: var(--pf-android-material); }
 [data-pf='linux-gtk'], [data-pf='macos-gtk'], [data-pf='windows-gtk'] { --pf: var(--pf-linux-gtk); }
 [data-pf='linux-qt'], [data-pf='macos-qt'], [data-pf='windows-qt'] { --pf: var(--pf-linux-qt); }
 [data-pf='windows-winui'], [data-pf='windows-xaml'] { --pf: var(--pf-windows-winui); }

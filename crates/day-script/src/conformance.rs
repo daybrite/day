@@ -20,7 +20,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{Reply, Step, b64encode, next_capture_revision};
 
-pub use day_script_proto::ShotPolicy;
+pub use day_script_protocol::ShotPolicy;
 
 /// One test's outcome, the shape `conformance.json` records (docs/testing.md).
 #[derive(Clone, Debug, Serialize, Deserialize)]

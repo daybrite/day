@@ -83,7 +83,7 @@
   "/docs/reference/sound": "volume_up",
   "/docs/reference/wakelock": "screen_lock_portrait",
   "/docs/reference/platforms": "devices",
-  "/docs/reference/platforms/android-mdc": "android",
+  "/docs/reference/platforms/android-material": "android",
   "/docs/reference/platforms/harmony-arkui": "device_hub",
   "/docs/reference/platforms/ios-uikit": "phone_iphone",
   "/docs/reference/platforms/linux-gtk": "widgets",

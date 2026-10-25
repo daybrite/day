@@ -27,7 +27,7 @@ id = "dev.example.notes.custom"
 version = "1.9.0"
 title = "Notes Custom"
 scheme = "notescustom"
-targets = ["macos-appkit", "ios-uikit", "android-mdc", "web-dom"]
+targets = ["macos-appkit", "ios-uikit", "android-material", "web-dom"]
 
 [app.android]
 id = "dev.example.notes_custom"
@@ -42,7 +42,7 @@ NOTES_EDITION = "Custom"
 ```bash
 day build  --flavor custom -t ios-uikit
 day launch --flavor custom -t macos-appkit
-day pack   --flavor custom -t android-mdc
+day pack   --flavor custom -t android-material
 ```
 
 `--flavor` works on every command, so `day metadata`, `day lint`, `day store stage` and
@@ -132,6 +132,6 @@ jobs:
   app:
     uses: daybrite/actions/.github/workflows/dayapp.yml@v1
     with:
-      targets: macos-appkit,ios-uikit,android-mdc,web-dom
+      targets: macos-appkit,ios-uikit,android-material,web-dom
       flavors: custom
 ```

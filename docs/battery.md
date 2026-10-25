@@ -15,7 +15,7 @@ Read the battery level and charging state to show a charge indicator or adjust p
 
 ## Add to your app
 
-Defined in [`day-part-device`](https://github.com/daybrite/day/tree/main/parts/day-part-device). Add this to your app’s `Cargo.toml`
+Defined in [`day-part-device`](https://github.com/daybrite/day/tree/main/crates/day-part-device). Add this to your app’s `Cargo.toml`
 `[dependencies]` table, using the same Day Git source as the rest of your app:
 
 ```toml
@@ -44,7 +44,7 @@ if let Some(b) = day_part_device::battery::status() {
 `0..=100`); [`BatteryState`](https://daybrite.dev/api/day_part_device/battery/enum.BatteryState.html) is `Charging | Discharging | Full | NotCharging | Unknown`.
 
 There are no cargo features; platform selection is purely `#[cfg(target_os)]`, because a battery is
-an OS concern rather than a toolkit one. `parts/day-part-device/examples/battery.rs` is a plain
+an OS concern rather than a toolkit one. `crates/day-part-device/examples/battery.rs` is a plain
 `main` that uses it with no Day framework at all.
 
 ## Per-platform native realization
@@ -56,7 +56,7 @@ an OS concern rather than a toolkit one. `parts/day-part-device/examples/battery
 | Windows | [`GetSystemPowerStatus`](https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-getsystempowerstatus) | raw FFI (kernel32) |
 | Linux | [`/sys/class/power_supply`](https://docs.kernel.org/power/power_supply_class.html) | std only |
 | HarmonyOS | native [`OH_BatteryInfo_GetCapacity`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-basic-services-kit/capi-oh-batteryinfo.md) / [`GetPluggedType`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-basic-services-kit/capi-oh-batteryinfo.md) (`libohbattery_info.so`) | raw FFI (BasicServicesKit) |
-| Android | [`BatteryManager`](https://developer.android.com/reference/android/os/BatteryManager) via the inline Java arm in `src/android.rs` | `day-mdc` + [`day-bridge`](/contributing/backend-contracts/bridge) ([bridge](bridge.md)) |
+| Android | [`BatteryManager`](https://developer.android.com/reference/android/os/BatteryManager) via the inline Java arm in `src/android.rs` | `day-toolkit-material` + [`day-bridge`](/contributing/backend-contracts/bridge) ([bridge](bridge.md)) |
 
 iOS reads on the main thread ([`UIDevice`](https://developer.apple.com/documentation/uikit/uidevice) is `MainThreadOnly`); off it, [`status()`](https://daybrite.dev/api/day_part_device/battery/fn.status.html) returns `None`. The
 simulator has no battery, so you get `level: None, state: Unknown` (the API path still runs).
@@ -74,11 +74,11 @@ toolkit's `RENDERERS` slice. It demonstrates that the standalone-piece toolkit-c
 mechanism (see [extending](extending.md)) already accommodates headless capability crates:
 [`day-part-device`](https://daybrite.dev/api/day_part_device/battery/index.html) contributes an Android implementation exactly like the UI pieces, but registers
 no renderer; the staging is independent of rendering. On Android the crate rides on the Day runtime
-(it uses day-mdc's cached JVM + `DayBridge.ctx`); on every other platform it is fully
+(it uses day-toolkit-material's cached JVM + `DayBridge.ctx`); on every other platform it is fully
 day-independent.
 
 The Android half is a **daybridge** arm ([bridge](bridge.md)): the Java that reads
-[`BatteryManager`](https://developer.android.com/reference/android/os/BatteryManager) lives inline in `parts/day-part-device/src/android.rs`, beside the declaration it
+[`BatteryManager`](https://developer.android.com/reference/android/os/BatteryManager) lives inline in `crates/day-part-device/src/android.rs`, beside the declaration it
 implements, and `day build` stages it into the app's Gradle build. It replaced a checked-in
 `DayBattery.java`, a `[package.metadata.day.android] java = [...]` table, and a packed-`i64` wire
 format that was written twice and kept in agreement by comment. [day-part-speech](https://github.com/daybrite/day-part-speech) is the

@@ -14,54 +14,54 @@ members = [
     "crates/day-spec",
     "crates/day-async",
     "crates/day-bridge",
-    "crates/day-android-runtime",
-    "crates/day-windows-runtime",
-    "crates/day-dbus",
+    "crates/day-platform-android",
+    "crates/day-platform-windows",
+    "crates/day-platform-linux",
     "crates/day-mock",
     "crates/day-core",
     "crates/day-pieces",
-    "crates/day-l10n",
-    "crates/day-fluent",
+    "crates/day-localization",
+    "crates/day-localization-ui",
     "crates/day-script",
-    "crates/day-script-proto",
+    "crates/day-script-protocol",
     "crates/day-vector",
     "crates/day-model",
     "crates/day-macros",
     "crates/day",
-    "toolkits/day-appkit",
-    "toolkits/day-gtk",
-    "toolkits/day-qt",
-    "toolkits/day-macos-tabs",
-    "toolkits/day-qt-sys",
-    "toolkits/day-uikit",
-    "toolkits/day-mdc",
-    "toolkits/day-winui",
-    "toolkits/day-xaml-sys",
-    "toolkits/day-arkui",
-    "toolkits/day-dom",
-    "pieces/day-piece-swiftui",
-    "parts/day-part-device",
-    "parts/day-part-sensors",
-    "parts/day-part-clipboard",
-    "parts/day-part-connectivity",
-    "parts/day-part-haptics",
-    "parts/day-part-sound",
-    "parts/day-part-wakelock",
-    "parts/day-part-prefs",
-    "parts/day-part-fs",
-    "parts/day-part-http",
-    "parts/day-part-downloads",
-    "parts/day-part-permissions",
-    "parts/day-part-location",
-    "parts/day-part-local-notify",
-    "parts/day-part-biometrics",
-    "parts/day-part-keychain",
-    "pieces/day-piece-texteditor",
-    "pieces/day-piece-settings",
-    "tweaks/day-tweak-button-bezel",
-    "tweaks/day-tweak-tooltip",
-    "tweaks/day-tweak-slider-tickmarks",
-    "tweaks/day-tweak-tree-style",
+    "crates/day-toolkit-appkit",
+    "crates/day-toolkit-gtk",
+    "crates/day-toolkit-qt",
+    "crates/day-platform-macos",
+    "crates/day-toolkit-qt-sys",
+    "crates/day-toolkit-uikit",
+    "crates/day-toolkit-material",
+    "crates/day-toolkit-winui",
+    "crates/day-toolkit-xaml-sys",
+    "crates/day-toolkit-arkui",
+    "crates/day-toolkit-dom",
+    "crates/day-piece-swiftui",
+    "crates/day-part-device",
+    "crates/day-part-sensors",
+    "crates/day-part-clipboard",
+    "crates/day-part-connectivity",
+    "crates/day-part-haptics",
+    "crates/day-part-sound",
+    "crates/day-part-wakelock",
+    "crates/day-part-preferences",
+    "crates/day-part-filesystem",
+    "crates/day-part-http",
+    "crates/day-part-downloads",
+    "crates/day-part-permissions",
+    "crates/day-part-location",
+    "crates/day-part-local-notify",
+    "crates/day-part-biometrics",
+    "crates/day-part-keychain",
+    "crates/day-piece-text-editor",
+    "crates/day-piece-settings",
+    "crates/day-tweak-button-bezel",
+    "crates/day-tweak-tooltip",
+    "crates/day-tweak-slider-tick-marks",
+    "crates/day-tweak-tree-style",
     "crates/day-toolchain",
     "crates/day-build",
     "crates/day-cli",
@@ -71,8 +71,8 @@ members = [
 # CI test roster: CI tests the whole workspace minus the toolkit backends via
 # scripts/ci/host-test.sh, so a crate absent here still has its tests run on every push.
 default-members = [
-    "crates/day-fluent",
-    "crates/day-script-proto",
+    "crates/day-localization-ui",
+    "crates/day-script-protocol",
     "crates/day-geometry",
     "crates/day-fonts",
     "crates/day-build",
@@ -82,12 +82,12 @@ default-members = [
     "crates/day-mock",
     "crates/day-core",
     "crates/day-pieces",
-    "crates/day-l10n",
+    "crates/day-localization",
     "crates/day-vector",
 ]
 
 # crates.io publishing policy: `day-cli`, its dependencies `day-fonts`, `day-toolchain`,
-# `day-build`, `day-vector`, and `day-script-proto`, plus `day-macros`, are publishable.
+# `day-build`, `day-vector`, and `day-script-protocol`, plus `day-macros`, are publishable.
 # Every other member carries `publish = false`, so `cargo publish --workspace` (and the `release` CI job) selects those seven
 # in dependency order. To publish another crate later, drop its `publish = false`.
 [workspace.package]
@@ -104,7 +104,7 @@ rust-version = "1.89"
 
 [workspace.dependencies]
 # Internal dependencies use paths and take their package version from [workspace.package].
-# Only day-fonts, day-vector, day-toolchain, day-build, and day-script-proto need versions:
+# Only day-fonts, day-vector, day-toolchain, day-build, and day-script-protocol need versions:
 # published crates depend on them, and crates.io requires a registry version requirement.
 # Cargo cannot inherit these requirements from workspace.package; update them when releasing.
 day-geometry = { path = "crates/day-geometry" }
@@ -114,56 +114,56 @@ day-spec = { path = "crates/day-spec" }
 day-mock = { path = "crates/day-mock" }
 day-core = { path = "crates/day-core" }
 day-pieces = { path = "crates/day-pieces" }
-day-l10n = { path = "crates/day-l10n" }
-day-fluent = { path = "crates/day-fluent" }
+day-localization = { path = "crates/day-localization" }
+day-localization-ui = { path = "crates/day-localization-ui" }
 day-script = { path = "crates/day-script" }
-day-script-proto = { path = "crates/day-script-proto", version = "0.6.0" }
+day-script-protocol = { path = "crates/day-script-protocol", version = "0.6.0" }
 day-vector = { path = "crates/day-vector", version = "0.6.0" }
 day-model = { path = "crates/day-model" }
 day-macros = { path = "crates/day-macros" }
 # Persistence is maintained separately: https://github.com/daybrite/day-persistence.
 day = { path = "crates/day" }
-day-part-device = { path = "parts/day-part-device" }
-day-part-sensors = { path = "parts/day-part-sensors" }
-day-part-clipboard = { path = "parts/day-part-clipboard" }
-day-part-connectivity = { path = "parts/day-part-connectivity" }
-day-part-haptics = { path = "parts/day-part-haptics" }
-day-part-sound = { path = "parts/day-part-sound" }
-day-part-wakelock = { path = "parts/day-part-wakelock" }
-day-part-prefs ={ path = "parts/day-part-prefs" }
-day-part-http = { path = "parts/day-part-http" }
-day-part-downloads = { path = "parts/day-part-downloads" }
-day-part-permissions = { path = "parts/day-part-permissions" }
-day-part-location = { path = "parts/day-part-location" }
-day-part-local-notify = { path = "parts/day-part-local-notify" }
-day-part-fs = { path = "parts/day-part-fs" }
-day-part-biometrics = { path = "parts/day-part-biometrics" }
-day-part-keychain = { path = "parts/day-part-keychain" }
-day-piece-swiftui = { path = "pieces/day-piece-swiftui" }
-day-piece-settings = { path = "pieces/day-piece-settings" }
-day-piece-texteditor = { path = "pieces/day-piece-texteditor" }
+day-part-device = { path = "crates/day-part-device" }
+day-part-sensors = { path = "crates/day-part-sensors" }
+day-part-clipboard = { path = "crates/day-part-clipboard" }
+day-part-connectivity = { path = "crates/day-part-connectivity" }
+day-part-haptics = { path = "crates/day-part-haptics" }
+day-part-sound = { path = "crates/day-part-sound" }
+day-part-wakelock = { path = "crates/day-part-wakelock" }
+day-part-preferences ={ path = "crates/day-part-preferences" }
+day-part-http = { path = "crates/day-part-http" }
+day-part-downloads = { path = "crates/day-part-downloads" }
+day-part-permissions = { path = "crates/day-part-permissions" }
+day-part-location = { path = "crates/day-part-location" }
+day-part-local-notify = { path = "crates/day-part-local-notify" }
+day-part-filesystem = { path = "crates/day-part-filesystem" }
+day-part-biometrics = { path = "crates/day-part-biometrics" }
+day-part-keychain = { path = "crates/day-part-keychain" }
+day-piece-swiftui = { path = "crates/day-piece-swiftui" }
+day-piece-settings = { path = "crates/day-piece-settings" }
+day-piece-text-editor = { path = "crates/day-piece-text-editor" }
 # Tweaks (docs/tweaks.md): packaged per-backend configuration of built-in pieces.
-day-tweak-button-bezel = { path = "tweaks/day-tweak-button-bezel" }
-day-tweak-tooltip = { path = "tweaks/day-tweak-tooltip" }
-day-tweak-tree-style = { path = "tweaks/day-tweak-tree-style" }
-day-tweak-slider-tickmarks = { path = "tweaks/day-tweak-slider-tickmarks" }
+day-tweak-button-bezel = { path = "crates/day-tweak-button-bezel" }
+day-tweak-tooltip = { path = "crates/day-tweak-tooltip" }
+day-tweak-tree-style = { path = "crates/day-tweak-tree-style" }
+day-tweak-slider-tick-marks = { path = "crates/day-tweak-slider-tick-marks" }
 day-toolchain = { path = "crates/day-toolchain", version = "0.6.0" }
 day-build = { path = "crates/day-build", version = "0.6.0" }
 day-async = { path = "crates/day-async" }
 day-bridge = { path = "crates/day-bridge" }
-day-dbus = { path = "crates/day-dbus" }
-day-appkit = { path = "toolkits/day-appkit" }
-day-gtk = { path = "toolkits/day-gtk" }
-day-qt = { path = "toolkits/day-qt" }
-day-qt-sys = { path = "toolkits/day-qt-sys" }
-day-uikit = { path = "toolkits/day-uikit" }
-day-android-runtime = { path = "crates/day-android-runtime" }
-day-mdc = { path = "toolkits/day-mdc" }
-day-windows-runtime = { path = "crates/day-windows-runtime" }
-day-winui = { path = "toolkits/day-winui" }
-day-xaml-sys = { path = "toolkits/day-xaml-sys" }
-day-arkui = { path = "toolkits/day-arkui" }
-day-dom = { path = "toolkits/day-dom" }
+day-platform-linux = { path = "crates/day-platform-linux" }
+day-toolkit-appkit = { path = "crates/day-toolkit-appkit" }
+day-toolkit-gtk = { path = "crates/day-toolkit-gtk" }
+day-toolkit-qt = { path = "crates/day-toolkit-qt" }
+day-toolkit-qt-sys = { path = "crates/day-toolkit-qt-sys" }
+day-toolkit-uikit = { path = "crates/day-toolkit-uikit" }
+day-platform-android = { path = "crates/day-platform-android" }
+day-toolkit-material = { path = "crates/day-toolkit-material" }
+day-platform-windows = { path = "crates/day-platform-windows" }
+day-toolkit-winui = { path = "crates/day-toolkit-winui" }
+day-toolkit-xaml-sys = { path = "crates/day-toolkit-xaml-sys" }
+day-toolkit-arkui = { path = "crates/day-toolkit-arkui" }
+day-toolkit-dom = { path = "crates/day-toolkit-dom" }
 # Repeated third-party dependencies share versions here. Consumers retain their own
 # features, optional flags, and target conditions. day-build keeps its documented cc 1.4
 # minimum; the native shims inherit the broader cc 1 requirement.
@@ -219,7 +219,7 @@ inventory = "0.3.25"
 # The logging facade every day crate emits through (docs/logging.md). It is a facade only, with
 # no backend and no dependencies, and it is `no_std`-capable, so taking it costs a crate name and
 # nothing else; it is also what lets an app install `env_logger`/`tracing`/its own `log::Log`
-# with no cooperation from us. day-core ships the default implementation; day-dom the
+# with no cooperation from us. day-core ships the default implementation; day-toolkit-dom the
 # browser-console one.
 log = "0.4"
 # ICU4X compiled data supports the framework's locale formatting and searching.

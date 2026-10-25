@@ -1,6 +1,6 @@
 ---
 navTitle: "Crash reporting"
-title: "day-piece-break: crash reporting"
+title: "day-piece-crash-reporter: crash reporting"
 description: "The external crash capture, report review, and submission Piece."
 ---
 
@@ -9,9 +9,9 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-# day-piece-break: crash reporting
+# day-piece-crash-reporter: crash reporting
 
-Crash reporting lives in the standalone [day-piece-break repository](https://github.com/daybrite/day-piece-break).
+Crash reporting lives in the standalone [day-piece-crash-reporter repository](https://github.com/daybrite/day-piece-break).
 The [package reference](https://github.com/daybrite/day-piece-break/blob/main/docs/break.md)
 covers capture, the report schema, transports, consent UI, platform limitations, and tests.
 
@@ -21,10 +21,10 @@ Add this dependency to your app’s `Cargo.toml`:
 
 ```toml
 [dependencies]
-day-piece-break = { git = "https://github.com/daybrite/day-piece-break" }
+day-piece-crash-reporter = { git = "https://github.com/daybrite/day-piece-break" }
 ```
 
-Initialize `day_piece_break::Config` before launching the app. Its default `ui` feature provides
+Initialize `day_piece_crash_reporter::Config` before launching the app. Its default `ui` feature provides
 `consent_banner()` for reviewing, sending, and discarding pending reports. Set
 `default-features = false` to use capture, storage, and transports with your own interface.
 The UI composes existing Day pieces and needs no per-toolkit feature flags.
@@ -37,10 +37,10 @@ The UI composes existing Day pieces and needs no per-toolkit feature flags.
 ## Migrating from day-break
 
 Replace the old dependency on `day.git` with the line above and rename Rust references from
-`day_break::` to `day_piece_break::`. To preserve existing Rust source temporarily, use a Cargo alias:
+`day_break::` to `day_piece_crash_reporter::`. To preserve existing Rust source temporarily, use a Cargo alias:
 
 ```toml
-day-break = { package = "day-piece-break", git = "https://github.com/daybrite/day-piece-break" }
+day-break = { package = "day-piece-crash-reporter", git = "https://github.com/daybrite/day-piece-break" }
 ```
 
 Existing reports remain readable: the `day-break` storage directory, schema-1 report format,

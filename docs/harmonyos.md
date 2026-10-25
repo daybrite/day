@@ -12,7 +12,7 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 # HarmonyOS Next: the ArkUI backend
 
 HarmonyOS Next dropped the AOSP layer; its UI framework is **ArkUI**. Day targets it with a native
-backend (`day-arkui`) built on the **ArkUI Native NodeAPI**, using the same "real native widgets, Day
+backend (`day-toolkit-arkui`) built on the **ArkUI Native NodeAPI**, using the same "real native widgets, Day
 owns layout" model as every other backend, adapted to HarmonyOS's ArkTS-hosted world. `harmony-arkui`
 is [Tier 3](/docs/reference/platforms#support-tiers): tested, but not comprehensively, and
 not yet exercised by shipping applications.
@@ -37,10 +37,10 @@ widget tree over a thin bridge, and Day owns absolute layout.
 
 ```text
 ArkTS host (Index.ets)           libentry.so (Rust cdylib)
-  NodeContent slot  ──start()──▶  day-arkui  (Toolkit/Platform: Stack/Text/Button/…)
+  NodeContent slot  ──start()──▶  day-toolkit-arkui  (Toolkit/Platform: Stack/Text/Button/…)
   ContentSlot(content)              host_api  #[napi] exports + JS callbacks   (napi-ohos)
         ▲                           node / canvas / list / images / …          (ohos-sys)
-        │                         day-core / day-pieces / day-fluent / day-script
+        │                         day-core / day-pieces / day-localization-ui / day-script
         └── OH_ArkUI_NodeContent_AddNode ── the native tree Day builds is mounted here
 ```
 
@@ -53,8 +53,8 @@ callbacks (navigation, pickers, permissions, windows, ArkTS-built pieces, the da
 are held as NAPI references. `build.rs` names the module `entry` (`NAPI_BUILD_TARGET_NAME`) so
 it matches the `libentry.so` the ArkTS runtime loads.
 
-The ArkTS host is the framework's, not the app's. It lives in the day-arkui crate at
-`toolkits/day-arkui/platform/harmony/` — `ets/` holds `EntryAbility` (which also reports the
+The ArkTS host is the framework's, not the app's. It lives in the day-toolkit-arkui crate at
+`crates/day-toolkit-arkui/platform/harmony/` — `ets/` holds `EntryAbility` (which also reports the
 app lifecycle, [docs/lifecycle](lifecycle.md), through the `lifecycle` export: its foreground/background,
 memory and destroy callbacks plus the window stage's active/inactive events), `DayWindowAbility`,
 the `Index` page and the secondary-window `DayWindow` page; `types/Index.d.ts` declares the native
@@ -89,7 +89,7 @@ Keep native module dependencies and custom build-script paths relative to the na
 or use absolute paths for external tools. A path that climbs out of `platform/harmony/`
 will resolve from a different directory in the staged project.
 
-- **`day-arkui`**: the `Toolkit`/`Platform` impl (`src/lib.rs`) over a set of modules, one per
+- **`day-toolkit-arkui`**: the `Toolkit`/`Platform` impl (`src/lib.rs`) over a set of modules, one per
   NDK API: `node` (the `ArkUI_NativeNodeAPI_1` table: `createNode`/`setAttribute`/`addChild`/
   `registerNodeEvent`/`measureNode`, plus the attribute recipes the pieces need), `events` (the
   global node-event receiver, which turns ArkUI payloads into the shared bridge wire), `canvas`
@@ -100,8 +100,8 @@ will resolve from a different directory in the staged project.
   arms). Pieces map to ArkUI node types (`ARKUI_NODE_STACK` for containers, `TEXT`, `BUTTON`,
   `TEXT_INPUT`, `TOGGLE`, `SLIDER`), children get an explicit position + size in **vp** (≈ Day
   points), and events (click / text / toggle / slider) come back through `on_event`. A standalone
-  piece drives its own node through `day_arkui::node` and the raw `day_arkui::arkui_sys` bindings
-  ([day-pieces](/docs/reference/datepicker), [day-pieces](/docs/reference/pullrefresh), day-tweak-slider-tickmarks): no C++ of its own.
+  piece drives its own node through `day_toolkit_arkui::node` and the raw `day_toolkit_arkui::arkui_sys` bindings
+  ([day-pieces](/docs/reference/datepicker), [day-pieces](/docs/reference/pullrefresh), day-tweak-slider-tick-marks): no C++ of its own.
 - **`day::day_start_arkui!(root)`**: exports `day_arkui_start`, the symbol the shim's NAPI `start` calls;
   it mounts the app's root piece and runs the loop (`day::arkui::start` → [`launch_with`](https://daybrite.dev/api/day_core/fn.launch_with.html)). Apps
   reach it through `day::day_start!("App Name", root)`, which expands to this macro and to every

@@ -101,7 +101,7 @@ fn main() {
 ```
 
 Every `info!` you have already written keeps working, because those are `log`'s macros. You gain
-whatever that logger offers, such as `env_logger`'s `RUST_LOG=warn,day_uikit=debug` per-target
+whatever that logger offers, such as `env_logger`'s `RUST_LOG=warn,day_toolkit_uikit=debug` per-target
 filtering or `tracing`'s spans via `tracing-log`.
 
 `env_logger` is a good choice for a desktop-focused app, and it is opt-in in Day because it writes

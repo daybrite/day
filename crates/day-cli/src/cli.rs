@@ -208,6 +208,7 @@ enum Cmd {
             long = "target",
             value_name = "TARGET",
             value_parser = crate::targets::parse_arg,
+            value_delimiter = ',',
             required = true
         )]
         platforms: Vec<String>,
@@ -237,7 +238,8 @@ enum Cmd {
             short = 't',
             long = "target",
             value_name = "TARGET",
-            value_parser = crate::targets::parse_arg
+            value_parser = crate::targets::parse_arg,
+            value_delimiter = ','
         )]
         platforms: Vec<String>,
         /// Clone and run a trusted Git repository; append @REF for a branch, tag, or commit.
@@ -358,6 +360,7 @@ enum Cmd {
             long = "target",
             value_name = "TARGET",
             value_parser = crate::targets::parse_arg,
+            value_delimiter = ',',
             required = true
         )]
         platforms: Vec<String>,
@@ -398,7 +401,7 @@ enum Cmd {
         #[command(subcommand)]
         cmd: Option<DoctorCmd>,
         /// Check a toolkit and fail if required tools are missing (repeatable).
-        /// Values: appkit, uikit, gtk, qt, winui, xaml, android, harmonyos, dom
+        /// Values: appkit, uikit, gtk, qt, winui, xaml, material, arkui, dom
         #[arg(long = "toolkit")]
         toolkits: Vec<String>,
     },
@@ -486,7 +489,8 @@ enum Cmd {
             short = 't',
             long = "target",
             value_name = "TARGET",
-            value_parser = crate::targets::parse_arg
+            value_parser = crate::targets::parse_arg,
+            value_delimiter = ','
         )]
         platforms: Vec<String>,
         /// Check generated files without writing; exit 5 if files are missing or stale
@@ -540,7 +544,8 @@ enum Cmd {
             short = 't',
             long = "target",
             value_name = "TARGET",
-            value_parser = crate::targets::parse_arg
+            value_parser = crate::targets::parse_arg,
+            value_delimiter = ','
         )]
         platforms: Vec<String>,
         /// Stop all recorded sessions for this project
@@ -562,7 +567,8 @@ enum Cmd {
             short = 't',
             long = "target",
             value_name = "TARGET",
-            value_parser = crate::targets::parse_arg
+            value_parser = crate::targets::parse_arg,
+            value_delimiter = ','
         )]
         platforms: Vec<String>,
         /// Restart all recorded sessions for this project
@@ -599,7 +605,8 @@ enum Cmd {
             short = 't',
             long = "target",
             value_name = "TARGET",
-            value_parser = crate::targets::parse_arg
+            value_parser = crate::targets::parse_arg,
+            value_delimiter = ','
         )]
         platforms: Vec<String>,
         /// Test names or globs (`button-*`); none = every test
@@ -826,7 +833,7 @@ enum NewKind {
     Piece {
         /// Crate name (prompted if omitted)
         name: Option<String>,
-        /// Native toolkits, comma-separated (appkit, gtk, qt, uikit, mdc, xaml).
+        /// Native toolkits, comma-separated (appkit, gtk, qt, uikit, material, winui, xaml, arkui, dom).
         /// Omit to create a component using existing pieces
         #[arg(long)]
         toolkits: Option<String>,
@@ -965,7 +972,7 @@ pub enum ProjectCmd {
     #[command(name = "add-target")]
     #[command(after_help = "Docs: https://daybrite.dev/docs/reference/cli")]
     AddTarget {
-        /// Targets to add, such as android-mdc (repeatable or comma-separated)
+        /// Targets to add, such as android-material (repeatable or comma-separated)
         targets: Vec<String>,
         /// Original project template, if custom (directory or Git URL)
         #[arg(long)]
@@ -983,7 +990,7 @@ pub enum DevicesCmd {
         after_help = "Docs: https://daybrite.dev/docs/reference/cli#simulators-emulators-and-devices"
     )]
     List {
-        /// Filter by target: ios-uikit, android-mdc, or harmony-arkui
+        /// Filter by target: ios-uikit, android-material, or harmony-arkui
         #[arg(
             short = 't',
             long = "target",
@@ -997,7 +1004,7 @@ pub enum DevicesCmd {
         after_help = "OpenHarmony: --headless starts Oniro without a window; boot always waits for readiness.\n--device names the panel (phone 360x720, tablet 1280x800, or WxH) and --orientation turns it;\nID and --os are not supported for this target. The image is DAY_OHOS_EMULATOR (default\n~/ohos/emulator/images): an Oniro image (OpenHarmony 6.x) or an ohos-qemu x86_64_virt one (7.0).\n\nDocs: https://daybrite.dev/docs/reference/cli#simulators-emulators-and-devices"
     )]
     Boot {
-        /// Device target: ios-uikit, android-mdc, or harmony-arkui
+        /// Device target: ios-uikit, android-material, or harmony-arkui
         #[arg(
             short = 't',
             long = "target",
@@ -1031,7 +1038,7 @@ pub enum DevicesCmd {
         after_help = "Docs: https://daybrite.dev/docs/reference/cli#simulators-emulators-and-devices"
     )]
     Shutdown {
-        /// Device target: ios-uikit, android-mdc, or harmony-arkui
+        /// Device target: ios-uikit, android-material, or harmony-arkui
         #[arg(
             short = 't',
             long = "target",
@@ -1048,7 +1055,7 @@ pub enum DevicesCmd {
         after_help = "Docs: https://daybrite.dev/docs/reference/cli#simulators-emulators-and-devices"
     )]
     Setup {
-        /// Device target (android-mdc only)
+        /// Device target (android-material only)
         #[arg(
             short = 't',
             long = "target",
@@ -1095,7 +1102,8 @@ pub enum IconCmd {
             short = 't',
             long = "target",
             value_name = "TARGET",
-            value_parser = crate::targets::parse_arg
+            value_parser = crate::targets::parse_arg,
+            value_delimiter = ','
         )]
         platforms: Vec<String>,
     },
@@ -1107,7 +1115,8 @@ pub enum IconCmd {
             short = 't',
             long = "target",
             value_name = "TARGET",
-            value_parser = crate::targets::parse_arg
+            value_parser = crate::targets::parse_arg,
+            value_delimiter = ','
         )]
         platforms: Vec<String>,
         /// Integer or text seed (default: random; printed in output)
@@ -1130,7 +1139,8 @@ pub enum IconCmd {
             short = 't',
             long = "target",
             value_name = "TARGET",
-            value_parser = crate::targets::parse_arg
+            value_parser = crate::targets::parse_arg,
+            value_delimiter = ','
         )]
         platforms: Vec<String>,
     },
@@ -1155,34 +1165,37 @@ pub enum SignCmd {
     #[command(
         after_help = "Docs: https://daybrite.dev/docs/how-to/packaging#signing-an-existing-package"
     )]
-    Apply {
-        /// The package to sign (.aab, .apk, .ipa, .hap, or .app; a macOS .app is signed into a Mac App Store .pkg)
-        artifact: PathBuf,
-        /// Write the signed package here instead of replacing the input
-        #[arg(long)]
-        out: Option<PathBuf>,
-        /// Apple: the provisioning profile to embed (default: signing.ios.profile); HarmonyOS: the .p7b profile
-        #[arg(long, value_name = "FILE")]
-        profile: Option<PathBuf>,
-        /// Apple: the signing identity, by name or SHA-1 (default: signing.ios.identity, or signing.macos.app-store.identity for a macOS .app)
-        #[arg(long, value_name = "NAME")]
-        identity: Option<String>,
-        /// macOS: the installer identity a Mac App Store .pkg is signed with (default: signing.macos.app-store.installer-identity)
-        #[arg(long, value_name = "NAME")]
-        installer_identity: Option<String>,
-        /// Apple: the entitlements to sign with (default: the profile's own)
-        #[arg(long, value_name = "FILE")]
-        entitlements: Option<PathBuf>,
-        /// Android/HarmonyOS: the keystore to sign with (default: signing.android.keystore)
-        #[arg(long, value_name = "FILE")]
-        keystore: Option<PathBuf>,
-        /// Android/HarmonyOS: the key alias inside that keystore; passwords come from DAY_SIGN_STORE_PASS and DAY_SIGN_KEY_PASS
-        #[arg(long, value_name = "NAME")]
-        key_alias: Option<String>,
-        /// HarmonyOS: the app certificate (.cer) a .hap is signed with, beside --keystore, --key-alias and --profile
-        #[arg(long, value_name = "FILE")]
-        cert: Option<PathBuf>,
-    },
+    Apply(Box<SignApply>),
+}
+
+#[derive(clap::Args)]
+pub struct SignApply {
+    /// The package to sign (.aab, .apk, .ipa, .hap, or .app; a macOS .app is signed into a Mac App Store .pkg)
+    artifact: PathBuf,
+    /// Write the signed package here instead of replacing the input
+    #[arg(long)]
+    out: Option<PathBuf>,
+    /// Apple: the provisioning profile to embed (default: signing.ios.profile); HarmonyOS: the .p7b profile
+    #[arg(long, value_name = "FILE")]
+    profile: Option<PathBuf>,
+    /// Apple: the signing identity, by name or SHA-1 (default: signing.ios.identity, or signing.macos.app-store.identity for a macOS .app)
+    #[arg(long, value_name = "NAME")]
+    identity: Option<String>,
+    /// macOS: the installer identity a Mac App Store .pkg is signed with (default: signing.macos.app-store.installer-identity)
+    #[arg(long, value_name = "NAME")]
+    installer_identity: Option<String>,
+    /// Apple: the entitlements to sign with (default: the profile's own)
+    #[arg(long, value_name = "FILE")]
+    entitlements: Option<PathBuf>,
+    /// Android/HarmonyOS: the keystore to sign with (default: signing.android.keystore)
+    #[arg(long, value_name = "FILE")]
+    keystore: Option<PathBuf>,
+    /// Android/HarmonyOS: the key alias inside that keystore; passwords come from DAY_SIGN_STORE_PASS and DAY_SIGN_KEY_PASS
+    #[arg(long, value_name = "NAME")]
+    key_alias: Option<String>,
+    /// HarmonyOS: the app certificate (.cer) a .hap is signed with, beside --keystore, --key-alias and --profile
+    #[arg(long, value_name = "FILE")]
+    cert: Option<PathBuf>,
 }
 
 #[derive(Subcommand)]
@@ -1195,7 +1208,8 @@ pub enum DoctorCmd {
             short = 't',
             long = "target",
             value_name = "TARGET",
-            value_parser = crate::targets::parse_arg
+            value_parser = crate::targets::parse_arg,
+            value_delimiter = ','
         )]
         platforms: Vec<String>,
         /// Build profile for both compilation and packaging
@@ -1272,11 +1286,39 @@ fn command() -> clap::Command {
     command.help_template(template)
 }
 
+impl Cli {
+    /// Repeated flags and deprecated spellings must select each target only once.
+    fn normalize_targets(&mut self) {
+        let platforms = match &mut self.command {
+            Cmd::Build { platforms, .. }
+            | Cmd::Launch { platforms, .. }
+            | Cmd::Pack { platforms, .. }
+            | Cmd::Prepare { platforms, .. }
+            | Cmd::Stop { platforms, .. }
+            | Cmd::Relaunch { platforms, .. }
+            | Cmd::Test { platforms, .. } => platforms,
+            Cmd::Icon { cmd } => match cmd {
+                IconCmd::Build { platforms, .. }
+                | IconCmd::New { platforms, .. }
+                | IconCmd::Check { platforms, .. } => platforms,
+            },
+            Cmd::Doctor {
+                cmd: Some(DoctorCmd::Verify { platforms, .. }),
+                ..
+            } => platforms,
+            _ => return,
+        };
+        let mut seen = std::collections::HashSet::new();
+        platforms.retain(|target| seen.insert(target.clone()));
+    }
+}
+
 /// Run the parsed command line. `snap_scrubbed` names the variables `main` cleaned of a snap
 /// host's overrides (`ops::scrub_snap_env`), reported under `--verbose`.
 pub fn run(snap_scrubbed: &[String]) -> i32 {
     let matches = command().get_matches();
     let mut cli = Cli::from_arg_matches(&matches).unwrap_or_else(|error| error.exit());
+    cli.normalize_targets();
     // `--verbose`: make the tool-runner helpers forward every sub-command's raw output (ops.rs).
     // `DAY_VERBOSE` is the environment spelling of the same switch ("1"/"true" = on): an
     // explicit `--verbose` always wins, and the variable covers the invocations a flag cannot
@@ -1434,19 +1476,19 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
         // command line has to carry the key. A queue signing other people's packages runs it in a
         // directory that holds nothing but the package.
         Cmd::Sign {
-            cmd:
-                SignCmd::Apply {
-                    artifact,
-                    out,
-                    profile,
-                    identity,
-                    installer_identity,
-                    entitlements,
-                    keystore,
-                    key_alias,
-                    cert,
-                },
+            cmd: SignCmd::Apply(args),
         } => {
+            let SignApply {
+                artifact,
+                out,
+                profile,
+                identity,
+                installer_identity,
+                entitlements,
+                keystore,
+                key_alias,
+                cert,
+            } = *args;
             let project = meta::find_project(cli.project.as_deref()).ok();
             crate::sign::apply(
                 project.as_ref(),
@@ -1474,38 +1516,8 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
         Cmd::Sign { cmd } => with_project(cli.project.as_deref(), |project| match cmd {
             SignCmd::Check => Ok(crate::sign::check(project)),
             SignCmd::Status { id } => crate::sign::notarize_status(project, &id),
-            SignCmd::Apply {
-                artifact,
-                out,
-                profile,
-                identity,
-                installer_identity,
-                entitlements,
-                keystore,
-                key_alias,
-                cert,
-            } => crate::sign::apply(
-                Some(project),
-                &artifact,
-                out.as_deref(),
-                crate::sign::AppleOverrides {
-                    profile: profile.as_deref(),
-                    identity: identity.as_deref(),
-                    entitlements: entitlements.as_deref(),
-                    installer_identity: installer_identity.as_deref(),
-                },
-                crate::sign::AndroidOverrides {
-                    keystore: keystore.as_deref(),
-                    key_alias: key_alias.as_deref(),
-                },
-                crate::sign::OhosOverrides {
-                    keystore: keystore.as_deref(),
-                    cert: cert.as_deref(),
-                    profile: profile.as_deref(),
-                    key_alias: key_alias.as_deref(),
-                },
-                cli.format == OutputFormat::Json,
-            ),
+            // Handled above: signing an existing artifact does not require a project.
+            SignCmd::Apply(_) => unreachable!("sign apply handled without a required project"),
         }),
         Cmd::Project {
             cmd:
@@ -2086,7 +2098,7 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
             };
             match crate::icon::run(project, &opts) {
                 Ok(n) => {
-                    // The HarmonyOS host's ArkTS is staged from the day-arkui crate, not
+                    // The HarmonyOS host's ArkTS is staged from the day-toolkit-arkui crate, not
                     // checked in (docs/harmonyos.md); prepare the native project too, so it
                     // has its abilities, resources and manifests when DevEco opens it. A
                     // `--check` writes nothing.
@@ -2106,7 +2118,7 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
                             crate::ohos::stage_host(project).map_err(CliError::build)?;
                         }
                     }
-                    // Day's Gradle plugins are staged from the day-mdc crate the same way, so
+                    // Day's Gradle plugins are staged from the day-toolkit-material crate the same way, so
                     // Android Studio can sync a fresh clone before its first `day build`.
                     let android = platforms.is_empty()
                         && project
@@ -2114,8 +2126,8 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
                             .app
                             .targets
                             .iter()
-                            .any(|t| t == "android-mdc")
-                        || platforms.iter().any(|p| p == "android-mdc");
+                            .any(|t| t == "android-material")
+                        || platforms.iter().any(|p| p == "android-material");
                     if android {
                         if check {
                             crate::native_host::check(project, "android")
@@ -3042,7 +3054,7 @@ mod error_tests {
             }
         }
         for args in [
-            vec!["day", "project", "add-target", "android-mdc"],
+            vec!["day", "project", "add-target", "android-material"],
             vec!["day", "icon", "build", "source.svg", "--target", "web-dom"],
             vec![
                 "day",
@@ -3055,6 +3067,28 @@ mod error_tests {
             ],
             vec!["day", "icon", "check", "-t", "web-dom"],
             vec!["day", "sign", "check"],
+            vec![
+                "day",
+                "sign",
+                "apply",
+                "app.hap",
+                "--out",
+                "signed.hap",
+                "--profile",
+                "profile.p7b",
+                "--identity",
+                "app-identity",
+                "--installer-identity",
+                "installer-identity",
+                "--entitlements",
+                "app.entitlements",
+                "--keystore",
+                "store.p12",
+                "--key-alias",
+                "app-key",
+                "--cert",
+                "app.cer",
+            ],
             vec!["day", "sign", "status", "submission-id"],
             vec!["day", "doctor"],
             vec!["day", "doctor", "--toolkit", "dom"],
@@ -3192,6 +3226,26 @@ mod error_tests {
         );
     }
 
+    #[test]
+    fn material_aliases_and_repeated_target_lists_select_one_build() {
+        let mut cli = Cli::try_parse_from([
+            "day",
+            "build",
+            "-t",
+            "android-mdc,android-material",
+            "-t",
+            "mdc",
+            "-t",
+            "web-dom",
+        ])
+        .unwrap();
+        cli.normalize_targets();
+        let Cmd::Build { platforms, .. } = cli.command else {
+            panic!("not a build")
+        };
+        assert_eq!(platforms, ["android-material", "web-dom"]);
+    }
+
     /// The two ValueEnums accept exactly today's spellings, and only those.
     #[test]
     fn profile_and_format_parse_strictly() {
@@ -3236,11 +3290,11 @@ mod error_tests {
             _ => unreachable!("parsed a launch command"),
         }
         let cli =
-            Cli::try_parse_from(["day", "devices", "list", "-t", "mdc"]).expect("list parses");
+            Cli::try_parse_from(["day", "devices", "list", "-t", "material"]).expect("list parses");
         match cli.command {
             Cmd::Devices {
                 cmd: DevicesCmd::List { platform, .. },
-            } => assert_eq!(platform.as_deref(), Some("android-mdc")),
+            } => assert_eq!(platform.as_deref(), Some("android-material")),
             _ => unreachable!("parsed a devices list command"),
         }
         let mut cmd = command();

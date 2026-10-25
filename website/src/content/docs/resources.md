@@ -119,7 +119,7 @@ it goes; `Vectors xaml: 81/81 glyph(s) vector` means every glyph converted and n
 |---|---|---|
 | [ios-uikit](/docs/reference/platforms/ios-uikit) | the SVG in an asset catalog with `preserves-vector-representation`, so `UIImage` renders at display size | `tintColor` on a template image |
 | [macos-appkit](/docs/reference/platforms/macos-appkit) | the SVG itself — `NSImage` renders SVG files at display size (macOS 11+) | `contentTintColor` on a template image |
-| [android-mdc](/docs/reference/platforms/android-mdc) | a **VectorDrawable** in `res/drawable/` | `setImageTintList` |
+| [android-material](/docs/reference/platforms/android-material) | a **VectorDrawable** in `res/drawable/` | `setImageTintList` |
 | [windows-winui](/docs/reference/platforms/windows-winui) | **XAML geometry** — a `Path` in a scaling `Viewbox`, a `PathIcon` in the nav pane, redrawn at every size | a brush on the shapes |
 | [web-dom](/docs/reference/platforms/web-dom) | the SVG, rendered by the browser | a CSS mask painted with the tint |
 | [harmony-arkui](/docs/reference/platforms/harmony-arkui) | the SVG in `rawfile`, rendered by ArkUI's `Image` | SVG fill color |
@@ -148,7 +148,7 @@ clipping paths, masks, filters) stages no geometry, and that glyph alone ships a
 instead:
 
 - **Android** falls back at xxxhdpi. `day lint` reports it as `day::lint::vector-raster-fallback`
-  whenever `android-mdc` is a declared target, so you hear about a gradient in an icon at lint
+  whenever `android-material` is a declared target, so you hear about a gradient in an icon at lint
   time, before it reaches a device.
 - **Windows** falls back the same way, and the tint degrades with it: a monochrome `BitmapIcon`
   over the raster rather than a brush on geometry.

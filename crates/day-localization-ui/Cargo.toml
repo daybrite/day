@@ -1,0 +1,14 @@
+[package]
+name = "day-localization-ui"
+publish = false
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description.workspace = true
+repository.workspace = true
+license.workspace = true
+
+[dependencies]
+day-pieces = { workspace = true }
+day-core = { workspace = true }
+day-localization = { workspace = true }

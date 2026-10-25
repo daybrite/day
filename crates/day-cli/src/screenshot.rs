@@ -619,12 +619,12 @@ pub fn script_screenshot_meta(path: &Path) -> Vec<(String, ShotMeta)> {
     let Ok(text) = std::fs::read_to_string(path) else {
         return Vec::new();
     };
-    let Ok(script) = day_script_proto::Script::from_yaml(&text) else {
+    let Ok(script) = day_script_protocol::Script::from_yaml(&text) else {
         return Vec::new();
     };
     let mut out = Vec::new();
     for entry in script.steps {
-        if let day_script_proto::Step::Screenshot { name, .. } = entry.step {
+        if let day_script_protocol::Step::Screenshot { name, .. } = entry.step {
             let mut annotations = entry.annotations;
             out.push((name, extract_meta(&mut annotations)));
         }
@@ -1052,7 +1052,7 @@ pub fn index(project: &Project, opts: &IndexOptions) -> Result<PathBuf, String> 
         // whether the declaration names it or not: a target-level list serves the store's
         // listing as well as the website's (docs/store.md), and the stager and the App Fair's
         // queue read a store's captures from this block alone. Games-Fair declared
-        // `[storefront.android-mdc.screenshots]` and nothing per store, its release's index
+        // `[storefront.android-material.screenshots]` and nothing per store, its release's index
         // carried an empty `stores`, and the queue refused the submission as "declares none"
         // (v2.1.9, 2026-09-25).
         let mut store_names: BTreeSet<String> = declared.stores(platform).into_iter().collect();
@@ -2430,7 +2430,7 @@ mod tests {
         std::fs::create_dir_all(project_dir.join("store")).unwrap();
         std::fs::write(
             project_dir.join("Day.toml"),
-            "schema = 1\n[app]\nid = \"dev.example.app\"\ntargets = [\"android-mdc\"]\n",
+            "schema = 1\n[app]\nid = \"dev.example.app\"\ntargets = [\"android-material\"]\n",
         )
         .unwrap();
         std::fs::write(
@@ -2440,7 +2440,7 @@ mod tests {
         .unwrap();
         std::fs::write(
             project_dir.join("store/storefront.toml"),
-            "[storefront.android-mdc.screenshots]\ndefault = [\"home\"]\n",
+            "[storefront.android-material.screenshots]\ndefault = [\"home\"]\n",
         )
         .unwrap();
         let project = crate::meta::find_project(Some(&project_dir)).unwrap();
@@ -2449,7 +2449,7 @@ mod tests {
         let tree = dir.join("shots");
         let mut entries = Vec::new();
         for device in ["phone", "medium-phone-24"] {
-            let vdir = tree.join("android-mdc").join(device).join("light");
+            let vdir = tree.join("android-material").join(device).join("light");
             std::fs::create_dir_all(&vdir).unwrap();
             std::fs::write(vdir.join("home.png"), &png).unwrap();
             entries.push(
@@ -2464,7 +2464,7 @@ mod tests {
                 .unwrap(),
             );
         }
-        record_target_entries(&tree, "android-mdc", entries);
+        record_target_entries(&tree, "android-material", entries);
         let out = dir.join("gallery.json");
         index(
             &project,
@@ -2476,14 +2476,14 @@ mod tests {
         .unwrap();
         let doc: serde_json::Value =
             serde_json::from_str(&std::fs::read_to_string(&out).unwrap()).unwrap();
-        let listings = &doc["listings"]["android-mdc"];
+        let listings = &doc["listings"]["android-material"];
         let home = serde_json::json!([{ "shot": "home", "theme": "light" }]);
         assert_eq!(listings["website"]["phone"]["en"], home);
         assert_eq!(listings["website"]["medium-phone-24"]["en"], home);
         let play = &listings["stores"]["google-play-store"];
         assert_eq!(
             play["phone"]["en"], home,
-            "the store the rules stage for android-mdc takes the target's list"
+            "the store the rules stage for android-material takes the target's list"
         );
         assert!(
             play.get("medium-phone-24").is_none(),

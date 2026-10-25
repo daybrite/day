@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: MPL-2.0
 # The host-portable test run: every workspace member's tests except the toolkit backends, which
 # need a platform SDK or a system toolkit the host may not have (and whose real coverage is the
-# per-combo build+walkthrough jobs; even day-appkit is excluded on macOS so all three OS legs
+# per-combo build+walkthrough jobs; even day-toolkit-appkit is excluded on macOS so all three OS legs
 # run the same set). This script is the one definition of that set; the day-cli-<os> native-arch
 # legs and the host-test (windows-gnu) job all call it, so the tested roster cannot drift between them.
 #
@@ -14,7 +14,7 @@
 # silently skipped more than half the workspace's tests (day-cli's and day-persistence's whole
 # suites among them).
 #
-# day-arkui is host-buildable without its target-only NDK dependencies; its Unix rawfile
+# day-toolkit-arkui is host-buildable without its target-only NDK dependencies; its Unix rawfile
 # tests run against an NDK fake here, including resource-provider worker-thread access.
 #
 # A newly added toolkit crate missing from the exclude list fails this script loudly on the
@@ -41,13 +41,13 @@ fi
 # Exercise the optional HTTP provider as well as the default native transport.
 exec cargo test --locked --workspace --no-fail-fast \
     --features day-pieces/dyn-registry,day-part-http/reqwest \
-    --exclude day-appkit \
-    --exclude day-gtk \
-    --exclude day-qt \
-    --exclude day-qt-sys \
-    --exclude day-uikit \
-    --exclude day-mdc \
-    --exclude day-winui \
-    --exclude day-xaml-sys \
-    --exclude day-dom \
+    --exclude day-toolkit-appkit \
+    --exclude day-toolkit-gtk \
+    --exclude day-toolkit-qt \
+    --exclude day-toolkit-qt-sys \
+    --exclude day-toolkit-uikit \
+    --exclude day-toolkit-material \
+    --exclude day-toolkit-winui \
+    --exclude day-toolkit-xaml-sys \
+    --exclude day-toolkit-dom \
     "$@"

@@ -35,7 +35,7 @@ point. The closure gets the native widget **and its concrete class name**, so a 
 exactly what it is configuring:
 
 ```rust
-use day_appkit::AppKitExt; // exists only in the appkit build
+use day_toolkit_appkit::AppKitExt; // exists only in the appkit build
 
 button(res::str::save()).appkit(|view, class, _mtm| {
     // class == "NSButton"
@@ -91,7 +91,7 @@ stays free of `#[cfg]`. Three examples in the repository show different platform
 
 ```rust
 use day_tweak_button_bezel::{Bezel, ButtonBezelTweak};
-use day_tweak_slider_tickmarks::{SliderTickmarksTweak, Tickmarks};
+use day_tweak_slider_tick_marks::{SliderTickmarksTweak, Tickmarks};
 use day_tweak_tooltip::TooltipTweak;
 
 button(res::str::save()).bezel(Bezel::Toolbar); // AppKit only; stock elsewhere

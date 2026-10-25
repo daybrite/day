@@ -197,7 +197,7 @@ pub mod prelude {
     pub use day_spec::{CanvasFont, FontFace, FontFamilyInfo, TextMetrics};
     pub use day_spec::{Font, FontSpec, FontWeight, Role};
     // The styled-text document (docs/texteditor.md): what `.markdown()` parses into, what a
-    // label's runs are, and what `day-piece-texteditor` edits, plus the Markdown / HTML / RTF
+    // label's runs are, and what `day-piece-text-editor` edits, plus the Markdown / HTML / RTF
     // codecs over it.
     pub use day_spec::{
         LabelStyle, Symbol, ToolbarItem, ToolbarItemKind, ToolbarPlacement, ToolbarValue,

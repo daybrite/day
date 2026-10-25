@@ -16,7 +16,7 @@ updates with selectable accuracy, so an app can balance precision and battery us
 
 ## Add to your app
 
-Defined in [`day-part-location`](https://github.com/daybrite/day/tree/main/parts/day-part-location). Add this to your app’s `Cargo.toml`
+Defined in [`day-part-location`](https://github.com/daybrite/day/tree/main/crates/day-part-location). Add this to your app’s `Cargo.toml`
 `[dependencies]` table, using the same Day Git source as the rest of your app:
 
 ```toml
@@ -60,7 +60,7 @@ accuracy costs battery and takes longer to acquire.
 
 The crate has no cargo features: platform selection is purely `#[cfg(target_os)]`, since location
 depends on the OS, not on which widget toolkit is in use.
-`parts/day-part-location/examples/location.rs` is a plain `main` that uses it with no Day framework
+`crates/day-part-location/examples/location.rs` is a plain `main` that uses it with no Day framework
 at all.
 
 Callbacks run on an unspecified thread (the platform's delivery thread natively, the sole browser
@@ -90,8 +90,8 @@ Platform guidance: [Apple: Core Location](https://developer.apple.com/documentat
 | OS | API | dependency |
 |---|---|---|
 | iOS / macOS | [`CLLocationManager`](https://developer.apple.com/documentation/corelocation/cllocationmanager) + a delegate defined with `objc2::define_class!` | `objc2`, `objc2-foundation`, `[package.metadata.day.ios].frameworks = ["CoreLocation"]` |
-| Android | [`LocationManager.requestLocationUpdates`](https://developer.android.com/reference/android/location/LocationManager) via the crate's own Java shim | `day-mdc` + `[package.metadata.day.android]` |
-| Web | [`navigator.geolocation.watchPosition`](https://www.w3.org/TR/geolocation/#watchposition-method) through the day-dom shim | `web.rs` (wasm32; needs the day-dom host page) |
+| Android | [`LocationManager.requestLocationUpdates`](https://developer.android.com/reference/android/location/LocationManager) via the crate's own Java shim | `day-toolkit-material` + `[package.metadata.day.android]` |
+| Web | [`navigator.geolocation.watchPosition`](https://www.w3.org/TR/geolocation/#watchposition-method) through the day-toolkit-dom shim | `web.rs` (wasm32; needs the day-toolkit-dom host page) |
 | HarmonyOS | [`geoLocationManager.on('locationChange')`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-location-kit/js-apis-geoLocationManager.md) (Location Kit) via an ArkTS arm; see below | [`day-bridge`](/contributing/backend-contracts/bridge) (`src/ohos.rs`) |
 | Linux | none; GeoClue2 would need a D-Bus dependency this tree does not have | — |
 | Windows | none yet; [`Windows.Devices.Geolocation`](https://learn.microsoft.com/en-us/uwp/api/windows.devices.geolocation) is the future impl | — |

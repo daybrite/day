@@ -220,7 +220,7 @@ mod tests {
     fn targets_that_cannot_grant_are_refused_up_front() {
         let camera = parse(&["camera".into()]).unwrap();
         let mic = parse(&["microphone".into()]).unwrap();
-        assert!(check_target(target("android-mdc"), &camera, false).is_ok());
+        assert!(check_target(target("android-material"), &camera, false).is_ok());
         assert!(check_target(target("ios-uikit"), &mic, false).is_ok());
         assert!(
             check_target(target("ios-uikit"), &camera, false)
@@ -242,7 +242,7 @@ mod tests {
         assert!(check_target(target("linux-gtk"), &camera, false).is_ok());
         assert!(check_target(target("linux-gtk"), &[], false).is_ok());
         let privacy = parse(&["screen-privacy".into()]).unwrap();
-        assert!(check_target(target("android-mdc"), &privacy, false).is_err());
+        assert!(check_target(target("android-material"), &privacy, false).is_err());
     }
 
     #[test]
@@ -253,7 +253,7 @@ mod tests {
                 .unwrap()
                 .contains("linux-gtk")
         );
-        assert!(ungated_note(target("android-mdc"), &camera).is_none());
+        assert!(ungated_note(target("android-material"), &camera).is_none());
         assert!(ungated_note(target("linux-gtk"), &[]).is_none());
     }
 }

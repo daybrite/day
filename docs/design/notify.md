@@ -225,7 +225,7 @@ common but not guaranteed), which shows the notification but gives no action cal
 id; the full path speaks the D-Bus wire protocol directly over `$DBUS_SESSION_BUS_ADDRESS` (the
 EXTERNAL auth handshake plus message marshaling, std only) to get actions, tap, and
 replace-by-id. The portable path avoids `Gio.Notification`/`GApplication.send_notification`,
-which needs `GApplication` and an installed `.desktop` file and does not work in a `day-qt`
+which needs `GApplication` and an installed `.desktop` file and does not work in a `day-toolkit-qt`
 binary; clipboard avoids GDK for the same toolkit-independence reason. There is **no OS-held
 scheduler**; a running Day process schedules in-process and calls `Notify` at fire time, and if
 the process exits, a scheduled notification is lost.
@@ -254,7 +254,7 @@ Linux; the reminder agent could hold one across an exit, at the cost of the
 ### Web — the Notification API, foreground only
 
 `new Notification(title, options)` while the page is open, or `ServiceWorkerRegistration
-.showNotification()` through the day-dom shim; taps arrive at the service worker's
+.showNotification()` through the day-toolkit-dom shim; taps arrive at the service worker's
 `notificationclick`. There is **no scheduling from a closed tab** (the Notification Triggers
 proposal, `showTrigger`, is Chromium-only and effectively abandoned, so the part does not rely on
 it), and no delivery at all while the tab is closed without the push part. A running page can post
@@ -465,11 +465,11 @@ license.workspace = true
 #   iOS/macOS — UNUserNotificationCenter (immediate + OS-held scheduling), delegate for taps
 #   Android   — NotificationManager via a Java shim; scheduling is AlarmManager + a receiver,
 #               because Android has NO notification scheduler. Re-armed on BOOT_COMPLETED.
-#   Windows   — ToastNotification / ScheduledToastNotification through the day-xaml-sys shim
+#   Windows   — ToastNotification / ScheduledToastNotification through the day-toolkit-xaml-sys shim
 #   Linux     — org.freedesktop.Notifications over the session D-Bus (std-only, no dbus crate);
 #               no OS-held scheduler, so scheduling only works while the process runs
 #   HarmonyOS — Notification Kit; scheduling may need an ArkTS half (see below)
-#   Web       — the Notification API through the day-dom shim; foreground only, no scheduling
+#   Web       — the Notification API through the day-toolkit-dom shim; foreground only, no scheduling
 # See docs/notify.md + docs/extending.md.
 #
 # PERMISSIONS. This crate does not ask for any: a denial surfaces as
@@ -488,7 +488,7 @@ objc2-foundation = { version = "0.3", features = ["NSObject", "NSDictionary", "N
 objc2-user-notifications = "0.3"
 
 [target.'cfg(target_os = "android")'.dependencies]
-day-mdc = { workspace = true }
+day-toolkit-material = { workspace = true }
 
 # --- Android backend contribution (docs/extending.md) ---
 [package.metadata.day.android]
@@ -561,7 +561,7 @@ day-part-local-notify/
   src/
     lib.rs          # public API, NotifId, Channel, Notification, Trigger, capabilities(); dispatch
     types.rs        # Importance, Action, NotifyError, Payload (serializable, shared with schedule)
-    store.rs        # persisted schedule records (day-part-fs), used by Android boot re-arm
+    store.rs        # persisted schedule records (day-part-filesystem), used by Android boot re-arm
     apple.rs        # ios + macos
     android.rs
     linux.rs
@@ -618,7 +618,7 @@ It uses no Play Services, so it runs on AOSP, GrapheneOS, or a Kindle.
 
 Scheduling is the hard half, because **Android has no notification scheduler**. The flow:
 
-1. `schedule()` serializes the `Payload` and writes a record through [`day-part-fs`](/docs/reference/fs)
+1. `schedule()` serializes the `Payload` and writes a record through [`day-part-filesystem`](/docs/reference/fs)
    (`notify/scheduled/<id>.json`), so it survives process death and reboot.
 2. It sets an `AlarmManager` alarm whose `PendingIntent` targets `DayNotifyAlarmReceiver`, choosing
    the strongest API the app is entitled to: `setAlarmClock` for `Importance::Urgent` (Doze-exempt,
@@ -633,7 +633,7 @@ Scheduling is the hard half, because **Android has no notification scheduler**. 
 5. `DayNotifyBootReceiver` re-arms every persisted record on `BOOT_COMPLETED` and
    `MY_PACKAGE_REPLACED`, because a reboot clears all alarms.
 
-Taps use a `PendingIntent` into `DayActivity` carrying a `day.route` extra; day-mdc reads it in
+Taps use a `PendingIntent` into `DayActivity` carrying a `day.route` extra; day-toolkit-material reads it in
 `onCreate`/`onNewIntent` and feeds the buffered launch-route slot. Actions go to
 `DayNotifyActionReceiver`, which emits `Event::Custom { tag: "notify:action", … }` through the
 JNI bridge when the process is alive, and when it is not, performs the record's declared side
@@ -656,11 +656,11 @@ API:
   only; the tree has no D-Bus crate and this does not justify adding one.
 
 The part avoids `Gio.Notification`/`GApplication.send_notification`, which needs a
-`GApplication` and an installed `.desktop` file and would not work in a `day-qt` binary; clipboard
+`GApplication` and an installed `.desktop` file and would not work in a `day-toolkit-qt` binary; clipboard
 avoids GDK for the same toolkit-independence reason. There is no OS-held scheduler, so `schedule`
 arms a timer through `Platform::post_delayed` and is documented as lost if the process exits.
 
-### Windows — `src/windows.rs` + the day-xaml-sys shim
+### Windows — `src/windows.rs` + the day-toolkit-xaml-sys shim
 
 `Windows.UI.Notifications` through the existing C++/WinRT shim. Toast content is `ToastGeneric`
 XML built as a string (`<text>`, `<image>`, `<action>`, `<input>` for reply);
@@ -680,12 +680,12 @@ Built as an ArkTS daybridge arm over `notificationManager` (see "HarmonyOS (ArkU
 Kit" above for what it does). The C surface turned out too narrow for an app, and daybridge's ArkTS
 tier made a separate `.ets` source dir unnecessary.
 
-### Web — `src/web.rs` + the day-dom shim
+### Web — `src/web.rs` + the day-toolkit-dom shim
 
 `new Notification(title, options)` while the page is open, or
 `ServiceWorkerRegistration.showNotification()` when actions are wanted (the plain constructor
 supports none). New shim imports (`day_dom_notify_post`, `day_dom_notify_cancel`,
-`day_dom_notify_permission`) follow the [`day-part-prefs`](/docs/reference/prefs)/[`day-part-location`](/docs/reference/location) web-arm pattern. Taps
+`day_dom_notify_permission`) follow the [`day-part-preferences`](/docs/reference/prefs)/[`day-part-location`](/docs/reference/location) web-arm pattern. Taps
 arrive at the service worker's `notificationclick`, which `postMessage`s to the page, which calls
 back into wasm. `capabilities()` reports no `schedule_while_dead`; a running page schedules through
 the delayed poster. The service worker must be a served file, not a bundled asset, since

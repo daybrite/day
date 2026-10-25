@@ -5,7 +5,7 @@
 # clippy warning can't reach CI. It exists because the gate is a matrix, not one command: toolkit
 # and part crates are not in default-members and each compiles only under its own backend feature
 # and/or cross-target, so a bare `cargo clippy` silently skips them; that blind spot has shipped
-# `useless_conversion` (day-mdc) and unformatted imports to CI more than once.
+# `useless_conversion` (day-toolkit-material) and unformatted imports to CI more than once.
 #
 #     scripts/ci/lint.sh            # run every leg this machine can
 #     scripts/ci/lint.sh -q         # quieter: only per-leg pass/fail + the summary
@@ -88,8 +88,8 @@ fi
 # 2) The showcase exercises the framework through an app's dependency graph.
 app_leg "clippy showcase (mock)" cargo clippy --no-default-features --features mock --all-targets
 
-# 3) Cross-target + feature-gated backends. Each pulls in its toolkit crate (day-mdc, day-arkui,
-#    day-appkit, …), the crates a host clippy never compiles.
+# 3) Cross-target + feature-gated backends. Each pulls in its toolkit crate (day-toolkit-material, day-toolkit-arkui,
+#    day-toolkit-appkit, …), the crates a host clippy never compiles.
 # The Android and OpenHarmony legs compile C too (bundled SQLite in day-persistence, ring under
 # day-part-http's fallback TLS, napi-ohos), and cc-rs never finds an NDK's cross clang on its own.
 # The same cargo subcommands `day build` drives supply the cross environment here: `cargo ndk-env`
@@ -100,16 +100,16 @@ app_leg "clippy showcase (mock)" cargo clippy --no-default-features --features m
 HAVE_ANDROID_ENV=0
 if have_target aarch64-linux-android; then
   if ! command -v cargo-ndk >/dev/null 2>&1; then
-    skip "clippy android (mdc)" "cargo install cargo-ndk"
+    skip "clippy android (material)" "cargo install cargo-ndk"
   # `--platform 24`: the scaffold's minSdk (DayAndroidPlugin.MIN_SDK), the level `day build`
   # passes cargo-ndk too, so the lint links against the same sysroot the APK ships for.
   elif NDK_ENV="$(cargo ndk-env -t arm64-v8a --platform 24 2>/dev/null)"; then
     eval "$NDK_ENV"
     HAVE_ANDROID_ENV=1
-    app_leg "clippy android (mdc)" cargo clippy --target aarch64-linux-android --lib \
-      --no-default-features --features mdc -- "${XCROSS[@]}"
-  else skip "clippy android (mdc)" "no Android NDK found (set ANDROID_NDK_HOME)"; fi
-else skip "clippy android (mdc)" "rustup target add aarch64-linux-android"; fi
+    app_leg "clippy android (material)" cargo clippy --target aarch64-linux-android --lib \
+      --no-default-features --features material -- "${XCROSS[@]}"
+  else skip "clippy android (material)" "no Android NDK found (set ANDROID_NDK_HOME)"; fi
+else skip "clippy android (material)" "rustup target add aarch64-linux-android"; fi
 
 if have_target aarch64-unknown-linux-ohos; then
   if ! command -v cargo-ohos >/dev/null 2>&1; then
@@ -132,7 +132,7 @@ if have_target wasm32-unknown-unknown; then
   # CI only *builds* web-dom (no clippy leg), so this is a local superset: clippy subsumes the
   # build's warning check and additionally keeps the dom backend clippy-clean. The
   # getrandom_backend cfg mirrors what `day build` sets for every web app (crates/day-cli/web.rs):
-  # day-dom carries getrandom's custom-backend hook, and getrandom refuses to compile for raw
+  # day-toolkit-dom carries getrandom's custom-backend hook, and getrandom refuses to compile for raw
   # wasm until a backend is chosen.
   app_leg "clippy web-dom (dom)" env "RUSTFLAGS=$RUSTFLAGS --cfg getrandom_backend=\"custom\"" \
     cargo clippy --target wasm32-unknown-unknown --lib \
@@ -160,18 +160,19 @@ else skip "clippy qt" "no Qt6 (brew install qt)"; fi
 
 case "$OS" in
   MINGW*|MSYS*|CYGWIN*)
+    app_leg "clippy winui" cargo clippy --no-default-features --features winui --all-targets
     app_leg "clippy xaml" cargo clippy --no-default-features --features xaml --all-targets ;;
-  *) skip "clippy xaml" "Windows only" ;;
+  *) skip "clippy winui/xaml" "Windows only" ;;
 esac
 
 # 4) Headless part crates: no backend feature, not in default-members; bare clippy never reaches
 #    them. Lint each on host + the Android cross-target, exactly as ci.yml's loop does.
-if [ -d parts ]; then
-  for dir in parts/day-part-*/; do
+if [ -d crates ]; then
+  for dir in crates/day-part-*/; do
     [ -f "$dir/Cargo.toml" ] || continue
     P="$(basename "$dir")"
     leg "clippy $P (host)" cargo clippy --locked -p "$P" --all-targets
-    # Under the cargo-ndk environment the mdc leg above imported, so a part's C compiles here too.
+    # Under the cargo-ndk environment the material leg above imported, so a part's C compiles here too.
     if [ "$HAVE_ANDROID_ENV" = 1 ]; then
       leg "clippy $P (android)" cargo clippy --locked --target aarch64-linux-android -p "$P" -- "${XCROSS[@]}"
       # …and again with the staged-bridge cfg, which compiles the other half of a bridged part.
@@ -184,7 +185,7 @@ if [ -d parts ]; then
       RUSTFLAGS="$RUSTFLAGS --cfg day_bridge_staged" \
         leg "clippy $P (android, staged bridge)" \
         cargo clippy --locked --target aarch64-linux-android -p "$P" -- "${XCROSS[@]}"
-    else skip "clippy $P (android)" "the Android cross environment (see the mdc leg's skip)"; fi
+    else skip "clippy $P (android)" "the Android cross environment (see the material leg's skip)"; fi
   done
 fi
 

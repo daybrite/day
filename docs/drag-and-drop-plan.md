@@ -46,14 +46,14 @@ The source investigation found these reusable paths:
 |---|---|---|
 | Specification | `crates/day-spec/src/lib.rs`: `ListReorder`, `TreeMoves`, `Toolkit::attach_list/attach_tree`, `Cap` | Already separates synchronous policy from committed model changes. Generalize the pattern, not the row-index payload. |
 | Core and pieces | `crates/day-core`, `crates/day-pieces`: retained nodes, scopes, event dispatch, list/tree sources | Own handler lifetimes and transaction dispatch here; do not expose toolkit handles to apps. |
-| AppKit | `toolkits/day-appkit/src/lib.rs`: table and outline dragging pasteboards | Local-source checks deliberately reject foreign drags. General drop targets need separate offered-data handling. |
-| UIKit | `toolkits/day-uikit/src/lib.rs`: table drag delegate, empty `NSItemProvider`, move-target delegate | Supports local row reordering, not reusable external image offers. |
-| GTK | `toolkits/day-gtk/src/lib.rs`: `DragSource`, row-token provider, drop guards | Reuse controller lifetime patterns; replace row-only payload assumptions. |
-| Qt | `toolkits/day-qt-sys/src/shim.cpp`: `DayList`, `QDrag`, guarded `dropEvent` | Current source/target state is a list selection. General adapters require MIME data and session identity. |
-| Windows (WinUI) | `toolkits/day-xaml-sys/src/shim.cpp`: `day_xaml_list_enable_reorder`, `day_xaml_cell_drag` | Existing `CanDrag`, `AllowDrop`, `DataPackageOperation` wiring is local row bookkeeping. Add actual data packages. |
-| Android MDC | `toolkits/day-mdc/java/dev/daybrite/day/bridge/DayBridge.java`: `ItemTouchHelper` | Incremental row swaps are not Android system data dragging. Add `View.OnDragListener` separately. |
+| AppKit | `crates/day-toolkit-appkit/src/lib.rs`: table and outline dragging pasteboards | Local-source checks deliberately reject foreign drags. General drop targets need separate offered-data handling. |
+| UIKit | `crates/day-toolkit-uikit/src/lib.rs`: table drag delegate, empty `NSItemProvider`, move-target delegate | Supports local row reordering, not reusable external image offers. |
+| GTK | `crates/day-toolkit-gtk/src/lib.rs`: `DragSource`, row-token provider, drop guards | Reuse controller lifetime patterns; replace row-only payload assumptions. |
+| Qt | `crates/day-toolkit-qt-sys/src/shim.cpp`: `DayList`, `QDrag`, guarded `dropEvent` | Current source/target state is a list selection. General adapters require MIME data and session identity. |
+| Windows (WinUI) | `crates/day-toolkit-xaml-sys/src/shim.cpp`: `day_xaml_list_enable_reorder`, `day_xaml_cell_drag` | Existing `CanDrag`, `AllowDrop`, `DataPackageOperation` wiring is local row bookkeeping. Add actual data packages. |
+| Android Material Components | `crates/day-toolkit-material/java/dev/daybrite/day/bridge/DayBridge.java`: `ItemTouchHelper` | Incremental row swaps are not Android system data dragging. Add `View.OnDragListener` separately. |
 | Web | `crates/day-cli/resources/web/shim.js`: `day_dom_list_reorder` | Pointer capture and a CSS gap implement local reorder; there is no HTML transfer session in that path. |
-| Harmony ArkUI | `toolkits/day-arkui/src/transfer.rs` + `list.rs`: `NODE_ON_DRAG_START`, `NODE_ON_DROP`, draggable cells | Native drag events exist, but handlers are hard-wired to list state. Route by registered capability before list fallback. |
+| Harmony ArkUI | `crates/day-toolkit-arkui/src/transfer.rs` + `list.rs`: `NODE_ON_DRAG_START`, `NODE_ON_DROP`, draggable cells | Native drag events exist, but handlers are hard-wired to list state. Route by registered capability before list fallback. |
 
 `Cap::TreeMove` remains unsupported in several adapters; a general drop API must not silently
 claim that tree reparenting works everywhere. Preserve the current list/tree contracts while
@@ -137,7 +137,7 @@ report native file-promise export separately until each OS backend has been veri
 
 ### Windows: windows-winui
 
-Use the WinUI flavor already selected by `day-xaml-sys`: `CanDrag`, `DragStarting`,
+Use the WinUI flavor already selected by `day-toolkit-xaml-sys`: `CanDrag`, `DragStarting`,
 `DropCompleted`, `AllowDrop`, and enter/over/leave/drop events. Populate `DataPackage` with
 standard image/text/storage items and custom byte streams; inspect `DataPackageView` on
 receipt. Set `AcceptedOperation`; acquire deferrals before returning from callbacks that
@@ -155,7 +155,7 @@ Implementation: keep WinRT objects and deferrals in the C++ shim, expose owned I
 finish/release on every branch, and test native desktop apps on Windows. Do not assume a
 successful Win32 clipboard byte write proves WinUI DnD interoperability.
 
-### Android: android-mdc
+### Android: android-material
 
 Start `View.startDragAndDrop` with `ClipData`, `ClipDescription`, a `DragShadowBuilder`,
 and process-local state. Handle `ACTION_DRAG_STARTED`, entered/location/exited, drop, and
@@ -203,7 +203,7 @@ on registered accepting targets, preserving ordinary browser/editor behavior els
 ### HarmonyOS: harmony-arkui
 
 Day uses native ArkUI nodes, so drive the C API (`ohos-sys`'s `drag_and_drop` and `udmf`
-bindings) from `day-arkui`'s `transfer` module, which owns the state in Rust. Use draggable/allowed-type configuration and `NODE_ON_DRAG_*`/`NODE_ON_DROP`.
+bindings) from `day-toolkit-arkui`'s `transfer` module, which owns the state in Rust. Use draggable/allowed-type configuration and `NODE_ON_DRAG_*`/`NODE_ON_DROP`.
 The installed SDK's `arkui/drag_and_drop.h` provides `SetData`/`GetUdmfData`, type enumeration,
 window/display coordinates, copy/move proposals, drag results, previews, and explicit
 `ArkUI_DragAction` creation. These core declarations are marked API 12. Link is not in its
@@ -369,7 +369,7 @@ the latter needs actual native drags and independent processes.
 
 Required acceptance matrix: macos-appkit, macos-gtk, macos-qt; linux-gtk and linux-qt on
 Wayland and X11; windows-winui with Explorer and another app; ios-uikit with Files/Photos
-and another app; android-mdc with content-URI providers; web-dom on Chromium/WebKit/Firefox;
+and another app; android-material with content-URI providers; web-dom on Chromium/WebKit/Firefox;
 harmony-arkui CI/device tests using both a Day sender and a native UDMF sender. Test success,
 cancel, rejection, unsupported types, empty/unknown MIME, delayed/failed data, destroyed
 target, mixed items, non-ASCII filenames, source process exit, and repeated drags.

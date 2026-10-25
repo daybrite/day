@@ -4,7 +4,7 @@
 //! Incremental per-invocation reports. A socket reader saves telemetry even while the
 //! runner sleeps or captures a device screenshot; reports survive an app/runner crash.
 use crate::targets::{Target, TargetKind};
-use day_script_proto::{MemorySample, Reply};
+use day_script_protocol::{MemorySample, Reply};
 use serde_json::{Value, json};
 use std::io::{BufRead, BufReader, BufWriter, Write};
 use std::net::{Shutdown, TcpStream};
@@ -235,7 +235,7 @@ impl Reports {
                 .replace('\\', "/");
             let parsed = std::fs::read_to_string(script)
                 .ok()
-                .and_then(|s| day_script_proto::Script::from_yaml(&s).ok());
+                .and_then(|s| day_script_protocol::Script::from_yaml(&s).ok());
             let planned = parsed.as_ref().map(|s| s.steps.len()).unwrap_or(0);
             let run_id = format!(
                 "{}-{}-{stamp}-{}-{index}",
@@ -313,7 +313,7 @@ impl Reports {
             }
         }
     }
-    pub fn catalog(&self, suite: &str, catalog: &day_script_proto::IdCatalog) {
+    pub fn catalog(&self, suite: &str, catalog: &day_script_protocol::IdCatalog) {
         if let Some(record) = self.active.record() {
             let mut live = record.lock().unwrap();
             live.value["id_catalog"] = json!(catalog);
@@ -398,7 +398,7 @@ impl Reports {
 }
 
 pub(crate) struct StepGuard {
-    evidence: Vec<day_script_proto::IdEvidence>,
+    evidence: Vec<day_script_protocol::IdEvidence>,
     record: Option<Record>,
     index: usize,
     op: String,
@@ -406,7 +406,7 @@ pub(crate) struct StepGuard {
     error: Option<String>,
 }
 impl StepGuard {
-    pub fn evidence(&mut self, evidence: &[day_script_proto::IdEvidence]) {
+    pub fn evidence(&mut self, evidence: &[day_script_protocol::IdEvidence]) {
         self.evidence = evidence.to_vec();
     }
 
@@ -441,6 +441,64 @@ pub(crate) struct Reader {
     stopping: Arc<AtomicBool>,
     thread: Option<std::thread::JoinHandle<()>>,
 }
+fn read_replies(
+    mut reader: impl BufRead,
+    stopping: &AtomicBool,
+    active: Active,
+    tx: mpsc::Sender<std::io::Result<String>>,
+) {
+    // Keep raw bytes across poll timeouts, including a timeout halfway through a
+    // UTF-8 character. Decode only once the complete reply has arrived.
+    let mut line = Vec::new();
+    while !stopping.load(Ordering::Acquire) {
+        match reader.read_until(b'\n', &mut line) {
+            Ok(0) => {
+                let _ = tx.send(Ok(String::new()));
+                break;
+            }
+            Ok(_) => {
+                let line = match String::from_utf8(std::mem::take(&mut line)) {
+                    Ok(line) => line,
+                    Err(error) => {
+                        let _ = tx.send(Err(std::io::Error::new(
+                            std::io::ErrorKind::InvalidData,
+                            error,
+                        )));
+                        break;
+                    }
+                };
+                if line.contains("\"memory_sample\"")
+                    && let Ok(reply) = serde_json::from_str::<Reply>(&line)
+                    && let Some(sample) = reply.memory_sample
+                {
+                    active.sample(*sample);
+                } else if tx.send(Ok(line)).is_err() {
+                    break;
+                }
+            }
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    std::io::ErrorKind::TimedOut
+                        | std::io::ErrorKind::WouldBlock
+                        | std::io::ErrorKind::Interrupted
+                ) || (cfg!(windows) && error.raw_os_error() == Some(997)) =>
+            {
+                // WSA_IO_PENDING is not a disconnected peer. Do not replay the request
+                // or discard the partial frame; the caller's reply deadline still applies.
+                if cfg!(windows) && error.raw_os_error() == Some(997) {
+                    std::thread::sleep(READER_POLL);
+                }
+                continue;
+            }
+            Err(error) => {
+                let _ = tx.send(Err(error));
+                break;
+            }
+        }
+    }
+}
+
 impl Reader {
     pub fn new(stream: TcpStream, active: Active) -> std::io::Result<Self> {
         let input = stream.try_clone()?;
@@ -451,52 +509,7 @@ impl Reader {
         let stopping = Arc::new(AtomicBool::new(false));
         let worker_stopping = stopping.clone();
         let thread = std::thread::spawn(move || {
-            let mut reader = BufReader::new(input);
-            // Keep raw bytes across poll timeouts, including a timeout halfway through a
-            // UTF-8 character. Decode only once the complete reply has arrived.
-            let mut line = Vec::new();
-            while !worker_stopping.load(Ordering::Acquire) {
-                match reader.read_until(b'\n', &mut line) {
-                    Ok(0) => {
-                        let _ = tx.send(Ok(String::new()));
-                        break;
-                    }
-                    Ok(_) => {
-                        let line = match String::from_utf8(std::mem::take(&mut line)) {
-                            Ok(line) => line,
-                            Err(error) => {
-                                let _ = tx.send(Err(std::io::Error::new(
-                                    std::io::ErrorKind::InvalidData,
-                                    error,
-                                )));
-                                break;
-                            }
-                        };
-                        if line.contains("\"memory_sample\"")
-                            && let Ok(reply) = serde_json::from_str::<Reply>(&line)
-                            && let Some(sample) = reply.memory_sample
-                        {
-                            active.sample(*sample);
-                        } else if tx.send(Ok(line)).is_err() {
-                            break;
-                        }
-                    }
-                    Err(error)
-                        if matches!(
-                            error.kind(),
-                            std::io::ErrorKind::TimedOut
-                                | std::io::ErrorKind::WouldBlock
-                                | std::io::ErrorKind::Interrupted
-                        ) =>
-                    {
-                        continue;
-                    }
-                    Err(error) => {
-                        let _ = tx.send(Err(error));
-                        break;
-                    }
-                }
-            }
+            read_replies(BufReader::new(input), &worker_stopping, active, tx);
         });
         Ok(Self {
             replies,
@@ -885,6 +898,56 @@ mod tests {
         reader.set_timeout(Duration::from_secs(3));
         assert_eq!(reader.read_line(&mut line).unwrap(), expected.len());
         assert_eq!(line, expected);
+    }
+
+    #[test]
+    fn transient_read_errors_preserve_partial_utf8_without_hiding_disconnects() {
+        struct Fragmented(std::collections::VecDeque<std::io::Result<Vec<u8>>>);
+        impl std::io::Read for Fragmented {
+            fn read(&mut self, bytes: &mut [u8]) -> std::io::Result<usize> {
+                let Some(part) = self.0.pop_front() else {
+                    return Ok(0);
+                };
+                let part = part?;
+                assert!(part.len() <= bytes.len());
+                bytes[..part.len()].copy_from_slice(&part);
+                Ok(part.len())
+            }
+        }
+
+        let expected = "{\"ok\":false,\"error\":\"fixture café\"}\n";
+        let split = expected.find('é').unwrap() + 1;
+        let errors = [
+            (std::io::Error::from(std::io::ErrorKind::WouldBlock), true),
+            (std::io::Error::from_raw_os_error(997), cfg!(windows)),
+            (
+                std::io::Error::from(std::io::ErrorKind::ConnectionReset),
+                false,
+            ),
+        ];
+        for (error, retry) in errors {
+            let kind = error.kind();
+            let input = Fragmented(std::collections::VecDeque::from([
+                Ok(expected.as_bytes()[..split].to_vec()),
+                Err(error),
+                Ok(expected.as_bytes()[split..].to_vec()),
+            ]));
+            let (tx, rx) = mpsc::channel();
+            read_replies(
+                BufReader::new(input),
+                &AtomicBool::new(false),
+                Active::default(),
+                tx,
+            );
+            let result = rx.recv().unwrap();
+            if retry {
+                assert_eq!(result.unwrap(), expected);
+                assert_eq!(rx.recv().unwrap().unwrap(), "");
+            } else {
+                assert_eq!(result.unwrap_err().kind(), kind);
+            }
+            assert!(rx.recv().is_err(), "one reply or error, with no replay");
+        }
     }
 
     #[test]

@@ -609,7 +609,7 @@ pub mod arkts {
     /// Only a library already loaded; never load a second copy.
     const RTLD_NOLOAD: c_int = 4;
 
-    /// A symbol of the app's own native library, where day-arkui's exports live (this crate is
+    /// A symbol of the app's own native library, where day-toolkit-arkui's exports live (this crate is
     /// linked into the same `libentry.so`).
     ///
     /// The process-wide lookup comes first, but it cannot be the only one: HarmonyOS's ArkTS
@@ -672,7 +672,7 @@ pub mod arkts {
             return Err(super::Error::Encoding);
         };
         let mut ret = Arg::plain(-1, 0, 0.0);
-        // SAFETY: the symbol is day-arkui's export with exactly this signature.
+        // SAFETY: the symbol is day-toolkit-arkui's export with exactly this signature.
         let invoke: InvokeFn = unsafe { std::mem::transmute(entry) };
         match unsafe { invoke(name.as_ptr(), args.as_ptr(), args.len(), done, &mut ret) } {
             0 => Ok(ret),
@@ -688,7 +688,7 @@ pub mod arkts {
         if entry.is_null() {
             return false;
         }
-        // SAFETY: the symbol is day-arkui's export with exactly this signature.
+        // SAFETY: the symbol is day-toolkit-arkui's export with exactly this signature.
         let f: OnJsThreadFn = unsafe { std::mem::transmute(entry) };
         unsafe { f() != 0 }
     }

@@ -79,7 +79,7 @@ pub fn shortcut_menu_items() -> Vec<day_spec::MenuItem> {
     let dynamic = DYNAMIC.with(|d| d.borrow().clone());
     let declared = launcher_shortcuts()
         .into_iter()
-        .map(|(route, label)| (route.to_owned(), day_l10n::t(label)));
+        .map(|(route, label)| (route.to_owned(), day_localization::t(label)));
     dynamic
         .into_iter()
         .map(|s| (s.route, s.label))

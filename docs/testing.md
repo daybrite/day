@@ -269,7 +269,7 @@ its retry.
 day test -t macos-appkit                         # every test in the project
 day test -t macos-gtk 'text-field-*'             # a glob over test names
 day test -t ios-uikit --ios-simulator <udid>     # the device flags day launch takes
-day test -t android-mdc --shots always           # keep every capture, not only a failure's
+day test -t android-material --shots always           # keep every capture, not only a failure's
 day test -t linux-gtk --case-timeout 0           # no per-case limit (a debugger attached)
 day test -t web-dom --list                       # the registry, without running
 ```

@@ -40,7 +40,7 @@ pub mod png;
 pub const DEFAULT_MAIN_TIMEOUT_SECS: f64 = 30.0;
 
 // Preserve the embedded engine's public protocol API; the definitions live in the leaf crate.
-pub use day_script_proto::{DEFAULT_TIMEOUT_SECS, DialogMode, Reply, Request, Step};
+pub use day_script_protocol::{DEFAULT_TIMEOUT_SECS, DialogMode, Reply, Request, Step};
 
 /// `size_class:`'s `width:` spelling → the class. Kebab-case, matching how the docs name them.
 fn parse_width_class(s: &str) -> Option<day_spec::WidthClass> {
@@ -367,7 +367,7 @@ fn run_on_main(step: Step, budget: Duration, revision: u32) -> Reply {
             return;
         }
         // The engine listens from the moment `day_script::init` runs, which is before the
-        // backend has built the tree; a runner that connects during a slow startup (day-piece-break
+        // backend has built the tree; a runner that connects during a slow startup (day-piece-crash-reporter
         // reconciling a crash from the previous launch is the reliable way to be slow) can land
         // a step in that window. Answering "retryable" hands it back to the bounded wait, which
         // is exactly the "not there yet" case that machinery exists for; running it anyway would
@@ -510,7 +510,7 @@ fn find_menu_actions(
 }
 
 fn format_key(key: &str, args: Option<BTreeMap<String, serde_json::Value>>) -> String {
-    let mut lt = day_fluent::tr(key);
+    let mut lt = day_localization_ui::tr(key);
     for (name, v) in args.unwrap_or_default() {
         lt = match v {
             serde_json::Value::Number(n) => lt.arg(&name, n.as_f64().unwrap_or(0.0)),
@@ -557,7 +557,7 @@ fn parse_hex_color(s: &str) -> Option<[u8; 3]> {
 }
 
 fn norm(s: &str) -> String {
-    day_fluent::strip_isolates(s)
+    day_localization_ui::strip_isolates(s)
 }
 
 /// Hosts that present frames of their own (`day_spec::capture::register_hold`) must have them
@@ -574,17 +574,17 @@ fn hosts_settled() -> Result<(), Reply> {
     }
 }
 
-fn id_catalog() -> Result<&'static day_script_proto::IdCatalog, String> {
-    static CATALOG: std::sync::OnceLock<Result<day_script_proto::IdCatalog, String>> =
+fn id_catalog() -> Result<&'static day_script_protocol::IdCatalog, String> {
+    static CATALOG: std::sync::OnceLock<Result<day_script_protocol::IdCatalog, String>> =
         std::sync::OnceLock::new();
     CATALOG
         .get_or_init(|| {
-            Ok(day_script_proto::IdCatalog {
+            Ok(day_script_protocol::IdCatalog {
                 schema_version: 1,
                 declarations: day_core::element_id::registry()?
                     .iter()
                     .cloned()
-                    .map(|d| day_script_proto::IdDeclaration {
+                    .map(|d| day_script_protocol::IdDeclaration {
                         family: d.family,
                         keyed: d.keyed,
                         package: d.package,
@@ -2021,7 +2021,7 @@ fn exec(step: Step, revision: u32) -> Reply {
                     // the script is already where `nav_back` would have taken it.
                     //
                     // Without this, one walkthrough could not describe both form factors of the
-                    // same target. The step was gated `only_on: [uikit, mdc]`, a toolkit condition,
+                    // same target. The step was gated `only_on: [uikit, material]`, a toolkit condition,
                     // which silently meant "phone" until ios-uikit started running on an iPad,
                     // where the presentation is expanded exactly like a desktop's. The toolkit was
                     // never the thing that decided; the width class is.
@@ -2153,7 +2153,7 @@ fn exec(step: Step, revision: u32) -> Reply {
         && let Ok(catalog) = id_catalog()
         && let Ok(d) = catalog.resolve(&id)
     {
-        reply.id_evidence = Box::new([day_script_proto::IdEvidence {
+        reply.id_evidence = Box::new([day_script_protocol::IdEvidence {
             family: d.family.clone(),
             class,
         }]);
@@ -2432,7 +2432,7 @@ mod tests {
         assert_eq!(present.id_evidence[0].family, "remove_fixture");
         assert_eq!(
             present.id_evidence[0].class,
-            day_script_proto::EvidenceClass::Interaction
+            day_script_protocol::EvidenceClass::Interaction
         );
         assert_eq!(presses.get(), 1);
         day_core::uninstall_tree();

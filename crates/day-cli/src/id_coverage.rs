@@ -54,8 +54,9 @@ pub struct Summary {
 
 pub fn summarize(reports: &[Value], policy: &CoveragePolicy) -> Result<Summary, String> {
     let first = reports.first().ok_or("coverage suite has no reports")?;
-    let catalog: day_script_proto::IdCatalog = serde_json::from_value(first["id_catalog"].clone())
-        .map_err(|e| format!("missing/invalid compiled registry: {e}"))?;
+    let catalog: day_script_protocol::IdCatalog =
+        serde_json::from_value(first["id_catalog"].clone())
+            .map_err(|e| format!("missing/invalid compiled registry: {e}"))?;
     catalog.validate()?;
     let target = first["target"].as_str().ok_or("missing target")?.to_owned();
     let minimum = policy

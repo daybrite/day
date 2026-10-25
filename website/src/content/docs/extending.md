@@ -73,7 +73,7 @@ registered at link time:
 
 ```rust
 // inside #[cfg(feature = "appkit")] — creates an NSComboBox
-day_pieces::renderer!(day_appkit::RENDERERS, AppKit,
+day_pieces::renderer!(day_toolkit_appkit::RENDERERS, AppKit,
     kind: KIND, props: ComboProps, patch: ComboPatch,
     make: make, update: update);
 ```

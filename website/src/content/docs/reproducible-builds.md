@@ -146,7 +146,7 @@ the same epoch to `linuxdeploy`, but the AppImage runtime it prepends is a downl
 tracks its own upstream release, so an AppImage is not expected to be byte-identical across a
 runtime bump.
 
-### android-mdc
+### android-material
 
 The packaged `.so` files are compared byte for byte. Day passes its selected NDK (including an
 `ANDROID_NDK_HOME` override) to its Gradle plugin through generated build configuration, so
@@ -371,7 +371,7 @@ Set `SOURCE_DATE_EPOCH` to the same value for both builds if you want the archiv
 match a specific date rather than Day's default:
 
 ```sh
-SOURCE_DATE_EPOCH=$(git log -1 --format=%ct) day pack -t android-mdc
+SOURCE_DATE_EPOCH=$(git log -1 --format=%ct) day pack -t android-material
 ```
 
 On Apple platforms you can check the build UUID directly, which is the difference diffoscope will

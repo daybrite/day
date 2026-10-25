@@ -206,7 +206,7 @@ particular executor:
 - `day-async` holds the blocking pool behind [`spawn_blocking`](https://daybrite.dev/api/day_async/fn.spawn_blocking.html) (2026-10): a `VecDeque` of jobs, a
   `Condvar`, and threads that start on demand up to [`blocking_limit()`](https://daybrite.dev/api/day_async/fn.blocking_limit.html) and exit after two idle
   seconds. A job is the user's closure under `catch_unwind`, delivering through a [`oneshot`](https://daybrite.dev/api/day_async/fn.oneshot.html); a
-  cancelled flag, set by the future's `Drop`, skips a job that has not started. [day-part-fs](/docs/reference/fs)'s
+  cancelled flag, set by the future's `Drop`, skips a job that has not started. [day-part-filesystem](/docs/reference/fs)'s
   async operations run on it, detached. [`blocking_threads()`](https://daybrite.dev/api/day_async/fn.blocking_threads.html) reports the live count.
 - [`day::sleep`](https://daybrite.dev/api/day/fn.sleep.html) rides [`Platform::post_delayed`](https://daybrite.dev/api/day_spec/trait.Platform.html#method.post_delayed), which every backend implements with the loop's
   own timer; the trait default (a thread that sleeps and posts) logs once when a backend without

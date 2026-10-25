@@ -9,10 +9,10 @@ repository.workspace = true
 license.workspace = true
 
 [features]
-fs = ["dep:day-part-fs"]
+fs = ["dep:day-part-filesystem"]
 permissions = ["dep:day-part-permissions"]
 swiftui = ["dep:day-piece-swiftui"]
-text-editor = ["dep:day-piece-texteditor"]
+text-editor = ["dep:day-piece-text-editor"]
 settings = ["dep:day-piece-settings"]
 http-image = ["dep:day-part-http"]
 # On by default so `day::prefs` is there (docs/prefs.md). Apps that want neither the Apple
@@ -20,25 +20,25 @@ http-image = ["dep:day-part-http"]
 # `day = { …, default-features = false }`. NOTE: `day build` passes `--no-default-features` for the
 # app crate only (a dependency's defaults are unaffected), so this stays on in real builds.
 default = ["prefs"]
-prefs = ["dep:day-part-prefs"]
+prefs = ["dep:day-part-preferences"]
 # The built-in pieces' `#[day::test]` cases (docs/testing.md), for the conformance app and a
 # test flavor of an app; a shipping build leaves it off.
-conformance = ["day-piece-texteditor?/conformance", "day-piece-settings?/conformance", "day-pieces/conformance"]
+conformance = ["day-piece-text-editor?/conformance", "day-piece-settings?/conformance", "day-pieces/conformance"]
 # Exactly one backend feature per binary (§3.2).
-appkit = ["day-piece-swiftui?/appkit", "day-piece-texteditor?/appkit", "day-piece-settings?/appkit", "dep:day-appkit"]
-gtk = ["day-piece-texteditor?/gtk", "day-piece-settings?/gtk", "dep:day-gtk"]
-qt = ["day-piece-texteditor?/qt", "day-piece-settings?/qt", "dep:day-qt"]
-uikit = ["day-piece-swiftui?/uikit", "day-piece-texteditor?/uikit", "day-piece-settings?/uikit", "dep:day-uikit"]
-mdc = ["day-piece-texteditor?/mdc", "day-piece-settings?/mdc", "dep:day-mdc", "dep:day-android-runtime"]
-xaml = ["day-piece-texteditor?/xaml", "day-piece-settings?/xaml", "dep:day-winui"]
+appkit = ["day-piece-swiftui?/appkit", "day-piece-text-editor?/appkit", "day-piece-settings?/appkit", "dep:day-toolkit-appkit"]
+gtk = ["day-piece-text-editor?/gtk", "day-piece-settings?/gtk", "dep:day-toolkit-gtk"]
+qt = ["day-piece-text-editor?/qt", "day-piece-settings?/qt", "dep:day-toolkit-qt"]
+uikit = ["day-piece-swiftui?/uikit", "day-piece-text-editor?/uikit", "day-piece-settings?/uikit", "dep:day-toolkit-uikit"]
+material = ["day-piece-text-editor?/material", "day-piece-settings?/material", "dep:day-toolkit-material", "dep:day-platform-android"]
+xaml = ["day-piece-text-editor?/xaml", "day-piece-settings?/xaml", "dep:day-toolkit-winui"]
 # WinUI 3 (the Windows App SDK) on the same backend: the xaml toolkit with its shim built
 # against Microsoft.UI.Xaml (docs/winui.md). Implies `xaml`, whose code it is.
-winui = ["day-piece-texteditor?/winui", "day-piece-settings?/winui", "xaml", "day-winui/winui"]
-arkui = ["day-piece-texteditor?/arkui", "day-piece-settings?/arkui", "dep:day-arkui"]
-dom = ["day-piece-texteditor?/dom", "day-piece-settings?/dom", "dep:day-dom"]
+winui = ["day-piece-text-editor?/winui", "day-piece-settings?/winui", "xaml", "day-toolkit-winui/winui"]
+arkui = ["day-piece-text-editor?/arkui", "day-piece-settings?/arkui", "dep:day-toolkit-arkui"]
+dom = ["day-piece-text-editor?/dom", "day-piece-settings?/dom", "dep:day-toolkit-dom"]
 # Headless: also swaps `day::prefs` for an in-process map, so `cargo test` starts empty and never
 # touches the user's preferences.
-mock = ["day-piece-texteditor?/mock", "day-piece-settings?/mock", "dep:day-mock", "day-part-prefs?/memory"]
+mock = ["day-piece-text-editor?/mock", "day-piece-settings?/mock", "dep:day-mock", "day-part-preferences?/memory"]
 # The per-property observable store (docs/model.md): day::model plus the Observable derive in
 # the prelude. Off by default, so an app that binds plain Signals pays nothing for it. serde_json
 # backs `day::prefs::bind_json`, which keeps a small keyed store in the preferences.
@@ -48,10 +48,10 @@ model = ["dep:day-model", "day-pieces/model", "dep:serde", "dep:serde_json"]
 # (docs/persistence.md).
 
 [dependencies]
-day-part-fs = { workspace = true, optional = true }
+day-part-filesystem = { workspace = true, optional = true }
 day-part-permissions = { workspace = true, optional = true }
 day-piece-swiftui = { workspace = true, optional = true }
-day-piece-texteditor = { workspace = true, optional = true }
+day-piece-text-editor = { workspace = true, optional = true }
 day-piece-settings = { workspace = true, optional = true }
 day-part-http = { workspace = true, optional = true }
 day-macros = { workspace = true }
@@ -60,7 +60,7 @@ day-reactive = { workspace = true }
 day-spec = { workspace = true }
 day-core = { workspace = true }
 day-pieces = { workspace = true }
-day-fluent = { workspace = true }
+day-localization-ui = { workspace = true }
 log = { workspace = true }
 day-script = { workspace = true }
 day-model = { workspace = true, optional = true }
@@ -68,18 +68,18 @@ serde = { workspace = true, optional = true }
 serde_json = { workspace = true, optional = true }
 # Persistent settings, promoted into the facade (docs/prefs.md): 5 of 6 sibling apps depend on it
 # and it is the only part that lives in the reactive layer. Optional so it can be declined.
-day-part-prefs = { workspace = true, optional = true }
+day-part-preferences = { workspace = true, optional = true }
 # install_edit_commands' clipboard transport (docs/menus.md): dependency-free platform FFI.
 day-part-clipboard = { workspace = true }
-day-appkit = { workspace = true, optional = true }
-day-gtk = { workspace = true, optional = true }
-day-qt = { workspace = true, optional = true }
-day-uikit = { workspace = true, optional = true }
-day-mdc = { workspace = true, optional = true }
-day-android-runtime = { workspace = true, optional = true }
-day-winui = { workspace = true, optional = true }
-day-arkui = { workspace = true, optional = true }
-day-dom = { workspace = true, optional = true }
+day-toolkit-appkit = { workspace = true, optional = true }
+day-toolkit-gtk = { workspace = true, optional = true }
+day-toolkit-qt = { workspace = true, optional = true }
+day-toolkit-uikit = { workspace = true, optional = true }
+day-toolkit-material = { workspace = true, optional = true }
+day-platform-android = { workspace = true, optional = true }
+day-toolkit-winui = { workspace = true, optional = true }
+day-toolkit-arkui = { workspace = true, optional = true }
+day-toolkit-dom = { workspace = true, optional = true }
 day-mock = { workspace = true, optional = true }
 
 [dev-dependencies]

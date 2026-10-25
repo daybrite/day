@@ -21,7 +21,7 @@ impl Drop for Fixture {
 #[test]
 fn android_launch_and_stop_use_the_resolved_flavor_identity() {
     let fixture =
-        Fixture(std::env::temp_dir().join(format!("day-mdc-identity-{}", std::process::id())));
+        Fixture(std::env::temp_dir().join(format!("day-material-identity-{}", std::process::id())));
     let root = &fixture.0;
     std::fs::create_dir_all(root.join("src")).unwrap();
     std::fs::create_dir_all(root.join("sdk/platform-tools")).unwrap();
@@ -33,7 +33,7 @@ fn android_launch_and_stop_use_the_resolved_flavor_identity() {
     .unwrap();
     std::fs::write(
         root.join("Day.toml"),
-        "schema = 1\n[app]\nid = \"dev.example.base\"\ntargets = [\"android-mdc\"]\n",
+        "schema = 1\n[app]\nid = \"dev.example.base\"\ntargets = [\"android-material\"]\n",
     )
     .unwrap();
     std::fs::write(
@@ -106,15 +106,21 @@ esac
         let artifacts = root.join(subtree).join("artifacts");
         std::fs::create_dir_all(&artifacts).unwrap();
         std::fs::write(
-            artifacts.join("android-mdc-debug.path"),
+            artifacts.join("android-material-debug.path"),
             apk.to_str().unwrap(),
         )
         .unwrap();
         let calls = root.join("adb-calls");
         std::fs::write(&calls, "").unwrap();
         for args in [
-            vec!["launch", "-t", "android-mdc", "--skip-build", "--detach"],
-            vec!["stop", "-t", "android-mdc"],
+            vec![
+                "launch",
+                "-t",
+                "android-material",
+                "--skip-build",
+                "--detach",
+            ],
+            vec!["stop", "-t", "android-material"],
         ] {
             let mut cmd = Command::new(env!("CARGO_BIN_EXE_day"));
             cmd.arg("--project").arg(root);
@@ -160,7 +166,7 @@ esac
     std::fs::create_dir_all(signing_props.parent().unwrap()).unwrap();
     std::fs::write(&signing_props, "synthetic signing config: leave untouched").unwrap();
     std::fs::write(
-        root.join("build/day/artifacts/android-mdc-release.path"),
+        root.join("build/day/artifacts/android-material-release.path"),
         unsigned.to_str().unwrap(),
     )
     .unwrap();
@@ -180,7 +186,7 @@ esac
             .args([
                 "launch",
                 "-t",
-                "android-mdc",
+                "android-material",
                 "--profile",
                 "release",
                 "--skip-build",

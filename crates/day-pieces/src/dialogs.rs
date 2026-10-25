@@ -144,8 +144,8 @@ pub fn confirm<M>(title: impl IntoText<M>) -> Confirm {
         message: None,
         // Localized from the core catalog (docs/dialogs.md); `.confirm_label`/`.cancel_label`
         // override. Resolved in the current locale at build time.
-        confirm: day_l10n::t(day_l10n::key::day_ok),
-        cancel: day_l10n::t(day_l10n::key::day_cancel),
+        confirm: day_localization::t(day_localization::key::day_ok),
+        cancel: day_localization::t(day_localization::key::day_cancel),
         destructive: false,
     }
 }
@@ -219,8 +219,8 @@ pub fn prompt<M>(title: impl IntoText<M>) -> Prompt {
         placeholder: String::new(),
         initial: String::new(),
         // Localized from the core catalog (docs/dialogs.md); `.ok_label`/`.cancel_label` override.
-        ok: day_l10n::t(day_l10n::key::day_ok),
-        cancel: day_l10n::t(day_l10n::key::day_cancel),
+        ok: day_localization::t(day_localization::key::day_ok),
+        cancel: day_localization::t(day_localization::key::day_cancel),
     }
 }
 
@@ -428,7 +428,7 @@ pub struct OpenFile {
 /// Start a native open-file picker (docs/files.md).
 pub fn open_file() -> OpenFile {
     OpenFile {
-        title: day_l10n::t(day_l10n::key::day_open),
+        title: day_localization::t(day_localization::key::day_open),
         filters: Vec::new(),
     }
 }
@@ -481,7 +481,7 @@ pub struct OpenFiles {
 /// Start a native multi-file open picker (docs/files.md).
 pub fn open_files() -> OpenFiles {
     OpenFiles {
-        title: day_l10n::t(day_l10n::key::day_open),
+        title: day_localization::t(day_localization::key::day_open),
         filters: Vec::new(),
     }
 }
@@ -535,7 +535,7 @@ pub struct OpenFolder {
 /// Start a native folder chooser (docs/files.md).
 pub fn open_folder() -> OpenFolder {
     OpenFolder {
-        title: day_l10n::t(day_l10n::key::day_open_folder),
+        title: day_localization::t(day_localization::key::day_open_folder),
     }
 }
 
@@ -581,7 +581,7 @@ pub struct SaveFile {
 /// Start a native save-file picker for `data` (docs/files.md).
 pub fn save_file(data: impl Into<Vec<u8>>) -> SaveFile {
     SaveFile {
-        title: day_l10n::t(day_l10n::key::day_save),
+        title: day_localization::t(day_localization::key::day_save),
         suggested_name: "untitled.txt".to_string(),
         filters: Vec::new(),
         data: data.into(),
@@ -650,7 +650,7 @@ impl IntoFuture for SaveFile {
 }
 
 // The file flows' filesystem, behind four verbs: a browser has no `std::fs`, so the wasm arms
-// go through day-spec's `web_files` byte store instead (day-dom's picker fills it and the
+// go through day-spec's `web_files` byte store instead (day-toolkit-dom's picker fills it and the
 // shim's download drains it), while every other platform reads and writes files on disk.
 #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
 mod files {

@@ -32,14 +32,14 @@ for dm in re.finditer(r"\n    fn (\w+)", body):
     duties.append((name, required))
 
 backends = [
-    ("appkit", "toolkits/day-appkit/src/lib.rs"),
-    ("uikit", "toolkits/day-uikit/src/lib.rs"),
-    ("gtk", "toolkits/day-gtk/src/lib.rs"),
-    ("qt", "toolkits/day-qt/src/lib.rs"),
-    ("xaml", "toolkits/day-winui/src/lib.rs"),
-    ("android", "toolkits/day-mdc/src/lib.rs"),
-    ("arkui", "toolkits/day-arkui/src/lib.rs"),
-    ("dom", "toolkits/day-dom/src/lib.rs"),
+    ("appkit", "crates/day-toolkit-appkit/src/lib.rs"),
+    ("uikit", "crates/day-toolkit-uikit/src/lib.rs"),
+    ("gtk", "crates/day-toolkit-gtk/src/lib.rs"),
+    ("qt", "crates/day-toolkit-qt/src/lib.rs"),
+    ("xaml", "crates/day-toolkit-winui/src/lib.rs"),
+    ("android", "crates/day-toolkit-material/src/lib.rs"),
+    ("arkui", "crates/day-toolkit-arkui/src/lib.rs"),
+    ("dom", "crates/day-toolkit-dom/src/lib.rs"),
     ("mock", "crates/day-mock/src/lib.rs"),
 ]
 sources = {name: Path(path).read_text() for name, path in backends}

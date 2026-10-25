@@ -130,7 +130,7 @@ pub fn check(project: &Project, platform: &str) -> Result<(), String> {
 /// App-specific manifest permissions, resources, and pieces are staged by the existing builders.
 fn rendered(project: &Project, platform: &str) -> Result<Vec<(String, Vec<u8>)>, String> {
     let target = if platform == "android" {
-        "android-mdc"
+        "android-material"
     } else {
         "harmony-arkui"
     };
@@ -348,7 +348,7 @@ pub fn android_manifest(project: &Project) -> Result<String, String> {
 pub fn prepare_android(project: &Project) -> Result<PathBuf, String> {
     let dir = ensure_android(project)?;
     crate::pack::android::write_app_properties(project)?;
-    let target = crate::external::find_target(project, "android-mdc")?;
+    let target = crate::external::find_target(project, "android-material")?;
     crate::resources::stage(project, target)?;
     crate::shortcuts::sync_android(project)?;
     crate::pieces::write_android_manifest(project)?;
@@ -371,7 +371,7 @@ mod tests {
             ));
             std::fs::create_dir_all(&root).unwrap();
             Self(Project { root, manifest: toml::from_str(
-                "schema = 1\n[app]\nid = 'dev.example.fixture'\ntitle = 'A \"quoted\" title'\ntargets = ['android-mdc', 'harmony-arkui']\n"
+                "schema = 1\n[app]\nid = 'dev.example.fixture'\ntitle = 'A \"quoted\" title'\ntargets = ['android-material', 'harmony-arkui']\n"
             ).unwrap() })
         }
     }

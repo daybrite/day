@@ -17,7 +17,7 @@
 
 use std::io::{BufRead, BufReader, Write};
 
-use day_script_proto::{Reply, Request, ScriptStep};
+use day_script_protocol::{Reply, Request, ScriptStep};
 
 use crate::cli::{CliError, ErrKind};
 use crate::meta::Project;

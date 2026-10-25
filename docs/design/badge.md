@@ -20,7 +20,7 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 > **Status: shipped on every platform with an API.** `AppBadge`, `Cap::AppBadge{Count,Text,Dot}`,
 > the defaulted `Toolkit::set_app_badge` duty and the `day::set_app_badge` facade, with arms on
 > AppKit, UIKit, Web, HarmonyOS, Linux GTK and Qt (the Unity launcher signal through the
-> `day-dbus` crate, `Emulated`), and Windows XAML (an overlay icon Day draws, compile-checked).
+> `day-platform-linux` crate, `Emulated`), and Windows XAML (an overlay icon Day draws, compile-checked).
 > Android answers `Unsupported`: it has no API. [docs/duty-matrix.md](../duty-matrix.md) and
 > [docs/coverage-matrix.md](../coverage-matrix.md) carry the rows. Progress on the Dock or
 > taskbar icon shipped beside it as `day::set_app_progress` ([docs/status-item.md](../status-item.md)).
@@ -71,11 +71,11 @@ This is the part that decides the API, because the payload differs more than the
 |---|---|---|---|---|
 | macos-appkit | ✓ | **✓** | ✓ | `NSApp.dockTile.badgeLabel` — an arbitrary `String` |
 | ios-uikit | ✓ | – | – | `UNUserNotificationCenter.setBadgeCount` (iOS 16+); number only |
-| linux-gtk / linux-qt | ~ | – | – | `com.canonical.Unity.LauncherEntry` D-Bus signal (`count`, `count-visible`) through the `day-dbus` crate; `Emulated`, because whether it shows depends on the dock |
+| linux-gtk / linux-qt | ~ | – | – | `com.canonical.Unity.LauncherEntry` D-Bus signal (`count`, `count-visible`) through the `day-platform-linux` crate; `Emulated`, because whether it shows depends on the dock |
 | web-dom | ✓ | – | ✓ | `navigator.setAppBadge(n?)` / `clearAppBadge()` |
 | windows-winui | ✓ | – | ✓ | `ITaskbarList3::SetOverlayIcon` with a red disc Day draws holding the count (99+ past 99), or none for a dot |
-| android-mdc | – | – | ~ | none: the launcher derives a dot from posted notifications |
-| harmony-arkui | ✓ | – | – | `notificationManager.setBadgeNumber`, an ArkTS-only API reached through day-arkui's daybridge arm (`src/host.rs`) |
+| android-material | – | – | ~ | none: the launcher derives a dot from posted notifications |
+| harmony-arkui | ✓ | – | – | `notificationManager.setBadgeNumber`, an ArkTS-only API reached through day-toolkit-arkui's daybridge arm (`src/host.rs`) |
 
 Four findings follow from that table.
 
@@ -193,9 +193,9 @@ property, a bar on the Dock tile, and `ITaskbarList3::SetProgressValue`.
    AppKit, UIKit, and Web arms.** Those three are small and cover the platforms with a real API:
    `badgeLabel`, `setBadgeCount`, `setAppBadge`. Android answers `Unsupported` from the default and
    its doc points at `Notification::badge`.
-2. **Linux** (done), over the Unity D-Bus signal through the std-only `day-dbus` crate. Reports
+2. **Linux** (done), over the Unity D-Bus signal through the std-only `day-platform-linux` crate. Reports
    `Emulated`, because whether it shows depends on the shell.
-3. **HarmonyOS** (done: `setBadgeNumber` is ArkTS-only, so day-arkui carries a daybridge arm for
+3. **HarmonyOS** (done: `setBadgeNumber` is ArkTS-only, so day-toolkit-arkui carries a daybridge arm for
    it and reports `Cap::AppBadgeCount` as `Native` wherever that arm is staged), and **Windows**
    (done: Day draws the count into the overlay icon).
 

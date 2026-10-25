@@ -1,0 +1,828 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
+//! day-toolkit-xaml-sys — raw `extern "C"` declarations for the C++/WinRT XAML-Islands shim
+//! (src/shim.cpp) compiled by build.rs. Handles are opaque `Windows.UI.Xaml.UIElement*`
+//! heap-boxed by the shim; `day_xaml_delete` releases the WinRT reference.
+
+#![cfg(windows)]
+
+use std::os::raw::{c_char, c_double, c_int, c_uint, c_void};
+
+/// What [`day_xaml_read_native`] reads back from an element: the shim's `DayXamlNative`,
+/// field for field. A member the element does not carry keeps its "not read" value: `0` in a
+/// `has_*` flag, `-1` in a tri-state (`checked`, `enabled`, `visible`), a null string. Strings
+/// are heap copies to release with [`day_xaml_string_free`].
+#[repr(C)]
+pub struct DayXamlNative {
+    /// The accessibility group (`role` through `identifier`) was read.
+    pub found: c_int,
+    /// [`day_xaml_set_a11y`]'s role table; `0` when the element carries none of it.
+    pub role: c_int,
+    /// The heading level, with role 5.
+    pub level: c_int,
+    pub label: *mut c_char,
+    pub value: *mut c_char,
+    pub identifier: *mut c_char,
+    /// The text on screen; null for a `PasswordBox` and elements without text.
+    pub text: *mut c_char,
+    pub has_number: c_int,
+    pub number: c_double,
+    pub checked: c_int,
+    pub enabled: c_int,
+    pub visible: c_int,
+    pub has_frame: c_int,
+    pub x: c_double,
+    pub y: c_double,
+    pub w: c_double,
+    pub h: c_double,
+}
+
+/// What a window wears (docs/window-chrome.md): the shim's `DayXamlChrome`, field for field,
+/// passed to [`day_xaml_window_new`] and [`day_xaml_window_new2`].
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default)]
+pub struct DayXamlChrome {
+    /// 0 standard, 1 overlay title bar, 2 frameless.
+    pub chrome: c_int,
+    /// 0 opaque, 1 transparent (not drawn: the window stays opaque), 2 a system material.
+    pub background: c_int,
+    /// With `background` 2: 0 window (Mica), 1 sidebar (Mica Alt), 2 transient (Acrylic).
+    pub material: c_int,
+    /// 0 drops a frameless window's shadow.
+    pub shadow: c_int,
+    /// 0 takes the sizing border and the maximize box away.
+    pub resizable: c_int,
+    /// 0 automatic, 1 centered on the active window's monitor, 2 at (`x`, `y`).
+    pub placement: c_int,
+    /// With `placement` 2: the outer frame's top-left corner, in points.
+    pub x: c_double,
+    pub y: c_double,
+}
+
+/// One display (docs/windows.md "Monitors"): the shim's `DayXamlMonitor`, field for field.
+/// Rectangles are `[x, y, width, height]` in points on the desktop.
+#[repr(C)]
+pub struct DayXamlMonitor {
+    pub frame: [c_double; 4],
+    /// The frame minus the taskbar and docked app bars.
+    pub work: [c_double; 4],
+    /// Device pixels per point.
+    pub scale: c_double,
+    pub primary: c_int,
+    /// NUL-terminated UTF-8: the monitor's device interface path, else its adapter output.
+    pub id: [c_char; 160],
+    /// NUL-terminated UTF-8: the name Windows shows for the monitor.
+    pub name: [c_char; 128],
+}
+
+unsafe extern "C" {
+    #[cfg(feature = "winui")]
+    pub fn day_xaml_canvas_bitmap(
+        id: u64,
+        nums: *const f64,
+        n: c_int,
+        texts: *const c_char,
+        width: c_int,
+        height: c_int,
+        scale: f64,
+    ) -> c_int;
+    #[cfg(feature = "winui")]
+    pub fn day_xaml_encode_png(id: u64, fit_w: c_int, fit_h: c_int, len: *mut c_int) -> *mut u8;
+    #[cfg(feature = "winui")]
+    pub fn day_xaml_bytes_free(bytes: *mut u8);
+    // window / app lifecycle
+    pub fn day_xaml_window_new(
+        title: *const c_char,
+        w: c_int,
+        h: c_int,
+        min_w: c_int,
+        min_h: c_int,
+        chrome: *const DayXamlChrome,
+    ) -> *mut c_void;
+    pub fn day_xaml_window_root(win: *mut c_void) -> *mut c_void;
+    /// The ROOT canvas, above the docked chrome — unlike [`day_xaml_window_root`], which returns
+    /// the content canvas day's tree mounts into. Only a fullscreen cover needs this.
+    pub fn day_xaml_window_chrome_root(win: *mut c_void) -> *mut c_void;
+    /// The root's laid-out size in DIPs: the whole client area, chrome included. The resize
+    /// callback reports the CONTENT size instead, which is smaller by exactly that chrome.
+    pub fn day_xaml_window_chrome_size(win: *mut c_void, out_w: *mut f64, out_h: *mut f64);
+    pub fn day_xaml_window_show(win: *mut c_void);
+    // Secondary windows (docs/windows.md): per-window event callbacks keyed by day node id.
+    pub fn day_xaml_set_window_events_cb(
+        resized: extern "C" fn(u64, c_int, c_int),
+        closed: extern "C" fn(u64),
+        focused: extern "C" fn(u64, c_int),
+    );
+    pub fn day_xaml_window_new2(
+        title: *const c_char,
+        w: c_int,
+        h: c_int,
+        node: u64,
+        fixed: c_int,
+        chrome: *const DayXamlChrome,
+    ) -> *mut c_void;
+    pub fn day_xaml_window_content2(win: *mut c_void) -> *mut c_void;
+    pub fn day_xaml_window_close2(win: *mut c_void);
+    pub fn day_xaml_window_raise2(win: *mut c_void);
+    pub fn day_xaml_window_set_title2(win: *mut c_void, title: *const c_char);
+    pub fn day_xaml_window_destroy2(win: *mut c_void);
+    /// Window properties (docs/windows.md "Window properties"). `win` is either window token:
+    /// the primary's from [`day_xaml_window_new`] or a secondary's from [`day_xaml_window_new2`].
+    /// Ask for a `day_spec::WindowState` code (0 normal, 1 minimized, 2 maximized, 3 borderless
+    /// fullscreen); the outcome comes back through [`day_xaml_set_window_state_cb`].
+    pub fn day_xaml_window_set_state(win: *mut c_void, state: c_int);
+    /// Keep the window out of captures (`WDA_EXCLUDEFROMCAPTURE`, `WDA_MONITOR` before Windows
+    /// 10 2004) when `on` is non-zero; `WDA_NONE` otherwise.
+    pub fn day_xaml_window_set_protected(win: *mut c_void, on: c_int);
+    /// `cb(node, state)` on every change of a window's display state, and once for a request
+    /// that did not land: the secondary window's day node id, or `u64::MAX`
+    /// (`day_spec::WINDOW_NODE`) for the primary; `state` a `day_spec::WindowState` code.
+    pub fn day_xaml_set_window_state_cb(cb: extern "C" fn(u64, c_int));
+    /// `cb(node, top)` when an overlay window's title bar (plus any docked menu bar and toolbar
+    /// below it) covers a new height of its content, in DIPs: the window's safe-area top inset.
+    /// `node` as for [`day_xaml_set_window_state_cb`].
+    pub fn day_xaml_set_chrome_inset_cb(cb: extern "C" fn(u64, c_double));
+    /// 1 where Windows draws the system backdrops (Windows 11 22621 and later).
+    pub fn day_xaml_materials_supported() -> c_int;
+    /// Mark (`on` non-zero) or unmark the element as a drag region (`.window_drag_region()`):
+    /// a press on its own background moves the window like its title bar.
+    pub fn day_xaml_set_drag_region(h: *mut c_void, on: c_int);
+
+    // The app outside its windows (docs/status-item.md).
+    /// `cb(0, id)` runs a status item's click action or menu choice by dispatch id; `cb(1, 0)` is
+    /// its menu's Quit role.
+    pub fn day_xaml_set_status_cb(cb: extern "C" fn(c_int, u64));
+    /// Add or update the notification-area icon `id`: `glyph` an icon-font code point in hex, else
+    /// `image` an image file path, else the app's icon; `templ` draws the image in the taskbar's
+    /// color; `activate` the dispatch id a primary click runs (0: a click opens the menu);
+    /// `menu` the app menu's spec lines.
+    pub fn day_xaml_status_set(
+        id: *const c_char,
+        tip: *const c_char,
+        glyph: *const c_char,
+        image: *const c_char,
+        templ: c_int,
+        activate: u64,
+        menu: *const c_char,
+    );
+    /// Remove every status item whose id is not in `ids` (newline-joined).
+    pub fn day_xaml_status_retain(ids: *const c_char);
+    /// Non-zero: Day's posts stay deliverable once the primary window is gone.
+    pub fn day_xaml_set_keep_running(keep: c_int);
+    /// The primary's taskbar progress: 0 none, 1 indeterminate, 2 value, 3 paused, 4 error.
+    pub fn day_xaml_set_app_progress(kind: c_int, value: c_double);
+    /// The primary's taskbar overlay badge: 0 none, 1 `count` (0 clears), 2 a dot.
+    pub fn day_xaml_set_app_badge(kind: c_int, count: c_uint);
+
+    // Single instance and the jump list (docs/deep-links.md).
+    /// `cb(data, len)` with the arguments a second instance forwarded: UTF-8, NUL-separated.
+    /// Called on the UI thread from inside a sent message, so it must only post.
+    pub fn day_xaml_set_forward_cb(cb: extern "C" fn(*const c_char, c_int));
+    /// Claim `app_id` for this process before any window opens: 1 carry on (first instance, or
+    /// no usable id); 0 the running instance took this process's arguments, so end it now. The
+    /// first instance also gets `app_id` as its AppUserModelID when it runs unpackaged.
+    pub fn day_xaml_claim_instance(app_id: *const c_char) -> c_int;
+    /// Replace the jump list's Tasks with `spec`'s `label \t link` lines (empty clears it).
+    pub fn day_xaml_set_jump_tasks(app_id: *const c_char, spec: *const c_char);
+
+    // Window properties (docs/windows.md "Window properties"); `win` as for the state calls.
+    /// Move (outer top-left, points on the desktop) and/or resize (content size, points).
+    pub fn day_xaml_window_set_frame(
+        win: *mut c_void,
+        has_origin: c_int,
+        x: c_double,
+        y: c_double,
+        has_size: c_int,
+        w: c_double,
+        h: c_double,
+    );
+    /// Content-size limits in points; 0 lifts a bound.
+    pub fn day_xaml_window_set_limits(
+        win: *mut c_void,
+        min_w: c_double,
+        min_h: c_double,
+        max_w: c_double,
+        max_h: c_double,
+    );
+    /// One on/off property: 0 floating, 1 left off the taskbar, 2 resizable, 3 minimizable,
+    /// 4 maximizable, 5 closable, 6 visible.
+    pub fn day_xaml_window_set_flag(win: *mut c_void, which: c_int, on: c_int);
+    /// The window's own scheme: -1 the app's, 0 light, 1 dark.
+    pub fn day_xaml_window_set_appearance(win: *mut c_void, mode: c_int);
+    /// Flash the taskbar button (`critical` 0: three times; 1: until the window is in front).
+    pub fn day_xaml_window_attention(win: *mut c_void, critical: c_int);
+    /// The outer frame in points on the desktop into `out[0..4]`; 0 when unknown.
+    pub fn day_xaml_window_frame(win: *mut c_void, out: *mut c_double) -> c_int;
+    /// Every attached display into `out` (up to `cap`); returns how many there are.
+    pub fn day_xaml_monitors(out: *mut DayXamlMonitor, cap: c_int) -> c_int;
+    /// Top-level host HWND of the (single, v1) app window — for a piece that needs the window handle
+    /// behind the XAML island. The WebView2 web view passes it as the composition controller's
+    /// parentWindow (DPI / IME / input association) while rendering windowless into the XAML tree.
+    pub fn day_xaml_host_hwnd() -> *mut c_void;
+    /// The pointer's shape over an element (docs/cursor.md): 0 releases it, 1..=16 name a
+    /// Win32 `IDC_*` shape in the shim's table, 17 hides the pointer.
+    pub fn day_xaml_set_cursor(h: *mut c_void, code: c_int);
+    /// Title-bar + taskbar icon from a multi-size `.ico` (§18.2).
+    pub fn day_xaml_set_app_icon(win: *mut c_void, ico_path: *const c_char);
+    pub fn day_xaml_window_on_resize(win: *mut c_void, cb: extern "C" fn(c_int, c_int));
+    pub fn day_xaml_run(win: *mut c_void);
+    /// End the app — day-core's close policy decided the last primary window is gone.
+    pub fn day_xaml_quit();
+    /// The primary window was closed by the user: day-core applies the close policy and drives
+    /// the teardown, exactly as it does for a secondary window (docs/windows.md).
+    pub fn day_xaml_set_primary_closed_cb(cb: extern "C" fn());
+    /// Destroy the primary window's host, once day-core has released its root handle.
+    pub fn day_xaml_destroy_primary();
+    /// Appearance (docs/settings.md): the effective dark/light for the `dark_mode` duty, and a
+    /// callback fired when the user flips the system setting while the app runs.
+    pub fn day_xaml_set_appearance_cb(cb: extern "C" fn());
+    pub fn day_xaml_is_dark() -> c_int;
+    /// The app's own override: 0 follow the system, 1 light, 2 dark. Re-themes every live window.
+    pub fn day_xaml_set_appearance(mode: c_int);
+    /// Reduce motion (docs/accessibility.md): 1 while Windows' "Show animations" switch is off
+    /// (`UISettings.AnimationsEnabled` false), read fresh on every call.
+    pub fn day_xaml_reduce_motion() -> c_int;
+    /// Fire `cb` on the UI thread whenever that switch flips while the app runs. The shim
+    /// subscribes once; a later call only replaces the callback.
+    pub fn day_xaml_watch_reduce_motion(cb: extern "C" fn());
+    pub fn day_xaml_request_frame(token: u64, cb: extern "C" fn(u64, f64));
+    pub fn day_xaml_cancel_frame(token: u64);
+    pub fn day_xaml_post(cb: extern "C" fn(*mut c_void), data: *mut c_void);
+    /// Run `cb(data)` on the UI thread after `ms` milliseconds (a `SetTimer` armed there).
+    pub fn day_xaml_post_delayed(ms: u32, cb: extern "C" fn(*mut c_void), data: *mut c_void);
+
+    // containers
+    pub fn day_xaml_container_new() -> *mut c_void;
+    pub fn day_xaml_container_set_card(h: *mut c_void, radius: f64);
+    // A ScrollViewer (docs §7.6): returns the host; `out_content` receives the inner content Canvas
+    // (day adds children there and reports the content extent via set_content_size).
+    pub fn day_xaml_scroll_new(out_content: *mut *mut c_void, horizontal: c_int) -> *mut c_void;
+    pub fn day_xaml_scroll_set_content_size(content: *mut c_void, w: c_int, h: c_int);
+    pub fn day_xaml_scroll_offset(sv: *mut c_void, out_x: *mut c_double, out_y: *mut c_double);
+    pub fn day_xaml_scroll_to(sv: *mut c_void, y: c_int, h: c_int, animated: c_int);
+    pub fn day_xaml_container_set_bg(w: *mut c_void, argb: u32);
+    // Backend-executed animation (DESIGN.md §8.4): day passes a target value + intent and XAML's
+    // own compositor runs it. `dur_ms <= 0` sets the value outright. `curve`: 0 linear, 1 ease-in,
+    // 2 ease-out, 3 ease-in-out, 4 spring — the same encoding day-toolkit-qt's shim takes.
+    pub fn day_xaml_set_opacity(w: *mut c_void, opacity: c_double, dur_ms: c_int, curve: c_int);
+    #[allow(clippy::too_many_arguments)]
+    pub fn day_xaml_set_transform(
+        w: *mut c_void,
+        tx: c_double,
+        ty: c_double,
+        sx: c_double,
+        sy: c_double,
+        rotate_deg: c_double,
+        dur_ms: c_int,
+        curve: c_int,
+    );
+    // Animated fill. XAML is the only desktop backend that can tween a background color (§8.4).
+    pub fn day_xaml_container_animate_bg(w: *mut c_void, argb: u32, dur_ms: c_int, curve: c_int);
+    pub fn day_xaml_cover_ground(w: *mut c_void);
+    /// Best-effort rounded clip for a `corner_radius` container: a rounded `RectangleGeometry`
+    /// Clip whose Rect tracks the element size (SizeChanged). Corner support is limited on a bare
+    /// Canvas, so this is best-effort (docs).
+    pub fn day_xaml_container_set_corner(w: *mut c_void, radius: c_double);
+    /// A canvas that can hold keyboard focus (docs/menus.md): `handles` asks whether the app
+    /// claimed a key before the shim consumes it, `cb` delivers `(id, key_name, modifier_mask)`.
+    pub fn day_xaml_canvas_new(
+        id: u64,
+        handles: extern "C" fn(u64) -> c_int,
+        cb: extern "C" fn(u64, *const c_char, c_int),
+    ) -> *mut c_void;
+    /// Render a canvas display list (day_spec::encode_ops output) into the Canvas.
+    pub fn day_xaml_canvas_set_ops(
+        w: *mut c_void,
+        nums: *const c_double,
+        n: c_int,
+        texts_joined: *const c_char,
+    );
+
+    // recycling list host (docs/list.md): a ScrollViewer + content Canvas
+    pub fn day_xaml_list_new(out_content: *mut *mut c_void) -> *mut c_void;
+    pub fn day_xaml_list_set_content_size(content: *mut c_void, w: c_int, h: c_int);
+    pub fn day_xaml_list_viewport(sv: *mut c_void, out_offset: *mut f64, out_height: *mut f64);
+    pub fn day_xaml_list_keynav(sv: *mut c_void, node: u64, cb: extern "C" fn(u64, c_int) -> c_int);
+    pub fn day_xaml_list_on_scroll(sv: *mut c_void, node: u64, cb: extern "C" fn(u64));
+    // Emulated list drag-to-reorder (docs/list.md): the content Canvas accepts day-row drops —
+    // every hovered slot is vetted synchronously through `can` (accepted index or -1; the system
+    // shows the no-drop cursor on -1), and the drop commits via `mv`.
+    pub fn day_xaml_list_enable_reorder(
+        content: *mut c_void,
+        id: u64,
+        row_h: c_int,
+        can: extern "C" fn(u64, c_int, c_int) -> c_int,
+        mv: extern "C" fn(u64, c_int, c_int),
+    );
+    // Arm the WinRT drag start on one cell (cell index == row for its whole life).
+    pub fn day_xaml_cell_drag(cell: *mut c_void, id: u64, row: c_int);
+    // Emulated list row selection (docs/list.md): report a press on one cell as (node, row, mods)
+    // — mods bit 0 = ctrl (toggle), bit 1 = shift (range) — leaving the semantics to Rust. Also
+    // makes the cell hit-testable across its whole band.
+    pub fn day_xaml_list_cell_click(
+        cell: *mut c_void,
+        id: u64,
+        row: c_int,
+        cb: extern "C" fn(u64, c_int, c_int),
+    );
+    // Paint one cell's selected treatment (0 clears it).
+    pub fn day_xaml_cell_set_selected(cell: *mut c_void, on: c_int);
+
+    // navigation sidebar menu (docs/navigation.md): a single-select ListView. `sections_joined`
+    // runs parallel to `items_joined`, one line per row, naming the section title that opens
+    // before that row (an empty line for none). Indices in and out count rows only.
+    pub fn day_xaml_navlist_new(id: u64, cb: extern "C" fn(u64, c_int)) -> *mut c_void;
+    pub fn day_xaml_navlist_set_items(
+        w: *mut c_void,
+        items_joined: *const c_char,
+        sections_joined: *const c_char,
+    );
+    pub fn day_xaml_navlist_set_selected(w: *mut c_void, idx: c_int);
+
+    // native NavigationView split nav (docs/navigation.md): the idiomatic Windows sidebar+header,
+    // as in Settings. `out_content` receives the detail-page Canvas. Callbacks: sel(id, index) on a
+    // user menu pick; size(id, region, w, h) on a region reflow (region 0 = content, 1 = pane header);
+    // back(id) on the back button.
+    pub fn day_xaml_nav_new(
+        id: u64,
+        sel_cb: extern "C" fn(u64, c_int),
+        size_cb: extern "C" fn(u64, c_int, c_int, c_int),
+        back_cb: extern "C" fn(u64),
+        out_content: *mut *mut c_void,
+        stack: c_int,
+        rtl: c_int,
+        documents: c_int,
+        can_add: c_int,
+        new_label: *const c_char,
+        document_cb: extern "C" fn(u64, c_int, c_int, *const c_char),
+    ) -> *mut c_void;
+    pub fn day_xaml_document_chrome(host: *mut c_void, native: c_int);
+    pub fn day_xaml_document_items(nav: *mut c_void, titles: *const c_char, keys: *const c_char);
+    pub fn day_xaml_nav_set_items(
+        nav: *mut c_void,
+        items_joined: *const c_char,
+        icons_joined: *const c_char,
+        geoms_joined: *const c_char,
+        tints_joined: *const c_char,
+        badge_icons_joined: *const c_char,
+        badge_geoms_joined: *const c_char,
+        badge_tints_joined: *const c_char,
+        sections_joined: *const c_char,
+    );
+    pub fn day_xaml_nav_set_selected(nav: *mut c_void, idx: c_int);
+    // Inspector (docs/inspector.md): a right-pane SplitView. `out_content`/`out_panel` receive
+    // the two Canvas hosts; size(id, region, w, h) reports a region reflow (0 = content,
+    // 1 = panel), the NavigationView contract.
+    pub fn day_xaml_inspector_new(
+        id: u64,
+        panel_width: c_double,
+        open: c_int,
+        leading: c_int,
+        size_cb: extern "C" fn(u64, c_int, c_int, c_int),
+        out_content: *mut *mut c_void,
+        out_panel: *mut *mut c_void,
+    ) -> *mut c_void;
+    pub fn day_xaml_inspector_set_open(h: *mut c_void, open: c_int);
+    pub fn day_xaml_nav_set_pane_mode(nav: *mut c_void, mode: c_int);
+    pub fn day_xaml_nav_set_header(nav: *mut c_void, title: *const c_char);
+    pub fn day_xaml_nav_set_pane_header(nav: *mut c_void, element: *mut c_void);
+    pub fn day_xaml_nav_set_back_visible(nav: *mut c_void, visible: c_int);
+
+    // leaves
+    pub fn day_xaml_label_new(text: *const c_char, wraps: c_int) -> *mut c_void;
+    pub fn day_xaml_label_set_text(w: *mut c_void, text: *const c_char);
+    pub fn day_xaml_label_runs_begin(h: *mut c_void, node: u64);
+    /// Install the trampoline a link run's Hyperlink Click reports through (docs/text-runs.md).
+    pub fn day_xaml_label_link_cb(cb: extern "C" fn(u64, *const c_char));
+    pub fn day_xaml_label_runs_add(
+        h: *mut c_void,
+        text: *const c_char,
+        flags: c_int,
+        argb: u32,
+        bg_argb: u32,
+        scale_permille: c_int,
+        link: *const c_char,
+    );
+    pub fn day_xaml_label_set_font(
+        w: *mut c_void,
+        pt: c_double,
+        weight: c_int,
+        italic: c_int,
+        tabular: c_int,
+    );
+    /// Bundled custom font (§18.4): `spec` is a `FontFamily` source of the form
+    /// "ms-appx:///fonts/<file>#<family>" (the font staged under `<exe>/fonts/`).
+    pub fn day_xaml_label_set_font_family(w: *mut c_void, spec: *const c_char);
+    /// Make a label's text user-selectable (the `.selectable()` modifier). No-op on non-labels.
+    pub fn day_xaml_label_set_selectable(w: *mut c_void, on: c_int);
+    /// TextBlock.Foreground = SolidColorBrush(argb); alpha 0 restores the inherited default.
+    pub fn day_xaml_label_set_color(w: *mut c_void, argb: u32);
+    /// The platform's secondary text color (`TextRole::Secondary`), theme-tracking.
+    pub fn day_xaml_label_set_secondary(w: *mut c_void);
+    /// Wrapped lines' alignment within the label's width: 0 leading, 1 center, 2 trailing.
+    pub fn day_xaml_label_set_align(w: *mut c_void, mode: c_int);
+
+    pub fn day_xaml_button_new(
+        title: *const c_char,
+        id: u64,
+        cb: extern "C" fn(u64),
+    ) -> *mut c_void;
+    pub fn day_xaml_button_set_style(h: *mut c_void, kind: c_int, argb: u32, fg_argb: u32);
+    /// `ButtonProps::selected`: the theme's accent fill on a plain Button (a ToggleButton's
+    /// `IsChecked`), kept across a restyle and read back as `checked`.
+    pub fn day_xaml_button_set_selected(h: *mut c_void, on: c_int);
+    pub fn day_xaml_button_set_content(
+        h: *mut c_void,
+        title: *const c_char,
+        glyph: *const c_char,
+        image: *const c_char,
+        geometry: *const c_char,
+        icon_only: c_int,
+    );
+    pub fn day_xaml_button_set_title(w: *mut c_void, title: *const c_char);
+
+    pub fn day_xaml_toggle_new(on: c_int, id: u64, cb: extern "C" fn(u64, c_int)) -> *mut c_void;
+    pub fn day_xaml_toggle_set(w: *mut c_void, on: c_int);
+
+    pub fn day_xaml_slider_new(
+        value: f64,
+        min: f64,
+        max: f64,
+        step: f64,
+        id: u64,
+        cb: extern "C" fn(u64, f64, c_int),
+    ) -> *mut c_void;
+    pub fn day_xaml_slider_set(w: *mut c_void, value: f64);
+
+    pub fn day_xaml_progress_new(determinate: c_int, value: c_int) -> *mut c_void;
+    pub fn day_xaml_progress_is_ring(w: *mut c_void) -> c_int;
+    pub fn day_xaml_progress_set(w: *mut c_void, value: c_int);
+
+    pub fn day_xaml_tabs_new(id: u64, cb: extern "C" fn(u64, c_int)) -> *mut c_void;
+    pub fn day_xaml_tabs_add_page(
+        tabs: *mut c_void,
+        page: *mut c_void,
+        title: *const c_char,
+        index: c_int,
+    );
+    pub fn day_xaml_tabs_remove_page(tabs: *mut c_void, page: *mut c_void);
+    pub fn day_xaml_tabs_set_current(tabs: *mut c_void, index: c_int);
+    pub fn day_xaml_tabs_content_size(tabs: *mut c_void, w: *mut f64, h: *mut f64);
+
+    pub fn day_xaml_textbox_new(
+        text: *const c_char,
+        placeholder: *const c_char,
+        id: u64,
+        cb: extern "C" fn(u64, *const c_char),
+    ) -> *mut c_void;
+    pub fn day_xaml_textbox_set_text(w: *mut c_void, text: *const c_char);
+    pub fn day_xaml_textbox_set_placeholder(w: *mut c_void, text: *const c_char);
+    // Entry traits (docs/textfield.md). A secure field is a `PasswordBox`, a class of its own, so
+    // the two text setters above and every generic entry point accept either class.
+    /// 1 while the field is the secure class (`PasswordBox`).
+    pub fn day_xaml_field_is_secure(w: *mut c_void) -> c_int;
+    /// Rebuild the field as the secure class or the plain one, wired to the same callbacks
+    /// `day_xaml_textbox_new` and `day_xaml_enable_focus` take. Returns the replacement, already
+    /// in the old control's place and holding its text, state and focus, or null when the field
+    /// is that class already (or is not a text field). After a non-null return the caller owns
+    /// both handles and deletes `w`.
+    pub fn day_xaml_field_set_secure(
+        w: *mut c_void,
+        secure: c_int,
+        id: u64,
+        text_cb: extern "C" fn(u64, *const c_char),
+        focus_cb: extern "C" fn(u64, c_int),
+    ) -> *mut c_void;
+    /// The traits that are properties. `scope`: 0 default, 1 name, 2 email, 3 URL, 4 phone,
+    /// 5 number. `plain` turns spell checking and prediction off.
+    pub fn day_xaml_field_set_traits(w: *mut c_void, read_only: c_int, scope: c_int, plain: c_int);
+
+    /// `vertical`: 1 for a rule down a row (a 1px-wide Border), 0 for one across a column.
+    pub fn day_xaml_divider_new(vertical: c_int) -> *mut c_void;
+    pub fn day_xaml_image_new(uri: *const c_char, mode: c_int) -> *mut c_void;
+    // Raster images from bytes (docs/images.md): the shim holds the ENCODED buffer per id, since
+    // a `BitmapImage` is UI-thread-bound and decodes lazily.
+    /// Hold `bytes` under `id`; 0 when the buffer was empty.
+    pub fn day_xaml_image_decode(id: u64, bytes: *const u8, len: c_int) -> c_int;
+    /// Copy the bytes `id` holds into `out` (at most `cap`), returning the full length; 0 when
+    /// the id names nothing.
+    pub fn day_xaml_image_bytes(id: u64, out: *mut u8, cap: c_int) -> c_int;
+    /// Drop a held bitmap.
+    pub fn day_xaml_image_release(id: u64);
+    /// An image viewport over raw encoded bytes.
+    pub fn day_xaml_image_bytes_new(bytes: *const u8, len: c_int, mode: c_int) -> *mut c_void;
+    /// An image viewport over a bitmap already held under `id`.
+    pub fn day_xaml_image_bitmap_new(id: u64, mode: c_int) -> *mut c_void;
+    /// Replace the raster/vector content of a stable image viewport. A source that will not
+    /// load leaves the view as it was.
+    pub fn day_xaml_image_set_vector(w: *mut c_void, spec: *const c_char);
+    pub fn day_xaml_image_set_tint(w: *mut c_void, argb: u32, tinted: c_int);
+    pub fn day_xaml_image_set_uri(w: *mut c_void, uri: *const c_char);
+    pub fn day_xaml_image_set_bytes(w: *mut c_void, bytes: *const u8, len: c_int);
+    pub fn day_xaml_image_set_bitmap(w: *mut c_void, id: u64);
+    /// A vector glyph as real XAML `Path` geometry inside a scaling `Viewbox` (docs/vectors.md):
+    /// resolution-independent. `tinted` 1 composes `argb` over the shapes as a brush; 2 draws
+    /// them in the theme foreground brush (a template glyph, re-resolved on a theme change); 0
+    /// keeps the authored paints; 3 is an explicitly tinted template. Null when the spec
+    /// carried no drawable geometry, so the caller falls back to the raster.
+    pub fn day_xaml_vector_new(
+        spec: *const c_char,
+        mode: c_int,
+        argb: u32,
+        tinted: c_int,
+    ) -> *mut c_void;
+    /// A tinted vector glyph as a monochrome `BitmapIcon` — the raster fallback for art that
+    /// could not be converted to geometry. `tinted` as above (1 = `argb`, 2 = the theme
+    /// foreground); null when unresolved or `tinted` is 0.
+    pub fn day_xaml_image_tinted_new(
+        icon_file: *const c_char,
+        mode: c_int,
+        argb: u32,
+        tinted: c_int,
+    ) -> *mut c_void;
+
+    // External-piece / tweaks handle seam (docs/tweaks.md): box a WinRT ABI pointer into a day
+    // handle, and borrow the ABI pointer back out. `day_xaml_unbox` returns winrt::get_abi —
+    // a BORROWED IUIElement*, valid while the handle's Node holds its reference; callers that
+    // retain must copy_from_abi (AddRef) on their own side.
+    pub fn day_xaml_box(iinspectable_abi: *mut c_void) -> *mut c_void;
+    pub fn day_xaml_unbox(handle: *mut c_void) -> *mut c_void;
+
+    // tree / geometry / props
+    pub fn day_xaml_add_child(parent: *mut c_void, child: *mut c_void);
+    /// Move a child that already has a parent. [`day_xaml_add_child`] cannot: XAML allows one
+    /// logical parent, so appending an already-parented element throws and is swallowed.
+    pub fn day_xaml_reparent(parent: *mut c_void, child: *mut c_void);
+    pub fn day_xaml_remove_child(parent: *mut c_void, child: *mut c_void);
+    pub fn day_xaml_delete(w: *mut c_void);
+    pub fn day_xaml_set_geometry(w: *mut c_void, x: c_int, y: c_int, width: c_int, height: c_int);
+    /// Report template readiness for controls; other elements need no subscription.
+    pub fn day_xaml_on_control_loaded(w: *mut c_void, id: u64, cb: extern "C" fn(u64));
+    pub fn day_xaml_measure(
+        w: *mut c_void,
+        avail_w: c_double,
+        avail_h: c_double,
+        out_w: *mut c_double,
+        out_h: *mut c_double,
+    );
+    pub fn day_xaml_set_enabled(w: *mut c_void, enabled: c_int);
+    pub fn day_xaml_set_visible(w: *mut c_void, visible: c_int);
+    pub fn day_xaml_widget_size(w: *mut c_void, out_w: *mut f64, out_h: *mut f64);
+    /// First text baseline from the element's top for a box `box_h` tall; `-1` ⇒ no text
+    /// (docs/baseline.md).
+    pub fn day_xaml_baseline(w: *mut c_void, box_h: f64) -> f64;
+    pub fn day_xaml_set_name(w: *mut c_void, name: *const c_char);
+    /// A node's accessibility annotations (docs/accessibility.md), each applied only when set:
+    /// a null or empty string, role 0 and hidden 0 leave the element alone. `role` is
+    /// `day_spec::Role`'s declaration order (0 None, 1 Button, 2 Toggle, 3 Slider, 4 TextInput,
+    /// 5 Heading, 6 Image, 7 Meter, 8 Group, 9 Tree, 10 TreeItem, 11 Tab, 12 TabList); `level` is the 1-based
+    /// heading level, read only with role 5. The automation id stays with [`day_xaml_set_name`].
+    pub fn day_xaml_set_a11y(
+        w: *mut c_void,
+        label: *const c_char,
+        hint: *const c_char,
+        value: *const c_char,
+        role: c_int,
+        level: c_int,
+        hidden: c_int,
+    );
+    /// Read back what the element's native control reports into `out` (see
+    /// [`DayXamlNative`]); every string in it is released with [`day_xaml_string_free`].
+    pub fn day_xaml_read_native(w: *mut c_void, out: *mut DayXamlNative);
+    /// Speak `text` through the screen reader without moving its focus — a UIA notification
+    /// raised from the primary window's tree; `urgent` != 0 interrupts the current speech.
+    /// Nothing happens before the window exists or with no screen reader listening.
+    pub fn day_xaml_announce(text: *const c_char, urgent: c_int);
+
+    // gestures (docs/shapes.md): attach a native recognizer. kind 0 Tap / 1 LongPress / 2 Drag;
+    // cb(id, phase, x, y, tx, ty) with phase 0 Tap, 1/2/3 Drag Began/Changed/Ended, 4 LongPress.
+    pub fn day_xaml_enable_gesture(
+        elem: *mut c_void,
+        id: u64,
+        kind: c_int,
+        cb: extern "C" fn(u64, c_int, c_double, c_double, c_double, c_double),
+    );
+
+    // focus (docs/focus.md): observe via GotFocus/LostFocus (kind 1 gained / 0 lost / 2
+    // submitted); drive via Focus(Programmatic), resigning to the window's focus sink.
+    pub fn day_xaml_enable_focus(elem: *mut c_void, id: u64, cb: extern "C" fn(u64, c_int));
+    pub fn day_xaml_control_focus(elem: *mut c_void, focused: c_int);
+
+    /// Capture the window's client area to a PNG file. Returns 0 on success.
+    pub fn day_xaml_snapshot_png(win: *mut c_void, path: *const c_char) -> c_int;
+    /// The same capture against a SECONDARY window's token — a `screenshot: { window: … }` step.
+    pub fn day_xaml_snapshot_png2(win: *mut c_void, path: *const c_char) -> c_int;
+    /// Where the content sits in `day_xaml_snapshot_png`'s capture, in DIPs, written to
+    /// `out[0..2]` as x, y. Returns 0 on success.
+    pub fn day_xaml_snapshot_origin(win: *mut c_void, out: *mut f64) -> c_int;
+
+    // Canvas fonts (docs/fonts.md).
+    /// The DirectWrite system font collection in Day's font-list text; a heap string to
+    /// release with [`day_xaml_string_free`].
+    pub fn day_xaml_font_families() -> *mut c_char;
+    /// Release a string returned by [`day_xaml_font_families`]. Safe to call with null.
+    pub fn day_xaml_string_free(p: *mut c_char);
+    /// Measure one line of canvas text; `out` (3 doubles) receives width, height, ascent.
+    /// Returns 0 on success.
+    pub fn day_xaml_measure_text(
+        text: *const c_char,
+        size: f64,
+        weight: c_int,
+        italic: c_int,
+        family: *const c_char,
+        out: *mut f64,
+    ) -> c_int;
+
+    // lifecycle (docs/lifecycle.md): phase codes match day_spec::Lifecycle order.
+    pub fn day_xaml_set_lifecycle_cb(cb: extern "C" fn(c_int));
+
+    /// Open a URL in the system's default handler (the `link` piece's seam).
+    pub fn day_xaml_open_url(url: *const c_char);
+
+    // menus (docs/menus.md): a tab/newline spec parsed by the shim into MenuFlyout / MenuBar.
+    pub fn day_xaml_set_menu_cb(cb: extern "C" fn(u64));
+    pub fn day_xaml_set_context_menu(elem: *mut c_void, spec: *const c_char);
+    pub fn day_xaml_set_app_menu(win: *mut c_void, spec: *const c_char);
+
+    // Window toolbar (docs/toolbars.md): a CommandBar under the menu bar, edited one item at a
+    // time. Each item crosses as its own tab/newline spec, the same format the menus use (the
+    // format is documented on both sides — `serialize_toolbar` in day-toolkit-winui, the parser in
+    // shim.cpp). Buttons ride `day_xaml_set_menu_cb`; values arrive on the toolbar callback as
+    // (action, kind, on, text) with kind 0 = toggle, 1 = search text, 2 = segment index.
+    pub fn day_xaml_set_toolbar_cb(cb: extern "C" fn(u64, c_int, c_int, *const c_char));
+    /// Put the item `spec` describes at position `index` of window `win`'s bar (`secondary` != 0:
+    /// `win` is a secondary window).
+    pub fn day_xaml_toolbar_insert(
+        win: *mut c_void,
+        secondary: c_int,
+        index: c_int,
+        spec: *const c_char,
+    );
+    /// Take item `id` off window `win`'s bar.
+    pub fn day_xaml_toolbar_remove(win: *mut c_void, id: *const c_char);
+    /// End an edit: undock an empty bar and lay the window's chrome out.
+    pub fn day_xaml_toolbar_done(win: *mut c_void, secondary: c_int);
+    // Targeted patches, addressed by the item's id (no-op if the bar has no such item).
+    // Targeted item patches. `win` is the window whose toolbar owns the item: every window
+    // installs the same item ids, so a patch has to name the window as well as the id.
+    pub fn day_xaml_toolbar_focus(win: *mut c_void, id: *const c_char);
+    pub fn day_xaml_toolbar_set_text(win: *mut c_void, id: *const c_char, text: *const c_char);
+    pub fn day_xaml_toolbar_set_checked(win: *mut c_void, id: *const c_char, on: c_int);
+    pub fn day_xaml_toolbar_set_selected(win: *mut c_void, id: *const c_char, index: c_int);
+    pub fn day_xaml_toolbar_set_enabled(win: *mut c_void, id: *const c_char, on: c_int);
+    /// The app menu docked in a SECONDARY window (docs/windows.md): day's app menu has no
+    /// window parameter, so the same spec is installed into each window that opens.
+    pub fn day_xaml_window_set_menu2(win: *mut c_void, spec: *const c_char);
+    // Show/hide the split NavigationView's pane — the `SidebarToggle` item's behavior, also
+    // reachable from dayscript through the toolkit duty. 0 = no split nav in this window.
+    pub fn day_xaml_toggle_sidebar() -> c_int;
+    // Completions for a toolbar search field: the AutoSuggestBox's own ItemsSource
+    // (docs/search.md). Unit-separated (\x1f) list; empty clears it.
+    pub fn day_xaml_toolbar_set_suggestions(
+        win: *mut c_void,
+        id: *const c_char,
+        joined: *const c_char,
+    );
+
+    // present / dismiss (docs/dialogs.md): ContentDialog (alert/prompt) + WinRT file pickers.
+    // The cb delivers a result as (req, tag, index, text) — tag matches PresentResult::decode.
+    pub fn day_xaml_set_present_cb(cb: extern "C" fn(u64, c_int, i64, *const c_char));
+    pub fn day_xaml_present_dialog(
+        req: u64,
+        title: *const c_char,
+        message: *const c_char,
+        buttons_joined: *const c_char,
+        roles_joined: *const c_char,
+        win: *mut c_void,
+    );
+    pub fn day_xaml_present_prompt(
+        req: u64,
+        title: *const c_char,
+        message: *const c_char,
+        placeholder: *const c_char,
+        initial: *const c_char,
+        ok: *const c_char,
+        cancel: *const c_char,
+        win: *mut c_void,
+    );
+    /// `multiple` ≠ 0 picks several files (`PickMultipleFilesAsync`); the answer joins every
+    /// chosen path with the unit separator (tag 3, `PresentResult::decode`).
+    pub fn day_xaml_present_file_open(
+        req: u64,
+        title: *const c_char,
+        filters_joined: *const c_char,
+        multiple: c_int,
+        win: *mut c_void,
+    );
+    /// A WinRT `FolderPicker`, answered like a file.
+    pub fn day_xaml_present_folder_open(req: u64, title: *const c_char, win: *mut c_void);
+    pub fn day_xaml_present_file_save(
+        req: u64,
+        title: *const c_char,
+        suggested: *const c_char,
+        filters_joined: *const c_char,
+        win: *mut c_void,
+    );
+    pub fn day_xaml_dismiss_present(req: u64);
+}
+
+unsafe extern "C" {
+    pub fn day_xaml_tree_new(
+        id: u64,
+        height: f64,
+        indent: f64,
+        selectable: c_int,
+        multi: c_int,
+        expanded: extern "C" fn(u64, u64, c_int),
+        selected: extern "C" fn(u64, *const u64, c_int),
+        viewport: extern "C" fn(*mut c_void),
+    ) -> *mut c_void;
+    pub fn day_xaml_tree_begin(w: *mut c_void);
+    pub fn day_xaml_tree_add(
+        w: *mut c_void,
+        token: u64,
+        parent: u64,
+        has_parent: c_int,
+        text: *const c_char,
+        expandable: c_int,
+        header: c_int,
+        open: c_int,
+    );
+    pub fn day_xaml_tree_end(w: *mut c_void);
+    pub fn day_xaml_tree_cell(w: *mut c_void, token: u64) -> *mut c_void;
+    pub fn day_xaml_tree_frame(w: *mut c_void, token: u64, width: *mut f64) -> c_int;
+    pub fn day_xaml_tree_expand(w: *mut c_void, token: u64, open: c_int);
+    pub fn day_xaml_tree_select(w: *mut c_void, tokens: *const u64, len: c_int);
+    pub fn day_xaml_tree_reveal(w: *mut c_void, token: u64);
+}
+
+unsafe extern "C" {
+    pub fn day_xaml_tree_forget(w: *mut c_void);
+    pub fn day_xaml_nav_custom_sidebar(w: *mut c_void, page: *mut c_void);
+}
+
+#[cfg(feature = "winui")]
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct DayWinuiListCell {
+    pub cell: *mut std::ffi::c_void,
+    pub row: i32,
+    pub generation: u64,
+    pub width: f64,
+    pub visible: i32,
+}
+
+#[cfg(feature = "winui")]
+unsafe extern "C" {
+    pub fn day_winui_list_new(
+        pitch: f64,
+        selectable: i32,
+        activatable: i32,
+        reorderable: i32,
+        changed: extern "C" fn(*mut c_void),
+        selected: extern "C" fn(*mut c_void, i32, i32),
+        offer: extern "C" fn(*mut c_void, *mut c_void, i32),
+        action: extern "C" fn(*mut c_void, i32, u64, i32, i32),
+        can_move: extern "C" fn(*mut c_void, i32, i32) -> i32,
+        moved: extern "C" fn(*mut c_void, i32, i32),
+    ) -> *mut c_void;
+    pub fn day_winui_list_forget(host: *mut c_void);
+    pub fn day_winui_list_frame(host: *mut c_void, width: f64, height: f64);
+    pub fn day_winui_list_reload(host: *mut c_void, count: i32);
+    pub fn day_winui_list_layout(host: *mut c_void);
+    pub fn day_winui_list_cells(
+        host: *mut c_void,
+        out: *mut DayWinuiListCell,
+        capacity: i32,
+    ) -> i32;
+    pub fn day_winui_list_cell_size(
+        host: *mut c_void,
+        cell: *mut c_void,
+        generation: u64,
+        width: f64,
+        height: f64,
+    );
+    pub fn day_winui_list_scroll(host: *mut c_void, row: i32);
+    pub fn day_winui_list_select(host: *mut c_void, rows: *const i32, len: i32);
+    pub fn day_winui_list_actions_begin(host: *mut c_void, cell: *mut c_void);
+    pub fn day_winui_list_action_add(
+        host: *mut c_void,
+        cell: *mut c_void,
+        token: u64,
+        edge: i32,
+        index: i32,
+        label: *const c_char,
+        glyph: *const c_char,
+        destructive: i32,
+        color: *const f64,
+    );
+    pub fn day_winui_list_actions_end(host: *mut c_void, cell: *mut c_void);
+    /// A sectioned list's header rows; the first call makes the pinned header.
+    pub fn day_winui_list_headers(host: *mut c_void, rows: *const i32, len: i32);
+    /// The header row the pinned copy should show (-1 for none), with its cell and width.
+    pub fn day_winui_list_pinned(host: *mut c_void, cell: *mut *mut c_void, width: *mut f64)
+    -> i32;
+    /// The pinned copy now holds header `row`, laid out at `width` × `height`.
+    pub fn day_winui_list_pinned_bound(host: *mut c_void, row: i32, width: f64, height: f64);
+}

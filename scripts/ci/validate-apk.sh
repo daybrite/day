@@ -4,7 +4,7 @@
 # validate-apk.sh <dir>: install the shipped .apk on a running emulator and prove it starts
 # (§20.3).
 #
-# Stage 1 of the android-mdc shipped-artifact validation: an APK cannot be installed without a
+# Stage 1 of the android-material shipped-artifact validation: an APK cannot be installed without a
 # device, so CI boots an emulator through reactivecircus/android-emulator-runner and runs this.
 #
 # It lives in a file rather than inline in the workflow because that action executes each line of

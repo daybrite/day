@@ -142,7 +142,7 @@
   "/docs/parts": "/docs/reference/parts",
   "/docs/pieces": "/docs/explanation/pieces",
   "/docs/platforms": "/docs/reference/platforms",
-  "/docs/platforms/android-mdc": "/docs/reference/platforms/android-mdc",
+  "/docs/platforms/android-material": "/docs/reference/platforms/android-material",
   "/docs/platforms/harmony-arkui": "/docs/reference/platforms/harmony-arkui",
   "/docs/platforms/ios-uikit": "/docs/reference/platforms/ios-uikit",
   "/docs/platforms/linux-gtk": "/docs/reference/platforms/linux-gtk",

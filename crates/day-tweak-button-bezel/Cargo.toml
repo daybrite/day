@@ -1,0 +1,23 @@
+[package]
+name = "day-tweak-button-bezel"
+publish = false
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+license.workspace = true
+description = "Tweak: AppKit bezel styles for Day buttons — the smallest possible packaged tweak."
+
+[dependencies]
+day-core = { workspace = true }
+day-pieces = { workspace = true }
+day-toolkit-appkit = { workspace = true, optional = true }
+objc2-app-kit = { workspace = true, optional = true, features = ["NSButton", "NSControl", "NSView", "NSResponder", "NSButtonCell", "NSCell"] }
+
+[features]
+appkit = ["dep:day-toolkit-appkit", "dep:objc2-app-kit"]
+
+# Tweak crates reuse the piece backends table so `day build` unions `<pkg>/<backend>`
+# features into the app automatically (Tier A.2 — crates/day-cli/src/pieces.rs).
+[package.metadata.day.piece]
+backends = ["appkit"]

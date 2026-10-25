@@ -1,0 +1,110 @@
+[package]
+name = "day-part-keychain"
+publish = false
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description.workspace = true
+repository.workspace = true
+license.workspace = true
+
+# A headless day-ecosystem crate (no UI Piece): small secrets (tokens, passwords, keys) in the
+# platform's own secure store, by key. Any Rust code can depend on it and call
+# `day_part_keychain::set("session", &secret, Protection::WhenUnlocked)`. Platform selection is by
+# `#[cfg(target_os)]` (where a secret lives is an OS concern, not a widget-toolkit one), so there
+# are no backend features; it works per target as follows:
+#   iOS/macOS: the data protection keychain (generic-password items, this device only). An unsigned
+#              macOS development binary has no keychain-access-groups entitlement and falls back to
+#              the login keychain; `backend()` says which.
+#   Android:   a file per item under the app's no-backup directory, encrypted with keys the Android
+#              Keystore holds; items that need the person present are wrapped by a keystore key
+#              that only a passed BiometricPrompt can use (the Java arm in src/android.rs)
+#   Windows:   a file per item under %LOCALAPPDATA%, protected with DPAPI for the signed-in user;
+#              items that need the person present are read only after Windows Hello verifies them
+#   Linux:     the Secret Service (GNOME Keyring, KDE's ksecretd, KeePassXC) through libsecret,
+#              loaded at run time; an item is a keyring entry
+#   HarmonyOS: a file per item in the app sandbox, encrypted with AES-256-GCM keys the Universal
+#              Keystore holds; items that need the person present use a key bound to user
+#              authentication, satisfied with the token User Authentication Kit issues
+#   Web:       no store the page may rely on, so support() is Unsupported
+# See docs/keychain.md + docs/extending.md.
+#
+# Dependency budget. No crypto crate and no randomness crate: every cipher is the platform's
+# (Keychain, Keystore, DPAPI, libsecret, HUKS), and the two nonces this crate draws come from the
+# OS random device. The hashing for file names and the base64 the Linux arm stores are a few
+# dozen lines each, with their test vectors. The Apple arm uses the objc2 Security wrapper the
+# tree already pins; Windows uses the `windows` crate; HarmonyOS links the public keystore NDK.
+
+[dependencies]
+# `Support` is day-spec's through day-bridge, so a caller matches one enum for this crate and for
+# `day::capability()`; the Android arm's completions ride the same machinery.
+day-bridge = { workspace = true }
+# The oneshot behind `get_future` (docs/async.md).
+day-async = { workspace = true }
+
+# Apple: SecItem* and SecAccessControl through the typed wrapper (the dictionaries have enough
+# keys in play that hand-rolled CF calls would be the riskier budget), raw `objc2` for the one
+# LAContext the user-presence read hands to the keychain.
+[target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
+objc2 = { workspace = true }
+objc2-foundation = { workspace = true, features = ["NSString", "NSObject"] }
+objc2-core-foundation = { workspace = true, default-features = false, features = [
+    "std",
+    "CFArray",
+    "CFBase",
+    "CFData",
+    "CFDictionary",
+    "CFError",
+    "CFNumber",
+    "CFString",
+] }
+objc2-security = { workspace = true, features = [
+    "SecAccessControl",
+    "SecBase",
+    "SecItem",
+    "bitflags",
+] }
+
+# Android rides the day runtime's cached JVM, like every part with a Java arm.
+[target.'cfg(target_os = "android")'.dependencies]
+day-platform-android = { workspace = true }
+
+# Windows: DPAPI for the bytes, Windows Hello (through day-part-biometrics) for the person.
+[target.'cfg(target_os = "windows")'.dependencies]
+windows = { workspace = true, features = [
+    "Win32_Foundation",
+    "Win32_Security_Cryptography",
+] }
+day-part-biometrics = { workspace = true }
+
+# HarmonyOS: the keystore is C, the user-authentication dialog is ArkTS (day-part-biometrics).
+[target.'cfg(target_env = "ohos")'.dependencies]
+day-part-biometrics = { workspace = true }
+
+# --- iOS / macOS framework linking (docs/extending.md) ---
+# Rust's own `#[link]` is honored only when cargo drives the final link; on iOS xcodebuild links
+# the staticlib and ignores it, so the app links these through the generated DayPieces SwiftPM
+# package. LocalAuthentication is what a user-presence read hands the keychain.
+[package.metadata.day.ios]
+frameworks = ["Security", "LocalAuthentication"]
+
+[package.metadata.day.macos]
+frameworks = ["Security", "LocalAuthentication"]
+
+# --- Android backend contribution (docs/extending.md) ---
+# The Java is a daybridge arm in src/android.rs (docs/bridge.md), rendered and staged by
+# `day build`. Reading a `Protection::UserPresence` item shows the system's BiometricPrompt,
+# which needs `USE_BIOMETRIC`: a normal install-time permission with no prompt of its own, so the
+# crate contributes it rather than asking every app to. (An app that also uses
+# day-part-biometrics declares the portable `biometrics` permission, which names the same one.)
+[package.metadata.day.android]
+permissions = ["android.permission.USE_BIOMETRIC"]
+
+# --- HarmonyOS backend contribution ---
+# The user-authentication dialog a `UserPresence` read raises needs `ACCESS_BIOMETRIC`, a
+# `system_grant` permission granted at install with no prompt and no reason.
+[package.metadata.day.ohos]
+permissions = ["ohos.permission.ACCESS_BIOMETRIC"]
+
+[build-dependencies]
+day-build = { workspace = true }

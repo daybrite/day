@@ -30,7 +30,7 @@ cancelling = "cancelling"
 
 # --- platform and toolkit vocabulary -------------------------------------------------------
 UDID = "UDID"                  # Apple's Unique Device Identifier, not a UUID
-SEH = "SEH"                    # Windows Structured Exception Handling (day-piece-break)
+SEH = "SEH"                    # Windows Structured Exception Handling (day-piece-crash-reporter)
 seeked = "seeked"              # the HTML media event name
 criticals = "criticals"        # GTK's own term for g_log CRITICAL records
 ZINK = "ZINK"                  # Mesa's Zink driver (OpenGL on Vulkan), as its log line spells it
@@ -45,7 +45,7 @@ nd = "nd"                      # node, in the web shim
 clen = "clen"                  # chunk length, in the icns reader
 iit = "iit"                    # ArkUI_AttributeItem local in the arkui shim
 ot = "ot"                      # offset-top, in DayCover.java's layout params
-pendings = "pendings"          # day-piece-break's queued-report field
+pendings = "pendings"          # day-piece-crash-reporter's queued-report field
 optin = "optin"                # test names ending "_without_optin"
 noen = "noen"                  # a fixture directory named "locales-default-noen"
 ba = "ba"                      # byte-buffer locals (ba/bb) in rebuild.rs's text differ
@@ -68,7 +68,7 @@ stlye = "stlye"
 resaon = "resaon"
 
 # --- not English ----------------------------------------------------------------------------
-# Starter-app translations in day-cli (starter_l10n.rs), German dates in day-l10n's ICU tests,
+# Starter-app translations in day-cli (starter_l10n.rs), German dates in day-localization's ICU tests,
 # and a French crash-report fixture. All correct in their own language.
 Helo = "Helo"                  # ms-MY
 Itens = "Itens"                # pt-BR
@@ -93,7 +93,7 @@ ITMS = "ITMS"                      # Apple's App Store Connect error prefix (e.g
 kMDItemWhereFroms = "kMDItemWhereFroms" # Apple's download-origin metadata attribute
 WriteableBitmap = "WriteableBitmap"  # the WinRT type, spelled that way by Microsoft
 ariaLabelledBy = "ariaLabelledBy"    # the ARIA DOM property, spelled that way by the spec
-# The OpenHarmony NDK's own error code, misspelled in its arkui/native_node.h; day-arkui names
+# The OpenHarmony NDK's own error code, misspelled in its arkui/native_node.h; day-toolkit-arkui names
 # it to explain the error it maps.
 ARKUI_ERROR_CODE_NOT_SUPPROTED_FOR_ARKTS_NODE = "ARKUI_ERROR_CODE_NOT_SUPPROTED_FOR_ARKTS_NODE"
 # SQLite's ATTACH keyword used as a past participle, as SQLite's own sources write it; the

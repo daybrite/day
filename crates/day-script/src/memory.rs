@@ -1,7 +1,7 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-use day_script_proto::{MemorySize, Reply};
+use day_script_protocol::{MemorySize, Reply};
 
 pub(crate) fn sample(limit: Option<MemorySize>) -> Reply {
     let reply = report(day_core::lifecycle::resident_memory(), limit);
@@ -15,8 +15,8 @@ pub(crate) fn sample(limit: Option<MemorySize>) -> Reply {
     reply
 }
 
-pub(crate) fn reading() -> day_script_proto::MemorySample {
-    day_script_proto::MemorySample {
+pub(crate) fn reading() -> day_script_protocol::MemorySample {
+    day_script_protocol::MemorySample {
         bytes: day_core::lifecycle::resident_memory(),
         metric: metric().into(),
     }

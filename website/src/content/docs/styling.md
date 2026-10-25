@@ -111,7 +111,7 @@ on mobile. Today you branch on the compiled [toolkit](/docs/reference/glossary#t
 nothing at runtime:
 
 ```rust
-let pad = if cfg!(feature = "uikit") || cfg!(feature = "mdc") { 16.0 } else { 10.0 };
+let pad = if cfg!(feature = "uikit") || cfg!(feature = "material") { 16.0 } else { 10.0 };
 content.padding(pad)
 ```
 

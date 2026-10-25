@@ -79,7 +79,7 @@ and does not, which is why an editor's size control moves `scale` and an importe
 `font-size: 14px` lands in `Font::System`.
 
 A label's runs are the character half of [`StyledText`](texteditor.md), the document type
-[`.markdown()`](https://daybrite.dev/api/day_pieces/trait.LabelBuilder.html#tymethod.markdown) produces and [`day-piece-texteditor`](texteditor.md) edits. The same runs render in
+[`.markdown()`](https://daybrite.dev/api/day_pieces/trait.LabelBuilder.html#tymethod.markdown) produces and [`day-piece-text-editor`](texteditor.md) edits. The same runs render in
 both places.
 
 ## Builder vocabulary
@@ -171,7 +171,7 @@ targets. The subclass is used for plain labels too, so links added by reactive m
 work without replacing the view. Labels with links remain selectable for native hit testing;
 removing links restores the app's explicit selection setting. See Apple's
 [Working With the Field Editor](https://developer.apple.com/library/archive/documentation/Cocoa/Conceptual/TextEditing/Tasks/FieldEditor.html)
-and the [native link regression](../toolkits/day-appkit/tests/native_links.rs).
+and the [native link regression](../crates/day-toolkit-appkit/tests/native_links.rs).
 
 **GTK renders runs as markup, not as a `pango::AttrList`,** because Pango's attributes cannot
 express a link and the markup dialect can. A [`GtkLabel`](https://docs.gtk.org/gtk4/class.Label.html)'s attribute list *overrides* the

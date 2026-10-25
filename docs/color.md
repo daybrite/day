@@ -76,7 +76,7 @@ Android that choice recreates the activity through a crossfade, described there.
 Those grounds come in PAIRS, and a toolkit has to take both halves of one. iOS is the clearest
 case: `systemGroupedBackground` behind and `secondarySystemGroupedBackground` for the cards that
 sit on it — the pairing every Settings-shaped screen uses, and the one that makes a split's two
-columns read as one surface rather than two white sheets meeting at a seam. day-uikit paints a
+columns read as one surface rather than two white sheets meeting at a seam. day-toolkit-uikit paints a
 navigation page with the first and `SectionCard` with the second (2026-09). It used to pair the
 plain ground with a translucent `tertiarySystemFill` card; changing either alone leaves grey on
 grey or a card that cannot be seen.

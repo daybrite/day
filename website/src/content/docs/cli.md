@@ -51,7 +51,7 @@ as `macos-gtk`, or a toolkit alone, which means that toolkit on this machine: `-
 ```bash
 day new                      # interactive: scaffold an app, a piece, or a part
 day new app my-app           # scaffold a new app non-interactively (--no-website: no site config; --no-github: no git repository, .gitignore or workflow)
-day project add-target android-mdc   # add a target to an existing app
+day project add-target android-material   # add a target to an existing app
 day localize list|add|remove # survey the project's locales, or add/remove one on every surface at once
 day prepare                  # render the derived host files (icon catalogs, mipmaps) under build/day/host (--check: CI gate)
 day open -t <target>         # prepare, then open the host project in Xcode / Android Studio / DevEco
@@ -98,7 +98,7 @@ when and how to use it.
 |---|---|
 | `macos-appkit` | `.dmg` (codesign → notarize → staple) |
 | `ios-uikit` | `.ipa` (App Store export; without signing config, an unsigned device `.ipa` named `<stem>-ios-uikit-unsigned.ipa`) |
-| `android-mdc` | `.apk` + `.aab` (release-signed) |
+| `android-material` | `.apk` + `.aab` (release-signed) |
 | `linux-gtk` / `linux-qt` | single-file `.flatpak` bundle **and** a `.appimage` |
 | `windows-winui` | self-contained `.msix` + NSIS `-setup.exe` |
 | `harmony-arkui` | `.hap` |
@@ -194,7 +194,7 @@ hvigor files under `build/day/harmony/project/`.
 
 Add `--persist-native-project` to `add-target` to create a checked-in project under
 `platform/` for manual customization; existing projects take precedence. The older
-`--persist-xcode-project` spelling remains an alias. `day open -t android-mdc` (or another
+`--persist-xcode-project` spelling remains an alias. `day open -t android-material` (or another
 native target) prepares and opens the selected project; `--print-path` returns its path
 without opening the IDE. Edits to generated files are disposable; edit a persistent
 project when Day's configuration cannot express the customization you need.
@@ -334,7 +334,7 @@ day launch -t macos-appkit --record recording.yaml
 
 # --grant marks a permission allowed on the device before the app starts, so a script that uses
 # the camera never meets the OS prompt it cannot dismiss (Android and the iOS Simulator)
-day launch -t android-mdc --grant camera --script dayscript/capture.yaml
+day launch -t android-material --grant camera --script dayscript/capture.yaml
 ```
 
 `--grant` takes the portable names from `[permissions]` in `Day.toml` (`camera`, `microphone`,
@@ -364,7 +364,7 @@ unnecessary. There is one image, and its screen is whatever size the emulator is
 this target.
 
 On Android, `--orientation portrait` or `landscape` pins the display, and the pin stays in the
-virtual device's data across reboots. `day devices boot -t android-mdc --orientation auto` releases
+virtual device's data across reboots. `day devices boot -t android-material --orientation auto` releases
 it, so turning the emulator turns the app again.
 
 
@@ -389,11 +389,11 @@ day --format json devices list        # for editors and scripts
 
 # start something to launch onto: a simulator, an AVD, or the OpenHarmony emulator
 day devices boot -t ios-uikit  C4C903E3-95E1-40F3-A3F8-45D3EAE035BB
-day devices boot -t android-mdc Pixel_9_API_36
+day devices boot -t android-material Pixel_9_API_36
 
 # and stop one when you are done with it
 day devices shutdown -t ios-uikit  "iPhone 16 Pro"
-day devices shutdown -t android-mdc Pixel_9_API_36
+day devices shutdown -t android-material Pixel_9_API_36
 ```
 
 Booted simulators, attached phones, running emulators and reachable hdc targets come back under
@@ -463,14 +463,14 @@ day launch -t ios-uikit --ios-simulator "iPhone 16 Pro"
 day launch -t ios-uikit --ios-device "iPhone 13 mini"
 
 # one Android device or emulator, by adb serial
-day launch -t android-mdc --android-device 19091FDF600BAY
+day launch -t android-material --android-device 19091FDF600BAY
 
 # one OpenHarmony device or emulator, by hdc connect key
 day launch -t harmony-arkui --ohos-device 127.0.0.1:55555
 
 # both phones at once, from one command, with the logs interleaved
 day launch -t ios-uikit    --ios-device "iPhone 13 mini" \
-           -t android-mdc  --android-device 19091FDF600BAY
+           -t android-material  --android-device 19091FDF600BAY
 
 # start them and get the shell back rather than staying attached to the logs
 day launch -t ios-uikit --ios-device "iPhone 13 mini" --detach
@@ -490,12 +490,12 @@ diagnostic. The two-phone command above prints:
      Signing Showcase.app (Day Showcase iOS Development)
   Installing ios-uikit on iPhone 13 mini
    Launching ios-uikit (dev.daybrite.showcase) on device iPhone 13 mini
-  Installing android-mdc on 19091FDF600BAY
-   Launching android-mdc (dev.daybrite.showcase) on 19091FDF600BAY (arm64-v8a)
+  Installing android-material on 19091FDF600BAY
+   Launching android-material (dev.daybrite.showcase) on 19091FDF600BAY (arm64-v8a)
 ```
 
 and then streams both apps' stdout and stderr, each line prefixed with the target it came from
-(`[ios-uikit]`, `[android-mdc]`), so two phones running at once read apart. Ctrl-C stops the run
+(`[ios-uikit]`, `[android-material]`), so two phones running at once read apart. Ctrl-C stops the run
 and takes the log watchers with it.
 
 ### What a physical iOS device needs
@@ -603,7 +603,7 @@ targets = [
   "macos-gtk",
   "macos-qt",
   "ios-uikit",
-  "android-mdc",
+  "android-material",
 ]
 
 [window]
@@ -805,3 +805,12 @@ covers signing credentials and store uploads.
 
 Day's own CI tests the Showcase app across platforms. Its captures populate this site's
 [gallery](/examples); [Platform support](/docs/reference/platforms) describes the supported targets.
+
+## Android target naming
+
+Use `android-material` for the Android target and `material` for its toolkit and Cargo
+feature. The tooling temporarily accepts `android-mdc` and `mdc`, warns that they are
+deprecated, and writes canonical target names. Mixed spellings in target lists select one
+target; conflicting override keys are rejected. These aliases do not apply to Rust package
+names, imports, or Cargo features. They will be removed in the next announced breaking
+tooling release after one release of overlap.

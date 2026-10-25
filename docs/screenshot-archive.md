@@ -151,7 +151,7 @@ Before this, the same kind of image arrived differently per target (Day Showcase
 | target | color type | ancillary chunks |
 | --- | --- | --- |
 | ios-uikit | RGBA, opaque | `sRGB`, `eXIf` |
-| android-mdc, harmony-arkui | RGBA, opaque | `sRGB`, `sBIT` |
+| android-material, harmony-arkui | RGBA, opaque | `sRGB`, `sBIT` |
 | linux-gtk | RGBA, opaque | none |
 | linux-qt | RGBA, opaque | `pHYs` |
 | web-dom | RGB | none |

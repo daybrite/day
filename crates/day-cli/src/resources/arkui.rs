@@ -5,7 +5,7 @@
 //!
 //! Both images and data go into `build/day/harmony/project/entry/src/main/resources/rawfile/day/` (hvigor packages
 //! rawfile uncompressed, and the OpenHarmony NDK can only reach `rawfile`, not `media`, from native
-//! code). `day-arkui` sets an image node's src to `resource://RAWFILE/day/<name>.png` and its rawfile
+//! code). `day-toolkit-arkui` sets an image node's src to `resource://RAWFILE/day/<name>.png` and its rawfile
 //! opener mmaps `day/<name>` for random-access data.
 
 use std::fs;
@@ -23,7 +23,7 @@ pub fn stage(project: &Project, set: &ResourceSet, fonts: &[FontFile]) -> Result
     let _ = fs::remove_dir_all(&dir);
     // Vector glyph SVGs (docs/vectors.md): staged beside the raster under the same stem.
     // ArkUI's Image renders SVG natively and alpha-preserving SourceIn compositing tints it, so
-    // day-arkui probes `day/<name>.svg` first and falls back to the png.
+    // day-toolkit-arkui probes `day/<name>.svg` first and falls back to the png.
     let svgs: Vec<std::path::PathBuf> = super::vector_svg_dir(project)
         .read_dir()
         .map(|rd| {
@@ -54,7 +54,7 @@ pub fn stage(project: &Project, set: &ResourceSet, fonts: &[FontFile]) -> Result
         let json = serde_json::to_string_pretty(&manifest).expect("font manifest");
         fs::write(dir.join("fonts.json"), json).map_err(|e| format!("stage fonts.json: {e}"))?;
     }
-    // Images: day-arkui references `resource://RAWFILE/day/<name>.png`, so normalize the file name to
+    // Images: day-toolkit-arkui references `resource://RAWFILE/day/<name>.png`, so normalize the file name to
     // `<name>.png` (ArkUI's Image decodes by content, not extension).
     for img in &set.images {
         let dest = dir.join(format!("{}.png", sanitize_ident(&img.name)));

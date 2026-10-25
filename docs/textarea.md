@@ -151,7 +151,7 @@ selectable→`setTextIsSelectable`, spell-check→`TYPE_TEXT_FLAG_NO_SUGGESTIONS
 
 - **ArkUI spell-check**: still unsupported; verify an appropriate SDK/IME contract before
   advertising it. The API 18 C TextArea interface has no spell-check toggle.
-- Styled text is a different control: [`day-piece-texteditor`](/docs/reference/texteditor) edits a whole `StyledText` — the
+- Styled text is a different control: [`day-piece-text-editor`](/docs/reference/texteditor) edits a whole `StyledText` — the
   document labels render and [`.markdown()`](https://daybrite.dev/api/day_spec/styled/struct.StyledText.html#method.markdown) produces — in each platform's rich-text view
   ([docs/texteditor](texteditor.md)). [`text_area`](https://daybrite.dev/api/day_pieces/fn.text_area.html) stays the plain-text one.
 - Reactive placeholder; a character/line counter affordance.

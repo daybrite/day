@@ -116,5 +116,5 @@ credential behavior depend on the selected transport and host configuration.
 
 Run the exact-code check from the [recipe setup](/docs/reference/examples/catalog#technical-recipes).
 In your app, test a successful response, HTTP 404, timeout, replacement of an in-flight request,
-and leaving the page on each target you ship. API details: [request and future contracts](https://github.com/daybrite/day/blob/main/parts/day-part-http/src/lib.rs)
-and [client defaults](https://github.com/daybrite/day/blob/main/parts/day-part-http/src/client.rs).
+and leaving the page on each target you ship. API details: [request and future contracts](https://github.com/daybrite/day/blob/main/crates/day-part-http/src/lib.rs)
+and [client defaults](https://github.com/daybrite/day/blob/main/crates/day-part-http/src/client.rs).

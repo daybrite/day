@@ -152,7 +152,7 @@ enum Family {
 fn family_of_target(t: &str) -> Vec<Family> {
     match t {
         "ios-uikit" => vec![Family::Ios],
-        "android-mdc" => vec![Family::Android],
+        "android-material" => vec![Family::Android],
         "harmony-arkui" => vec![Family::Ohos],
         "windows-xaml" | "windows-winui" | "windows-gtk" | "windows-qt" => vec![Family::Windows],
         "macos-appkit" | "macos-gtk" | "macos-qt" => vec![Family::Macos],
@@ -1708,7 +1708,7 @@ mod tests {
         // A pure-function sanity: family mapping is total over the shipping targets.
         for t in [
             "ios-uikit",
-            "android-mdc",
+            "android-material",
             "harmony-arkui",
             "windows-xaml",
             "macos-appkit",

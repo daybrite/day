@@ -1,7 +1,7 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-// day-dom shim: the DOM half of the web-dom backend (toolkits/day-dom/src/lib.rs is the
+// day-toolkit-dom shim: the DOM half of the web-dom backend (crates/day-toolkit-dom/src/lib.rs is the
 // Rust half; the two mirror each other's tables). Owns every DOM call, keyed by numeric
 // element ids, and calls back into wasm through a handful of exports. A plain ES module with
 // no bundler and no wasm-bindgen.
@@ -18,7 +18,7 @@ function reduceMotion() {
   if (!reduceMotionQuery) reduceMotionQuery = matchMedia('(prefers-reduced-motion: reduce)');
   return reduceMotionQuery;
 }
-const PREF_NS = 'day.pref.'; // localStorage namespace for day-part-prefs
+const PREF_NS = 'day.pref.'; // localStorage namespace for day-part-preferences
 let scriptWs = null;        // dayscript WebSocket once armed (?dayscript= token present)
 let appStarted = false;     // day_dom_main has run; script lines before that queue in the inbox
 const scriptInbox = [];
@@ -944,7 +944,7 @@ const env = {
       for (const f of [el, ...el.querySelectorAll(FOCUSABLE)]) f.tabIndex = -1;
     }
   },
-  // The piece-renderer escape hatch (docs/extending.md): day-dom's own EL_* kind codes cover only
+  // The piece-renderer escape hatch (docs/extending.md): day-toolkit-dom's own EL_* kind codes cover only
   // the built-in vocabulary, so an external piece creates its element by tag name and drives it
   // with zero-argument method calls (`play`, `pause`, `load`, …).
   day_dom_create_tag(t, tl) { return register(document.createElement(str(t, tl))); },
@@ -1325,7 +1325,7 @@ const env = {
     if (node.tagName === 'IMG') node.src = url;
     else { node.style.maskImage = `url("${url}")`; node.style.webkitMaskImage = `url("${url}")`; }
   },
-  // Release an element's own blob URL when the element goes (day-dom's `release`).
+  // Release an element's own blob URL when the element goes (day-toolkit-dom's `release`).
   day_dom_image_revoke: (el) => {
     const node = E(el);
     if (node && node.__dayBlob) { URL.revokeObjectURL(node.__dayBlob); node.__dayBlob = null; }
@@ -1438,7 +1438,7 @@ const env = {
     }
     return clipboardMirror != null ? 1 : 0;
   },
-  // Host services: wall-clock time and entropy (day-dom's `getrandom` bridge, docs/web.md).
+  // Host services: wall-clock time and entropy (day-toolkit-dom's `getrandom` bridge, docs/web.md).
   day_dom_now_ms: () => Date.now(),
   day_dom_entropy: (p, n) => crypto.getRandomValues(new Uint8Array(wasm.memory.buffer, p, n)),
   // Save flow: bytes must be copied out before this call returns (Rust frees them after).
@@ -1759,7 +1759,7 @@ const env = {
     geoWatch = 0;
   },
 
-  // Preferences (docs/prefs.md): the browser arm of day-part-prefs. localStorage can throw
+  // Preferences (docs/prefs.md): the browser arm of day-part-preferences. localStorage can throw
   // (private browsing, storage pressure); failures report as absent/uncommitted, matching
   // the part's contract on every platform.
   day_dom_pref_set(k, kl, v, vl) {
@@ -1787,7 +1787,7 @@ const env = {
     catch { return 0; }
   },
 
-  // App-local files (docs/fs.md): the browser arm of day-part-fs, stored in the Origin
+  // App-local files (docs/fs.md): the browser arm of day-part-filesystem, stored in the Origin
   // Private File System, an origin-scoped file hierarchy.
   // One operation per request id (op: 0 read, 1 write, 2 remove, 3 list); the completion
   // re-enters wasm exactly once: day_fs_done (bytes; list joins names with \u001f,
@@ -1988,7 +1988,7 @@ const env = {
       let number = '';
       if (tag === 'INPUT' && el.type === 'range') number = String(Number(el.value));
       else if (tag === 'PROGRESS') number = String(el.position >= 0 ? el.value : '');
-      // A toggle's state, or a button's selected state (day-dom's set_button_selected).
+      // A toggle's state, or a button's selected state (day-toolkit-dom's set_button_selected).
       const checked = tag === 'INPUT' && el.type === 'checkbox' ? (el.checked ? '1' : '0')
         : tag === 'BUTTON' && el.hasAttribute('aria-pressed') ? (el.getAttribute('aria-pressed') === 'true' ? '1' : '0') : '';
       let enabled = '';
@@ -2141,7 +2141,7 @@ function isChoiceGroup(el) {
   return el.classList.contains('day-segmented') || el.classList.contains('day-radios');
 }
 
-// ---- day-part-fs store (see day_dom_fs_start) ---------------------------------------------
+// ---- day-part-filesystem store (see day_dom_fs_start) ---------------------------------------------
 
 /** Resolve `path` under the origin's private OPFS root and run `op`. */
 async function fsOpfs(op, path, data) {
@@ -2193,7 +2193,7 @@ async function fsOpfs(op, path, data) {
 function mods(e) { return (e.ctrlKey || e.metaKey ? 1 : 0) | (e.shiftKey ? 2 : 0); }
 
 // ---------------------------------------------------------------------------
-// Styled-text editing (day-piece-texteditor, docs/texteditor.md).
+// Styled-text editing (day-piece-text-editor, docs/texteditor.md).
 //
 // A `contenteditable` element is the browser's rich text editing: IME, undo, spell-check,
 // drag-and-drop and the accessibility tree all come with it, and none of them can be rebuilt in a

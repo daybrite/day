@@ -4,7 +4,7 @@
 //! Qt resource staging (§18.3): native Qt Resource System packing.
 //!
 //! Generates a `.qrc` and compiles it with `rcc -binary` into `app.rcc` under `build/day/qt/`.
-//! `day launch` points `DAY_QRESOURCE` at it; the day-qt shim registers it at startup
+//! `day launch` points `DAY_QRESOURCE` at it; the day-toolkit-qt shim registers it at startup
 //! (`QResource::registerResource`) and then loads data via `QResource::data` (zero-copy from the
 //! mmapped, uncompressed blob) and images via `QPixmap(":/day/images/<stem>")`. Data lives at
 //! `/day/assets/<name>`, images at `/day/images/<stem>`.

@@ -1050,7 +1050,7 @@ mod tests {
         let checked = names(&slots);
         assert!(checked.contains(&"macos-appkit"));
         assert!(checked.contains(&"ios-uikit"));
-        assert!(checked.contains(&"android-mdc"), "host: any");
+        assert!(checked.contains(&"android-material"), "host: any");
         assert!(!checked.contains(&"linux-gtk"));
         assert!(!checked.contains(&"windows-xaml"));
         assert!(!checked.contains(&"web-dom"), "experimental");

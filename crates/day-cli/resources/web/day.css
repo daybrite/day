@@ -1,4 +1,4 @@
-/* day-dom base stylesheet: the web backend's native theme. Class names mirror the two
+/* day-toolkit-dom base stylesheet: the web backend's native theme. Class names mirror the two
    halves of the toolkit (src/lib.rs sets them; shim.js creates them). Layout is owned by
    day-core: almost everything is absolutely positioned by set_frame, so this file styles
    surfaces and controls, never placement. */
@@ -51,7 +51,7 @@ html, body {
 
 /* Type sizing (docs/web.md). Day's font ramp is the Apple text-style ratios with Body = 1, and
    `--day-text-scale` is the one number that turns a ramp step into a length: `size = step × scale ×
-   1rem`. day-dom emits `calc(<step>rem * var(--day-text-scale))`, so this declaration is the only
+   1rem`. day-toolkit-dom emits `calc(<step>rem * var(--day-text-scale))`, so this declaration is the only
    place the size is decided; there is no second copy in Rust to drift from.
 
    The scale is per form factor, because a "point" means different things on a desktop and a phone:
@@ -73,7 +73,7 @@ html { font-size: 100%; }
 
 /* The control font: buttons, fields, pickers, sidebar rows, and chrome inherit this (labels
    carry their own ramp step). Body-sized, as on every native toolkit, where a button's caption and
-   a label are the same system font. day-dom's measure_str() names the same expression. */
+   a label are the same system font. day-toolkit-dom's measure_str() names the same expression. */
 body {
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial,
     sans-serif;
@@ -129,7 +129,7 @@ body.day-has-toolbar #day-root {
 }
 .day-label.placeholder { color: var(--day-fg-dim); }
 
-/* A styled-text editor's empty-state prompt (day-piece-texteditor, docs/texteditor.md). A
+/* A styled-text editor's empty-state prompt (day-piece-text-editor, docs/texteditor.md). A
    contenteditable div has no `placeholder` attribute, and it is never `:empty` (an empty
    document still holds the block the caret sits in), so the piece marks the empty state itself
    and the prompt is drawn on the first block. Not selectable, and invisible to the caret. */
@@ -151,7 +151,7 @@ body.day-has-toolbar #day-root {
   list-style-position: inside;
 }
 
-/* The `.selectable()` modifier (day-dom set_selectable): opt an element's text back into
+/* The `.selectable()` modifier (day-toolkit-dom set_selectable): opt an element's text back into
    selection, overriding the #day-root default. `text` re-enables even under an ancestor's `none`.
    Comes after .day-label so it wins on a selectable label; a text cursor signals the affordance. */
 .day-selectable, .day-selectable * {
@@ -637,7 +637,7 @@ body.day-has-toolbar #day-root {
 .day-cover.day-has-toolbar { top: var(--day-toolbar-h); }
 /* A half sheet (docs/cover.md): the bottom half of the viewport under a grabber, rounded and
    lifted like a phone's sheet; the page above stays on show and clickable. The 20px top
-   padding is the grabber strip day-dom subtracts from the frame it seeds. */
+   padding is the grabber strip day-toolkit-dom subtracts from the frame it seeds. */
 .day-cover.day-half {
   top: auto;
   bottom: 0;

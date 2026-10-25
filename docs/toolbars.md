@@ -235,7 +235,7 @@ to drawing its label, a button reading "Star" where a star belonged. Bundled gly
 so each toolkit tints them to the bar's own foreground (Qt does this explicitly, since an untinted
 template is a flat black shape, invisible on a dark toolbar).
 
-On the web there is no system icon set to borrow, so day-dom draws the standard symbols itself,
+On the web there is no system icon set to borrow, so day-toolkit-dom draws the standard symbols itself,
 as inline-SVG `data:` URLs through the same CSS mask a bundled image uses. They are plain
 geometry authored in day rather than a third-party icon set, which keeps the framework free of an
 icon license. Before that, `Icon::Symbol` was dropped on the web entirely and only items carrying
@@ -307,7 +307,7 @@ a titled submenu of the same children, and a segmented item to its segments unde
 the segment in force. Tapping the row runs what the button would have run, the toggle's own
 flip included. Two kinds never reach a phone's bar: search, which rides the navigation
 list there ([docs/search](search.md)), and the sidebar toggle, which the split view owns.
-Android draws a `Symbol` from day-mdc's own glyph set — one Material Symbols vector per
+Android draws a `Symbol` from day-toolkit-material's own glyph set — one Material Symbols vector per
 variant, shipped in the toolkit's `res/` and named `day_symbol_<variant>` — so a symbol-only
 item has an icon to show in the bar, the way an SF Symbol gives it one on Apple. An item with
 no icon at all still lives in the overflow, where its label reads as a menu row: a Material
@@ -466,7 +466,7 @@ against a state it had not reached. The step now refuses it and says which argum
 The step resolves the item in the current model and dispatches its
 action, so it passes even if the native control is still bound to a previous model's action, the
 failure mode a real keystroke hits. A toolkit that rebuilds its bar must rebind the live controls,
-not just diff the identifier list (day-appkit had exactly this bug: after a locale change the
+not just diff the identifier list (day-toolkit-appkit had exactly this bug: after a locale change the
 search field dispatched an action id day-core had already swept, so typing did nothing).
 
 The step goes through the same dispatch the native control fires, so it exercises the app's

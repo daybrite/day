@@ -236,13 +236,13 @@ Xcode still supplies its current Swift compiler; the language mode controls sour
 and concurrency checking. Xcode 27.2 rejects an omitted language version, so Day sets it
 explicitly. SwiftPM packages use the language modes selected by their own manifests.
 
-### Android: `android-mdc`
+### Android: `android-material`
 
 On Android, `day` runs Cargo first, then hands Gradle a project whose source sets already point at
 everything Day staged:
 
 ```text
-day build -t android-mdc
+day build -t android-material
 │
 ├── cargo-ndk (arm64-v8a) ────────► build/day/jniLibs/arm64-v8a/libmy_app.so
 │
@@ -252,7 +252,7 @@ day build -t android-mdc
 │
 └── gradle assembleDebug   build/android/
         │
-        ├── sourceSets: the day-mdc Java shim + piece Java + jniLibs + assets/
+        ├── sourceSets: the day-toolkit-material Java shim + piece Java + jniLibs + assets/
         ├── aapt2: staged resource/images → res/drawable* → R.drawable ids
         └── Material 3 theme + DayActivity host (loads the .so, calls nativeStart)
         ▼
@@ -262,11 +262,11 @@ adb install … && am start DayActivity                   (day launch)
 ```
 
 An optional app-owned `platform/android/AndroidManifest.xml` supplies manifest customizations
-without persisting the Gradle project; see [manifest customization](/docs/reference/platforms/android-mdc#manifest-customization).
+without persisting the Gradle project; see [manifest customization](/docs/reference/platforms/android-material#manifest-customization).
 An existing `platform/android/` Gradle project takes precedence over the generated default.
-`day open -t android-mdc` prepares and opens the selected project in Android Studio.
+`day open -t android-material` prepares and opens the selected project in Android Studio.
 Day's Gradle plugin configures that project from `build/day/android/`
-([The Gradle project](/docs/reference/platforms/android-mdc#the-gradle-project)). A build started from Android
+([The Gradle project](/docs/reference/platforms/android-material#the-gradle-project)). A build started from Android
 Studio packages the Rust `.so` from the last `day build`.
 
 ### HarmonyOS: `harmony-arkui`

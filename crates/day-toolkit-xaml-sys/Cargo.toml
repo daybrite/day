@@ -1,0 +1,26 @@
+[package]
+name = "day-toolkit-xaml-sys"
+publish = false
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description.workspace = true
+repository.workspace = true
+license.workspace = true
+links = "dayxamlshim"
+build = "build.rs"
+
+# The C++/WinRT shim for the Windows backend (DESIGN.md §9). Hosts the Windows.UI.Xaml
+# control set via XAML Islands (DesktopWindowXamlSource) inside a Win32 host window and
+# exposes a flat C ABI, mirroring day-toolkit-qt-sys. System XAML is an OS component, so no Windows
+# App SDK / MSIX is required — it builds with the Windows SDK's cppwinrt headers alone.
+
+[build-dependencies]
+day-toolchain = { workspace = true }
+cc = { workspace = true }
+
+[features]
+# Build the shim against WinUI 3 (Microsoft.UI.Xaml, the Windows App SDK) instead of system XAML:
+# the `windows-winui` target (docs/winui.md). Same source, same C ABI; the
+# build script defines DAY_WINUI and puts the generated Windows App SDK projection on the path.
+winui = []

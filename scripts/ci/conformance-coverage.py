@@ -78,7 +78,7 @@ duties = sorted(set(re.findall(r"^\| \[`([a-z_0-9]+)`\]\([^)]*\) \|", read("docs
 
 # What the cases prove, read from every Rust file that can hold a case.
 proven = set()
-case_roots = [os.path.join(ROOT, "crates", "day-pieces", "src"), os.path.join(ROOT, "pieces")]
+case_roots = [os.path.join(ROOT, "crates")]
 for root in case_roots:
     for dirpath, dirs, files in os.walk(root):
         dirs[:] = [d for d in dirs if d not in ("target", "build", "node_modules")]
@@ -101,8 +101,8 @@ for root in case_roots:
 
 # Pieces: the crates under pieces/, each proven by cases of its own (a `#[day::test]` in its
 # sources, which the conformance app runs with the crate's `conformance` feature on).
-pieces_dir = os.path.join(ROOT, "pieces")
-pieces = sorted(d for d in os.listdir(pieces_dir) if os.path.isdir(os.path.join(pieces_dir, d)))
+pieces_dir = os.path.join(ROOT, "crates")
+pieces = sorted(d for d in os.listdir(pieces_dir) if d.startswith("day-piece-") and os.path.isdir(os.path.join(pieces_dir, d)))
 for piece in pieces:
     for dirpath, dirs, files in os.walk(os.path.join(pieces_dir, piece, "src")):
         for name in files:

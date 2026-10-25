@@ -17,7 +17,7 @@ permission and scheduling support depend on the platform.
 
 ## Add to your app
 
-Defined in [`day-part-local-notify`](https://github.com/daybrite/day/tree/main/parts/day-part-local-notify). Add this to your app’s `Cargo.toml`
+Defined in [`day-part-local-notify`](https://github.com/daybrite/day/tree/main/crates/day-part-local-notify). Add this to your app’s `Cargo.toml`
 `[dependencies]` table, using the same Day Git source as the rest of your app:
 
 ```toml
@@ -36,7 +36,7 @@ or dependency entry in `Day.toml` are needed.
 
 ## API
 
-The [crate](../parts/day-part-local-notify/src/lib.rs) provides `Channel`,
+The [crate](../crates/day-part-local-notify/src/lib.rs) provides `Channel`,
 `Importance`, `Notification`, `NotifId`, `Capabilities`, and `NotifyError`.
 [`Notification::post(self)`](https://daybrite.dev/api/day_part_local_notify/struct.Notification.html#method.post) returns `Result<NotifId, NotifyError>`.
 `Trigger` has exactly three variants: `Now`, `In(Duration)`, and `At(SystemTime)`.
@@ -56,7 +56,7 @@ Recurring triggers, actions, and remote push notifications are not part of this 
 
 | Surface | Contract |
 | --- | --- |
-| [`Channel::new(id, importance)`](https://daybrite.dev/api/day_part_local_notify/struct.Channel.html#method.new) | Starts with `id` as its display name; call [`.name`](https://daybrite.dev/api/day_part_local_notify/struct.Channel.html#method.name)`(res::str::…()`[`.format`](https://daybrite.dev/api/day_fluent/struct.LocalizedText.html#method.format)`())` before registering |
+| [`Channel::new(id, importance)`](https://daybrite.dev/api/day_part_local_notify/struct.Channel.html#method.new) | Starts with `id` as its display name; call [`.name`](https://daybrite.dev/api/day_part_local_notify/struct.Channel.html#method.name)`(res::str::…()`[`.format`](https://daybrite.dev/api/day_localization_ui/struct.LocalizedText.html#method.format)`())` before registering |
 | Channel sound | Initially true for High/Urgent importance, false below High; [`.sound(bool)`](https://daybrite.dev/api/day_part_local_notify/struct.Channel.html#method.sound) overrides it |
 | [`Channel::register(self)`](https://daybrite.dev/api/day_part_local_notify/struct.Channel.html#method.register) | Returns `()`; no portable registration error result |
 | [`Notification::new(title)`](https://daybrite.dev/api/day_part_local_notify/struct.Notification.html#method.new) | Empty body/subtitle/route/icon, no explicit ID or badge, channel `"default"`, `Trigger::Now` |

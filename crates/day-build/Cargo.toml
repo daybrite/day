@@ -19,7 +19,7 @@ categories = ["development-tools::build-utils", "gui"]
 # constant string can never drift from the staged native name.
 [dependencies]
 # Compiles a bridge crate's generated C/C++ arm (docs/bridge.md). Already the workspace's
-# C compiler driver; day-qt-sys and day-xaml-sys build their shims with it. The floor names a
+# C compiler driver; day-toolkit-qt-sys and day-toolkit-xaml-sys build their shims with it. The floor names a
 # real minor rather than a bare `^1` (what lib.rs flags), and stays low on purpose: an app's
 # committed lock pins its own `cc`, and a floor above that pin fails its build outright
 # (Day-Showcase locks 1.4.0) instead of merely resolving an older version.

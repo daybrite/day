@@ -132,9 +132,9 @@ as cancelled at once, so the await never hangs; an app that offers "Add Folderâ€
 capability first and hides the command elsewhere.
 
 On HarmonyOS the picker lives in the ArkTS `@kit.CoreFileKit` layer, not the native NodeAPI, so
-the `day-arkui` toolkit calls up into its ArkTS host over NAPI (safe: Day's loop runs on the
+the `day-toolkit-arkui` toolkit calls up into its ArkTS host over NAPI (safe: Day's loop runs on the
 JS thread); the host drives `DocumentViewPicker` and answers via a registered `onFileResult`
-callback, wired in the framework's ArkTS host page (`toolkits/day-arkui/platform/harmony/ets/Index.ets`,
+callback, wired in the framework's ArkTS host page (`crates/day-toolkit-arkui/platform/harmony/ets/Index.ets`,
 staged into every app's hvigor project by `day build` â€” [docs/harmonyos](harmonyos.md)).
 
 A browser has no filesystem, so on Web the bytes ride a per-page store instead of paths:

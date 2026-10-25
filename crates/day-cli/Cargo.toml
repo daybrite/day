@@ -43,7 +43,7 @@ serde = { workspace = true, features = ["derive"] }
 serde_norway = { workspace = true }
 serde_json = { workspace = true }
 # Shared dayscript types and YAML grammar, without the embedded engine/runtime graph.
-day-script-proto = { workspace = true }
+day-script-protocol = { workspace = true }
 # Merge generated App Sandbox entitlements with custom XML or binary property lists.
 plist = "1"
 # HarmonyOS JSON5: round-trip parsing retains comments and whitespace during manifest edits.

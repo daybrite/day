@@ -776,6 +776,7 @@ impl Manifest {
     /// Resolve the app identity for `target` (e.g. `macos-appkit`). Override precedence, most
     /// specific wins: `[app.<target>]` > `[app.<platform>]` > `[app.<toolkit>]` > `[app]`.
     pub fn resolve(&self, target: &str) -> ResolvedApp {
+        let target = crate::targets::canonical(target);
         let mut out = ResolvedApp {
             name: self.app.name.clone(),
             version: self.app.version.clone(),
@@ -1115,6 +1116,27 @@ pub fn parse_manifest(
     // into an unactionable "data did not match any variant".
     validate_permissions(day_toml)?;
     let mut manifest: Manifest = toml::from_str(day_toml).map_err(|e| format!("Day.toml: {e}"))?;
+    let mut targets = Vec::new();
+    for name in &manifest.app.targets {
+        let name = crate::targets::expand(name)?;
+        if !targets.contains(&name) {
+            targets.push(name);
+        }
+    }
+    manifest.app.targets = targets;
+    for old in ["mdc", "android-mdc"] {
+        if manifest.app.overrides.contains_key(old) {
+            let new = crate::targets::canonical(old);
+            if manifest.app.overrides.contains_key(new) {
+                return Err(format!(
+                    "Day.toml: [app.{old}] and [app.{new}] name the same override; keep only [app.{new}]"
+                ));
+            }
+            if let Some(value) = manifest.app.overrides.remove(old) {
+                manifest.app.overrides.insert(new.to_string(), value);
+            }
+        }
+    }
     if manifest.app.overrides.contains_key("ohos") {
         return Err("Day.toml: [app.ohos] is unsupported; use [app.harmony]".into());
     }
@@ -1683,5 +1705,34 @@ mod lib_name_tests {
              [lib]\ncrate-type = [\"rlib\"]\n\n[[bin]]\nname = \"other\"\n",
         );
         assert_eq!(p.lib_name(), "day_showcase");
+    }
+}
+
+#[cfg(test)]
+mod material_alias_tests {
+    use super::*;
+    const CARGO: &str = "[package]\nname = 'alias-test'\nversion = '0.1.0'\n";
+    const BASE: &str = "schema = 1\n[app]\nid = 'dev.example.alias'\ntargets = ['android-mdc', 'android-material']\n";
+
+    #[test]
+    fn manifest_aliases_preserve_override_precedence() {
+        let source = format!(
+            "{BASE}[app.mdc]\ntitle = 'toolkit'\n[app.android]\ntitle = 'platform'\n[app.android-mdc]\ntitle = 'target'\n"
+        );
+        let manifest = parse_manifest(&source, CARGO, None).unwrap();
+        assert_eq!(manifest.app.targets, ["android-material"]);
+        assert_eq!(manifest.resolve("android-mdc").title, "target");
+        assert!(manifest.app.overrides.contains_key("material"));
+        assert!(!manifest.app.overrides.contains_key("mdc"));
+    }
+
+    #[test]
+    fn old_and_new_override_keys_are_ambiguous_even_with_equal_values() {
+        for (old, new) in [("mdc", "material"), ("android-mdc", "android-material")] {
+            let source =
+                format!("{BASE}[app.{old}]\ntitle = 'same'\n[app.{new}]\ntitle = 'same'\n");
+            let error = parse_manifest(&source, CARGO, None).unwrap_err();
+            assert!(error.contains("name the same override"), "{error}");
+        }
     }
 }

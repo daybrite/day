@@ -33,7 +33,7 @@
       "limitations": "Per-feature capabilities and package prerequisites vary; no current all-platform pass established"
     },
     {
-      "id": "android-mdc",
+      "id": "android-material",
       "tier": 1,
       "verification": "source registry/tier only; local checks enumerated in phase report",
       "limitations": "Per-feature capabilities and package prerequisites vary; no current all-platform pass established"

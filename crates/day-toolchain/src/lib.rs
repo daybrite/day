@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MPL-2.0
 
 //! day-toolchain is the one place that knows where host toolchains and SDKs live, shared by the
-//! `day` CLI and by crate build scripts (day-xaml-sys, every `day-piece-*`/`day-tweak-*` that
+//! `day` CLI and by crate build scripts (day-toolkit-xaml-sys, every `day-piece-*`/`day-tweak-*` that
 //! compiles its own native shim, and the scaffolds `day new` generates).
 //!
 //! Two rules govern every lookup here (docs/environment.md):

@@ -574,7 +574,7 @@ that answers `false` shows no delete action at all, rather than one that fails o
 pure; it runs inside the platform's swipe callback.
 
 [`Delete::label`](https://daybrite.dev/api/day_pieces/struct.Delete.html#method.label) carries the app's own word for the action; it takes the same text sources as a
-label (`res::str::delete()` directly, no [`.format()`](https://daybrite.dev/api/day_fluent/struct.LocalizedText.html#method.format)), resolved in the locale current when the
+label (`res::str::delete()` directly, no [`.format()`](https://daybrite.dev/api/day_localization_ui/struct.LocalizedText.html#method.format)), resolved in the locale current when the
 list builds. A toolkit has no access to the app's Fluent catalog and so cannot translate
 anything itself; left unset, each toolkit falls back to its platform's wordless idiom (a trash
 glyph), which needs no translation.

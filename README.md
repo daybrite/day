@@ -51,7 +51,7 @@ not a claim that every feature or release has passed on every device.
 |---|---|---|
 | [macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit) | AppKit | 1 · Supported |
 | [iOS and iPadOS](https://daybrite.dev/docs/reference/platforms/ios-uikit) | UIKit | 1 · Supported |
-| [Android](https://daybrite.dev/docs/reference/platforms/android-mdc) | Material Components | 1 · Supported |
+| [Android](https://daybrite.dev/docs/reference/platforms/android-material) | Material Components | 1 · Supported |
 | [Linux](https://daybrite.dev/docs/reference/platforms/linux-gtk) | GTK 4 / libadwaita | 2 · Demi-supported |
 | [Linux](https://daybrite.dev/docs/reference/platforms/linux-qt) | Qt 6 Widgets | 2 · Demi-supported |
 | [Windows](https://daybrite.dev/docs/reference/platforms/windows-winui) | WinUI 3 | 2 · Demi-supported |

@@ -120,7 +120,7 @@ a toolkit's document i is Day's child i + 1. Neither Qt nor GTK gives that page 
 it under the [`QTabWidget`](https://doc.qt.io/qt-6/qtabwidget.html), on the menu's parent chain but never a page, and GTK keeps it in a
 hidden box beside the [`AdwTabView`](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/class.TabView.html), so native tab indices are destination indices with nothing
 to subtract, and a drag to the first slot is an ordinary move. The
-[native Qt regression](../toolkits/day-qt-sys/tests/tabs.cpp) parks a page, drives a plain tabbed
+[native Qt regression](../crates/day-toolkit-qt-sys/tests/tabs.cpp) parks a page, drives a plain tabbed
 nav with real keyboard events, checks the current widget and the reported indices, and in
 document mode checks a close request and a drag to the first slot.
 
@@ -220,7 +220,7 @@ navigation existed.
 |---------|-------------------|----------|
 | macos-appkit | [`NSTabView`](https://developer.apple.com/documentation/appkit/nstabview) (top tabs on a bezel), the detail pages as its items; labels from the host's rows | no; a Mac narrows to a stack |
 | ios-uikit | [`UITabBarController`](https://developer.apple.com/documentation/uikit/uitabbarcontroller) in `.tabSidebar` mode, driven by [`UITab`](https://developer.apple.com/documentation/uikit/uitab) on iOS 18+ and by `viewControllers` below it (2026-09) — see below | yes |
-| android-mdc | navigation suite: `BottomNavigationView` → [`NavigationRailView`](https://developer.android.com/reference/com/google/android/material/navigationrail/NavigationRailView) → permanent [`NavigationView`](https://developer.android.com/reference/com/google/android/material/navigation/NavigationView) drawer, by width. A `NavStyle::Sidebar` pane is a [`NavigationView`](https://developer.android.com/reference/com/google/android/material/navigation/NavigationView) too (2026-09) — see below | yes |
+| android-material | navigation suite: `BottomNavigationView` → [`NavigationRailView`](https://developer.android.com/reference/com/google/android/material/navigationrail/NavigationRailView) → permanent [`NavigationView`](https://developer.android.com/reference/com/google/android/material/navigation/NavigationView) drawer, by width. A `NavStyle::Sidebar` pane is a [`NavigationView`](https://developer.android.com/reference/com/google/android/material/navigation/NavigationView) too (2026-09) — see below | yes |
 | linux-gtk | [`AdwViewSwitcher`](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/class.ViewSwitcher.html) over an [`AdwViewStack`](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/class.ViewStack.html) of resident pages, each in a filling `DayCell` | no |
 | linux-qt | [`QTabWidget`](https://doc.qt.io/qt-6/qtabwidget.html) — Qt's own one-of-N container | no |
 | web-dom | a composed tab bar (`.day-nav.tabs`) | yes |
@@ -239,7 +239,7 @@ desktop may pin one with `NavStyle::Tabs`, but narrowing hides its sidebar and p
 > labels when the `NAV_MENU` is inserted (and again on `NavMenuPatch::Items`), and an
 > [`AdwViewSwitcher`](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/class.ViewSwitcher.html) over the [`AdwViewStack`](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/class.ViewStack.html), whose pages sit in filling `DayCell`s and report
 > their size from the cell's allocation. Bundled vectors reach the switcher's `icon-name` as
-> SYMBOLIC icons, so GTK tints them to the label's color in either theme: day-gtk stages each
+> SYMBOLIC icons, so GTK tints them to the label's color in either theme: day-toolkit-gtk stages each
 > as `<name>-symbolic.symbolic.png` (the shape over black, rendered through librsvg) in the
 > XDG cache and puts that directory on the icon theme's search path — a symbolic SVG would go
 > through GTK 4.20+'s own [`GtkSvg`](https://docs.gtk.org/gtk4/class.Svg.html) parser, which draws only a subset and broke a Material
@@ -284,7 +284,7 @@ would answer one arrow and then go quiet.
 ### Immersive items ([`.immersive()`](https://daybrite.dev/api/day_pieces/struct.NavItem.html#method.immersive))
 
 [`item`](https://daybrite.dev/api/day_pieces/fn.item.html)`(key, title)`[`.immersive`](https://daybrite.dev/api/day_pieces/struct.NavItem.html#method.immersive)`()` marks that destination as an immersive-chrome page: on
-toolkits with an immersive nav mode (day-mdc's edge-to-edge opt-in today) its pushed page
+toolkits with an immersive nav mode (day-toolkit-material's edge-to-edge opt-in today) its pushed page
 keeps the floating transparent bar over full-bleed content, while unmarked pages and the root
 get the standard opaque bar. Every other toolkit ignores the flag. Pair it with
 [`day::safe_area()`](https://daybrite.dev/api/day/fn.safe_area.html) ([docs/layout](/docs/explanation/layout)): the immersive page paints its background unpadded and pads
@@ -556,7 +556,7 @@ keeps speaking in flat row indices.
 
 ### The Android sidebar is a NavigationView
 
-[`nav(NavStyle::Sidebar)`](https://daybrite.dev/api/day_pieces/fn.nav.html) realizes on android-mdc as a Material
+[`nav(NavStyle::Sidebar)`](https://daybrite.dev/api/day_pieces/fn.nav.html) realizes on android-material as a Material
 [`NavigationView`](https://developer.android.com/reference/com/google/android/material/navigation/NavigationView),
 the class Android means for a standing navigation column. It was a [`LinearLayout`](https://developer.android.com/reference/android/widget/LinearLayout) of [`TextView`](https://developer.android.com/reference/android/widget/TextView)
 rows in a [`ScrollView`](https://developer.android.com/reference/android/widget/ScrollView) until 2026-09, with the 48dp height, the padding, the ripple and the 24dp
@@ -596,7 +596,7 @@ Two consequences worth knowing before touching it:
 
 ### How iOS tells a user's back from its own
 
-There is no mirror of the stack on iOS (2026-09-10; before this, day-uikit kept a copy of the
+There is no mirror of the stack on iOS (2026-09-10; before this, day-toolkit-uikit kept a copy of the
 intended stack, re-applied it wholesale on every change, inferred the user's pops from `didShow`
 counts through a settle loop, and absorbed Day's answering pops with a counter — and both back
 bugs of that month lived in the bookkeeping). UIKit's `viewControllers` is the stack. Two rules:
@@ -759,7 +759,7 @@ state instead.
   leaves the section.
 - [`current_route()`](https://daybrite.dev/api/day_pieces/fn.current_route.html): the **full** path, every mounted surface's contribution from outermost to
   innermost (`"mail/inbox/msg-42"`). It round-trips through [`navigate`](https://daybrite.dev/api/day_pieces/fn.navigate.html), so persisting the *whole*
-  route by hand is two lines: save [`current_route()`](https://daybrite.dev/api/day_pieces/fn.current_route.html) on the way out ([day-part-prefs](/docs/reference/prefs) works),
+  route by hand is two lines: save [`current_route()`](https://daybrite.dev/api/day_pieces/fn.current_route.html) on the way out ([day-part-preferences](/docs/reference/prefs) works),
   [`navigate(&saved)`](https://daybrite.dev/api/day_pieces/fn.navigate.html) after the first mount on the way back. For a single surface, [`.restore`](https://daybrite.dev/api/day_pieces/trait.NavBuilder.html#tymethod.restore)
   (below) does the same without the plumbing. dayscript's `assert_route` compares against the same
   full path.
@@ -914,7 +914,7 @@ Titles, search, guarded Back and pop acknowledgments are addressed to their owni
 host. Switching tabs hides a resident stack without popping it. Late callbacks
 from a disposed host cannot mutate a sibling stack. The bottom tab bar remains
 composed from ArkUI nodes, with its highlight updated together with selection.
-The [emulator regression fixture](../toolkits/day-arkui/tests/navigation/README.md)
+The [emulator regression fixture](../crates/day-toolkit-arkui/tests/navigation/README.md)
 checks independent histories, hidden pushes, guarded Back and host reconstruction.
 
 Resident tab pages also own their native frames. A page joining a tab host after
@@ -1069,7 +1069,7 @@ Platform guidance: [Apple: navigation and search](https://developer.apple.com/de
   `Sidebar` → two nested [`GtkPaned`](https://docs.gtk.org/gtk4/class.Paned.html)s — sidebar | (list | detail) — with a user-draggable
   divider on each side, the AppKit [`NSSplitView`](https://developer.apple.com/documentation/appkit/nssplitview) shape; [`nav_stack`](https://daybrite.dev/api/day_pieces/fn.nav_stack.html) → [`AdwNavigationView`](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/class.NavigationView.html)
   (push/pop + back gesture; its `popped` signal writes native back into the path). A split
-  pane's page (a [`GtkFixed`](https://docs.gtk.org/gtk4/class.Fixed.html)) sits in a filling `DayCell` — day-gtk's custom container, which
+  pane's page (a [`GtkFixed`](https://docs.gtk.org/gtk4/class.Fixed.html)) sits in a filling `DayCell` — day-toolkit-gtk's custom container, which
   asks GTK for no size and hands its child the whole allocation — so a page's Day-laid frame
   never becomes a pane's GTK minimum; each cell carries its pane's honest minimum as its size
   request instead (`NAV_SIDEBAR_MIN_W`, `NAV_LIST_MIN_W`, and 200pt for the detail), no pane

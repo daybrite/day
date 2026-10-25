@@ -16,7 +16,7 @@ on the operating system’s privacy and focus rules.
 
 ## Add to your app
 
-Defined in [`day-part-clipboard`](https://github.com/daybrite/day/tree/main/parts/day-part-clipboard). Add this to your app’s `Cargo.toml`
+Defined in [`day-part-clipboard`](https://github.com/daybrite/day/tree/main/crates/day-part-clipboard). Add this to your app’s `Cargo.toml`
 `[dependencies]` table, using the same Day Git source as the rest of your app:
 
 ```toml
@@ -47,7 +47,7 @@ representation, or the platform denies access. [`has_text() -> bool`](https://da
 native probe where one exists ([`UIPasteboard.hasStrings`](https://developer.apple.com/documentation/uikit/uipasteboard), Win32 `IsClipboardFormatAvailable`, …).
 
 There are no cargo features; platform selection is purely `#[cfg(target_os)]`, because the clipboard
-is an OS concern rather than a toolkit one. `parts/day-part-clipboard/examples/clipboard.rs` is a
+is an OS concern rather than a toolkit one. `crates/day-part-clipboard/examples/clipboard.rs` is a
 plain `main` that uses it with no Day framework at all
 (`cargo run -p day-part-clipboard --example clipboard "hi"`).
 
@@ -62,15 +62,15 @@ Platform guidance: [Android: copying and pasting](https://developer.android.com/
 | Windows | [Win32 clipboard](https://learn.microsoft.com/en-us/windows/win32/dataxchg/clipboard), [`CF_UNICODETEXT`](https://learn.microsoft.com/en-us/windows/win32/dataxchg/standard-clipboard-formats) (OpenClipboard/Set/GetClipboardData) | raw FFI (user32/kernel32) |
 | Linux | `wl-copy`/`wl-paste` (Wayland), `xclip` (X11) via `std::process` | std only |
 | HarmonyOS | native [`OH_Pasteboard_*`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-basic-services-kit/capi-pasteboard.md) + UDMF plain-text record (`libpasteboard.so`, `libudmf.so`) | raw FFI (BasicServicesKit) |
-| Android | [`ClipboardManager`](https://developer.android.com/reference/android/content/ClipboardManager) via a Java shim | `day-mdc` + `[package.metadata.day.android]` |
+| Android | [`ClipboardManager`](https://developer.android.com/reference/android/content/ClipboardManager) via a Java shim | `day-toolkit-material` + `[package.metadata.day.android]` |
 
 macOS is toolkit-independent: the general pasteboard needs no [NSApplication](https://developer.apple.com/documentation/appkit/nsapplication), run loop, or window, so it
-works identically in day-appkit and day-qt binaries (and plain `cargo test` processes). [NSPasteboard](https://developer.apple.com/documentation/appkit/nspasteboard) is
+works identically in day-toolkit-appkit and day-toolkit-qt binaries (and plain `cargo test` processes). [NSPasteboard](https://developer.apple.com/documentation/appkit/nspasteboard) is
 **not thread-safe** (concurrent access from two threads can segfault inside AppKit), so the crate
 serializes its own accesses behind a process-wide mutex.
 
 Desktop Linux has no toolkit-independent native clipboard API (the clipboard lives in the display
-server, and GDK's accessor needs GTK initialized, which would break day-qt binaries), so the crate
+server, and GDK's accessor needs GTK initialized, which would break day-toolkit-qt binaries), so the crate
 shells out to the session's standard tools: `wl-copy`/`wl-paste` from `wl-clipboard` on Wayland,
 `xclip` on X11 (the session type picks which to try first; the other is the fallback). One of them
 must be installed; both are common distro packages.
@@ -164,7 +164,7 @@ write rejection, and native paste snapshots. The real-browser regression is Day-
 |---|---|---|
 | macOS (AppKit, GTK, Qt) | [`NSPasteboard.setData:forType:`](https://developer.apple.com/documentation/appkit/nspasteboard) / `dataForType:` | PNG/JPEG/TIFF/GIF/BMP/SVG/WebP MIME names map to Apple pasteboard identifiers; custom names remain exact. Same process-wide lock as text operations. |
 | iOS UIKit | One [`UIPasteboard.items`](https://developer.apple.com/documentation/uikit/uipasteboard) dictionary with multiple [`NSData`](https://developer.apple.com/documentation/foundation/nsdata) values | Same Apple identifiers. Paste menu validation accepts non-text items. System paste authorization still applies. |
-| Android MDC | [`ClipData`](https://developer.android.com/reference/android/content/ClipData) content URI + read-only `BinaryClipboardProvider` | The crate contributes its provider and manifest through Day metadata. Binary data is stored in app cache files, not Binder parcels. URI grants allow receiving apps to open typed representations. Provider paths are UUID-only; writes through the provider are rejected. Cache eviction can make old URI clips unavailable. The current generated Java bridge transports the internal packet as base64 because it does not yet marshal byte-vector returns; system clipboard content remains binary. |
+| Android Material Components | [`ClipData`](https://developer.android.com/reference/android/content/ClipData) content URI + read-only `BinaryClipboardProvider` | The crate contributes its provider and manifest through Day metadata. Binary data is stored in app cache files, not Binder parcels. URI grants allow receiving apps to open typed representations. Provider paths are UUID-only; writes through the provider are rejected. Cache eviction can make old URI clips unavailable. The current generated Java bridge transports the internal packet as base64 because it does not yet marshal byte-vector returns; system clipboard content remains binary. |
 | Windows (OS-level, any toolkit) | Registered formats, including `PNG`; [`CF_UNICODETEXT`](https://learn.microsoft.com/en-us/windows/win32/dataxchg/standard-clipboard-formats) for text | A private length-framed companion preserves exact byte lengths for Day-to-Day arbitrary data, independent of global-allocation padding. Packed [`CF_DIB`](https://learn.microsoft.com/en-us/windows/win32/dataxchg/standard-clipboard-formats) screenshots are exposed as encoded BMP, including palette/mask offsets. |
 | Linux GTK/Qt | `wl-copy`/`wl-paste --type`, or `xclip -target` | Session tools currently publish one representation: PNG, then SVG, then text, then the first offer. The returned accepted-type list exposes that restriction. Matching tools and a display session are required. |
 | HarmonyOS ArkUI | Pasteboard + UDMF general byte entries; plain text uses its native UDS record | Encoded image types map to UTD identifiers. PixelMap-only or URI-only foreign image records are not converted. Custom UTD acceptance is platform-dependent and reported through the accepted-type result. |

@@ -381,7 +381,7 @@ Where each toolkit puts the bar:
   recursively into the application menu, preserving callbacks and shortcuts; the first role
   declaration wins and duplicate roles, empty submenus, and dangling separators are removed.
   Settings uses the native macOS label. Application-menu chrome uses generated private catalog
-  accessors in `day-appkit/resource/locales`; app-authored menu labels remain app resources.
+  accessors in `day-toolkit-appkit/resource/locales`; app-authored menu labels remain app resources.
 - **GTK**: a [`GtkPopoverMenuBar`](https://docs.gtk.org/gtk4/class.PopoverMenuBar.html) at the top of the window; accelerators registered on the
   [`GtkApplication`](https://docs.gtk.org/gtk4/class.Application.html). On macOS the model goes to [`gtk_application_set_menubar`](https://docs.gtk.org/gtk4/method.Application.set_menubar.html) instead; GTK's quartz
   toolkit renders it in the system menu bar, and the stock GTK app menu's *Settings…* item enables
@@ -563,7 +563,7 @@ only at summon time. Empty menus suppress presentation; blank list space does no
 row provider. Container and plain-label clicks resolve the nearest dynamic owner through
 the live view hierarchy, so recycled descendants never hold copied providers. Selectable
 labels keep their native text menu. Other controls keep the static `.menu` path. The native regression is
-`toolkits/day-appkit/tests/native_list_menus.rs`. GTK's
+`crates/day-toolkit-appkit/tests/native_list_menus.rs`. GTK's
 form is generic over any widget. Qt connects `customContextMenuRequested` to a callback
 that asks the provider and pops a fresh [`QMenu`](https://doc.qt.io/qt-6/qmenu.html) per summon (`day_qt_context_menu_fn`),
 generic over any widget like GTK's.

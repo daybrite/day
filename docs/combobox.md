@@ -85,7 +85,7 @@ the items, and reports typing and picks alike as `Event::TextChanged`, as the na
   per-node `suppress` cell guards the sync. GTK 4.10 deprecated [`GtkComboBoxText`](https://docs.gtk.org/gtk4/class.ComboBoxText.html) without an
   editable replacement ([`GtkDropDown`](https://docs.gtk.org/gtk4/class.DropDown.html) has no entry), so the renderer keeps it under a commented
   `allow(deprecated)`.
-- **Qt / WinUI**: the native C++ shims live in `day-qt-sys` and `day-xaml-sys`,
+- **Qt / WinUI**: the native C++ shims live in `day-toolkit-qt-sys` and `day-toolkit-xaml-sys`,
   compiled by those toolkits. The Qt shim is a
   [`QComboBox`](https://doc.qt.io/qt-6/qcombobox.html) with `setEditable(true)` + `NoInsert`; `editTextChanged` is the single change
   path, and programmatic setters sit in `blockSignals`. The WinUI shim boxes an editable
@@ -93,8 +93,8 @@ the items, and reports typing and picks alike as `Event::TextChanged`, as the na
   [`ComboBox`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.combobox) has no per-keystroke text event, so free-form text commits on Enter or focus loss
   (`TextSubmitted` / `LostFocus`) while picks report immediately (`SelectionChanged`).
 - **Android**: carries its own Java factory
-  (`controls/combobox/src/DayCombo.java` in `day-mdc`), folded into the app's Gradle
-  build via `[package.metadata.day.android]` with no edits to day-mdc. Android's combo box
+  (`controls/combobox/src/DayCombo.java` in `day-toolkit-material`), folded into the app's Gradle
+  build via `[package.metadata.day.android]` with no edits to day-toolkit-material. Android's combo box
   is [`AutoCompleteTextView`](https://developer.android.com/reference/android/widget/AutoCompleteTextView): suggestions prefix-filter while typing, and a tap or focus pops the
   dropdown open so the list is reachable without typing. One [`TextWatcher`](https://developer.android.com/reference/android/text/TextWatcher) reports both paths as
   `DayBridge.K_TEXT_CHANGED`; the programmatic setters guard on equality.

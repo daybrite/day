@@ -8,7 +8,7 @@
 
 // Test-only providers must enter rustc's dependency graph even without an app call.
 use day_piece_settings as _;
-use day_piece_texteditor as _;
+use day_piece_text_editor as _;
 
 use day::prelude::*;
 

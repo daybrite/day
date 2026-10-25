@@ -14,7 +14,7 @@ use std::path::PathBuf;
 
 fn part_lib_rs() -> Option<String> {
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../parts/day-part-permissions/src/lib.rs");
+        .join("../../crates/day-part-permissions/src/lib.rs");
     std::fs::read_to_string(path).ok()
 }
 

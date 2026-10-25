@@ -72,14 +72,14 @@ code. The change plumbing per toolkit:
   fire `EditingChanged`, so no suppression is needed.
 - **GTK**: [`GtkSearchEntry::"search-changed"`](https://docs.gtk.org/gtk4/class.SearchEntry.html). That signal *does* fire on programmatic `set_text`, so a
   per-node `suppress` cell guards the sync in `update`.
-- **Qt / WinUI**: the native C++ shims live in `day-qt-sys` and `day-xaml-sys`,
+- **Qt / WinUI**: the native C++ shims live in `day-toolkit-qt-sys` and `day-toolkit-xaml-sys`,
   compiled by those toolkits. The Qt shim wraps a [`QLineEdit`](https://doc.qt.io/qt-6/qlineedit.html)
   (`setClearButtonEnabled(true)` + a leading `edit-find` action) and wraps programmatic `setText` in
   `blockSignals`. The WinUI shim boxes its [`AutoSuggestBox`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.autosuggestbox) into a Day handle through the
-  `day_xaml_box` / `day_xaml_unbox` functions that `day-xaml-sys` exports, the same mechanism the
-  picker/media WinUI shims use, so a piece never touches day-winui's private handle wrapper.
+  `day_xaml_box` / `day_xaml_unbox` functions that `day-toolkit-xaml-sys` exports, the same mechanism the
+  picker/media WinUI shims use, so a piece never touches day-toolkit-winui's private handle wrapper.
 - **Android**: carries its own Java factory
-  (`controls/searchfield/src/DaySearch.java` in `day-mdc`), folded into the app's Gradle build automatically via `[package.metadata.day.android]` (see
+  (`controls/searchfield/src/DaySearch.java` in `day-toolkit-material`), folded into the app's Gradle build automatically via `[package.metadata.day.android]` (see
   [docs/extending](extending.md)). A [`TextWatcher`](https://developer.android.com/reference/android/text/TextWatcher) calls `DayBridge.nativeOnEvent(id, 1, …)`
   (kind 1 = `TextChanged`); the programmatic setter guards on equality (a plain [`EditText`](https://developer.android.com/reference/android/widget/EditText), so no Gradle
   dependency or manifest permission).

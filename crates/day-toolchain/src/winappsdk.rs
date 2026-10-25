@@ -512,7 +512,7 @@ fn attribute<'a>(tag: &'a str, name: &str) -> Option<&'a str> {
 /// The include path for a piece's XAML shim (docs/winui.md "Pieces"): the SDK's cppwinrt
 /// directory alone for `windows-xaml`, and for `windows-winui` (the piece's `winui` feature) the
 /// generated Windows App SDK projection and headers AHEAD of it, since the projection shares that
-/// directory's base.h. The shim picks its namespace aliases from `DAY_WINUI`, as day-xaml-sys does.
+/// directory's base.h. The shim picks its namespace aliases from `DAY_WINUI`, as day-toolkit-xaml-sys does.
 ///
 /// In a build script: `.includes(shim_includes(&cppwinrt))` where it used to add `cppwinrt`, and
 /// `if shim_is_winui() { build.define("DAY_WINUI", None); }` before compiling.

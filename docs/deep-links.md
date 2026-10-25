@@ -67,7 +67,7 @@ Platform guidance: [Apple: custom URL schemes](https://developer.apple.com/docum
 | Platform | Registration | Cold | Warm | Status |
 |---|---|---|---|---|
 | ios-uikit | [`CFBundleURLTypes`](https://developer.apple.com/documentation/bundleresources/information-property-list/cfbundleurltypes) (scaffold) | ✓ | ✓ `application:openURL:options:` | Shipped |
-| android-mdc | `intent-filter` VIEW+BROWSABLE (scaffold), `singleTask` | ✓ | ✓ `onNewIntent` → kind 7 | Shipped |
+| android-material | `intent-filter` VIEW+BROWSABLE (scaffold), `singleTask` | ✓ | ✓ `onNewIntent` → kind 7 | Shipped |
 | web-dom | the page URL is the link | ✓ hash/`?route=` | ✓ `RouteRequested` on hash change | Shipped |
 | harmony-arkui | `uris` skill (scaffold) | ✓ `want.uri` → buffered | ✓ `onNewWant` | Shipped |
 | macos-appkit | [`CFBundleURLTypes`](https://developer.apple.com/documentation/bundleresources/information-property-list/cfbundleurltypes) (platform/macos scaffold) | ✓ `application:openURLs:` | ✓ the same | Shipped |
@@ -77,7 +77,7 @@ Platform guidance: [Apple: custom URL schemes](https://developer.apple.com/docum
 ### iOS — Shipped, two concerns
 
 Under the scene lifecycle the app runs, URLs arrive at the scene delegate, and that is where
-day-uikit takes them: cold from the connection options' `URLContexts` (and a quick action's
+day-toolkit-uikit takes them: cold from the connection options' `URLContexts` (and a quick action's
 `shortcutItem`), warm from `scene:openURLContexts:` (and
 `windowScene:performActionForShortcutItem:`), every arm one call into
 [`day_core::request_route`](https://daybrite.dev/api/day_core/fn.request_route.html). The app-delegate `application:openURL:options:` intake remains for
@@ -128,7 +128,7 @@ see two processes.
 |---|---|---|
 | AppKit | Launch Services activates the running app and delivers URLs and files to its delegate | Shipped |
 | GTK | GApplication's own uniqueness: the second launch's files and URIs reach the first through its `open` signal | Shipped |
-| Qt (Linux) | `day_dbus::instance`: the first launch owns the app id on the session bus, a second calls its `Forward` method | Shipped |
+| Qt (Linux) | `day_platform_linux::dbus::instance`: the first launch owns the app id on the session bus, a second calls its `Forward` method | Shipped |
 | Windows | A named mutex per app id; a second launch sends its arguments to the first with `WM_COPYDATA` | Compile-checked; runtime pending |
 
 Two development builds of one app id forward to each other, whichever started first.

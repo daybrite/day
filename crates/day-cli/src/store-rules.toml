@@ -112,7 +112,7 @@ sizes = [[2064, 2752], [2752, 2064], [2048, 2732], [2732, 2048]]
 
 [google-play-store]
 label = "Google Play"
-targets = ["android-mdc"]
+targets = ["android-material"]
 layout = "supply"
 default-kind = "phone"
 required = ["name", "description", "short"]
@@ -326,7 +326,7 @@ targets = ["ios-uikit"]
 
 [f-droid]
 label = "F-Droid"
-targets = ["android-mdc"]
+targets = ["android-material"]
 
 [flathub]
 label = "Flathub"

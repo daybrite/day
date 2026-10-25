@@ -18,11 +18,11 @@ use crate::ops::{BuildOutcome, LaunchSpec, apply_app_identity, feature_selection
 use crate::targets::Target;
 
 // The host page trio, embedded so an installed CLI needs no source checkout. They live inside
-// this crate (not next to `toolkits/day-dom`, whose `extern "C"` block shim.js implements)
+// this crate (not next to `crates/day-toolkit-dom`, whose `extern "C"` block shim.js implements)
 // because `include_str!` may not reach outside the package: `cargo package` copies only this
 // directory, so a path into the workspace vanishes on crates.io and `cargo install day-cli`
 // fails to compile, which is exactly what shipped in 0.0.15. Editing shim.js means rebuilding
-// the CLI, and `day-dom`'s crate docs point here.
+// the CLI, and `day-toolkit-dom`'s crate docs point here.
 const HOST_INDEX: &str = include_str!("../resources/web/index.html");
 const HOST_SHIM: &str = include_str!("../resources/web/shim.js");
 const HOST_CSS: &str = include_str!("../resources/web/day.css");
@@ -79,9 +79,9 @@ pub fn build_web(
         status("Using", &format!("{} (wasm32 C compiler)", cc.display()));
         cmd.env("CC_wasm32_unknown_unknown", &cc);
     }
-    // Route entropy to day-dom's getrandom bridge (docs/web.md): the raw-wasm pipeline has no
+    // Route entropy to day-toolkit-dom's getrandom bridge (docs/web.md): the raw-wasm pipeline has no
     // wasm-bindgen runtime, so getrandom v0.3's own `wasm_js` backend cannot work here; the
-    // `custom` backend cfg points it at `__getrandom_v03_custom`, which day-dom answers from
+    // `custom` backend cfg points it at `__getrandom_v03_custom`, which day-toolkit-dom answers from
     // the shim's `crypto.getRandomValues`. Appended to an inherited RUSTFLAGS (CI sets one);
     // inert for app graphs that never pull getrandom.
     let mut rustflags = std::env::var("RUSTFLAGS").unwrap_or_default();
@@ -137,7 +137,7 @@ pub fn build_web(
     std::fs::write(dist.join("day.css"), HOST_CSS).map_err(|e| format!("css: {e}"))?;
     std::fs::copy(&wasm, dist.join("app.wasm")).map_err(|e| format!("{}: {e}", wasm.display()))?;
 
-    // Vector glyphs (docs/vectors.md): the SVG is what day-dom asks for and what the browser
+    // Vector glyphs (docs/vectors.md): the SVG is what day-toolkit-dom asks for and what the browser
     // renders at display size, so only the raster fallbacks land beside the images: art the
     // vector pipeline could not express. Every browser that can run a wasm app renders SVG, so
     // a second PNG copy of a convertible glyph is weight that would also hide a broken vector
@@ -224,7 +224,7 @@ pub fn build_web(
             .replace("[/*day:modules*/]", &format!("[{modules_json}]")),
     )
     .map_err(|e| format!("index: {e}"))?;
-    // Bundled images, flat under assets/images/, the paths day-dom writes into `src` attrs.
+    // Bundled images, flat under assets/images/, the paths day-toolkit-dom writes into `src` attrs.
     let images_src = project.resource_root().join("images");
     if images_src.is_dir() {
         let images = dist.join("assets/images");

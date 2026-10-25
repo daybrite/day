@@ -63,7 +63,7 @@ fn parts_and_tweaks_stay_below_pieces() {
         };
         let is_part = name.starts_with("day-part-");
         let is_tweak = name.starts_with("day-tweak-");
-        let is_protocol = name == "day-script-proto";
+        let is_protocol = name == "day-script-protocol";
         if !is_part && !is_tweak && !is_protocol {
             continue;
         }

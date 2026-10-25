@@ -28,7 +28,7 @@ def dependencies(data):
 
 
 errors = []
-runtimes = ("day-android-runtime", "day-windows-runtime")
+runtimes = ("day-platform-android", "day-platform-windows")
 roots = [*runtimes, *(name for name in packages if name.startswith("day-part-"))]
 for root in roots:
     pending = [(root, [root])]
@@ -39,7 +39,7 @@ for root in roots:
             continue
         seen.add(name)
         path, data = packages[name]
-        if path.parent.name == "toolkits" or name in ("day-pieces", "day") or (root in runtimes and name == "day-core"):
+        if name.startswith("day-toolkit-") or name in ("day-pieces", "day") or (root in runtimes and name == "day-core"):
             errors.append("UI dependency: " + " -> ".join(chain))
         pending.extend((dep, chain + [dep]) for dep in dependencies(data))
     path, _ = packages[root]

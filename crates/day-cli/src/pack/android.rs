@@ -1,7 +1,7 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-//! android-mdc → release .apk + .aab. Day.toml identity/version is conveyed to Gradle via a
+//! android-material → release .apk + .aab. Day.toml identity/version is conveyed to Gradle via a
 //! generated properties file (§17.5); the release signingConfig reads a second generated file,
 //! resolved from `signing.android` `${ENV}` refs, or the fixed dev keystore embedded in the CLI
 //! when unconfigured (dev tier, loud; fixed rather than generated so dev builds reproduce and
@@ -51,7 +51,7 @@ pub(crate) fn gradle_program(android_dir: &Path) -> PathBuf {
 /// Day.toml → `build/day/android/day-app.properties` (applicationId, versionCode, versionName,
 /// title). Written on every android build (`day build` too) so the Gradle scaffold never goes
 /// stale (§17.5). Identity is resolved for the android target, so `[app.android]` /
-/// `[app.android-mdc]` overrides in Day.toml flow into the APK.
+/// `[app.android-material]` overrides in Day.toml flow into the APK.
 ///
 /// The window block rides here too, as manifest placeholders for the activity's `<layout>` element
 /// (docs/size-classes.md). Those four numbers are what multi-window and desktop windowing read to
@@ -61,7 +61,7 @@ pub(crate) fn gradle_program(android_dir: &Path) -> PathBuf {
 pub(crate) fn write_app_properties(project: &Project) -> Result<(), String> {
     let dir = project.root.join("build/day/android");
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    let resolved = project.manifest.resolve("android-mdc");
+    let resolved = project.manifest.resolve("android-material");
     let win = &project.manifest.window;
     // AGP otherwise chooses its own default NDK, which need not be installed even when
     // cargo-ndk just built successfully. In that case it only warns and packages unstripped .so files.
@@ -166,7 +166,7 @@ pub fn pack(
     }
 
     if formats.iter().any(|f| f == "aab") && opts.profile == Profile::Release {
-        status("Building", "android-mdc (gradle bundleRelease)");
+        status("Building", "android-material (gradle bundleRelease)");
         let day_bin = std::env::current_exe().map_err(|e| PackError::Other(e.to_string()))?;
         let android_dir = crate::native_host::ensure_android(project).map_err(PackError::Other)?;
         let mut cmd = Command::new(gradle_program(&android_dir));

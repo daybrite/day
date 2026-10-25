@@ -1393,7 +1393,7 @@ pub fn build_ohos(
         crate::bridge::apply_staged(&mut cmd, project, "harmony-arkui");
         cmd.current_dir(&project.root)
             .env("CARGO_TARGET_DIR", &target_dir)
-            // napi-ohos's build script (the NAPI runtime day-arkui registers the ArkTS module
+            // napi-ohos's build script (the NAPI runtime day-toolkit-arkui registers the ArkTS module
             // with) reads the NDK under this name for its link search paths, and so do the
             // C++ shims of pieces (day-piece-camera). cargo-ohos exports the same directory as
             // OHOS_SDK_NATIVE; this is the one variable it does not spell for us.

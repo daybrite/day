@@ -21,7 +21,7 @@ pub mod capture;
 pub mod markdown;
 /// Bundled-resource random-access API + the per-backend `ResourceOpener` hook (§18.3).
 pub mod resource;
-/// Styled text: the document model `label().runs(…)` renders and `day-piece-texteditor` edits,
+/// Styled text: the document model `label().runs(…)` renders and `day-piece-text-editor` edits,
 /// with the Markdown / HTML / RTF codecs over it (docs/texteditor.md).
 pub mod styled;
 /// Import and export for [`StyledText`]: Markdown, HTML and RTF (docs/texteditor.md).
@@ -481,7 +481,7 @@ pub const WINDOW_NODE: NodeId = NodeId(u64::MAX);
 /// whether the app wants it before swallowing it. An unclaimed arrow has to keep traveling, or
 /// a canvas inside a scroll view would silently eat the keys that scroll it.
 ///
-/// It lives here, in day-spec, rather than in day-core: `day-dom` depends on day-spec alone,
+/// It lives here, in day-spec, rather than in day-core: `day-toolkit-dom` depends on day-spec alone,
 /// and this is a fact about a node that both sides need.
 pub mod keys {
     use super::NodeId;
@@ -2413,7 +2413,7 @@ pub enum Cap {
     /// So this is a statement about the platform's idiom, not about its widget set:
     ///
     /// - `Native`/`Emulated`: `NavStyle::Automatic` may resolve to
-    ///   [`props::NavPresentation::Tabs`] on a compact window (ios-uikit, android-mdc,
+    ///   [`props::NavPresentation::Tabs`] on a compact window (ios-uikit, android-material,
     ///   harmony-arkui, web-dom).
     /// - `Unsupported`: it may not; a compact window collapses to
     ///   [`props::NavPresentation::Stack`] instead, exactly as `NavStyle::Sidebar` has always
@@ -6185,7 +6185,7 @@ pub mod props {
     pub enum NavPatch {
         /// The just-attached last page child became the top of the stack. `immersive` marks a
         /// page that keeps the floating transparent chrome on backends with an immersive nav
-        /// mode (day-mdc edge-to-edge today; ignored elsewhere). Unmarked pages get the
+        /// mode (day-toolkit-material edge-to-edge today; ignored elsewhere). Unmarked pages get the
         /// standard opaque bar.
         Pushed { title: String, immersive: bool },
         /// The top page is about to be removed; present its predecessor.
@@ -6769,7 +6769,7 @@ pub mod present {
 
     /// The web build's file bytes (wasm32-unknown-unknown only): a browser has no filesystem,
     /// so the open/save flows carry bytes through this per-page store instead of `std::fs`:
-    /// day-dom writes a picked file's bytes here and answers with its virtual path; the pieces
+    /// day-toolkit-dom writes a picked file's bytes here and answers with its virtual path; the pieces
     /// layer stages save bytes here for the shim to download. Paths are plain strings under
     /// `/day-web/`; lifetimes are one picker round-trip (the flows remove what they stage).
     #[cfg(all(target_family = "wasm", target_os = "unknown"))]
@@ -8103,7 +8103,7 @@ pub struct WindowOptions {
     pub app_name: Option<String>,
     /// The app's locale catalog, installed by `day::launch` (docs/localization.md).
     ///
-    /// The order is why this is the framework's job: the OS's languages reach day-l10n from the
+    /// The order is why this is the framework's job: the OS's languages reach day-localization from the
     /// live backend, and the catalog has to be registered after that hint and before the first
     /// localized string is read. An app that installs it itself (before `launch`, where there
     /// is no backend yet) registers against an empty hint list and resolves to `DEFAULT`, so a

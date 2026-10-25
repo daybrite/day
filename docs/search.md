@@ -69,7 +69,7 @@ on iOS, Android and ArkUI before the capability existed.
 
 On **iOS the two placements name one surface** anyway: [`UINavigationItem`](https://developer.apple.com/documentation/uikit/uinavigationitem) owns the navigation bar's
 buttons AND its search controller, and the window toolbar rides that same item
-([docs/toolbars](toolbars.md)), so day-uikit installs the field whichever way it was asked
+([docs/toolbars](toolbars.md)), so day-toolkit-uikit installs the field whichever way it was asked
 for.
 
 > [!NOTE]
@@ -87,7 +87,7 @@ Each platform keeps its own convention.
 | toolkit | where | resting state | how it is revealed |
 |---|---|---|---|
 | ios-uikit | [`UISearchController`](https://developer.apple.com/documentation/uikit/uisearchcontroller) on the root page's `navigationItem`, under the large title | pinned by default | opt-in: UIKit's `hidesSearchBarWhenScrolling`, which collapses the field and the large title as the list scrolls and brings both back at the top |
-| android-mdc | pinned: a Material [`TextInputLayout`](https://developer.android.com/reference/com/google/android/material/textfield/TextInputLayout) over the nav list; scrolling: Material's [`SearchBar`](https://developer.android.com/reference/com/google/android/material/search/SearchBar) under the title, expanding into its full-screen [`SearchView`](https://developer.android.com/reference/com/google/android/material/search/SearchView) with the nav list as its results | pinned by default | opt-in: the search bar and title scroll away with the list and return on the first pull; a tap expands the search view |
+| android-material | pinned: a Material [`TextInputLayout`](https://developer.android.com/reference/com/google/android/material/textfield/TextInputLayout) over the nav list; scrolling: Material's [`SearchBar`](https://developer.android.com/reference/com/google/android/material/search/SearchBar) under the title, expanding into its full-screen [`SearchView`](https://developer.android.com/reference/com/google/android/material/search/SearchView) with the nav list as its results | pinned by default | opt-in: the search bar and title scroll away with the list and return on the first pull; a tap expands the search view |
 | harmony-arkui | ArkUI `Search` atop the nav list | visible | always there |
 
 [`Search::reveal(SearchReveal::Scrolls)`](https://daybrite.dev/api/day_pieces/struct.Search.html#method.reveal) opts into scrolling chrome. Desktop toolbar search
@@ -177,7 +177,7 @@ surface and the bar can sit under it. When they land, the per-toolkit mapping is
 | toolkit | scope bar | `Cap::SearchScopes` |
 |---|---|---|
 | ios-uikit | [`UISearchBar.scopeButtonTitles`](https://developer.apple.com/documentation/uikit/uisearchbar) | `Native` |
-| android-mdc | `ChipGroup` of single-selection filter chips | `Emulated` |
+| android-material | `ChipGroup` of single-selection filter chips | `Emulated` |
 | harmony-arkui | `SegmentButtonV2` | `Emulated` |
 | macos-appkit | [`NSSegmentedControl`](https://developer.apple.com/documentation/appkit/nssegmentedcontrol) | `Emulated` |
 | linux-gtk | `.linked` toggle buttons | `Emulated` |
@@ -207,7 +207,7 @@ differently from every other one on the system is worse than no completions.
 | ios-uikit | [`UISearchResultsUpdating`](https://developer.apple.com/documentation/uikit/uisearchresultsupdating), at any placement — see below |
 | macos-appkit | **none.** [`NSSearchField`](https://developer.apple.com/documentation/appkit/nssearchfield)'s menu is a recents list, not completions for the current text, so Day does not present it as one |
 | linux-gtk | **none.** GTK4 deprecated [`GtkEntryCompletion`](https://docs.gtk.org/gtk4/class.EntryCompletion.html) and [`GtkSearchEntry`](https://docs.gtk.org/gtk4/class.SearchEntry.html) has no replacement |
-| android-mdc, harmony-arkui | with the Inline placement |
+| android-material, harmony-arkui | with the Inline placement |
 
 Choosing a suggestion puts it in the field and emits the same change any keystroke would, so an app
 that only reads `query` needs no extra handling. `Event::SearchSuggestionChosen` says *which* one,
@@ -241,7 +241,7 @@ the page is popped. Each toolkit draws it where its platform puts a page's searc
 | toolkit | page search | submit |
 |---|---|---|
 | ios-uikit | the page's own [`UISearchController`](https://developer.apple.com/documentation/uikit/uisearchcontroller) on its `navigationItem`, stacked under the title as Mail's mailbox does: shown when the field arrives, then hidden on scroll and back on a pull; Cancel clears the query. One controller per page for the page's life, so a page covered by a push keeps its field and text | the keyboard's Search key |
-| android-mdc | a collapsible [`androidx.appcompat.widget.SearchView`](https://developer.android.com/reference/androidx/appcompat/widget/SearchView) action on the page's app bar: the magnifier expands into a field across the bar; the collapse arrow or system Back closes it and clears the query | the keyboard's Search key |
+| android-material | a collapsible [`androidx.appcompat.widget.SearchView`](https://developer.android.com/reference/androidx/appcompat/widget/SearchView) action on the page's app bar: the magnifier expands into a field across the bar; the collapse arrow or system Back closes it and clears the query | the keyboard's Search key |
 | harmony-arkui | an ArkUI `Search` at the top of the showing page, under its title bar | `Search.onSubmit` |
 | macos-appkit | the [`NSSearchToolbarItem`](https://developer.apple.com/documentation/appkit/nssearchtoolbaritem) at the trailing edge of the window toolbar | Return or keypad Enter, taken by the field (`insertNewline:`), so no default button fires and editing continues |
 | linux-gtk | a [`GtkSearchEntry`](https://docs.gtk.org/gtk4/class.SearchEntry.html) in the window's [`AdwHeaderBar`](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/class.HeaderBar.html) | Enter (`activate`) |
@@ -263,7 +263,7 @@ text. Scopes, reveal and placement belong to a surface's search and do not apply
 submitted; the query already holds it. It is the trigger for a search the server runs: a filter
 reads the query as it changes, but a catalog query should not run on every keystroke. A field on
 the bar carries it as `ToolbarValue::Submit` after the last `ToolbarValue::Text`; an inline surface
-field emits `Event::SearchSubmitted` (the inline fields of ios-uikit, android-mdc and
+field emits `Event::SearchSubmitted` (the inline fields of ios-uikit, android-material and
 harmony-arkui, on the keyboard's Search key). A field sends any text the app has not heard yet
 before it submits, so the query is current when [`on_submit`](https://daybrite.dev/api/day_pieces/struct.Search.html#method.on_submit) runs.
 

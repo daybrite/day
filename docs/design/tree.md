@@ -25,7 +25,7 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 > the composed tree (Web, Android arbitrary-depth trees and ArkUI) are implemented.
 > Android's two-level section mode uses `ExpandableListView`. The original mock e2e
 > suite and Day Sketch's layer panel: one `dayscript/tree.yaml` passes verbatim on
-> macos-appkit, macos-gtk, ios-uikit, web-dom, macos-qt, android-mdc and harmony-arkui
+> macos-appkit, macos-gtk, ios-uikit, web-dom, macos-qt, android-material and harmony-arkui
 > (89/89), and the leading pane rides the `.edge(PaneEdge::Leading)` inspector on all
 > seven. The Showcase's `Section::Tree` demo + `day-tweak-tree-style` shipped as M5's
 > other half: its own `dayscript/tree.yaml` (53 steps) passes verbatim on the same seven
@@ -520,7 +520,7 @@ it is a tweak, and an app that wants it on Windows asks WinUI for its own equiva
 ### Why hooks exist as their own layer
 
 A tweak reaches the widget. It cannot reach the widget's *delegate*, because Day owns that
-object: day-appkit's sidebar already installs a `DayNavMenuData` as both
+object: day-toolkit-appkit's sidebar already installs a `DayNavMenuData` as both
 `NSOutlineViewDataSource` and `NSOutlineViewDelegate`, and an app that assigned its own would
 tear the tree's data out from under Day. Yet the delegate is exactly where AppKit puts
 `outlineView(_:heightOfRowByItem:)`, `shouldExpandItem:`, `shouldSelectItem:` and
@@ -568,11 +568,11 @@ is *properties*. It does not cover four things, all of which the tree makes acut
 **Native subcontrols** (`day-spec`, each backend's `ext`). A *subcontrol* is one addressable
 widget within a composite backing. The word is Qt's own name for this concept
 (`QStyle::SubControl`), chosen here because the natural word, "part", already means a
-headless platform-service package in Day (`parts/day-part-*`, DESIGN.md §15). A kind whose
+headless platform-service package in Day (`crates/day-part-*`, DESIGN.md §15). A kind whose
 backing is composite reports its subcontrols, and the accessors take one:
 
 ```rust
-day_appkit::with_native_subcontrol(node, Subcontrol::Content, |view, class, mtm| …)
+day_toolkit_appkit::with_native_subcontrol(node, Subcontrol::Content, |view, class, mtm| …)
 button(res::str::sample_label()).appkit_subcontrol(Subcontrol::Content, |…| …)    // the Decorate form
 ```
 
@@ -589,10 +589,10 @@ state. It runs on every bind, so it stays correct for recycled cells.
 
 **Web joins the tweak system.** The tweaks table stops at seven toolkits; the browser is
 missing. The emulated tree makes that a real gap, and CSS is the web's native customization
-language, so day-dom gains a minimal accessor and two helpers over new shim calls:
+language, so day-toolkit-dom gains a minimal accessor and two helpers over new shim calls:
 
 ```rust
-day_dom::with_element(node, Subcontrol::Host, |el| {
+day_toolkit_dom::with_element(node, Subcontrol::Host, |el| {
     el.add_class("layers-panel");
     el.set_style("scrollbar-width", "thin");
 });
@@ -611,7 +611,7 @@ Subcontrols: `Host` = `NSScrollView`, `Content` = `NSOutlineView`, `Header` = th
 `NSTableHeaderView` (absent by default; the tree ships headerless). Rows are `NSTableRowView`.
 
 ```rust
-use day_appkit::{AppKitExt, Subcontrol};
+use day_toolkit_appkit::{AppKitExt, Subcontrol};
 use objc2_app_kit::{NSOutlineView, NSScrollView, NSTableRowView, NSTableViewRowSizeStyle,
                     NSTableViewSelectionHighlightStyle, NSTableViewStyle};
 use objc2_foundation::{NSSize, ns_string};
@@ -663,7 +663,7 @@ choices are build-time and ride `TreeProps` hints and the packaged style tweak b
 Post-mount tweaks get everything that is a live property:
 
 ```rust
-use day_uikit::{Subcontrol, UikitExt};
+use day_toolkit_uikit::{Subcontrol, UikitExt};
 use objc2_ui_kit::{UICollectionView, UICollectionViewListCell};
 
 tree(src, row)
@@ -700,7 +700,7 @@ Subcontrols: `Host` = `GtkScrolledWindow`, `Content` = `GtkListView`. The row ha
 is the widget GTK's own tree options live on.
 
 ```rust
-use day_gtk::{GtkExt, Subcontrol};
+use day_toolkit_gtk::{GtkExt, Subcontrol};
 
 tree(src, row)
     .gtk_subcontrol(Subcontrol::Content, |w, class| {
@@ -733,7 +733,7 @@ These are proposed native-adapter examples, not the current composed implementat
 
 XAML tweaks are all raw tier: the accessor hands the borrowed ABI pointer and the class,
 and the app's own C++/WinRT does the work (compiled by the crate's `build.rs`, as
-`day-tweak-slider-tickmarks` does). Subcontrols: `Host` = the `TreeView`. Rows are
+`day-tweak-slider-tick-marks` does). Subcontrols: `Host` = the `TreeView`. Rows are
 `TreeViewItem`s.
 
 ```rust
@@ -784,7 +784,7 @@ rather than a widget pointer. The arkui extension exposes that:
 
 ```rust
 // The NodeParam fields Day does not consume itself, per token, re-sent on reload:
-day_arkui::tree_ext::node_params(node, |token| NodeParamExtras {
+day_toolkit_arkui::tree_ext::node_params(node, |token| NodeParamExtras {
     icon: Some("shape-rect.svg".into()),
     selected_icon: Some("shape-rect-filled.svg".into()),
     secondary_title: Some(count_label(token)),   // the little trailing count TreeView draws
@@ -817,7 +817,7 @@ tree(src, row)
     })
     .row_tweak(|row_w, _class, info| {
         // The row container QWidget: zebra-stripe by depth with a stylesheet.
-        day_qt::ext::set_style_sheet(row_w, if info.depth % 2 == 0 {
+        day_toolkit_qt::ext::set_style_sheet(row_w, if info.depth % 2 == 0 {
             "background: palette(base)"
         } else {
             "background: palette(alternate-base)"
@@ -841,7 +841,7 @@ tree(src, row)
         let _ = env.call_method(view, "setVerticalScrollBarEnabled", "(Z)V", &[true.into()]);
     })
     .row_tweak(|row_view, _class, info| {
-        day_mdc::ext::set_elevation(row_view, if info.is_group { 2.0 } else { 0.0 });
+        day_toolkit_material::ext::set_elevation(row_view, if info.is_group { 2.0 } else { 0.0 });
     })
 ```
 
@@ -1029,7 +1029,7 @@ the first leading inspector a qt target ever showed.
 Known deltas, still open: a disclosure click also selects its row (the tap reaches the
 cell-click machinery too); keyboard navigation and type-ahead do not exist on composed trees;
 the ARIA tree pattern (`role="tree"`, `aria-level`, …) and the `day-tree`/`data-depth` class
-hooks are not emitted yet; **"day-dom joins the tweak system"** (`with_element`, `add_class`,
+hooks are not emitted yet; **"day-toolkit-dom joins the tweak system"** (`with_element`, `add_class`,
 `set_style`) was not taken in this pass; and there is no drag-to-move (`Cap::TreeMove` stays
 `Unsupported`, with `tree_move:` driving `TreeSource` synthetically). Verified by tree.yaml 87/87
 on web-dom and macos-qt plus a real-pointer browser suite (chevron clicks, row and canvas
@@ -1091,7 +1091,7 @@ ArkTS-native form above stays open work. What the NodeAdapter list machinery had
   sealed phantom "style" undo units, so the second undo of any pair popped a phantom unit
   instead of history. Text/slider sets now record the value; a matching event is swallowed
   as the echo.
-- day-arkui also gained a **hilog sink** (`day::arkui::start` installs it); the `log`
+- day-toolkit-arkui also gained a **hilog sink** (`day::arkui::start` installs it); the `log`
   facade previously went nowhere on OHOS.
 
 Verified on the local OHOS emulator: tree.yaml 89/89, real `uitest uiInput` row taps moving
@@ -1131,7 +1131,7 @@ composed build runs unchanged. What the RecyclerView machinery gained with it:
 Day Sketch grew the phone ergonomics in the same change: a compact window starts with the
 layers pane closed (the canvas needs the room), the tool row carries a Layers toggle, and
 `tree.yaml` opens the pane up front on the phone targets (89 steps; the two open-toggle
-steps are `only_on: [uikit, mdc]`). Verified on the emulator: tree.yaml 89/89 and demo.yaml
+steps are `only_on: [uikit, material]`). Verified on the emulator: tree.yaml 89/89 and demo.yaml
 321/321, a cold-start check of the compact default, and real `adb input` taps: a row tap
 moving the selection tree→canvas, and a chevron tap collapsing and re-expanding (dayscript
 injects events, so only real taps exercise the recognizers; the inner chevron listener wins
@@ -1187,14 +1187,14 @@ switch (`can_select` does not exist yet; see M1's notes); the reveal "field" is 
 with a fixed deep target; the walkthrough cannot assert a denied move or type-ahead
 (dayscript has no assert-this-step-fails form and no `type_ahead:` step; the deny verdict
 and type-select stay pointer checks); and the tweak line ships as
-`.tree_style(TreeStyle::sidebar())` from `tweaks/day-tweak-tree-style`, AppKit clearing the
+`.tree_style(TreeStyle::sidebar())` from `crates/day-tweak-tree-style`, AppKit clearing the
 scroll/outline backgrounds via `Subcontrol::Content` (plus an `alternating_rows` option),
 GTK adding Adwaita's `navigation-sidebar` class, a documented no-op elsewhere. One trap
 to remember: `assert_text` against argumented Fluent messages must go through `key:`+`args:`
 (the runner formats them with the same bidi isolates the label carries). (A second trap of the
 time, `.id` after `.height` tagging the wrapper so `expand:`/`tree_move:` steps found no tree,
 is gone: `.id` names the tree's own node wherever it sits in the chain.) Verified locally:
-tree.yaml 53/53 on macos-appkit, macos-gtk, macos-qt, web-dom, android-mdc, ios-uikit and
+tree.yaml 53/53 on macos-appkit, macos-gtk, macos-qt, web-dom, android-material, ios-uikit and
 harmony-arkui; the walkthrough.yaml tree block in the appkit full run (705/705); real
 right-click context menus, a real Duplicate commit and real chevron disclosure on Web
 via a headless browser; light + dark screenshot review (ArkUI shows the pooled-rebind

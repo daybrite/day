@@ -6,7 +6,7 @@
 //   day-capture-display <width> <height> <scale> [force]
 // where width and height are the window in points and scale is what the capture is rendered at.
 //
-// day-appkit captures by reading the window server's composited pixels back, which is the only
+// day-toolkit-appkit captures by reading the window server's composited pixels back, which is the only
 // capture that shows macOS's own materials, so a capture has the scale of the display the
 // window is on. A CI runner's display is 1x: a 1280x800-point window comes back 1280x800
 // pixels where a laptop produces 2560x1600. When no attached display has the scale the run

@@ -176,7 +176,7 @@ pub fn status_item(id: &str, build: impl Fn() -> StatusItem + 'static) -> Status
     scope.enter(|| {
         day_reactive::bind(
             move || {
-                let _ = day_l10n::locale().get();
+                let _ = day_localization::locale().get();
                 build().lower(&key)
             },
             |spec: &StatusItemSpec| day_core::set_status_item(spec.clone()),

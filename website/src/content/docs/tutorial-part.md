@@ -13,7 +13,7 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 A part exposes an operating-system capability through a shared Rust API, without a UI.
 This tutorial uses the battery monitor in
-[`day-part-device`](https://github.com/daybrite/day/tree/main/parts/day-part-device) to show how
+[`day-part-device`](https://github.com/daybrite/day/tree/main/crates/day-part-device) to show how
 native implementations are selected at compile time and included in the app build.
 The public entry point is [`day_part_device::battery::status()`](https://daybrite.dev/api/day_part_device/battery/fn.status.html).
 
@@ -27,12 +27,12 @@ A **part** is a *headless capability crate*. It has:
   than a Cargo feature, because a battery is an OS concern rather than a toolkit one.
 
 A **piece** is a reusable UI widget (a `combo_box`, a `web_view`) that *does* register a per-toolkit
-renderer. Pieces live in [`pieces/`](https://github.com/daybrite/day/tree/main/pieces); parts live
-in [`parts/`](https://github.com/daybrite/day/tree/main/parts), the non-UI counterpart. Choose by
+renderer. Pieces live in [`pieces/`](https://github.com/daybrite/day/tree/main/crates); parts live
+in [`parts/`](https://github.com/daybrite/day/tree/main/crates), the non-UI counterpart. Choose by
 whether the crate has a UI:
 
 - Building a **visible control** backed by a native widget? Write a **piece**; see
-  [the piece tutorial](/contributing/backend-contracts/extending) and [`day-piece-texteditor`](https://github.com/daybrite/day/tree/main/pieces/day-piece-texteditor).
+  [the piece tutorial](/contributing/backend-contracts/extending) and [`day-piece-text-editor`](https://github.com/daybrite/day/tree/main/crates/day-piece-text-editor).
 - Exposing a **device service** with no UI of its own? Write a **part**.
 
 A part reuses the same build-contribution channel pieces use (the `[package.metadata.day.*]` keys
@@ -60,7 +60,7 @@ below explain each generated file.
 A part is an ordinary library crate with this layout:
 
 ```text
-parts/day-part-device/
+crates/day-part-device/
 ├── Cargo.toml
 ├── examples/battery.rs                                     # a plain `main`, no Day at all
 └── src/
@@ -199,10 +199,10 @@ core-foundation-sys = "0.8"
 objc2 = "0.6"
 objc2-ui-kit = { version = "0.3", features = ["UIDevice"] }
 
-# Android reads BatteryManager through a Java shim + day-android-runtime's cached JVM/Context. This is the one
+# Android reads BatteryManager through a Java shim + day-platform-android's cached JVM/Context. This is the one
 # platform where the headless crate runs on the Day runtime (like the pieces' Android backends).
 [target.'cfg(target_os = "android")'.dependencies]
-day-android-runtime = { workspace = true }
+day-platform-android = { workspace = true }
 ```
 
 There is no `[features]` table, because the target selects the implementation and a part has no
@@ -291,7 +291,7 @@ pub fn status() -> Option<BatteryStatus> {
 On Android, reading `BatteryManager` requires a `Context` and a sticky broadcast, which is
 far easier in Java than through raw JNI. So the part carries its own small Java class and calls it
 over the bridge. This is the one platform where a part runs on the Day runtime; it borrows the JVM
-and `Context` that `day-android-runtime` already caches.
+and `Context` that `day-platform-android` already caches.
 
 > [!NOTE] The shipped crate does this with a bridge now
 > Everything in this section is the mechanism underneath, and it still works as described, but
@@ -313,7 +313,7 @@ import android.content.Intent;
 import android.content.IntentFilter;
 import android.os.BatteryManager;
 
-import dev.daybrite.day.bridge.DayRuntime;   // day-android-runtime's public surface
+import dev.daybrite.day.bridge.DayRuntime;   // day-platform-android's public surface
 
 public final class DayBattery {
     private DayBattery() {}
@@ -345,15 +345,15 @@ public final class DayBattery {
 }
 ```
 
-The Java uses only `day-android-runtime`'s public surface (`DayRuntime.ctx`). The Rust side declares the
-class once with `day_android_runtime::java_class!`, keeping Java's method names, and calls it inside
-`day_android_runtime::java`, which returns `None` if the Java throws. Then it unpacks the `long`:
+The Java uses only `day-platform-android`'s public surface (`DayRuntime.ctx`). The Rust side declares the
+class once with `day_platform_android::java_class!`, keeping Java's method names, and calls it inside
+`day_platform_android::java`, which returns `None` if the Java throws. Then it unpacks the `long`:
 
 ```rust
 use super::{BatteryState, BatteryStatus};
-use day_android_runtime::java;
+use day_platform_android::java;
 
-day_android_runtime::java_class! {
+day_platform_android::java_class! {
     DayBattery => dev.daybrite.day.battery.DayBattery,
     methods {
         static fn read() -> jlong,
@@ -465,7 +465,7 @@ receiver) is the reference. The table also takes `res` (piece-shipped Android re
 by reflection; what Rust calls is kept by its binding); see the
 [extending reference](/contributing/backend-contracts/extending).
 
-When you run `day build -t android-mdc`, the CLI runs `cargo metadata`, walks the app's entire
+When you run `day build -t android-material`, the CLI runs `cargo metadata`, walks the app's entire
 dependency closure, and collects every part's and piece's `[package.metadata.day.android]` blocks
 into `build/day/android/day-pieces.json`, plus a generated overlay manifest for the permissions. The
 app's Gradle project reads that file through Day's Gradle plugin (a loop over the JSON, with no per-part
@@ -498,7 +498,7 @@ native API needs it; the max across contributing crates wins.
 is auto-linked by the iOS SDK. You only need the `frameworks` key for a system framework that is not
 linked by default (SystemConfiguration, WebKit, …).
 
-This is the same contribution channel [`day-piece-texteditor`](https://github.com/daybrite/day/tree/main/pieces/day-piece-texteditor) (Android Java + Gradle deps) and
+This is the same contribution channel [`day-piece-text-editor`](https://github.com/daybrite/day/tree/main/crates/day-piece-text-editor) (Android Java + Gradle deps) and
 [`day-piece-webview`](https://github.com/daybrite/day-piece-webview) (a framework + a permission) use.
 ## 5. Use it
 
@@ -519,7 +519,7 @@ fn main() {
 ```
 
 That is
-[`parts/day-part-device/examples/battery.rs`](https://github.com/daybrite/day/blob/main/parts/day-part-device/examples/battery.rs)
+[`crates/day-part-device/examples/battery.rs`](https://github.com/daybrite/day/blob/main/crates/day-part-device/examples/battery.rs)
 unchanged: a `main` with no Day dependency, which `cargo run -p day-part-device --example battery`
 runs. Inside a Day app you would bind the reading into a `Signal` and drive a [`label`](https://daybrite.dev/api/day_pieces/fn.label.html) or a [`canvas`](https://daybrite.dev/api/day_pieces/fn.canvas.html)
 gauge with it, but the part itself knows nothing about UI.
@@ -563,8 +563,8 @@ Android or iOS) one line of `Cargo.toml` metadata.
 
 ---
 
-For the full source, see [`parts/day-part-device/`](https://github.com/daybrite/day/tree/main/parts/day-part-device) in the Day repo, and
+For the full source, see [`crates/day-part-device/`](https://github.com/daybrite/day/tree/main/crates/day-part-device) in the Day repo, and
 [extending](/contributing/backend-contracts/extending) for the shared contribution mechanism that parts and pieces both use.
-[`parts/day-part-connectivity`](https://github.com/daybrite/day/tree/main/parts/day-part-connectivity) (SystemConfiguration + an iOS `frameworks` link + an Android permission) and
-[`parts/day-part-haptics`](https://github.com/daybrite/day/tree/main/parts/day-part-haptics) (objc2 feedback generators + an Android `Vibrator` shim) are two more parts
+[`crates/day-part-connectivity`](https://github.com/daybrite/day/tree/main/crates/day-part-connectivity) (SystemConfiguration + an iOS `frameworks` link + an Android permission) and
+[`crates/day-part-haptics`](https://github.com/daybrite/day/tree/main/crates/day-part-haptics) (objc2 feedback generators + an Android `Vibrator` shim) are two more parts
 to read as templates.

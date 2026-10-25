@@ -36,4 +36,4 @@ other toolkits currently return `ApplicationError::Unsupported`; continue to use
 for their default handler. No fake browser name or fixed installed-app list is returned.
 Malformed queries return `InvalidInput`, and a valid unregistered content type can return
 an empty result. Native discovery, malformed queries, stale application IDs, and list focus
-are covered by `cargo test -p day-appkit --test native_applications` (main-thread harness).
+are covered by `cargo test -p day-toolkit-appkit --test native_applications` (main-thread harness).

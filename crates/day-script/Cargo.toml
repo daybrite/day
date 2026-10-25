@@ -11,12 +11,12 @@ license.workspace = true
 [dependencies]
 log = { workspace = true }
 day-core = { workspace = true }
-day-fluent = { workspace = true }
+day-localization-ui = { workspace = true }
 day-reactive = { workspace = true }
 day-spec = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
-day-script-proto = { workspace = true }
+day-script-protocol = { workspace = true }
 
 [dev-dependencies]
 day-mock = { workspace = true }

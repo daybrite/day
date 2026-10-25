@@ -1624,7 +1624,7 @@ fn nav_filtered_rows_keep_a_live_detail() {
                 move || {
                     let needle = q.get();
                     all.iter()
-                        .filter(|t| day_l10n::matches_search_in("en", t, &needle))
+                        .filter(|t| day_localization::matches_search_in("en", t, &needle))
                         .map(|t| t.to_string())
                         .collect::<Vec<_>>()
                 },
@@ -5638,8 +5638,8 @@ fn cover_cycle_root() -> AnyPiece {
             // First-touch a lazily-allocated process-global signal from inside the
             // presentation scope, the day-lite regression: the global must be allocated
             // in the root scope, not inherit this cover's, or it dies on dismissal and
-            // every later read panics (day-l10n's locale signal was the observed case).
-            let locale = day_l10n::locale().get_untracked();
+            // every later read panics (day-localization's locale signal was the observed case).
+            let locale = day_localization::locale().get_untracked();
             label(format!("game-{k}@{locale}")).any()
         }),
     ))
@@ -5868,7 +5868,7 @@ fn selectable_modifier_marks_the_node_and_is_opt_in() {
 }
 
 // --- .restore() (docs/navigation.md) -------------------------------------------------------
-// An in-memory NavStore standing in for `day_part_prefs::install_nav_store`, so these tests
+// An in-memory NavStore standing in for `day_part_preferences::install_nav_store`, so these tests
 // exercise the pieces' restore/persist wiring without touching the platform prefs facility.
 // A test that doesn't call `.restore()` never consults the store, so a store left installed on a
 // reused test thread can't affect another test.
@@ -9000,7 +9000,7 @@ fn window_title_names_the_window_it_is_built_into() {
     );
     // The primary is an ordinary window and must be retitlable too. `probe.windows()` lists only
     // the secondaries, so the duty log is where that shows, and a backend that searches only its
-    // secondary list drops this silently, which is what day-appkit did.
+    // secondary list drops this silently, which is what day-toolkit-appkit did.
     assert!(
         probe
             .log()

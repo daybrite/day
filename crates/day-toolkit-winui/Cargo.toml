@@ -1,0 +1,35 @@
+[package]
+name = "day-toolkit-winui"
+publish = false
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description.workspace = true
+repository.workspace = true
+license.workspace = true
+
+# WinUI 3 backend for `windows-winui`, with the deprecated system XAML build
+# retained for `windows-xaml`. The `winui` feature selects Microsoft.UI.Xaml in
+# day-toolkit-xaml-sys; without it, the same C ABI uses Windows.UI.Xaml / XAML Islands.
+# Toolkit-independent Windows services live in day-platform-windows.
+
+[dependencies]
+day-reactive = { workspace = true }
+log = { workspace = true }
+day-spec = { workspace = true }
+# Tweaks (docs/tweaks.md): the ext module reads the realized tree (day-core) and
+# extends Decorate (day-pieces) with this toolkit\'s tweak modifier.
+day-core = { workspace = true }
+day-pieces = { workspace = true }
+# The jump list's task titles: the app's `[[shortcuts]]` label keys, resolved in its catalog.
+day-localization = { workspace = true }
+linkme = { workspace = true }
+
+[target.'cfg(windows)'.dependencies]
+day-toolkit-xaml-sys = { workspace = true }
+day-platform-windows = { workspace = true }
+
+[features]
+# WinUI 3 instead of system XAML (the `windows-winui` target, docs/winui.md):
+# the same backend over the same C ABI, with the shim built against Microsoft.UI.Xaml.
+winui = ["day-toolkit-xaml-sys/winui"]

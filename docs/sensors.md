@@ -16,7 +16,7 @@ when its last subscription ends.
 
 ## Add to your app
 
-Add [`day-part-sensors`](https://github.com/daybrite/day/tree/main/parts/day-part-sensors)
+Add [`day-part-sensors`](https://github.com/daybrite/day/tree/main/crates/day-part-sensors)
 to your app's Cargo dependencies, using the same Day Git source as the rest of the app:
 
 ```toml

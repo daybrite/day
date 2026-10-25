@@ -59,7 +59,7 @@ Disposing the Day node invalidates its handle; callers must handle errors when n
 | macos-qt, linux-qt | QWebEngine `runJavaScript` |
 | windows-winui | WinUI's `WebView2` control, driving its [`ICoreWebView2`](https://learn.microsoft.com/en-us/microsoft-edge/webview2/reference/win32/icorewebview2) |
 | windows-gtk, windows-qt without Qt WebEngine | WebView2 child window through Wry |
-| android-mdc | Android WebView `evaluateJavascript` |
+| android-material | Android WebView `evaluateJavascript` |
 | harmony-arkui | ArkWeb `runJavaScript` |
 | web-dom | Same-origin iframe `contentWindow.eval` |
 

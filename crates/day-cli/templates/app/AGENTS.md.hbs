@@ -29,7 +29,7 @@ Use examples with the API supported by this project's Day dependency version. Ch
 - `dayscript/demo.yaml`: the portable walkthrough and its screenshots.
 - `Day.toml`: app identity, targets, window options, and permissions.
 - `platform/android/AndroidManifest.xml`: optional Android manifest overlay; keep only app-specific
-  declarations, following https://daybrite.dev/docs/reference/platforms/android-mdc#manifest-customization.
+  declarations, following https://daybrite.dev/docs/reference/platforms/android-material#manifest-customization.
 - `platform/`: app-owned native sources and configuration; build projects are generated under `build/`.
 
 ## Conventions

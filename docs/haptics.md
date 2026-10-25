@@ -16,7 +16,7 @@ and error effects. Calls have no effect on devices without a supported haptic en
 
 ## Add to your app
 
-Defined in [`day-part-haptics`](https://github.com/daybrite/day/tree/main/parts/day-part-haptics). Add this to your app’s `Cargo.toml`
+Defined in [`day-part-haptics`](https://github.com/daybrite/day/tree/main/crates/day-part-haptics). Add this to your app’s `Cargo.toml`
 `[dependencies]` table, using the same Day Git source as the rest of your app:
 
 ```toml
@@ -60,7 +60,7 @@ pattern everywhere:
 | `Selection` | the light tick as a value scrolls past a detent |
 
 There are no cargo features; platform selection is purely `#[cfg(target_os)]`, because a haptic
-engine is an OS concern rather than a toolkit one. `parts/day-part-haptics/examples/haptics.rs` is a
+engine is an OS concern rather than a toolkit one. `crates/day-part-haptics/examples/haptics.rs` is a
 plain `main` that uses it with no Day framework at all.
 
 ## Per-platform native realization
@@ -71,7 +71,7 @@ Platform guidance: [Apple: playing haptics](https://developer.apple.com/design/h
 |---|---|---|
 | iOS | [`UIImpactFeedbackGenerator`](https://developer.apple.com/documentation/uikit/uiimpactfeedbackgenerator) / [`UINotificationFeedbackGenerator`](https://developer.apple.com/documentation/uikit/uinotificationfeedbackgenerator) / [`UISelectionFeedbackGenerator`](https://developer.apple.com/documentation/uikit/uiselectionfeedbackgenerator) | `objc2` + `objc2-ui-kit` |
 | macOS | [`NSHapticFeedbackManager.defaultPerformer`](https://developer.apple.com/documentation/appkit/nshapticfeedbackmanager) (Force Touch trackpad) | `objc2-app-kit` |
-| Android | [`Vibrator`](https://developer.android.com/reference/android/os/Vibrator) / [`VibrationEffect`](https://developer.android.com/reference/android/os/VibrationEffect) via a Java shim | `day-mdc` + `[package.metadata.day.android]` |
+| Android | [`Vibrator`](https://developer.android.com/reference/android/os/Vibrator) / [`VibrationEffect`](https://developer.android.com/reference/android/os/VibrationEffect) via a Java shim | `day-toolkit-material` + `[package.metadata.day.android]` |
 | HarmonyOS | [`vibrator.startVibration`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-sensor-service-kit/js-apis-vibrator.md) (Sensor Service Kit) via an ArkTS arm | [`day-bridge`](/contributing/backend-contracts/bridge) + `[package.metadata.day.ohos]` |
 | Windows · desktop Linux (GTK/Qt) | — (no haptic engine wired) | none (no-op, [`is_supported() == false`](https://daybrite.dev/api/day_part_haptics/fn.is_supported.html)) |
 
@@ -108,4 +108,4 @@ Piece and registers nothing into any toolkit's `RENDERERS` slice. It exercises t
 **manifest-permission overlay** ([docs/extending](extending.md)): `[package.metadata.day.android]` stages its own
 Java shim and contributes `android.permission.VIBRATE`, which `day build` merges into the app
 manifest with no edits to any core day crate. On Android the crate rides on the Day runtime
-(day-mdc's cached JVM + `DayBridge.ctx`); on every other platform it is fully day-independent.
+(day-toolkit-material's cached JVM + `DayBridge.ctx`); on every other platform it is fully day-independent.

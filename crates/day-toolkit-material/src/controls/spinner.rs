@@ -1,0 +1,39 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
+// ---------------------------------------------------------------------------
+// Android: android.widget.ProgressBar: the default style is a circular indeterminate spinner, so
+// this piece adds no Gradle dependencies and no permissions. The Java factory
+// (`dev.daybrite.day.piece.activity.DayActivity`) is bundled with this crate in `src/DayActivity.java`
+// and pulled into the app's Gradle build via `[package.metadata.day.android]`, using only
+// day-toolkit-material's public Java surface (DayBridge.ctx). See docs/extending.md.
+// ---------------------------------------------------------------------------
+
+use crate::{AHandle, Material, java};
+use day_spec::NodeId;
+use day_spec::props::{ProgressPatch as ActivityPatch, ProgressProps as ActivityProps};
+
+// This piece's Java class (src/DayActivity.java, on the app classpath at build).
+crate::java_class! {
+    DayActivity => dev.daybrite.day.piece.activity.DayActivity,
+    methods {
+        static fn makeActivity(animating: jboolean, large: jboolean) -> android.view.View,
+        static fn setActivityAnimating(view: android.view.View, on: jboolean),
+    },
+}
+
+pub(crate) fn make(_backend: &mut Material, p: &ActivityProps, _id: NodeId) -> AHandle {
+    let (animating, large) = (p.animating, p.large);
+    crate::realize("activity", |env| {
+        DayActivity::makeActivity(env, animating, large)
+    })
+}
+
+pub(crate) fn update(_backend: &mut Material, h: &AHandle, patch: &ActivityPatch) {
+    match patch {
+        ActivityPatch::Value(_) => {}
+        ActivityPatch::Animating(on) => {
+            java(|env| DayActivity::setActivityAnimating(env, h.0.as_obj(), *on));
+        }
+    }
+}

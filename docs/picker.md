@@ -111,14 +111,14 @@ Platform guidance: [Apple: pickers](https://developer.apple.com/design/human-int
 
 ArkUI renders **Menu** as HarmonyOS's own dropdown, the ArkTS `Select` component. The C node API
 has no select kind, so it is a built-in ArkTS piece the host page registers (`DaySelect.ets` in
-day-arkui's host, passed to `registerDayPieces`); it is sized once for its widest option, so a choice
+day-toolkit-arkui's host, passed to `registerDayPieces`); it is sized once for its widest option, so a choice
 never changes its width. **Segmented** uses a compact row of native ArkTS buttons with an
 accessible selected state, sized for the widest label. **Inline**, and hosts too old to register
 the ArkTS picker, use the native [`ARKUI_NODE_TEXT_PICKER`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-arkui/capi-native-node-h.md) wheel. The Qt and WinUI renderers each carry a C++ shim in the
-matching `-sys` crate (`toolkits/day-qt-sys/src/shim-picker.cpp`,
-`toolkits/day-xaml-sys/src/shim-picker.cpp`); the WinUI shim boxes its WinUI element into a Day handle
+matching `-sys` crate (`crates/day-toolkit-qt-sys/src/shim-picker.cpp`,
+`crates/day-toolkit-xaml-sys/src/shim-picker.cpp`); the WinUI shim boxes its WinUI element into a Day handle
 through the `day_xaml_box`/`day_xaml_unbox` functions. Android's Java factory
-(`toolkits/day-mdc/java/dev/daybrite/day/piece/picker/DayPicker.java`) rides the framework shim.
+(`crates/day-toolkit-material/java/dev/daybrite/day/piece/picker/DayPicker.java`) rides the framework shim.
 All toolkits report selection through `Event::SelectionChanged(i64)`; programmatic selection is
 echo-guarded per toolkit so it never loops.
 

@@ -56,7 +56,7 @@ pub fn write_generated(project: &Project, platform: &str) -> Result<(), String> 
     let win = &project.manifest.window;
     // Day.toml `[window]`'s minimum rides here as a build setting, and the checked-in Info.plist
     // references it as `$(DAY_WINDOW_MIN_WIDTH)`, the same mechanism `DAY_URL_SCHEME` above has
-    // always used. day-uikit reads the resolved numbers back out of the built bundle and applies
+    // always used. day-toolkit-uikit reads the resolved numbers back out of the built bundle and applies
     // them to `UIWindowScene.sizeRestrictions` (docs/screenshots.md, docs/size-classes.md).
     //
     // Not written into the plist, which is where this started. That file is tracked, so a build

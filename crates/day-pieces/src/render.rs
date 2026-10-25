@@ -28,7 +28,7 @@ pub fn fill_measure<B: day_spec::Toolkit>(
 /// ```ignore
 /// fn make(b: &mut AppKit, p: &MyProps, id: NodeId) -> Retained<NSView> { todo!("construct the native view") }
 /// fn update(b: &mut AppKit, h: &Retained<NSView>, patch: &MyPatch) { todo!("construct the native view") }
-/// day_pieces::renderer!(day_appkit::RENDERERS, AppKit,
+/// day_pieces::renderer!(day_toolkit_appkit::RENDERERS, AppKit,
 ///     kind: KIND, props: MyProps, patch: MyPatch, make: make, update: update);
 /// ```
 /// Add `measure: f` (e.g. `measure: day_pieces::fill_measure`) for custom sizing; omit it to use the
@@ -113,8 +113,8 @@ macro_rules! renderer {
 
 /// Register a piece's **web-dom** renderer, whose registry is populated at RUNTIME.
 ///
-/// `linkme` has no `wasm32-unknown-unknown` implementation (DESIGN.md §8.2), so `day-dom` keeps a
-/// `Registry<Dom>` that pieces add to by calling `day_dom::register_renderer`. This macro is
+/// `linkme` has no `wasm32-unknown-unknown` implementation (DESIGN.md §8.2), so `day-toolkit-dom` keeps a
+/// `Registry<Dom>` that pieces add to by calling `day_toolkit_dom::register_renderer`. This macro is
 /// `renderer!`'s counterpart for that registry: same typed `make`/`update`/`measure`, same
 /// inserted downcast, but it defines an idempotent `pub(crate) fn register()` instead of a static,
 /// and the piece's constructor must call it, which is the one line web pieces write that
@@ -122,7 +122,7 @@ macro_rules! renderer {
 ///
 /// ```ignore
 /// // lib-dom.rs
-/// day_pieces::dom_renderer!(day_dom::register_renderer, day_dom::Dom,
+/// day_pieces::dom_renderer!(day_toolkit_dom::register_renderer, day_toolkit_dom::Dom,
 ///     kind: KIND, props: MyProps, patch: MyPatch, make: make, update: update, measure: measure);
 ///
 /// // lib.rs: a constructor always runs before the node it returns is realized.
@@ -268,8 +268,8 @@ macro_rules! __renderer {
 /// house-convention module gate binding `lib-<toolkit>.rs` next to the invoking lib.rs:
 ///
 /// ```ignore
-/// day_pieces::glue_modules!(appkit, gtk, qt, uikit, mdc, xaml);
-/// day_pieces::glue_modules!(uikit, mdc, arkui);   // a piece with partial coverage
+/// day_pieces::glue_modules!(appkit, gtk, qt, uikit, material, xaml);
+/// day_pieces::glue_modules!(uikit, material, arkui);   // a piece with partial coverage
 /// ```
 ///
 /// Adding a toolkit to Day means one new arm here instead of an edit in every piece.
@@ -301,8 +301,8 @@ macro_rules! __glue_module {
         #[path = "lib-uikit.rs"]
         mod uikit_impl;
     };
-    (mdc) => {
-        #[cfg(all(feature = "mdc", target_os = "android"))]
+    (material) => {
+        #[cfg(all(feature = "material", target_os = "android"))]
         #[path = "lib-android.rs"]
         mod android_impl;
     };

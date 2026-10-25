@@ -62,7 +62,7 @@ needed (including retained, offscreen pages). [`in_scope()`](https://daybrite.de
 | --- | --- |
 | macos-appkit | View-associated [`CADisplayLink`](https://developer.apple.com/documentation/quartzcore/cadisplaylink) on macOS 14+; `CVDisplayLink` on supported macOS 13, marshaled to the main queue |
 | ios-uikit | Screen-associated [`CADisplayLink`](https://developer.apple.com/documentation/quartzcore/cadisplaylink), in common run-loop modes |
-| android-mdc | [`Choreographer.postFrameCallback`](https://developer.android.com/reference/android/view/Choreographer) / `removeFrameCallback` |
+| android-material | [`Choreographer.postFrameCallback`](https://developer.android.com/reference/android/view/Choreographer) / `removeFrameCallback` |
 | windows-winui | One-shot registration with `Microsoft.UI.Xaml.Media.CompositionTarget.Rendering` |
 | web-dom | `requestAnimationFrame` / `cancelAnimationFrame` |
 | macos/linux/windows-gtk | Host widget's `add_tick_callback`, timestamped by its [`GdkFrameClock`](https://docs.gtk.org/gdk4/class.FrameClock.html) |

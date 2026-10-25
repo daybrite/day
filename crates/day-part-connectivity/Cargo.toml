@@ -1,0 +1,68 @@
+[package]
+name = "day-part-connectivity"
+publish = false
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description.workspace = true
+repository.workspace = true
+license.workspace = true
+
+# A headless day-ecosystem crate (no UI Piece): a shared cross-platform API for reading a snapshot
+# of the device's network connectivity via each platform's native API. Any Rust code can depend on
+# it and call `day_part_connectivity::status()`. Platform selection is by `#[cfg(target_os)]`
+# (connectivity is an OS concern, not a widget-toolkit one), so there are no backend features; it
+# works per target as follows:
+#   macOS:     SCNetworkReachability (SystemConfiguration), shared file with iOS
+#   iOS:       SCNetworkReachability (IsWWAN distinguishes cellular)
+#   Windows:   GetNetworkConnectivityHint (iphlpapi, resolved dynamically; Windows 10 2004+)
+#   Linux:     /sys/class/net interface scan
+#   HarmonyOS: native libnet_connection.so (NetworkKit), gated on target_env = "ohos"
+#   Android:   ConnectivityManager via the inline Java arm in src/android.rs (docs/bridge.md)
+# See docs/network.md + docs/extending.md.
+
+[dependencies]
+
+# macOS/iOS need no crates: src/apple.rs is plain-C FFI to the SystemConfiguration framework.
+
+# Android reads ConnectivityManager through a Java shim + day-platform-android's cached JVM/Context. This is the
+# one platform where the headless crate rides on the day runtime (like the pieces' Android backends).
+[target.'cfg(target_os = "android")'.dependencies]
+day-platform-android = { workspace = true }
+# daybridge (docs/bridge.md): the Java arm and its declaration live in src/android.rs, so the
+# dependency is Android-only too; every other target compiles exactly as it did before.
+day-bridge = { workspace = true }
+
+# --- Android backend contribution (docs/extending.md) ---
+# The same mechanism the UI pieces use, but this crate registers no renderer: `day build` stages
+# this Java into the app's Gradle build and merges the permission into the app manifest, without
+# touching any core day crate.
+[package.metadata.day.android]
+# ConnectivityManager.getActiveNetwork/getNetworkCapabilities require ACCESS_NETWORK_STATE (a normal,
+# install-time permission with no runtime prompt).
+permissions = ["android.permission.ACCESS_NETWORK_STATE"]
+
+# --- HarmonyOS backend contribution (docs/extending.md) ---
+[package.metadata.day.ohos]
+# OH_NetConn_* answers 201 (permission denied) without GET_NETWORK_INFO, a system_grant permission
+# granted at install with no prompt, so the app's module.json5 must declare it.
+permissions = ["ohos.permission.GET_NETWORK_INFO"]
+
+# --- iOS backend contribution (docs/extending.md) ---
+# SCNetworkReachability lives in SystemConfiguration.framework. src/apple.rs has a Rust
+# `#[link(name = "SystemConfiguration", kind = "framework")]`, but that is honored only when cargo
+# drives the final link (macOS desktop). On iOS, xcodebuild links the Rust staticlib and does not
+# read Rust link metadata, so the app must link the framework itself: declared here and linked via
+# the generated DayPieces SwiftPM package (resolve_ios scans every closure dep, part or piece).
+[package.metadata.day.ios]
+frameworks = ["SystemConfiguration"]
+
+# --- macOS backend contribution ---
+# Same story once the platform/macos/ Xcode host project drives the final link (§17.4): the
+# Rust `#[link]` attribute is honored only when cargo links, so the generated DayPieces
+# package declares the framework for xcodebuild.
+[package.metadata.day.macos]
+frameworks = ["SystemConfiguration"]
+
+[build-dependencies]
+day-build = { workspace = true }

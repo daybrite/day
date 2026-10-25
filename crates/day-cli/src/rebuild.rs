@@ -481,7 +481,7 @@ fn preflight(target_name: &str) -> Result<&'static crate::targets::Target, Strin
             "install Xcode from https://developer.apple.com/download/all/?q=Xcode, then run \
              sudo xcode-select -s /Applications/Xcode.app",
         )),
-        "mdc" if which("gradle").is_none() && which("java").is_none() => Some((
+        "material" if which("gradle").is_none() && which("java").is_none() => Some((
             "a JDK and Gradle",
             "brew install openjdk gradle  /  apt install default-jdk gradle",
         )),

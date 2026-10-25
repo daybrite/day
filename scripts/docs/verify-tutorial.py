@@ -88,7 +88,7 @@ def main():
     app = session / 'apps/first-app'
     app.mkdir(parents=True)
     # Isolate the local dependency fixture; these paths are not reader instructions.
-    for folder in ('crates', 'parts', 'pieces', 'toolkits', 'tweaks'):
+    for folder in ('crates',):
         (session / folder).symlink_to(ROOT / folder, target_is_directory=True)
     # Cargo resolves workspace membership lexically through the symlink paths.
     # Mirror the workspace manifest without copying or editing framework sources.

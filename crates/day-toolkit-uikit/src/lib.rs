@@ -1,0 +1,15793 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
+//! day-toolkit-uikit — the ios-uikit backend (DESIGN.md §9). objc2, pure Rust, no shim.
+//!
+//! `Handle = Retained<UIView>`; UIKit is top-left/y-down so Day frames apply directly. The app
+//! boots via `UIApplicationMain` + a `define_class!` app delegate (pane's proven pattern: the
+//! delegate class is force-registered before `UIApplicationMain`, and exposes `window`/
+//! `setWindow:` for the no-scene-manifest compat path). iOS-only (`cfg(target_os = "ios")`);
+//! host builds see an empty crate.
+
+#![allow(unused_unsafe)]
+
+// `setBadgeCount:` lives in UserNotifications; the class lookup needs the framework linked.
+#[cfg(target_os = "ios")]
+#[link(name = "UserNotifications", kind = "framework")]
+unsafe extern "C" {}
+
+#[cfg(target_os = "ios")]
+pub use imp::*;
+
+#[cfg(target_os = "ios")]
+mod controls;
+
+#[cfg(target_os = "ios")]
+mod nav_progress;
+#[cfg(target_os = "ios")]
+mod picker;
+#[cfg(target_os = "ios")]
+mod textarea;
+#[cfg(any(target_os = "ios", test))]
+mod toolbar_policy;
+#[cfg(target_os = "ios")]
+mod transfer;
+/// Set a `UITextInputTraits` integer property on a `UITextView` (0 = on/default, 1 = off) —
+/// dispatched through the raw runtime, since objc2's checked send does not see these dynamically
+/// resolved setters. Public for standalone editor pieces (docs/extending.md).
+#[cfg(target_os = "ios")]
+pub use textarea::set_text_input_trait;
+
+#[cfg(target_os = "ios")]
+pub mod ext;
+#[cfg(target_os = "ios")]
+pub use ext::*;
+
+#[cfg(target_os = "ios")]
+mod imp {
+    use std::any::Any;
+    use std::cell::{Cell, RefCell};
+    use std::collections::HashMap;
+    use std::ffi::{c_char, c_int};
+    use std::ptr::NonNull;
+    use std::rc::Rc;
+
+    use linkme::distributed_slice;
+    use objc2::rc::Retained;
+    use objc2::runtime::{AnyObject, NSObjectProtocol, ProtocolObject, Sel};
+    use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send, sel};
+    use objc2_core_foundation::{CGAffineTransform, CGFloat, CGPoint, CGRect, CGSize};
+    use objc2_core_graphics::CGContext;
+    use objc2_foundation::{NSObject, NSRange, NSString};
+    use objc2_quartz_core::CADisplayLink;
+    use objc2_ui_kit::UIAdaptivePresentationControllerDelegate;
+    // UIApplicationMain is "deprecated" in objc2 only as a rename to the private
+    // `UIApplication::__main` binding; the classic entry point is what we want.
+    use objc2::Message as _;
+    use objc2_ui_kit::NSIndexPathUIKitAdditions as _;
+    use objc2_ui_kit::NSObjectUIAccessibility;
+    #[allow(deprecated)]
+    use objc2_ui_kit::UIApplicationMain;
+    use objc2_ui_kit::UINavigationControllerDelegate;
+    use objc2_ui_kit::UISearchBarDelegate;
+    use objc2_ui_kit::UISearchResultsUpdating;
+    use objc2_ui_kit::UISplitViewControllerDelegate;
+    use objc2_ui_kit::UITextViewDelegate;
+    use objc2_ui_kit::{
+        UIAction, UIAxis, UIContextMenuConfiguration, UIContextMenuInteraction,
+        UIContextMenuInteractionDelegate, UIInteraction, UIMenu, UIMenuElement,
+        UIMenuElementAttributes, UIMenuOptions, UIPointerEffect, UIPointerHighlightEffect,
+        UIPointerInteraction, UIPointerInteractionDelegate, UIPointerLiftEffect, UIPointerRegion,
+        UIPointerShape, UIPointerStyle, UITargetedPreview,
+    };
+    use objc2_ui_kit::{
+        UIActivityIndicatorView, UIApplication, UIApplicationDelegate, UIButton, UIButtonType,
+        UIColor, UIControl, UIControlEvents, UIControlState, UIEdgeInsets, UILabel,
+        UIModalPresentationStyle, UIProgressView, UIRectEdge, UIScrollView, UISlider, UISwitch,
+        UITextBorderStyle, UITextField, UITextView, UIView, UIViewAnimationOptions,
+        UIViewController, UIWindow,
+    };
+    use objc2_ui_kit::{
+        UIBarButtonItem, UIBarButtonItemStyle, UIBarPositioningDelegate,
+        UIGestureRecognizerDelegate, UINavigationBar, UINavigationBarAppearance,
+        UINavigationBarDelegate, UINavigationController, UINavigationItem,
+    };
+    use objc2_ui_kit::{
+        UICollectionViewDataSource, UICollectionViewDelegate, UIScrollViewDelegate,
+        UITableViewDataSource, UITableViewDelegate, UITableViewDragDelegate,
+    };
+    use objc2_ui_kit::{
+        UIGestureRecognizer, UIGestureRecognizerState, UIPanGestureRecognizer,
+        UIPinchGestureRecognizer, UITapGestureRecognizer,
+    };
+    use objc2_ui_kit::{
+        UIKeyInput as _, UIKeyboardType, UIReturnKeyType, UITextAutocapitalizationType,
+        UITextContentTypeEmailAddress, UITextContentTypeName, UITextContentTypeNewPassword,
+        UITextContentTypeOneTimeCode, UITextContentTypePassword, UITextContentTypeTelephoneNumber,
+        UITextContentTypeURL, UITextContentTypeUsername, UITextFieldDelegate, UITextInput as _,
+        UITextInputTraits as _,
+    };
+    use objc2_ui_kit::{UITabBarController, UITabBarControllerDelegate};
+    // `.import`/`.exportToService` modes (deprecated in favor of `initFor…ContentTypes:`, which
+    // would pull in the UniformTypeIdentifiers crate) remain the simplest UTType-free path.
+    #[allow(deprecated)]
+    use objc2_ui_kit::UIDocumentPickerMode;
+    use objc2_ui_kit::{UIDocumentPickerDelegate, UIDocumentPickerViewController};
+
+    use day_spec::props::*;
+    use day_spec::{
+        A11yProps, AnimSpec, Builtin, Cap, Cursor, Curve, DrawOp, Edges, Event, EventSink, Font,
+        InputPurpose, InputTraits, ListSource, NodeId, PieceKind, Platform, Proposal, RawHandle,
+        Rect, Registry, Renderer, Size, SubmitLabel, Support, Toolkit, Transform, TreeSource,
+        WINDOW_NODE, WindowOptions, kinds,
+    };
+
+    pub type Handle = Retained<UIView>;
+
+    /// The day-core event sink (node-id keyed).
+    type Sink = Rc<dyn Fn(NodeId, Event)>;
+
+    /// DAY_DIAG_NAV tracing, resolved once — the layout and nav-delegate hot paths run on
+    /// every pass and must not re-query the environment each time.
+    static DIAG_NAV: std::sync::LazyLock<bool> =
+        std::sync::LazyLock::new(|| std::env::var("DAY_DIAG_NAV").is_ok());
+
+    day_core::tls_group! {
+        static BUTTON_CONTENT: day_spec::sidetable::SideTable<day_spec::props::ButtonContent> = day_spec::sidetable::SideTable::new();
+        /// Views the app gave an accessibility label (`set_a11y`): a button's title change must
+        /// then leave the label alone (`apply_button_content`). Swept on release.
+        static APP_LABELED: day_spec::sidetable::SideTable<()> = day_spec::sidetable::SideTable::new();
+        /// How each image view renders its glyph (docs/vectors.md "Tint", "Template"): whether
+        /// it was realized as a template, and whether a tint is on it now. Rendering mode is a
+        /// property of the UIImage, so a source swap has to re-apply it, and a tint patch of
+        /// `None` keeps a template in the inherited tint rather than returning to the authored
+        /// art. Swept on release.
+        static IMAGE_MODES: day_spec::sidetable::SideTable<ImageMode> =
+            day_spec::sidetable::SideTable::new();
+
+        static SINK: RefCell<Option<Sink>> = const { RefCell::new(None) };
+        static TARGETS: RefCell<HashMap<usize, Retained<DayTarget>>> = RefCell::new(HashMap::new());
+        static WINDOW: RefCell<Option<Retained<UIWindow>>> = const { RefCell::new(None) };
+        /// The Day content root + its keyboard-less frame (window coords) — keyboard avoidance
+        /// (docs/focus.md) shrinks the root to the keyboard top and restores this on dismiss.
+        static ROOT_VIEW: RefCell<Option<Retained<UIView>>> = const { RefCell::new(None) };
+        static ROOT_BASE_FRAME: Cell<CGRect> = const {
+            Cell::new(CGRect {
+                origin: CGPoint { x: 0.0, y: 0.0 },
+                size: CGSize {
+                    width: 0.0,
+                    height: 0.0,
+                },
+            })
+        };
+        /// The UITextField that currently owns the keyboard (editBegan/editEnded), so the
+        /// keyboard handler can reveal it inside its enclosing UIScrollView.
+        static FOCUSED_FIELD: RefCell<Option<Retained<UIView>>> = const { RefCell::new(None) };
+        #[allow(clippy::type_complexity)]
+        static PENDING: RefCell<Option<(Uikit, WindowOptions, Box<dyn FnOnce(Uikit, Handle, Size)>)>> =
+            RefCell::new(None);
+        static FRAMES: RefCell<HashMap<usize, FrameSource>> = RefCell::new(HashMap::new());
+        /// Connected scenes' windowing state (docs/windows.md). The PRIMARY scene also
+        /// mirrors into WINDOW/ROOT_VIEW/ROOT_BASE_FRAME above (every single-window code
+        /// path keeps reading those); secondary day windows are registry-only.
+        static SCENES: RefCell<Vec<SceneEntry>> = const { RefCell::new(Vec::new()) };
+        /// Secondary opens in flight: the day root node ids handed to
+        /// `requestSceneSessionActivation`, awaiting their scene's willConnect.
+        static PENDING_WINDOWS: RefCell<Vec<(NodeId, String)>> = const { RefCell::new(Vec::new()) };
+        /// A scene the PLATFORM opened (iPadOS Window ▸ New Window, an app icon dragged into
+        /// Split View, a session restored from a previous run): set while the delegate asks
+        /// day-core for content, so the `open_window` that call comes back through adopts this
+        /// scene instead of requesting another one, and reports the node it was given.
+        static ADOPTING_SCENE: Cell<Option<NodeId>> = const { Cell::new(None) };
+        static ADOPTING: Cell<bool> = const { Cell::new(false) };
+        /// Nonzero while a window is between size classes: `willTransitionToTraitCollection:`
+        /// through the coordinator's completion. A `UISplitViewController` merges its columns
+        /// when it collapses and takes them apart again when it expands, and the un-merge is a
+        /// real pop on the primary's controller — the same call a user's back makes
+        /// (docs/navigation.md).
+        static CLASS_TRANSITIONS: Cell<usize> = const { Cell::new(0) };
+        /// Bumped by each size-class transition, so a late ceiling releases only its own.
+        static CLASS_TRANSITION_GEN: Cell<u64> = const { Cell::new(0) };
+        /// App-level lifecycle debounce across scenes: whether any scene was
+        /// foreground-active / any scene was foregrounded at the last recompute.
+        static ANY_SCENE_ACTIVE: Cell<bool> = const { Cell::new(false) };
+        static ANY_SCENE_FOREGROUND: Cell<bool> = const { Cell::new(false) };
+
+        /// Each link-carrying text view's delegate, kept alive for the view's lifetime (a
+        /// `UITextView` holds its delegate weakly). Swept on release.
+        /// The link a tap just reported, and when (`DayTextLink::tapped`), so the text view's own
+        /// delegate call for the same tap, which arrives later, is not reported twice.
+        static LAST_LINK_TAP: RefCell<Option<(String, std::time::Instant)>> =
+            const { RefCell::new(None) };
+        static TEXT_LINKS: day_spec::sidetable::SideTable<Retained<DayTextLink>> =
+            day_spec::sidetable::SideTable::new();
+
+        /// Keeps each view's gesture targets alive + records which are attached (idempotent).
+        static GESTURES: RefCell<HashMap<usize, Vec<Retained<DayGesture>>>> =
+            RefCell::new(HashMap::new());
+        /// Per-view context-menu interaction + its delegate (kept alive; replaced on
+        /// reconfigure, swept on release via `day_spec::sidetable`). The teardown detaches
+        /// the interaction from its view first, so a recycled address can never serve a dead
+        /// view's menu, then drops both retains.
+        /// The summon-time providers' interactions, same lifecycle rules as CTX_MENUS.
+        static CTX_MENU_FNS: RefCell<HashMap<usize, (
+            Retained<UIContextMenuInteraction>,
+            Retained<DayContextMenuFn>,
+        )>> = RefCell::new(HashMap::new());
+        static CTX_MENUS: day_spec::sidetable::SideTable<(
+            Retained<UIContextMenuInteraction>,
+            Retained<DayContextMenu>,
+        )> = day_spec::sidetable::SideTable::with_teardown(
+            |(interaction, _delegate): (
+                Retained<UIContextMenuInteraction>,
+                Retained<DayContextMenu>,
+            )| {
+                // `view` is the interaction's weak back-pointer — present exactly while it
+                // is still attached, which is when the detach matters.
+                if let Some(v) = interaction.view() {
+                    v.removeInteraction(ProtocolObject::from_ref(&*interaction));
+                }
+            },
+        );
+
+        /// Keyed by the nav host view ptr (the UINavigationController's view).
+        static NAV_STATE: RefCell<HashMap<usize, NavState>> = RefCell::new(HashMap::new());
+        /// Page CONTENT view ptr → its UIViewController.
+        static PAGE_VCS: RefCell<HashMap<usize, Retained<UIViewController>>> =
+            RefCell::new(HashMap::new());
+        /// Handles whose frames are native-owned (page content views).
+        static NAV_PAGES: RefCell<std::collections::HashSet<usize>> =
+            RefCell::new(std::collections::HashSet::new());
+        /// Each nav page's pane, recorded at realize because `insert` sees only handles
+        /// (docs/size-classes.md). The SIDEBAR page is the split host's primary column; every
+        /// other page is a detail, pushed on the secondary's stack. Swept on release via
+        /// `day_spec::sidetable`.
+        static PAGE_PANE: day_spec::sidetable::SideTable<day_spec::props::Pane> =
+            day_spec::sidetable::SideTable::new();
+
+
+        /// Cover content view ptr → its presentation state.
+        static COVER_STATE: RefCell<HashMap<usize, CoverState>> = RefCell::new(HashMap::new());
+        /// The current `defers_system_gestures` union (day `Edges` bits) — read by the root
+        /// and cover VCs' `preferredScreenEdgesDeferringSystemGestures` overrides.
+        static DEFER_EDGES: Cell<u8> = const { Cell::new(0) };
+        /// Whether a mounted `status_bar_hidden` asks for the bar hidden — read by the root
+        /// and cover VCs' `prefersStatusBarHidden` overrides.
+        static STATUS_BAR_HIDDEN: Cell<bool> = const { Cell::new(false) };
+
+        pub(super) static UNDO_FRONT: RefCell<Option<Retained<DayUndoManager>>> =
+            const { RefCell::new(None) };
+
+        /// The app's edit-bridge state (`set_edit_state`) — what canPerformAction consults.
+        static EDIT_STATE: std::cell::Cell<day_spec::EditState> =
+            const { std::cell::Cell::new(day_spec::EditState { can_cut: false, can_copy: false, can_paste: false, can_select_all: false }) };
+
+        static DOCUMENT_HOSTS: RefCell<HashMap<usize, DocumentHost>> = RefCell::new(HashMap::new());
+        static NAV_TABS: RefCell<HashMap<usize, NavTabsState>> = RefCell::new(HashMap::new());
+        /// A realized NAV_MENU's rows, by its own view ptr. Recorded at realize because that is
+        /// where the props are, and consumed at INSERT, which is the first moment the menu is in
+        /// a view hierarchy and its enclosing host can be found.
+        /// A tabs host's page content views → the host, so a nav menu inside a page that is not
+        /// in the controller's hierarchy can still find it.
+        static TABS_PAGE_HOST: RefCell<HashMap<usize, usize>> = RefCell::new(HashMap::new());
+        /// Icon NAMES, not resolved images: a tab resolves its own through the named-image path,
+        /// so it gets the glyph's vector at the size the ASSET presents itself at.
+        static NAV_MENU_ROWS: RefCell<HashMap<usize, (i64, NavTabRows)>> =
+            RefCell::new(HashMap::new());
+
+        /// NAV_MENU table ptr → (data source, row count).
+        static NAV_MENUS: RefCell<HashMap<usize, (Retained<DayNavTableData>, usize)>> =
+            RefCell::new(HashMap::new());
+
+        /// LIST table ptr → (table, data source).
+        static LIST_STATE: RefCell<HashMap<usize, ListEntry>> = RefCell::new(HashMap::new());
+
+        /// TREE collection-view ptr → its delegate/state object (docs/tree.md).
+        static TREE_STATE: RefCell<HashMap<usize, Retained<DayTreeData>>> =
+            RefCell::new(HashMap::new());
+
+        /// Canvas view ptr → its display list. Swept on release via `day_spec::sidetable` —
+        /// a stale entry made a NEW DayCanvasView at a dead canvas's recycled address replay
+        /// the old display list until its first `replay`.
+        static OPS: day_spec::sidetable::SideTable<Vec<day_spec::DrawOp>> =
+            day_spec::sidetable::SideTable::new();
+        /// Canvas view ptr → its node, so the view's own key handling knows who to report to
+        /// (docs/menus.md). Every canvas is registered at realize: focus, not a gesture, is
+        /// what decides who hears a key.
+        static KEY_NODES: day_spec::sidetable::SideTable<NodeId> =
+            day_spec::sidetable::SideTable::new();
+
+        /// Live alert controllers keyed by request id (for programmatic dismissal).
+        static PRESENT_VCS: RefCell<HashMap<u64, Retained<objc2_ui_kit::UIAlertController>>> =
+            RefCell::new(HashMap::new());
+        /// Live document pickers + their retained delegates, keyed by request id.
+        #[allow(clippy::type_complexity)]
+        static PRESENT_PICKERS: RefCell<
+            HashMap<
+                u64,
+                (
+                    Retained<UIDocumentPickerViewController>,
+                    Retained<DayDocPicker>,
+                ),
+            >,
+        > = RefCell::new(HashMap::new());
+        /// FIFO of modal transitions (see [`ModalOp`]) — ops run one at a time, pumped from
+        /// each transition's completion.
+        static MODAL_QUEUE: RefCell<std::collections::VecDeque<ModalOp>> =
+            const { RefCell::new(std::collections::VecDeque::new()) };
+        /// Whether a present/dismiss transition is currently in flight.
+        static MODAL_BUSY: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+        /// Transition generation — invalidates the watchdog of a normally-completed transition.
+        static MODAL_GEN: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+        /// When a transition was last seen in flight (`ui_idle`'s settle margin).
+        static UI_LAST_ACTIVE: std::cell::Cell<Option<std::time::Instant>> =
+            const { std::cell::Cell::new(None) };
+
+    }
+
+    /// One connected scene's windowing state.
+    struct SceneEntry {
+        window: Retained<UIWindow>,
+        root_view: Retained<UIView>,
+        base_frame: Cell<CGRect>,
+        /// `None` = the primary scene; `Some` = a secondary day window's root node.
+        node: Option<NodeId>,
+        /// Whether the app asked for this window fullscreen (`WindowChange::State`): its root
+        /// and cover VCs then hide the status bar and let the home indicator fade.
+        fullscreen: Cell<bool>,
+        /// The last `WindowStateChanged` code reported for this window, so a report fires once
+        /// per real change.
+        reported: Cell<i32>,
+        /// Whether the app asked for this window's content to stay out of captures
+        /// (`WindowChange::ContentProtected`).
+        protected: Cell<bool>,
+        /// The opaque window covering this scene while protected content is being recorded or
+        /// mirrored; `None` the rest of the time.
+        shield: RefCell<Option<Retained<UIWindow>>>,
+        /// This window's own light/dark override (`WindowChange::Appearance`); `None` follows
+        /// the app-wide choice.
+        appearance: Cell<Option<bool>>,
+    }
+
+    impl SceneEntry {
+        fn new(
+            window: Retained<UIWindow>,
+            root_view: Retained<UIView>,
+            base_frame: CGRect,
+            node: Option<NodeId>,
+        ) -> Self {
+            SceneEntry {
+                window,
+                root_view,
+                base_frame: Cell::new(base_frame),
+                node,
+                fullscreen: Cell::new(false),
+                reported: Cell::new(day_spec::WindowState::Normal.code()),
+                protected: Cell::new(false),
+                shield: RefCell::new(None),
+                appearance: Cell::new(None),
+            }
+        }
+    }
+
+    thread_local! {
+        /// The app-wide interface style `Toolkit::set_appearance` asked for; `None` until it
+        /// is first called, when a `DAY_THEME` launch override stands in.
+        static APP_STYLE: Cell<Option<objc2_ui_kit::UIUserInterfaceStyle>> =
+            const { Cell::new(None) };
+    }
+
+    fn interface_style(dark: Option<bool>) -> objc2_ui_kit::UIUserInterfaceStyle {
+        use objc2_ui_kit::UIUserInterfaceStyle as Style;
+        match dark {
+            Some(true) => Style::Dark,
+            Some(false) => Style::Light,
+            None => Style::Unspecified,
+        }
+    }
+
+    /// The style every window wears unless it has its own: the app's `set_appearance`, else
+    /// `DAY_THEME=light|dark` (themed CI runs), else the system's.
+    fn app_style() -> objc2_ui_kit::UIUserInterfaceStyle {
+        APP_STYLE.with(|a| a.get()).unwrap_or_else(|| {
+            interface_style(match std::env::var("DAY_THEME").ok().as_deref() {
+                Some("dark") => Some(true),
+                Some("light") => Some(false),
+                _ => None,
+            })
+        })
+    }
+
+    /// Put each scene window in the style it should wear: its own override, else the app's.
+    /// Windows are collected first and styled outside the registry borrow, since a style
+    /// change runs `traitCollectionDidChange` synchronously, which reads the registry again.
+    fn refresh_scene_styles() {
+        let windows: Vec<(Retained<UIWindow>, objc2_ui_kit::UIUserInterfaceStyle)> =
+            SCENES.with(|s| {
+                s.borrow()
+                    .iter()
+                    .map(|e| {
+                        let style = match e.appearance.get() {
+                            Some(dark) => interface_style(Some(dark)),
+                            None => app_style(),
+                        };
+                        (e.window.clone(), style)
+                    })
+                    .collect()
+            });
+        for (window, style) in windows {
+            if unsafe { window.overrideUserInterfaceStyle() } != style {
+                unsafe { window.setOverrideUserInterfaceStyle(style) };
+            }
+        }
+    }
+
+    /// The KEY window's scene entry applied to `f` — keyboard avoidance and modal
+    /// presentation act on whichever Day window is key; primary statics are the fallback.
+    fn with_key_scene<R>(f: impl FnOnce(&SceneEntry) -> R) -> Option<R> {
+        SCENES.with(|s| {
+            let scenes = s.borrow();
+            let key = scenes
+                .iter()
+                .find(|e| e.window.isKeyWindow())
+                .or_else(|| scenes.iter().find(|e| e.node.is_none()));
+            key.map(f)
+        })
+    }
+
+    /// Is this device running at least `major`.0?
+    ///
+    /// day-toolkit-uikit deploys to iOS 15 and is built against a much newer SDK, so anything newer than
+    /// the floor has to be asked for at runtime. objc2 compiles the call whatever the SDK
+    /// version; the OS is what decides whether the nav host exists, and an unrecognized nav host
+    /// is a crash, not a no-op.
+    ///
+    /// Cached: `NSProcessInfo` is a lookup per call otherwise, and the answer cannot change
+    /// while the process runs.
+    fn os_at_least(major: isize) -> bool {
+        thread_local! {
+            static VERSION: isize = objc2_foundation::NSProcessInfo::processInfo()
+                .operatingSystemVersion()
+                .majorVersion;
+        }
+        VERSION.with(|v| *v >= major)
+    }
+
+    /// The scene entry a given view lives in, applied to `f` — matched by the view's WINDOW,
+    /// which is the one identity every view in a scene shares all the way up the hierarchy.
+    ///
+    /// `with_key_scene` answers "whichever window the user is typing into"; this answers "the
+    /// window this view is in", which is what a resize report needs — a background window being
+    /// resized alongside the key one must still report against itself. `None` before the view
+    /// has been added to a window.
+    fn with_scene_of<R>(view: &UIView, f: impl FnOnce(&SceneEntry) -> R) -> Option<R> {
+        let window = view.window()?;
+        let wp = Retained::as_ptr(&window) as usize;
+        SCENES.with(|s| {
+            let scenes = s.borrow();
+            scenes
+                .iter()
+                .find(|e| Retained::as_ptr(&e.window) as usize == wp)
+                .map(f)
+        })
+    }
+
+    /// The scene entry whose Day root is `host` (a window's content container, as day-core
+    /// addresses windows), applied to `f`.
+    fn with_scene_of_host<R>(host: &UIView, f: impl FnOnce(&SceneEntry) -> R) -> Option<R> {
+        let hp = host as *const UIView as usize;
+        SCENES.with(|s| {
+            s.borrow()
+                .iter()
+                .find(|e| Retained::as_ptr(&e.root_view) as usize == hp)
+                .map(f)
+        })
+    }
+
+    /// The root node id the keyboard/resize rail should report against for the key window:
+    /// a secondary's own root, or `WINDOW_NODE` for the primary.
+    fn key_scene_target(entry: &SceneEntry) -> NodeId {
+        entry.node.unwrap_or(WINDOW_NODE)
+    }
+
+    /// The space this SCENE has, in points — never the screen's (docs/size-classes.md).
+    ///
+    /// `scene.screen().bounds()` is the display, and a scene has not filled the display since
+    /// iPad multitasking; as of iPadOS 26 every iPad window is freely resizable, and an iPhone
+    /// app on an iPad or mirrored to a Mac is a resizable window too. Measuring the screen made
+    /// the LAUNCH snapshot wrong — the first size class was the display's, so a nav host resolved
+    /// its presentation for a window that size and then visibly corrected itself once
+    /// `DayHolderView` ran.
+    ///
+    /// The scene's own coordinate space is right on every version this backend supports; iOS 26
+    /// moved it behind `effectiveGeometry` and deprecated the direct property, so both spellings
+    /// are here — the same value, asked for the way the running OS wants it asked.
+    fn scene_bounds(scene: &objc2_ui_kit::UIWindowScene) -> CGRect {
+        use objc2_ui_kit::UICoordinateSpace;
+        let space = if os_at_least(26) {
+            scene.effectiveGeometry().coordinateSpace(mtm())
+        } else {
+            #[allow(deprecated)]
+            scene.coordinateSpace()
+        };
+        let bounds = space.bounds();
+        // A scene that has not been placed yet reports zero; the screen is the best guess left,
+        // and the first layout pass corrects it either way.
+        if bounds.size.width > 0.0 && bounds.size.height > 0.0 {
+            bounds
+        } else {
+            scene.screen().bounds()
+        }
+    }
+
+    /// Ask the system not to shrink this window below what the app can draw
+    /// (docs/size-classes.md). `sizeRestrictions` is `nil` wherever the platform does not let a
+    /// window be resized at all (every iPhone), which is why this is a nil-check and not a
+    /// version gate.
+    ///
+    /// Apple documents the minimum as a PREFERENCE satisfied on a best-effort basis, so this
+    /// buys a floor the system usually honors, never one the app may rely on: laying out
+    /// sensibly at whatever size arrives is still the app's job.
+    fn apply_size_restrictions(scene: &objc2_ui_kit::UIWindowScene, min: Option<Size>) {
+        let Some(min) = min.or_else(plist_min_window_size) else {
+            return;
+        };
+        let Some(restrictions) = (unsafe { scene.sizeRestrictions() }) else {
+            return;
+        };
+        unsafe { restrictions.setMinimumSize(CGSize::new(min.width, min.height)) };
+    }
+
+    /// The URL scheme the app registered (`CFBundleURLTypes`), the first one as `day build`
+    /// reads it for the Info.plist quick actions: dynamic shortcuts carry the same link form.
+    fn bundle_url_scheme() -> Option<String> {
+        let bundle = objc2_foundation::NSBundle::mainBundle();
+        let types =
+            unsafe { bundle.objectForInfoDictionaryKey(&NSString::from_str("CFBundleURLTypes")) }?;
+        let types = types.downcast::<objc2_foundation::NSArray>().ok()?;
+        types.iter().find_map(|t| {
+            let dict = t.downcast::<objc2_foundation::NSDictionary>().ok()?;
+            let schemes = dict.objectForKey(&*NSString::from_str("CFBundleURLSchemes"))?;
+            let schemes = schemes.downcast::<objc2_foundation::NSArray>().ok()?;
+            let first = schemes.firstObject()?.downcast::<NSString>().ok()?;
+            Some(first.to_string()).filter(|s| !s.is_empty())
+        })
+    }
+
+    /// `Day.toml [window] min_width/min_height`, carried into the bundle's `Info.plist` by
+    /// `day build` (`mobile::sync_window_keys`). The fallback when the app set no
+    /// `WindowOptions.min_size` of its own, so one Day.toml declaration reaches both platforms.
+    fn plist_min_window_size() -> Option<Size> {
+        fn key(name: &str) -> Option<f64> {
+            let bundle = objc2_foundation::NSBundle::mainBundle();
+            let value = unsafe { bundle.objectForInfoDictionaryKey(&NSString::from_str(name)) }?;
+            let s = value.downcast::<NSString>().ok()?;
+            s.to_string().trim().parse::<f64>().ok()
+        }
+        let w = key("DayWindowMinWidth")?;
+        let h = key("DayWindowMinHeight")?;
+        (w > 0.0 && h > 0.0).then(|| Size::new(w, h))
+    }
+
+    /// Build one Day window into `scene`: UIWindow + DayRootVC + DayHolderView + the
+    /// safe-area-inset day root — the construction `didFinishLaunching` used to own,
+    /// factored so every scene (primary and secondary) gets identical chrome.
+    fn build_scene_window(
+        mtm: MainThreadMarker,
+        scene: &objc2_ui_kit::UIWindowScene,
+        min_size: Option<Size>,
+    ) -> (Retained<UIWindow>, Retained<UIView>, CGRect) {
+        apply_size_restrictions(scene, min_size);
+        let bounds = scene_bounds(scene);
+        if *DIAG_NAV {
+            let screen = scene.screen().bounds();
+            // The scene's own size versus the display's — they are different on any iPad running
+            // iPadOS 26, which opens apps windowed, and the gap is what makes measuring the
+            // screen a bug rather than a shortcut (docs/size-classes.md). `min` echoes back the
+            // `sizeRestrictions` the app just asked for, read back off the restrictions object
+            // itself (iOS 13+) rather than off the geometry, whose `minimumSize` turns out not to
+            // exist until iOS 27 — a reminder that an SDK header's availability annotation is a
+            // compile-time promise, not a runtime one. 0x0 means no minimum took.
+            log::debug!(
+                "DAYDIAG scene {}x{} (screen {}x{})",
+                bounds.size.width,
+                bounds.size.height,
+                screen.size.width,
+                screen.size.height,
+            );
+        }
+        let window = unsafe { UIWindow::initWithWindowScene(UIWindow::alloc(mtm), scene) };
+        let vc: Retained<UIViewController> = DayRootVC::new(mtm).into_super();
+        let holder = DayHolderView::new(mtm);
+        unsafe { holder.setFrame(bounds) };
+        // The holder tracks its window rather than keeping the frame it was built with: a scene
+        // resized before its first layout pass (a restored window, a drag that starts during
+        // launch) would otherwise hold the launch size until something else invalidated it.
+        holder.setAutoresizingMask(
+            objc2_ui_kit::UIViewAutoresizing::FlexibleWidth
+                | objc2_ui_kit::UIViewAutoresizing::FlexibleHeight,
+        );
+        let root_view = unsafe { UIView::initWithFrame(UIView::alloc(mtm), bounds) };
+        // RTL locales (docs/localization): force the semantic content attribute on the
+        // window AND the day content roots — see the module docs.
+        if day_core::layout_direction() == day_spec::LayoutDirection::Rtl {
+            let rtl = objc2_ui_kit::UISemanticContentAttribute::ForceRightToLeft;
+            window.setSemanticContentAttribute(rtl);
+            holder.setSemanticContentAttribute(rtl);
+            root_view.setSemanticContentAttribute(rtl);
+        }
+        // Every window starts in the app's style: its `set_appearance`, or DAY_THEME=light|dark
+        // (themed CI runs). A per-window override comes later, through `apply_window`.
+        let style = app_style();
+        if style != objc2_ui_kit::UIUserInterfaceStyle::Unspecified {
+            unsafe { window.setOverrideUserInterfaceStyle(style) };
+        }
+        unsafe {
+            holder.setBackgroundColor(Some(&UIColor::systemGroupedBackgroundColor()));
+            holder.addSubview(&root_view);
+            vc.setView(Some(&holder));
+            window.setRootViewController(Some(&vc));
+            window.makeKeyAndVisible();
+        }
+        // Safe area as root padding (§7.7): valid once the window is key. The window's OWN
+        // bounds, not the ones the holder was built with — `makeKeyAndVisible` is where a scene
+        // that is smaller than it first reported settles.
+        let bounds = window.bounds();
+        let insets = unsafe { window.safeAreaInsets() };
+        // A hosted root takes the whole window (the holder's layout pass has the rule); the
+        // tree usually mounts after this point, and the insert duty re-lays the holder then.
+        let inner = content_frame(bounds, insets, scroll_leaf(&holder));
+        unsafe { root_view.setFrame(inner) };
+        if *DIAG_NAV {
+            let min = unsafe { scene.sizeRestrictions() }
+                .map(|r| unsafe { r.minimumSize() })
+                .unwrap_or(CGSize::new(0.0, 0.0));
+            log::debug!(
+                "DAYDIAG launch window {}x{} safe(t{} b{} l{} r{}) -> root {}x{} min {}x{}",
+                bounds.size.width,
+                bounds.size.height,
+                insets.top,
+                insets.bottom,
+                insets.left,
+                insets.right,
+                inner.size.width,
+                inner.size.height,
+                min.width,
+                min.height,
+            );
+        }
+        (window, root_view, inner)
+    }
+
+    /// Recompute the app-level lifecycle from ALL scenes (docs/windows.md): scene phases
+    /// replace the app-delegate callbacks under the scene lifecycle, and focus moving
+    /// between two Day windows must not read as an app-level resign/become (the same
+    /// debounce day-toolkit-gtk applies). Emits only on a real transition.
+    fn note_scene_lifecycle_changed(mtm: MainThreadMarker) {
+        use objc2_ui_kit::UISceneActivationState as S;
+        let app = UIApplication::sharedApplication(mtm);
+        let mut any_active = false;
+        let mut any_foreground = false;
+        for scene in unsafe { app.connectedScenes() } {
+            match unsafe { scene.activationState() } {
+                S::ForegroundActive => {
+                    any_active = true;
+                    any_foreground = true;
+                }
+                S::ForegroundInactive => any_foreground = true,
+                _ => {}
+            }
+        }
+        if ANY_SCENE_FOREGROUND.with(|c| c.replace(any_foreground)) != any_foreground {
+            let phase = if any_foreground {
+                day_spec::Lifecycle::WillEnterForeground
+            } else {
+                day_spec::Lifecycle::DidEnterBackground
+            };
+            emit(WINDOW_NODE, Event::Lifecycle(phase));
+        }
+        if ANY_SCENE_ACTIVE.with(|c| c.replace(any_active)) != any_active {
+            let phase = if any_active {
+                day_spec::Lifecycle::DidBecomeActive
+            } else {
+                day_spec::Lifecycle::WillResignActive
+            };
+            emit(WINDOW_NODE, Event::Lifecycle(phase));
+        }
+    }
+
+    /// The activity type a secondary-window scene request carries; its userInfo holds the
+    /// day root node id under `day.node` (docs/windows.md).
+    const DAY_WINDOW_ACTIVITY: &str = "dev.daybrite.day.window";
+
+    /// Scroll the focused field's nearest enclosing UIScrollView so the field is visible
+    /// (keyboard avoidance, docs/focus.md). Runs a turn after the keyboard-driven root resize
+    /// so Day's relayout has settled the frames it converts.
+    fn reveal_focused_field() {
+        // Next main-queue turn: Day's relayout for the resized root has run by then, so the
+        // frames this converts are settled. (Same queue the backend's poster uses.)
+        dispatch2::DispatchQueue::main().exec_async(|| {
+            let Some(field) = FOCUSED_FIELD.with(|f| f.borrow().clone()) else {
+                return;
+            };
+            let mut sup = field.superview();
+            while let Some(v) = sup {
+                sup = v.superview();
+                if let Ok(sv) = v.downcast::<UIScrollView>() {
+                    // Convert into the scroll's coordinate space (== content space for
+                    // UIScrollView, whose bounds origin is the content offset), with a little
+                    // breathing room below the field.
+                    let mut r = field.convertRect_toView(field.bounds(), Some(&sv));
+                    r.size.height += 12.0;
+                    unsafe { sv.scrollRectToVisible_animated(r, true) };
+                    return;
+                }
+            }
+        });
+    }
+
+    pub fn emit(id: NodeId, ev: Event) {
+        let sink = SINK.with(|s| s.borrow().clone());
+        if let Some(sink) = sink {
+            sink(id, ev);
+        }
+    }
+
+    fn ptr_of(v: &UIView) -> usize {
+        (v as *const UIView).cast::<()>() as usize
+    }
+
+    /// An image view's rendering (`IMAGE_MODES`).
+    #[derive(Clone, Copy)]
+    struct ImageMode {
+        template: bool,
+        tinted: bool,
+    }
+
+    impl ImageMode {
+        /// `AlwaysTemplate`: the glyph's alpha as a mask, filled with the tint or the inherited
+        /// one.
+        fn renders_template(self) -> bool {
+            self.template || self.tinted
+        }
+    }
+
+    /// The day name for a hardware-keyboard key, or `None` for every key the route does not
+    /// carry — the [`day_spec::KeyEvent`] names (docs/menus.md).
+    fn key_name(key: &objc2_ui_kit::UIKey) -> Option<&'static str> {
+        use objc2_ui_kit::UIKeyModifierFlags as M;
+        use objc2_ui_kit::UIKeyboardHIDUsage as U;
+        match unsafe { key.keyCode() } {
+            U::KeyboardLeftArrow => Some("ArrowLeft"),
+            U::KeyboardRightArrow => Some("ArrowRight"),
+            U::KeyboardUpArrow => Some("ArrowUp"),
+            U::KeyboardDownArrow => Some("ArrowDown"),
+            U::KeyboardDeleteForward => Some("Delete"),
+            U::KeyboardDeleteOrBackspace => Some("Backspace"),
+            // A digit, main row or keypad, named by what it types. Never under ⌘, ⌥ or ⌃:
+            // those combinations are key commands, and a canvas claiming one would starve them.
+            _ if unsafe { key.modifierFlags() }
+                .intersects(M::Command | M::Alternate | M::Control) =>
+            {
+                None
+            }
+            _ => {
+                let typed = key.characters().to_string();
+                let mut chars = typed.chars();
+                match (chars.next(), chars.next()) {
+                    (Some(c), None) => day_spec::KeyEvent::digit_name(c),
+                    _ => None,
+                }
+            }
+        }
+    }
+
+    /// UIKit's modifier flags as day's mask.
+    fn key_modifiers(f: objc2_ui_kit::UIKeyModifierFlags) -> u8 {
+        let mut m = 0u8;
+        if f.contains(objc2_ui_kit::UIKeyModifierFlags::Shift) {
+            m |= day_spec::KeyEvent::SHIFT;
+        }
+        if f.contains(objc2_ui_kit::UIKeyModifierFlags::Command) {
+            m |= day_spec::KeyEvent::PRIMARY;
+        }
+        if f.contains(objc2_ui_kit::UIKeyModifierFlags::Alternate) {
+            m |= day_spec::KeyEvent::ALT;
+        }
+        m
+    }
+    /// Apply row-level deltas as animated table updates. Indexes are sequential (each
+    /// delta describes the set as the previous ones left it), so each gets its own batch —
+    /// UITableView's combined-batch index rules would re-interpret them.
+    fn apply_row_deltas(table: &objc2_ui_kit::UITableView, deltas: &[day_spec::props::RowDelta]) {
+        // Day's deltas are sequential, each counted against the list as the one before left
+        // it. UITableView counts every batch against the data source, which already answers
+        // the FINAL length. A single delta satisfies both. Several cannot: the first batch
+        // closes on a row count the source contradicts, and UIKit raises its row-count
+        // inconsistency exception. Those splices reload flat instead — the right rows, without
+        // the per-row animation — until the deltas are folded into one batch.
+        let d = match deltas {
+            [] => return,
+            [d] => d,
+            _ => {
+                unsafe { table.reloadData() };
+                return;
+            }
+        };
+        let path =
+            |row: usize| objc2_foundation::NSIndexPath::indexPathForRow_inSection(row as isize, 0);
+        unsafe {
+            table.beginUpdates();
+            match d {
+                day_spec::props::RowDelta::Insert(i) => table
+                    .insertRowsAtIndexPaths_withRowAnimation(
+                        &objc2_foundation::NSArray::from_retained_slice(&[path(*i)]),
+                        objc2_ui_kit::UITableViewRowAnimation::Automatic,
+                    ),
+                day_spec::props::RowDelta::Remove(i) => table
+                    .deleteRowsAtIndexPaths_withRowAnimation(
+                        &objc2_foundation::NSArray::from_retained_slice(&[path(*i)]),
+                        objc2_ui_kit::UITableViewRowAnimation::Automatic,
+                    ),
+                day_spec::props::RowDelta::Move(from, to) => {
+                    table.moveRowAtIndexPath_toIndexPath(&path(*from), &path(*to))
+                }
+            }
+            table.endUpdates();
+        }
+    }
+
+    fn view_of<T: AsRef<UIView>>(x: Retained<T>) -> Handle {
+        Retained::from(x.as_ref())
+    }
+
+    /// The OUTERMOST view controller behind a host handle, or `None` for an ordinary view.
+    ///
+    /// Outermost matters: an adaptive nav host's handle is the split controller's view, and it is
+    /// the split controller — not the secondary column's navigation controller inside it — that
+    /// owns that view and must carry the containment. Used by `insert` to re-parent a host that
+    /// lands inside a page (docs/navigation.md).
+    /// The controller `view` belongs to, resolved the way UIKit resolves it.
+    ///
+    /// The registered-page lookup above matches only a page's OWN content view, and a nested host
+    /// rarely lands there: it arrives inside whatever the page put between them — a `when` arm, a
+    /// column, a `.grow()` wrapper — all of them plain views. The responder chain is the general
+    /// answer, because `nextResponder` on a view yields its controller where it has one and its
+    /// superview where it does not, so walking it stops at the nearest enclosing controller.
+    ///
+    /// Getting this wrong is not a layout glitch. UIKit raises the moment a controller's root view is
+    /// added to a view owned by an unrelated controller:
+    ///
+    ///     A view can only be associated with at most one view controller at a time!
+    fn enclosing_view_controller(view: &UIView) -> Option<Retained<UIViewController>> {
+        let mut next = unsafe { view.nextResponder() };
+        while let Some(responder) = next {
+            if let Some(vc) = responder.downcast_ref::<UIViewController>() {
+                return Some(vc.retain());
+            }
+            next = unsafe { responder.nextResponder() };
+        }
+        None
+    }
+
+    /// The controller behind a nav host's handle — the split, the stack, or the `.tabSidebar`
+    /// tab bar — for the containment fix-up `insert` performs when the host lands in a page.
+    ///
+    /// The tab bar counts. Left out, a tabs host nested in a page stayed a child of the WINDOW's
+    /// root controller while its view sat under the page's navigation bar, and UIKit derives
+    /// a controller's safe area from its PARENT controller: the tab pages were told the status
+    /// bar was the only chrome above them, and a scroll-rooted tab page — which bleeds, and
+    /// trusts that inset — laid its first row under the navigation bar and the top tab bar
+    /// (the Showcase Tabs page on an iPad, 2026-09-10).
+    fn host_controller(h: &Handle) -> Option<Retained<UIViewController>> {
+        let key = ptr_of(h);
+        // `as_ref` stops at the declared superclass, so these go up the chain by deref coercion.
+        NAV_STATE
+            .with(|m| {
+                m.borrow().get(&key).map(|s| match s.split.as_ref() {
+                    Some(parts) => {
+                        let vc: &UIViewController = &parts.split_vc;
+                        Retained::from(vc)
+                    }
+                    None => {
+                        let vc: &UIViewController = &s.nav;
+                        Retained::from(vc)
+                    }
+                })
+            })
+            .or_else(|| {
+                NAV_TABS.with(|m| {
+                    m.borrow().get(&key).map(|t| {
+                        let vc: &UIViewController = &t.tabbar;
+                        Retained::from(vc)
+                    })
+                })
+            })
+    }
+
+    // -----------------------------------------------------------------------
+    // DayTarget — target/action trampoline, node-id keyed
+    // -----------------------------------------------------------------------
+
+    struct TargetIvars {
+        node: NodeId,
+        /// A text field's input traits as last applied (`set_input_traits`): what the next
+        /// call diffs against, and where the delegate reads `read_only`.
+        traits: RefCell<InputTraits>,
+        /// A text field's text is being re-entered by `set_input_traits`, not typed: the
+        /// editing-changed action it provokes is not a `TextChanged`.
+        muted: Cell<bool>,
+    }
+
+    define_class!(
+        #[unsafe(super(NSObject))]
+        #[thread_kind = MainThreadOnly]
+        #[name = "DayUIKitTarget"]
+        #[ivars = TargetIvars]
+        struct DayTarget;
+
+        unsafe impl NSObjectProtocol for DayTarget {}
+
+        /// A `text_field`'s delegate, for the one thing only a delegate can do: refuse edits.
+        /// `UITextField` has no editable flag, so a read-only field stays an ordinary field
+        /// (focusable, selectable, copyable) whose every change — typing, paste, cut, delete —
+        /// is turned down here.
+        unsafe impl UITextFieldDelegate for DayTarget {
+            #[unsafe(method(textField:shouldChangeCharactersInRange:replacementString:))]
+            fn text_field_should_change(
+                &self,
+                _field: &UITextField,
+                _range: NSRange,
+                _replacement: &NSString,
+            ) -> bool {
+                !self.ivars().traits.borrow().read_only
+            }
+        }
+
+        impl DayTarget {
+            #[unsafe(method(fire:))]
+            fn fire(&self, sender: &UIControl) {
+                // Every trampoline body that dispatches into the sink runs under
+                // ffi_guard::contain (§8.5): a panic unwinding out of this ObjC frame
+                // would abort the process.
+                day_spec::ffi_guard::contain((), || {
+                    if self.ivars().muted.get() {
+                        return;
+                    }
+                    let node = self.ivars().node;
+                    let obj: &AnyObject = sender.as_ref();
+                    if obj.downcast_ref::<objc2_ui_kit::UIRefreshControl>().is_some() {
+                        emit(node, Event::RefreshRequested);
+                    } else if let Some(sw) = obj.downcast_ref::<UISwitch>() {
+                        emit(node, Event::ToggleChanged(unsafe { sw.isOn() }));
+                    } else if let Some(sl) = obj.downcast_ref::<UISlider>() {
+                        emit(node, Event::ValueChanged(unsafe { sl.value() } as f64));
+                    } else if let Some(tf) = obj.downcast_ref::<UITextField>() {
+                        let s = unsafe { tf.text() }.map(|s| s.to_string()).unwrap_or_default();
+                        emit(node, Event::TextChanged(s));
+                    } else {
+                        emit(node, Event::Pressed);
+                    }
+                });
+            }
+
+            /// A slider's interaction ENDED: the finger lifted (inside or outside the track), so
+            /// the value under it is the one the user chose. `UIControlEvents::ValueChanged`
+            /// fires continuously while dragging — bindings need that — so the settled value is a
+            /// separate control event (day-spec `Event::ValueCommitted`).
+            #[unsafe(method(commit:))]
+            fn commit(&self, sender: &UIControl) {
+                day_spec::ffi_guard::contain((), || {
+                    let obj: &AnyObject = sender.as_ref();
+                    if let Some(sl) = obj.downcast_ref::<UISlider>() {
+                        emit(
+                            self.ivars().node,
+                            Event::ValueCommitted(unsafe { sl.value() } as f64),
+                        );
+                    }
+                });
+            }
+
+            /// EditingDidBegin — the keyboard is up and this field owns it (docs/focus.md).
+            #[unsafe(method(editBegan:))]
+            fn edit_began(&self, sender: &UIControl) {
+                day_spec::ffi_guard::contain((), || {
+                    FOCUSED_FIELD
+                        .with(|f| *f.borrow_mut() = Some(Retained::from(sender as &UIView)));
+                    // The keyboard may already be up (focus moved between fields): reveal now
+                    // too, not only from the keyboard-frame notification.
+                    reveal_focused_field();
+                    emit(self.ivars().node, Event::FocusChanged(true));
+                });
+            }
+
+            /// EditingDidEnd — the field resigned (keyboard dismissed or focus moved on).
+            #[unsafe(method(editEnded:))]
+            fn edit_ended(&self, _sender: &UIControl) {
+                day_spec::ffi_guard::contain((), || {
+                    FOCUSED_FIELD.with(|f| *f.borrow_mut() = None);
+                    emit(self.ivars().node, Event::FocusChanged(false));
+                });
+            }
+
+            /// EditingDidEndOnExit — the Return key. Registering this handler is also what
+            /// makes Return dismiss the keyboard (the UIKit convention); an `on_submit` that
+            /// moves focus re-raises it on the next field.
+            #[unsafe(method(editExit:))]
+            fn edit_exit(&self, _sender: &UIControl) {
+                day_spec::ffi_guard::contain((), || {
+                    emit(self.ivars().node, Event::Submitted);
+                });
+            }
+        }
+    );
+
+    impl DayTarget {
+        fn new(mtm: MainThreadMarker, node: NodeId) -> Retained<Self> {
+            let this = Self::alloc(mtm).set_ivars(TargetIvars {
+                node,
+                traits: RefCell::default(),
+                muted: Cell::new(false),
+            });
+            unsafe { msg_send![super(this), init] }
+        }
+    }
+
+    /// Send a one-argument `UITextInputTraits` setter to a `UITextField`. The field forwards
+    /// most of the protocol (keyboard, capitalization, correction, content type, return key)
+    /// to a private traits object rather than implementing it, so objc2's debug-only send
+    /// verification (`class_getInstanceMethod`) reports the setter missing and a checked
+    /// `msg_send!` panics, even though the send succeeds. The raw runtime entry point skips
+    /// that check and resolves the setter exactly as UIKit itself does.
+    ///
+    /// # Safety
+    /// `A` must be the setter's exact C argument type (`NSInteger` for the enum traits, an
+    /// object pointer for `setTextContentType:`).
+    unsafe fn send_input_trait<A>(tf: &UITextField, sel: Sel, arg: A) {
+        let recv = (tf as *const UITextField).cast::<AnyObject>().cast_mut();
+        // SAFETY: `recv` is a live main-thread `UITextField`; the caller vouches that `sel`
+        // takes one `A` and returns `void`, matching this `(id, SEL, A) -> ()` retyping of
+        // `objc_msgSend` (which is `extern "C-unwind"`).
+        let send: unsafe extern "C-unwind" fn(*mut AnyObject, Sel, A) = unsafe {
+            core::mem::transmute(objc2::ffi::objc_msgSend as unsafe extern "C-unwind" fn())
+        };
+        unsafe { send(recv, sel, arg) };
+    }
+
+    /// Whether a `UITextField` masks its text. The getter is another forwarded
+    /// `UITextInputTraits` member (see [`send_input_trait`]), so a checked `msg_send!` panics in
+    /// a debug build even though the send succeeds; this takes the same raw path.
+    ///
+    /// # Safety
+    /// `tf` must be a live `UITextField`, used on the main thread.
+    unsafe fn is_secure_text_entry(tf: &UITextField) -> bool {
+        let recv = (tf as *const UITextField).cast::<AnyObject>().cast_mut();
+        // SAFETY: `recv` is a live main-thread `UITextField`; `isSecureTextEntry` takes no
+        // argument and returns `BOOL`, matching this `(id, SEL) -> Bool` retyping of
+        // `objc_msgSend` (which is `extern "C-unwind"`).
+        let send: unsafe extern "C-unwind" fn(*mut AnyObject, Sel) -> objc2::runtime::Bool = unsafe {
+            core::mem::transmute(objc2::ffi::objc_msgSend as unsafe extern "C-unwind" fn())
+        };
+        unsafe { send(recv, sel!(isSecureTextEntry)) }.as_bool()
+    }
+
+    /// What a field's [`InputPurpose`] asks of UIKit: the keyboard, the AutoFill content
+    /// type, capitalization, and whether the keyboard corrects and spell-checks. Everything
+    /// but free text is typed exactly, so correction is off for all of them.
+    fn purpose_traits(
+        purpose: InputPurpose,
+    ) -> (
+        UIKeyboardType,
+        Option<&'static NSString>,
+        UITextAutocapitalizationType,
+        bool,
+    ) {
+        use UIKeyboardType as K;
+        use UITextAutocapitalizationType as C;
+        // SAFETY (the statics below): UIKit string constants, present since iOS 12 at the
+        // latest.
+        unsafe {
+            match purpose {
+                InputPurpose::Text => (K::Default, None, C::Sentences, true),
+                InputPurpose::Name => (K::Default, Some(UITextContentTypeName), C::Words, false),
+                InputPurpose::Email => (
+                    K::EmailAddress,
+                    Some(UITextContentTypeEmailAddress),
+                    C::None,
+                    false,
+                ),
+                InputPurpose::Url => (K::URL, Some(UITextContentTypeURL), C::None, false),
+                InputPurpose::Phone => (
+                    K::PhonePad,
+                    Some(UITextContentTypeTelephoneNumber),
+                    C::None,
+                    false,
+                ),
+                InputPurpose::Number => (K::NumberPad, None, C::None, false),
+                InputPurpose::Decimal => (K::DecimalPad, None, C::None, false),
+                InputPurpose::Username => {
+                    (K::Default, Some(UITextContentTypeUsername), C::None, false)
+                }
+                InputPurpose::Password => {
+                    (K::Default, Some(UITextContentTypePassword), C::None, false)
+                }
+                InputPurpose::NewPassword => (
+                    K::Default,
+                    Some(UITextContentTypeNewPassword),
+                    C::None,
+                    false,
+                ),
+                // The text keyboard: a code can carry letters, and the QuickType bar offers
+                // the arriving one whatever the layout.
+                InputPurpose::OneTimeCode => (
+                    K::Default,
+                    Some(UITextContentTypeOneTimeCode),
+                    C::None,
+                    false,
+                ),
+            }
+        }
+    }
+
+    // ── The window toolbar on a phone (docs/toolbars.md) ───────────────────────────────
+    //
+    // Day's window toolbar model is one item list per window root, and where it lands depends
+    // on what the window holds. A window whose content is a navigation host puts the items on
+    // the NAVIGATION BAR of the page showing, rebuilt for every page under that root so the
+    // bar reads the same from page to page — the desktop toolbar's shape on the phone, with
+    // the page's own `bar_action`s after it. A window with no navigation host anywhere in it
+    // (a canvas, a form) has no page bar to use, so Day gives it one: a navigation bar across
+    // the top of the window, carrying the same groups, and the day root gives up that strip.
+    //
+    // Search stays on the navigation surface and the sidebar toggle belongs to the split view,
+    // so both item kinds are skipped either way.
+
+    const TB_BUTTON: u8 = 0;
+    const TB_TOGGLE: u8 = 1;
+
+    struct ToolbarTargetIvars {
+        action: u64,
+        kind: u8,
+        item: String,
+        /// The window root the item's model lives under (`WINDOW_TOOLBARS` key).
+        root: usize,
+    }
+
+    define_class!(
+        #[unsafe(super(NSObject))]
+        #[thread_kind = MainThreadOnly]
+        #[name = "DayUIKitToolbarTarget"]
+        #[ivars = ToolbarTargetIvars]
+        struct DayToolbarTarget;
+
+        unsafe impl NSObjectProtocol for DayToolbarTarget {}
+
+        impl DayToolbarTarget {
+            #[unsafe(method(fire:))]
+            fn fire(&self, _sender: &AnyObject) {
+                day_spec::ffi_guard::contain((), || {
+                    let iv = self.ivars();
+                    fire_toolbar_item(iv.action, iv.kind, &iv.item, iv.root);
+                });
+            }
+        }
+    );
+
+    /// Run one toolbar item's command.
+    ///
+    /// Shared by the bar button's target/action and by the `menuRepresentation` the bar's
+    /// overflow shows in its place, so an item folded into "More" does exactly what it did on
+    /// the bar — including a toggle's model flip, which the overflow would otherwise skip.
+    fn fire_toolbar_item(action: u64, kind: u8, item: &str, root: usize) {
+        match kind {
+            TB_TOGGLE => {
+                // Flip the model first, so the re-applied bar shows the new state
+                // before the app's own `ToolbarPatch::On` confirms it.
+                let on = WINDOW_TOOLBARS.with(|t| {
+                    let mut t = t.borrow_mut();
+                    let bar = t.get_mut(&root)?;
+                    let it = bar.items.iter_mut().find(|i| i.id == item)?;
+                    match &mut it.kind {
+                        day_spec::ToolbarItemKind::Toggle { on } => {
+                            *on = !*on;
+                            Some(*on)
+                        }
+                        _ => None,
+                    }
+                });
+                if let Some(on) = on {
+                    reapply_window_toolbar(root);
+                    emit(
+                        WINDOW_NODE,
+                        Event::ToolbarChanged {
+                            action,
+                            value: day_spec::ToolbarValue::On(on),
+                        },
+                    );
+                }
+            }
+            _ => emit(WINDOW_NODE, Event::MenuAction(action)),
+        }
+    }
+
+    impl DayToolbarTarget {
+        fn new(
+            mtm: MainThreadMarker,
+            action: u64,
+            kind: u8,
+            item: String,
+            root: usize,
+        ) -> Retained<Self> {
+            let this = Self::alloc(mtm).set_ivars(ToolbarTargetIvars {
+                action,
+                kind,
+                item,
+                root,
+            });
+            unsafe { msg_send![super(this), init] }
+        }
+    }
+
+    /// One window's toolbar: the model as the app last set it, and the targets its live
+    /// items fire — kept alive here because UIBarButtonItem holds its target weakly.
+    struct WindowToolbar {
+        root: Retained<UIView>,
+        items: Vec<day_spec::ToolbarItem>,
+        targets: Vec<Retained<DayToolbarTarget>>,
+        /// The bar a window with NO navigation host carries instead: a navigation bar of
+        /// the window's own. `None` while the window's pages carry the items.
+        docked: Option<Retained<UINavigationBar>>,
+    }
+
+    thread_local! {
+        /// Keyed by the window root view ptr (the handle `set_toolbar` receives).
+        static WINDOW_TOOLBARS: RefCell<HashMap<usize, WindowToolbar>> = RefCell::new(HashMap::new());
+    }
+
+    /// Apply a targeted patch to the stored model; `true` when something changed.
+    fn patch_toolbar_model(
+        items: &mut [day_spec::ToolbarItem],
+        patch: &day_spec::ToolbarPatch,
+    ) -> bool {
+        use day_spec::{ToolbarItemKind as K, ToolbarPatch as P};
+        match patch {
+            P::On { item, on } => {
+                if let Some(it) = items.iter_mut().find(|i| i.id == *item)
+                    && let K::Toggle { on: o } = &mut it.kind
+                    && *o != *on
+                {
+                    *o = *on;
+                    return true;
+                }
+            }
+            P::Selected { item, index } => {
+                if let Some(it) = items.iter_mut().find(|i| i.id == *item)
+                    && let K::Segmented { segments, selected } = &mut it.kind
+                    && *index < segments.len()
+                    && *selected != *index
+                {
+                    *selected = *index;
+                    return true;
+                }
+            }
+            P::Enabled { item, on } => {
+                if let Some(it) = items.iter_mut().find(|i| i.id == *item)
+                    && it.enabled != *on
+                {
+                    it.enabled = *on;
+                    return true;
+                }
+            }
+            // A search item's values are kept for the next page field built from the model,
+            // and never re-apply the bar: the field takes them itself (`patch_page_search`).
+            P::Text { .. } | P::Suggestions { .. } | P::Placeholder { .. } => {
+                patch.apply_to(items);
+            }
+            // New words for a button: its title and accessibility label come from the model,
+            // so the page bars take them on the re-apply.
+            P::Label {
+                item,
+                label,
+                tooltip,
+            } => {
+                if let Some(it) = items.iter_mut().find(|i| i.id == *item)
+                    && (it.label != *label || it.tooltip != *tooltip)
+                {
+                    it.label = label.clone();
+                    it.tooltip = tooltip.clone();
+                    return true;
+                }
+            }
+            P::Focus { .. } => {}
+        }
+        false
+    }
+
+    /// Fresh UIBarButtonItems for one page. Built per page rather than shared: a bar button
+    /// item belongs to one bar at a time, and every page under the navigation controller
+    /// carries its own copy of the window's bar.
+    fn build_toolbar_items(
+        mtm: MainThreadMarker,
+        root: usize,
+        items: &[day_spec::ToolbarItem],
+        targets: &mut Vec<Retained<DayToolbarTarget>>,
+    ) -> Vec<Retained<UIBarButtonItem>> {
+        use day_spec::ToolbarItemKind as K;
+        let mut out: Vec<Retained<UIBarButtonItem>> = Vec::new();
+        for item in items {
+            let image = menu_image(item.icon.as_ref());
+            let title = NSString::from_str(&item.label);
+            let bar: Retained<UIBarButtonItem> = match &item.kind {
+                K::Search { .. } => continue,
+                K::Separator => unsafe { UIBarButtonItem::fixedSpaceItemOfWidth(16.0, mtm) },
+                K::Label => {
+                    let b = unsafe {
+                        UIBarButtonItem::initWithTitle_style_target_action(
+                            UIBarButtonItem::alloc(mtm),
+                            Some(&title),
+                            UIBarButtonItemStyle::Plain,
+                            None,
+                            None,
+                        )
+                    };
+                    unsafe { b.setEnabled(false) };
+                    out.push(b);
+                    continue;
+                }
+                K::Menu { items: entries } => {
+                    let menu = build_ui_menu(mtm, "", entries);
+                    match image {
+                        Some(img) => unsafe {
+                            UIBarButtonItem::initWithImage_menu(
+                                UIBarButtonItem::alloc(mtm),
+                                Some(&img),
+                                Some(&menu),
+                            )
+                        },
+                        None => unsafe {
+                            UIBarButtonItem::initWithTitle_menu(
+                                UIBarButtonItem::alloc(mtm),
+                                Some(&title),
+                                Some(&menu),
+                            )
+                        },
+                    }
+                }
+                K::Segmented { segments, selected } => {
+                    // A menu of the segments with the chosen one checked: a segmented control
+                    // has no room in a phone's bar, and a pull-down is what iOS does instead.
+                    let mut els: Vec<Retained<UIMenuElement>> = Vec::new();
+                    for (i, seg) in segments.iter().enumerate() {
+                        let (action, id, enabled) = (item.action, item.id.clone(), item.enabled);
+                        // The chosen segment is the checked row — the pull-down's way of showing
+                        // which one is in force.
+                        let el = ui_action(
+                            mtm,
+                            &seg.title,
+                            enabled,
+                            Some(i == *selected),
+                            seg.icon.as_ref(),
+                            move || {
+                                let changed = WINDOW_TOOLBARS.with(|t| {
+                                    let mut t = t.borrow_mut();
+                                    let bar = t.get_mut(&root)?;
+                                    let it = bar.items.iter_mut().find(|x| x.id == id)?;
+                                    match &mut it.kind {
+                                        K::Segmented { selected, .. } => {
+                                            *selected = i;
+                                            Some(())
+                                        }
+                                        _ => None,
+                                    }
+                                });
+                                if changed.is_some() {
+                                    reapply_window_toolbar(root);
+                                }
+                                emit(
+                                    WINDOW_NODE,
+                                    Event::ToolbarChanged {
+                                        action,
+                                        value: day_spec::ToolbarValue::Selected(i),
+                                    },
+                                );
+                            },
+                        );
+                        els.push(el);
+                    }
+                    let menu = unsafe {
+                        UIMenu::menuWithTitle_children(
+                            &title,
+                            &objc2_foundation::NSArray::from_retained_slice(&els),
+                            mtm,
+                        )
+                    };
+                    // The control's own icon if it declared one; failing that the SEGMENT in
+                    // force, which is what a segmented control shows anyway. Only a set of
+                    // segments with no icons at all falls back to the chosen segment's word: a
+                    // bar button that reads "System" is as wide as its longest state and moves
+                    // the items beside it every time the setting changes, where the glyph the
+                    // segment already carries says the same thing in a bar button's width.
+                    let current = image.or_else(|| {
+                        segments
+                            .get(*selected)
+                            .and_then(|s| menu_image(s.icon.as_ref()))
+                    });
+                    match current {
+                        Some(img) => unsafe {
+                            UIBarButtonItem::initWithImage_menu(
+                                UIBarButtonItem::alloc(mtm),
+                                Some(&img),
+                                Some(&menu),
+                            )
+                        },
+                        None => unsafe {
+                            let word = segments
+                                .get(*selected)
+                                .map(|s| NSString::from_str(&s.title))
+                                .unwrap_or_else(|| title.clone());
+                            UIBarButtonItem::initWithTitle_menu(
+                                UIBarButtonItem::alloc(mtm),
+                                Some(&word),
+                                Some(&menu),
+                            )
+                        },
+                    }
+                }
+                K::Button | K::Toggle { .. } => {
+                    let kind = if matches!(item.kind, K::Toggle { .. }) {
+                        TB_TOGGLE
+                    } else {
+                        TB_BUTTON
+                    };
+                    let target =
+                        DayToolbarTarget::new(mtm, item.action, kind, item.id.clone(), root);
+                    let b = match image {
+                        Some(img) => unsafe {
+                            UIBarButtonItem::initWithImage_style_target_action(
+                                UIBarButtonItem::alloc(mtm),
+                                Some(&img),
+                                UIBarButtonItemStyle::Plain,
+                                Some(&target),
+                                Some(sel!(fire:)),
+                            )
+                        },
+                        None => unsafe {
+                            UIBarButtonItem::initWithTitle_style_target_action(
+                                UIBarButtonItem::alloc(mtm),
+                                Some(&title),
+                                UIBarButtonItemStyle::Plain,
+                                Some(&target),
+                                Some(sel!(fire:)),
+                            )
+                        },
+                    };
+                    if let K::Toggle { on } = item.kind {
+                        // iOS 15's selected look for a bar button: the pressed-in tint.
+                        unsafe { b.setSelected(on) };
+                    }
+                    targets.push(target);
+                    b
+                }
+            };
+            unsafe {
+                bar.setEnabled(item.enabled);
+                bar.setAccessibilityLabel(Some(&title), mtm);
+                // `menuRepresentation` is iOS 16's, as is the overflow it feeds: iOS 15 has no
+                // item groups to fold (see `apply_items_styled`).
+                if os_at_least(16)
+                    && let Some(rep) = menu_representation(mtm, item, root, &bar)
+                {
+                    bar.setMenuRepresentation(Some(&rep));
+                }
+            }
+            out.push(bar);
+        }
+        out
+    }
+
+    /// What the bar's overflow ("More") shows in an item's place once the width runs out.
+    ///
+    /// A bar button built from an image alone carries NO title, and UIKit's own substitution
+    /// shows exactly what the item has: the recorder's Record and Play folded away to two bare
+    /// glyphs with nothing to read. `menuRepresentation` is the documented override, and Day
+    /// always gives one, so a folded item shows its localized label — with its icon beside it,
+    /// which is what the item wears on the bar (docs/toolbars.md).
+    fn menu_representation(
+        mtm: MainThreadMarker,
+        item: &day_spec::ToolbarItem,
+        root: usize,
+        bar: &UIBarButtonItem,
+    ) -> Option<Retained<UIMenuElement>> {
+        use day_spec::ToolbarItemKind as K;
+        // A control that declared no name of its own is named by the choice in force, the way
+        // its bar button already draws that choice's glyph — a nameless entry in the overflow
+        // is the same blank row android-material grew before `nameSegmentHead`.
+        let title = match (item.label.as_str(), &item.kind) {
+            ("", K::Segmented { segments, selected }) => segments
+                .get(*selected)
+                .map(|s| s.title.clone())
+                .unwrap_or_default(),
+            (label, _) => label.to_string(),
+        };
+        if title.is_empty() {
+            return None;
+        }
+        // A pull-down keeps its children and gains the title and icon it lacked; everything
+        // else becomes one action that runs the same command the button runs.
+        if let Some(menu) = unsafe { bar.menu() } {
+            let image = menu_image(item.icon.as_ref());
+            return Some(Retained::into_super(unsafe {
+                UIMenu::menuWithTitle_image_identifier_options_children(
+                    &NSString::from_str(&title),
+                    image.as_deref(),
+                    None,
+                    UIMenuOptions::empty(),
+                    &menu.children(),
+                    mtm,
+                )
+            }));
+        }
+        let kind = if matches!(item.kind, K::Toggle { .. }) {
+            TB_TOGGLE
+        } else {
+            TB_BUTTON
+        };
+        let (action, id) = (item.action, item.id.clone());
+        // A toggle reads as a checked row in a menu, the way it reads as a pressed button on the bar.
+        let checked = match item.kind {
+            K::Toggle { on } => Some(on),
+            _ => None,
+        };
+        let el = ui_action(
+            mtm,
+            &title,
+            item.enabled,
+            checked,
+            item.icon.as_ref(),
+            move || fire_toolbar_item(action, kind, &id, root),
+        );
+        Some(el)
+    }
+
+    // ── Where a window's bar goes ──────────────────────────────────────────────────────
+    //
+    // Each expanded column receives its own commands; window commands ride the detail.
+    // Collapsed stacks merge the visible contributions. iOS 16 item groups handle overflow
+    // natively; older/plain bars use a bounded set of buttons and a native UIMenu.
+
+    /// Where one navigation controller shows its window's bar.
+    #[derive(Clone, Copy, PartialEq, Eq)]
+    enum BarPlacement {
+        /// In the navigation bar: the stack that is showing pages.
+        NavBar,
+        /// One column of an expanded split.
+        Column(day_spec::ToolbarColumn),
+        /// Not this controller's concern: a stack nested inside another host's page. The
+        /// window's bar rides the outer host, and a nested stack is left entirely alone — a
+        /// toolbar-visibility call on it during its own push transition cancels the push on
+        /// iOS 26 and later (the Showcase's Stack page popped straight back on CI's iPhone).
+        Nested,
+    }
+
+    fn same_nav(a: &DayNavController, b: &objc2_ui_kit::UINavigationController) -> bool {
+        let a: &objc2_ui_kit::UINavigationController = a;
+        std::ptr::eq(a, b)
+    }
+
+    /// A page controller's identity, for the per-page records below.
+    fn vc_key(vc: &UIViewController) -> usize {
+        (vc as *const UIViewController).cast::<()>() as usize
+    }
+
+    fn bar_placement(nav: &objc2_ui_kit::UINavigationController) -> BarPlacement {
+        NAV_STATE.with(|m| {
+            let m = m.borrow();
+            for s in m.values() {
+                let Some(parts) = &s.split else {
+                    if same_nav(&s.nav, nav) {
+                        // A plain stack is the window's host only when no other host's view
+                        // contains it.
+                        let nested = s.nav.view().is_some_and(|nv| {
+                            m.values().any(|o| {
+                                let host_view = match &o.split {
+                                    Some(p) => p.split_vc.view(),
+                                    None => o.nav.view(),
+                                };
+                                host_view.is_some_and(|hv| {
+                                    !std::ptr::eq(&*hv, &*nv)
+                                        && unsafe { nv.isDescendantOfView(&hv) }
+                                })
+                            })
+                        });
+                        return if nested {
+                            BarPlacement::Nested
+                        } else {
+                            BarPlacement::NavBar
+                        };
+                    }
+                    continue;
+                };
+                // Read UIKit directly: presentation notifications can trail the merge.
+                let expanded = !unsafe { parts.split_vc.isCollapsed() };
+                if same_nav(&parts.primary_nav, nav) {
+                    return if expanded {
+                        BarPlacement::Column(day_spec::ToolbarColumn::Sidebar)
+                    } else {
+                        BarPlacement::NavBar
+                    };
+                }
+                if parts
+                    .supplementary_nav
+                    .as_ref()
+                    .is_some_and(|n| same_nav(n, nav))
+                {
+                    return if expanded {
+                        BarPlacement::Column(day_spec::ToolbarColumn::List)
+                    } else {
+                        BarPlacement::NavBar
+                    };
+                }
+                if same_nav(&s.nav, nav) {
+                    return if expanded {
+                        BarPlacement::Column(day_spec::ToolbarColumn::Detail)
+                    } else {
+                        BarPlacement::NavBar
+                    };
+                }
+            }
+            BarPlacement::NavBar
+        })
+    }
+
+    /// Native search policy for the sidebar's own controller (docs/search.md).
+    ///
+    /// `Always` pins the field under the large title. `Scrolls` and `OnPull` hand it to UIKit's
+    /// `hidesSearchBarWhenScrolling`, set once and left alone: the field shows with the list at
+    /// its top, collapses with the large title as the list scrolls, and comes back at the top.
+    /// UIKit has no "starts collapsed" state, and every attempt to manufacture one here (pin
+    /// the bar, flip the flag later, scroll the list by the bar's height) left the bar in a
+    /// state UIKit never shows on its own, so `OnPull` is `Scrolls` on this toolkit. Stacked
+    /// placement at every width, so an iPad does not fold the field into the bar's trailing
+    /// end, away from the list it searches.
+    fn configure_sidebar_search(
+        item: &objc2_ui_kit::UINavigationItem,
+        nav: &DayNavController,
+        hides: bool,
+        initially_hidden: bool,
+    ) {
+        unsafe {
+            item.setHidesSearchBarWhenScrolling(hides || initially_hidden);
+            item.setLargeTitleDisplayMode(
+                objc2_ui_kit::UINavigationItemLargeTitleDisplayMode::Always,
+            );
+            nav.navigationBar().setPrefersLargeTitles(true);
+            if os_at_least(16) {
+                item.setPreferredSearchBarPlacement(
+                    objc2_ui_kit::UINavigationItemSearchBarPlacement::Stacked,
+                );
+            }
+        }
+    }
+
+    /// Every navigation controller of every host under a window root: the detail stack and
+    /// the sidebar (and list) column stacks. Each is placed by `bar_placement`, so a collapse
+    /// or expand MOVES the bar rather than leaving a copy behind.
+    /// The adaptive tabs host under `root`, if the window has one. Its own bar carries the
+    /// window's commands on iPadOS (docs/toolbars.md).
+    fn tabs_host_under(root: &UIView) -> Option<Retained<UITabBarController>> {
+        NAV_TABS.with(|m| {
+            m.borrow()
+                .values()
+                .find(|t| {
+                    unsafe { t.tabbar.view() }
+                        .is_some_and(|v| unsafe { v.isDescendantOfView(root) })
+                })
+                .map(|t| t.tabbar.clone())
+        })
+    }
+
+    fn toolbar_navs_under(root: &UIView) -> Vec<Retained<DayNavController>> {
+        NAV_STATE.with(|m| {
+            m.borrow()
+                .values()
+                .filter(|s| {
+                    // Test the split HOST's view where there is one: a collapsed split keeps
+                    // its secondary column out of the hierarchy (the pages ride the primary's
+                    // stack then), so asking that column would drop the whole window.
+                    let view = match &s.split {
+                        Some(parts) => parts.split_vc.view(),
+                        None => s.nav.view(),
+                    };
+                    view.is_some_and(|v| unsafe { v.isDescendantOfView(root) })
+                })
+                .flat_map(|s| {
+                    let mut navs = vec![s.nav.clone()];
+                    if let Some(parts) = &s.split {
+                        navs.push(parts.primary_nav.clone());
+                        navs.extend(parts.supplementary_nav.clone());
+                    }
+                    navs
+                })
+                .collect()
+        })
+    }
+
+    thread_local! {
+        /// Per view controller, the targets its bar items fire — kept alive here because a
+        /// `UIBarButtonItem` holds its target weakly, and torn down with the page.
+        static PAGE_TOOLBARS: RefCell<HashMap<usize, PageBar>> = RefCell::new(HashMap::new());
+        /// Per NAVIGATION ITEM, the targets its bar buttons fire. A tabs host's shared bar has
+        /// no view controller of its own to hang them on.
+        static NAV_ITEM_TARGETS: RefCell<HashMap<usize, Vec<Retained<DayToolbarTarget>>>> =
+            RefCell::new(HashMap::new());
+    }
+
+    /// One page's bottom-bar targets, kept alive while that page is up: a `UIBarButtonItem`
+    /// holds its target weakly.
+    #[derive(Default)]
+    struct PageBar {
+        targets: Vec<Retained<DayToolbarTarget>>,
+    }
+
+    /// The items a phone's bar can hold: spacers have no meaning on a bar that folds its
+    /// overflow away, search rides the navigation surface, and the sidebar toggle is the
+    /// split view's own.
+    fn bar_controls(items: &[day_spec::ToolbarItem]) -> Vec<day_spec::ToolbarItem> {
+        items
+            .iter()
+            .filter(|i| {
+                // The sidebar affordance is UIKit's, not Day's: `UISplitViewController` shows
+                // its own where a sidebar can be revealed, and `.tabSidebar` draws one in the
+                // strip. Drawing Day's as well put a second, dead button on a phone — where
+                // there is no sidebar to toggle at all — and duplicated the working one on an
+                // iPad (docs/toolbars.md). Search rides the navigation surface, and a separator
+                // means nothing on a bar that folds its overflow away.
+                i.id != day_spec::SIDEBAR_TOGGLE_ID
+                    && !matches!(
+                        i.kind,
+                        day_spec::ToolbarItemKind::Separator
+                            | day_spec::ToolbarItemKind::Search { .. }
+                    )
+            })
+            .cloned()
+            .collect()
+    }
+
+    /// One optional group per item, in declaration order, which is what lets a navigation bar
+    /// fold the trailing ones into its overflow menu one at a time as the width runs out
+    /// (docs/toolbars.md) — the reason a phone's bar takes groups rather than plain items.
+    fn optional_item_groups(
+        mtm: MainThreadMarker,
+        controls: &[day_spec::ToolbarItem],
+        bar_items: Vec<Retained<UIBarButtonItem>>,
+    ) -> Vec<Retained<objc2_ui_kit::UIBarButtonItemGroup>> {
+        controls
+            .iter()
+            .zip(bar_items)
+            .map(|(item, bar)| unsafe {
+                objc2_ui_kit::UIBarButtonItemGroup::optionalGroupWithCustomizationIdentifier_inDefaultCustomization_representativeItem_items(
+                    &NSString::from_str(&item.id),
+                    true,
+                    None,
+                    &objc2_foundation::NSArray::from_retained_slice(&[bar]),
+                    mtm,
+                )
+            })
+            .collect()
+    }
+
+    /// Give `vc` the bar of the window it is in, if that window has one, where
+    /// `bar_placement` says it goes. Called on every push, on the first page a navigation
+    /// controller shows, and again on every model change and presentation change.
+    fn apply_window_toolbar_to(nav: &objc2_ui_kit::UINavigationController, vc: &UIViewController) {
+        let Some(mtm) = MainThreadMarker::new() else {
+            return;
+        };
+        let Some(nav_view) = nav.view() else {
+            return;
+        };
+        let found = WINDOW_TOOLBARS.with(|t| {
+            t.borrow()
+                .iter()
+                .find(|(_, w)| unsafe { nav_view.isDescendantOfView(&w.root) })
+                .map(|(root, w)| (*root, w.items.clone()))
+        });
+        let Some((root, items)) = found else {
+            return;
+        };
+        let placement = bar_placement(nav);
+        if placement == BarPlacement::Nested {
+            return;
+        }
+        // A page bar is taking these, so the window's own bar comes down. It is here rather
+        // than in `reapply_window_toolbar` alone because the app installs its toolbar while
+        // it builds the window — before the navigation host it declares has any view — so the
+        // first placement is the docked one, and this is where the host says otherwise.
+        if let Some(root_view) =
+            WINDOW_TOOLBARS.with(|t| t.borrow().get(&root).map(|w| w.root.clone()))
+        {
+            undock_window_toolbar(root, &root_view);
+        }
+        // The window's items lead and the page's follow, so a page command sits next to the page
+        // it acts on and the overflow eats from the trailing end (docs/toolbars.md). A column
+        // that is not showing pages takes only its own page's items — the window's act on the
+        // detail, which is one column over.
+        let column = match placement {
+            BarPlacement::Column(column) => Some(column),
+            _ => None,
+        };
+        let window_items: Vec<_> = bar_controls(&items)
+            .into_iter()
+            .filter(|item| crate::toolbar_policy::belongs_to_column(item.column, column))
+            .collect();
+        // The expanded list already labels its content. Keep the controller title for
+        // collapsed navigation/back history, but omit the duplicate root title in its bar.
+        unsafe {
+            let title = if column == Some(day_spec::ToolbarColumn::List) {
+                Some(NSString::from_str(""))
+            } else {
+                vc.title()
+            };
+            vc.navigationItem().setTitle(title.as_deref());
+        }
+        apply_chrome(mtm, vc, root, &window_items);
+        // The BOTTOM BAR is `UINavigationController`'s own, and it is hidden unless a page put
+        // something on it (docs/toolbars.md). `apply_chrome` has just set this page's items, so
+        // ask the page rather than clearing them and hiding unconditionally — which is what made
+        // `Placement::Bottom` draw nothing on the one platform that has a bottom bar.
+        let has_bottom = unsafe { vc.toolbarItems() }.is_some_and(|i| !i.is_empty());
+        unsafe { nav.setToolbarHidden_animated(!has_bottom, false) };
+    }
+
+    /// Lower one page's chrome: `window_items` first, then that page's own contributions, split
+    /// by placement across the navigation item's leading, title and trailing slots.
+    fn apply_chrome(
+        mtm: MainThreadMarker,
+        vc: &UIViewController,
+        root: usize,
+        window_items: &[day_spec::ToolbarItem],
+    ) {
+        let item = unsafe { vc.navigationItem() };
+        apply_items_to(mtm, &item, root, window_items);
+        // A bottom bar belongs to the view controller, not to its navigation item; the
+        // navigation controller reveals it in `apply_window_toolbar_to` once it has items.
+        let bottom: Vec<day_spec::ToolbarItem> = window_items
+            .iter()
+            .filter(|i| i.placement == day_spec::ToolbarPlacement::Bottom)
+            .cloned()
+            .collect();
+        let mut targets = Vec::new();
+        let bot = build_toolbar_items(mtm, root, &bottom, &mut targets);
+        unsafe {
+            vc.setToolbarItems(
+                (!bot.is_empty())
+                    .then(|| objc2_foundation::NSArray::from_retained_slice(&bot))
+                    .as_deref(),
+            );
+        }
+        PAGE_TOOLBARS.with(|m| {
+            m.borrow_mut().entry(vc_key(vc)).or_default().targets = targets;
+        });
+    }
+
+    /// Lower `all` onto one navigation item, split by placement across its leading, title and
+    /// trailing slots (docs/toolbars.md).
+    fn apply_items_to(
+        mtm: MainThreadMarker,
+        item: &objc2_ui_kit::UINavigationItem,
+        root: usize,
+        window_items: &[day_spec::ToolbarItem],
+    ) {
+        apply_items_styled(mtm, item, root, window_items, true)
+    }
+
+    /// [`apply_items_to`], choosing how the trailing items are attached. Item GROUPS give a
+    /// navigation bar its overflow behavior, but a tabs host's shared bar draws only plain
+    /// trailing items — so that one asks for `rightBarButtonItems` instead.
+    fn apply_items_styled(
+        mtm: MainThreadMarker,
+        item: &objc2_ui_kit::UINavigationItem,
+        root: usize,
+        window_items: &[day_spec::ToolbarItem],
+        groups_ok: bool,
+    ) {
+        use day_spec::ToolbarPlacement as P;
+        // Item groups, and the overflow they give a bar, are iOS 16's (`trailingItemGroups`,
+        // `UIBarButtonItemGroup`'s fixed/optional constructors); iOS 15 takes plain items.
+        let groups_ok = groups_ok && os_at_least(16);
+        let (all, overflow): (Vec<_>, Vec<_>) = if groups_ok {
+            (window_items.to_vec(), Vec::new())
+        } else {
+            let visible = crate::toolbar_policy::legacy_visible(window_items);
+            let mut shown = Vec::new();
+            let mut hidden = Vec::new();
+            for (index, item) in window_items.iter().enumerate() {
+                if visible.contains(&index) {
+                    shown.push(item.clone());
+                } else {
+                    hidden.push(item.clone());
+                }
+            }
+            (shown, hidden)
+        };
+
+        let take = |ps: &[P], all: &[day_spec::ToolbarItem]| -> Vec<day_spec::ToolbarItem> {
+            all.iter()
+                .filter(|i| ps.contains(&i.placement))
+                .cloned()
+                .collect()
+        };
+        let leading = take(&[P::Navigation], &all);
+        let principal = take(&[P::Principal], &all);
+        let trailing = take(&[P::Automatic, P::Primary], &all);
+        let secondary = take(&[P::Secondary], &all);
+
+        let mut targets = Vec::new();
+        unsafe {
+            let lead = build_toolbar_items(mtm, root, &leading, &mut targets);
+            // SUPPLEMENT the back button, never replace it. `leftBarButtonItems` takes the back
+            // button's place by default, so a leading item on a pushed page left the user with
+            // no way back — this is the flag SwiftUI sets for exactly the same reason.
+            item.setLeftItemsSupplementBackButton(true);
+            item.setLeftBarButtonItems(
+                (!lead.is_empty())
+                    .then(|| objc2_foundation::NSArray::from_retained_slice(&lead))
+                    .as_deref(),
+            );
+            // A centered item replaces the title view. Only the first is honored: the slot holds
+            // one view, and stacking two there is how a title stops being readable.
+            let mid = build_toolbar_items(mtm, root, &principal, &mut targets);
+            if let Some(title) = principal
+                .first()
+                .filter(|i| matches!(i.kind, day_spec::ToolbarItemKind::Label))
+            {
+                // A label bar item has no customView. Build a native title label instead of
+                // passing None and silently dropping a Principal label from the bar.
+                let label = UILabel::new(mtm);
+                label.setText(Some(&NSString::from_str(&title.label)));
+                label.setFont(Some(&objc2_ui_kit::UIFont::preferredFontForTextStyle(
+                    objc2_ui_kit::UIFontTextStyleHeadline,
+                )));
+                label.setTextColor(Some(&UIColor::labelColor()));
+                label.setNumberOfLines(1);
+                label.sizeToFit();
+                item.setTitleView(Some(&label));
+            } else {
+                // Removing a principal item must restore the ordinary native page title.
+                item.setTitleView(mid.first().and_then(|i| i.customView()).as_deref());
+            }
+            // Primary items ride the pinned trailing group so a crowded bar never folds them;
+            // everything else rides one optional group apiece, which is what lets UIKit take
+            // them into the overflow one at a time from the trailing end (docs/toolbars.md).
+            if groups_ok {
+                let mut groups: Vec<Retained<objc2_ui_kit::UIBarButtonItemGroup>> = Vec::new();
+                let auto: Vec<_> = trailing
+                    .iter()
+                    .filter(|i| i.placement != P::Primary)
+                    .cloned()
+                    .collect();
+                let prime: Vec<_> = trailing
+                    .iter()
+                    .filter(|i| i.placement == P::Primary)
+                    .cloned()
+                    .collect();
+                groups.extend(optional_item_groups(
+                    mtm,
+                    &auto,
+                    build_toolbar_items(mtm, root, &auto, &mut targets),
+                ));
+                // Primary items ride the PINNED trailing group (iOS 16's
+                // `pinnedTrailingGroup`): beside the overflow button, and never folded into
+                // it, which is "folds last" on a phone's bar. A fixed group placed among the
+                // optional ones in `trailingItemGroups` went missing with the folded ones once
+                // the bar ran out of room (iOS 26, Day Sketch's Inspector).
+                if prime.is_empty() {
+                    item.setPinnedTrailingGroup(None);
+                } else {
+                    let built = build_toolbar_items(mtm, root, &prime, &mut targets);
+                    let pinned =
+                        objc2_ui_kit::UIBarButtonItemGroup::fixedGroupWithRepresentativeItem_items(
+                            None,
+                            &objc2_foundation::NSArray::from_retained_slice(&built),
+                            mtm,
+                        );
+                    item.setPinnedTrailingGroup(Some(&pinned));
+                }
+                groups.extend(optional_item_groups(
+                    mtm,
+                    &secondary,
+                    build_toolbar_items(mtm, root, &secondary, &mut targets),
+                ));
+                item.setTrailingItemGroups(&objc2_foundation::NSArray::from_retained_slice(
+                    &groups,
+                ));
+            } else {
+                // Rightmost first, which is `setRightBarButtonItems`' own order — reversing puts
+                // the app's first-declared item leftmost, the order every other backend draws.
+                let mut flat: Vec<day_spec::ToolbarItem> = trailing.clone();
+                flat.extend(secondary.clone());
+                let mut built = build_toolbar_items(mtm, root, &flat, &mut targets);
+                if !overflow.is_empty() {
+                    let bars = build_toolbar_items(mtm, root, &overflow, &mut targets);
+                    let children: Vec<_> = overflow
+                        .iter()
+                        .zip(&bars)
+                        .filter_map(|(control, bar)| menu_representation(mtm, control, root, bar))
+                        .collect();
+                    let menu = UIMenu::menuWithChildren(
+                        &objc2_foundation::NSArray::from_retained_slice(&children),
+                        mtm,
+                    );
+                    // UIKit has a localized system More tab item, but no More bar-item
+                    // constant. Reuse its localized name with Day's More symbol.
+                    let system_more = objc2_ui_kit::UITabBarItem::initWithTabBarSystemItem_tag(
+                        objc2_ui_kit::UITabBarItem::alloc(mtm),
+                        objc2_ui_kit::UITabBarSystemItem::More,
+                        0,
+                    );
+                    let more = UIBarButtonItem::initWithImage_menu(
+                        UIBarButtonItem::alloc(mtm),
+                        menu_image(Some(&day_spec::Icon::Symbol(day_spec::Symbol::More)))
+                            .as_deref(),
+                        Some(&menu),
+                    );
+                    more.setAccessibilityLabel(system_more.title().as_deref(), mtm);
+                    let _: () = msg_send![&*more, setAccessibilityIdentifier: &*NSString::from_str("day-toolbar-overflow")];
+                    built.insert(0, more);
+                }
+                let ordered: Vec<_> = built.into_iter().rev().collect();
+                item.setRightBarButtonItems(Some(&objc2_foundation::NSArray::from_retained_slice(
+                    &ordered,
+                )));
+            }
+        }
+        // The targets outlive the bar buttons, which hold theirs weakly. Keyed by the navigation
+        // item, so a tabs host's shared bar and a page's own each keep their own.
+        NAV_ITEM_TARGETS.with(|m| {
+            m.borrow_mut().insert(item as *const _ as usize, targets);
+        });
+    }
+
+    /// Re-place a window's bar on every page of every navigation controller under it — after
+    /// a model change, and after a collapse or expand — and its search field on the page
+    /// showing.
+    fn reapply_window_toolbar(root: usize) {
+        reapply_window_bar_items(root);
+        if let Some(root_view) =
+            WINDOW_TOOLBARS.with(|t| t.borrow().get(&root).map(|w| w.root.clone()))
+        {
+            sync_page_search(root, &root_view);
+        }
+    }
+
+    /// The buttons half of [`reapply_window_toolbar`].
+    fn reapply_window_bar_items(root: usize) {
+        let Some(root_view) =
+            WINDOW_TOOLBARS.with(|t| t.borrow().get(&root).map(|w| w.root.clone()))
+        else {
+            return;
+        };
+        WINDOW_TOOLBARS.with(|t| {
+            if let Some(w) = t.borrow_mut().get_mut(&root) {
+                w.targets.clear();
+            }
+        });
+        // An ADAPTIVE TABS host draws its own chrome — the strip of destinations across the top
+        // in `.tabSidebar`, a tab bar below in compact — and iPadOS puts a tabbed app's commands
+        // on that same bar through the controller's `navigationItem`. Day used to dock a
+        // navigation bar of its own above it, which is what stacked two bars on an iPad and
+        // clipped the content between them (docs/toolbars.md).
+        if let Some(tabbar) = tabs_host_under(&root_view) {
+            undock_window_toolbar(root, &root_view);
+            let items = WINDOW_TOOLBARS.with(|t| t.borrow().get(&root).map(|w| w.items.clone()));
+            if let Some(mtm) = MainThreadMarker::new() {
+                let controls = bar_controls(&items.unwrap_or_default());
+                // The tab in front owns the bar. Where the tab holds a navigation controller —
+                // a wide window, where the page brings no host of its own — that controller's
+                // top item IS the bar on screen; otherwise the page composed its own host and
+                // its top item is (docs/toolbars.md).
+                let shown = unsafe { tabbar.selectedViewController() };
+                let item = shown.and_then(|vc| {
+                    let inner = vc
+                        .downcast_ref::<objc2_ui_kit::UINavigationController>()
+                        .map(|n| n.retain())
+                        .or_else(|| {
+                            unsafe { vc.childViewControllers() }.iter().find_map(|c| {
+                                c.downcast::<objc2_ui_kit::UINavigationController>().ok()
+                            })
+                        })?;
+                    unsafe { inner.topViewController() }.map(|top| unsafe { top.navigationItem() })
+                });
+                match item {
+                    Some(it) => apply_items_to(mtm, &it, root, &controls),
+                    None => {
+                        let nav_item = unsafe { tabbar.navigationItem() };
+                        apply_items_styled(mtm, &nav_item, root, &controls, false);
+                    }
+                }
+            }
+            return;
+        }
+        let navs = toolbar_navs_under(&root_view);
+        // A window whose content is not a navigation host has no page bar to put these on
+        // (`toolbar_navs_under` finds nothing) — a canvas or a form filling the window, with
+        // no `nav(…)` anywhere in it. `Cap::Toolbar` answered `Native` before the app built
+        // that window, so dropping the items here would leave the app with neither a bar nor
+        // the in-content strip it skipped on this backend's word. Dock one instead.
+        if navs.is_empty() {
+            dock_window_toolbar(root, &root_view);
+            return;
+        }
+        undock_window_toolbar(root, &root_view);
+        for nav in navs {
+            for vc in unsafe { nav.viewControllers() }.iter() {
+                apply_window_toolbar_to(&nav, &vc);
+            }
+        }
+    }
+
+    /// Keep navigation controls legible over nested scrolling content (including WKWebView
+    /// inside a pager). UIKit's implicit scroll-edge appearance is transparent, and it may
+    /// not track a nested scroll view's offset. Configure every height/edge state explicitly.
+    fn configure_navigation_bar(bar: &UINavigationBar, mtm: MainThreadMarker) {
+        let appearance = UINavigationBarAppearance::new(mtm);
+        appearance.configureWithOpaqueBackground();
+        // A dynamic system color follows both system appearance and a window theme override.
+        appearance.setBackgroundColor(Some(&UIColor::systemBackgroundColor()));
+        bar.setStandardAppearance(&appearance);
+        bar.setScrollEdgeAppearance(Some(&appearance));
+        bar.setCompactAppearance(Some(&appearance));
+        bar.setCompactScrollEdgeAppearance(Some(&appearance));
+        unsafe { bar.setTranslucent(false) };
+    }
+
+    /// The window's own bar, built or refreshed: a UINavigationBar across the top of the
+    /// window, carrying the items exactly as a page's own bar carries them — as optional
+    /// groups, so a phone that cannot fit twelve commands folds the trailing ones into the
+    /// bar's overflow menu instead of clipping them. One iOS presentation for the window
+    /// toolbar, whether the window's content brought a navigation host or not.
+    ///
+    /// The day root gives up the strip: `DayHolderView`'s layout pass measures the bar and
+    /// re-pins the root below it, so the content the bar acts on is never underneath it.
+    fn dock_window_toolbar(root: usize, root_view: &UIView) {
+        let Some(mtm) = MainThreadMarker::new() else {
+            return;
+        };
+        let Some(holder) = root_view.superview() else {
+            return;
+        };
+        let items = WINDOW_TOOLBARS.with(|t| t.borrow().get(&root).map(|w| w.items.clone()));
+        let Some(items) = items else {
+            return;
+        };
+        let controls = bar_controls(&items);
+        let existing =
+            WINDOW_TOOLBARS.with(|t| t.borrow().get(&root).and_then(|w| w.docked.clone()));
+        let bar = existing.unwrap_or_else(|| {
+            let bar = UINavigationBar::initWithFrame(UINavigationBar::alloc(mtm), CGRect::ZERO);
+            configure_navigation_bar(&bar, mtm);
+            let item = UINavigationItem::new(mtm);
+            unsafe {
+                bar.setItems(Some(&objc2_foundation::NSArray::from_retained_slice(&[
+                    item,
+                ])))
+            };
+            holder.addSubview(&bar);
+            bar
+        });
+        // `topItem` is the one pushed above; a bar with no item would drop the groups. The
+        // placements land as on a page's bar (docs/toolbars.md): leading items at the left,
+        // a principal one as the title, `Primary` in a fixed group a narrow bar never folds,
+        // the rest optional groups the overflow eats from the trailing end (plain items on
+        // iOS 15). The item keeps the targets (`NAV_ITEM_TARGETS`), as a page's does.
+        if let Some(item) = unsafe { bar.topItem() } {
+            apply_items_to(mtm, &item, root, &controls);
+        }
+        WINDOW_TOOLBARS.with(|t| {
+            if let Some(w) = t.borrow_mut().get_mut(&root) {
+                w.docked = Some(bar);
+            }
+        });
+        // The re-pin is the holder's, so it stays one computation for the safe area, the
+        // keyboard rail and this bar — and so the `WindowResized` the shrink causes is
+        // reported through the same path a rotation takes.
+        holder.setNeedsLayout();
+        holder.layoutIfNeeded();
+    }
+
+    /// Take the window's own bar away and give the strip back to the day root — when the app
+    /// clears its toolbar, and when a navigation host appears in the window to carry it.
+    fn undock_window_toolbar(root: usize, root_view: &UIView) {
+        let bar =
+            WINDOW_TOOLBARS.with(|t| t.borrow_mut().get_mut(&root).and_then(|w| w.docked.take()));
+        let Some(bar) = bar else {
+            return;
+        };
+        bar.removeFromSuperview();
+        // Marked, not forced: this runs inside a navigation push as often as not, and the
+        // re-pin emits `WindowResized` back into day-core. The next pass is soon enough.
+        if let Some(holder) = root_view.superview() {
+            holder.setNeedsLayout();
+        }
+    }
+
+    /// The bar this window docks at its top, if it has one.
+    fn docked_window_toolbar(root_view: &UIView) -> Option<Retained<UINavigationBar>> {
+        let key = ptr_of(root_view);
+        WINDOW_TOOLBARS.with(|t| t.borrow().get(&key).and_then(|w| w.docked.clone()))
+    }
+
+    /// Take a window's bar off every page under it, leaving each page's own bar actions.
+    fn clear_window_toolbar(root_view: &UIView) {
+        for nav in toolbar_navs_under(root_view) {
+            if bar_placement(&nav) == BarPlacement::Nested {
+                continue;
+            }
+            for vc in unsafe { nav.viewControllers() }.iter() {
+                unsafe { vc.setToolbarItems(None) };
+            }
+            unsafe { nav.setToolbarHidden_animated(true, false) };
+        }
+    }
+
+    // ── A page's own search field (docs/search.md, "Page search") ─────────────────────
+    //
+    // A navigation page that declares `.searchable(…)` contributes the reserved `day::search`
+    // item to its own chrome, and Day merges a page's chrome into its window's bar only while
+    // that page is the one showing. So the item in the window's model always belongs to the
+    // page on top, and that page's `navigationItem` takes a `UISearchController`: Mail's search
+    // bar, under the title in the navigation bar. A bar button cannot be a field, so the item
+    // never rides the bar's buttons (`bar_controls`).
+    //
+    // One controller per page, made the first time the page shows its field and kept for as
+    // long as the page lives: a model re-apply never rebuilds it, so typing keeps the caret and
+    // the keyboard. A page that a push covers keeps its field too, text and all, the way Mail's
+    // list does under an open message, and the swipe back shows it in place. It comes off only
+    // when the page on top stops offering it (`Search::available`, or the contribution leaving
+    // with the page's scope), and with the page itself.
+
+    struct PageSearchIvars {
+        /// The item's dispatch id: the slot Day keeps for `day::search` on this window.
+        action: Cell<u64>,
+        /// Suppresses the echo while Day writes the field's text into it.
+        suppress: Cell<bool>,
+        /// The text last reported, so activation and a submit do not report it twice.
+        last: RefCell<String>,
+    }
+
+    define_class!(
+        #[unsafe(super(NSObject))]
+        #[thread_kind = MainThreadOnly]
+        #[name = "DayPageSearch"]
+        #[ivars = PageSearchIvars]
+        struct DayPageSearch;
+
+        unsafe impl NSObjectProtocol for DayPageSearch {}
+
+        unsafe impl UISearchResultsUpdating for DayPageSearch {
+            #[unsafe(method(updateSearchResultsForSearchController:))]
+            fn update(&self, sc: &objc2_ui_kit::UISearchController) {
+                day_spec::ffi_guard::contain((), || {
+                    if self.ivars().suppress.get() {
+                        return;
+                    }
+                    let text = unsafe { sc.searchBar().text() }
+                        .map(|t| t.to_string())
+                        .unwrap_or_default();
+                    self.report_text(text);
+                });
+            }
+        }
+
+        unsafe impl UIBarPositioningDelegate for DayPageSearch {}
+
+        unsafe impl UISearchBarDelegate for DayPageSearch {
+            /// The Search key: the text first if it has not gone out yet, then the submission
+            /// (docs/search.md). The keyboard goes, as in Mail, so the results are not under it.
+            #[unsafe(method(searchBarSearchButtonClicked:))]
+            fn search_clicked(&self, bar: &objc2_ui_kit::UISearchBar) {
+                day_spec::ffi_guard::contain((), || {
+                    let text = unsafe { bar.text() }
+                        .map(|t| t.to_string())
+                        .unwrap_or_default();
+                    self.report_text(text.clone());
+                    self.send(day_spec::ToolbarValue::Submit(text));
+                    let _ = bar.resignFirstResponder();
+                });
+            }
+
+            /// Cancel clears the field. UISearchController reports the empty text through the
+            /// updater as well; whichever arrives first goes out, the other is the same text.
+            #[unsafe(method(searchBarCancelButtonClicked:))]
+            fn cancel_clicked(&self, _bar: &objc2_ui_kit::UISearchBar) {
+                day_spec::ffi_guard::contain((), || self.report_text(String::new()));
+            }
+        }
+    );
+
+    impl DayPageSearch {
+        fn new(mtm: MainThreadMarker, action: u64, text: &str) -> Retained<Self> {
+            let this = Self::alloc(mtm).set_ivars(PageSearchIvars {
+                action: Cell::new(action),
+                suppress: Cell::new(false),
+                last: RefCell::new(text.to_string()),
+            });
+            unsafe { msg_send![super(this), init] }
+        }
+
+        /// Send `text` as the field's new value, unless it is the value already sent.
+        fn report_text(&self, text: String) {
+            if *self.ivars().last.borrow() == text {
+                return;
+            }
+            *self.ivars().last.borrow_mut() = text.clone();
+            self.send(day_spec::ToolbarValue::Text(text));
+        }
+
+        /// Through the item's action, the rail every toolbar value takes.
+        fn send(&self, value: day_spec::ToolbarValue) {
+            let action = self.ivars().action.get();
+            if action != 0 {
+                emit(WINDOW_NODE, Event::ToolbarChanged { action, value });
+            }
+        }
+
+        /// Show `text` without reporting it back: the app's own write (`ToolbarPatch::Text`).
+        fn show_text(&self, sc: &objc2_ui_kit::UISearchController, text: &str) {
+            *self.ivars().last.borrow_mut() = text.to_string();
+            let bar = unsafe { sc.searchBar() };
+            if unsafe { bar.text() }.is_some_and(|t| t.to_string() == text) {
+                return;
+            }
+            self.ivars().suppress.set(true);
+            unsafe { bar.setText(Some(&NSString::from_str(text))) };
+            self.ivars().suppress.set(false);
+        }
+    }
+
+    /// One page's field: the controller on its navigation item and the object answering it.
+    struct PageSearch {
+        /// The window root (`WINDOW_TOOLBARS` key) whose bar carried the item.
+        root: usize,
+        vc: Retained<UIViewController>,
+        sc: Retained<objc2_ui_kit::UISearchController>,
+        handler: Retained<DayPageSearch>,
+    }
+
+    thread_local! {
+        /// Keyed by the page's view controller (`vc_key`). Retained here because the search
+        /// controller does not own its updater or its bar's delegate.
+        static PAGE_SEARCH: RefCell<HashMap<usize, PageSearch>> = RefCell::new(HashMap::new());
+    }
+
+    /// The window's `day::search` item, if its bar has one.
+    fn page_search_item(root: usize) -> Option<day_spec::ToolbarItem> {
+        WINDOW_TOOLBARS.with(|t| {
+            t.borrow().get(&root).and_then(|w| {
+                w.items
+                    .iter()
+                    .find(|i| {
+                        i.id == day_spec::SEARCH_ITEM_ID
+                            && matches!(i.kind, day_spec::ToolbarItemKind::Search { .. })
+                    })
+                    .cloned()
+            })
+        })
+    }
+
+    /// The page a page item of `column` belongs on right now: the top of the stack that carries
+    /// the window's bar (the same choice `reapply_window_toolbar` makes for the buttons), as Day
+    /// has asked for it — a push still queued or animating already counts, since the item
+    /// arrives in the same turn as its page.
+    fn page_search_target(
+        root_view: &UIView,
+        column: day_spec::ToolbarColumn,
+    ) -> Option<Retained<UIViewController>> {
+        // The top of `nav` as Day sees it, through its host's queue where it has one.
+        let top_of = |nav: &objc2_ui_kit::UINavigationController| {
+            let host = NAV_STATE.with(|m| {
+                m.borrow()
+                    .iter()
+                    .find(|(_, s)| same_nav(&s.active_nav(), nav))
+                    .map(|(k, s)| (*k, s.active_nav()))
+            });
+            match host {
+                Some((host, active)) => current_top(host, &active),
+                None => top_page(nav),
+            }
+        };
+        if let Some(tabbar) = tabs_host_under(root_view) {
+            let shown = unsafe { tabbar.selectedViewController() }?;
+            let inner = shown
+                .downcast_ref::<objc2_ui_kit::UINavigationController>()
+                .map(|n| n.retain())
+                .or_else(|| {
+                    unsafe { shown.childViewControllers() }
+                        .iter()
+                        .find_map(|c| c.downcast::<objc2_ui_kit::UINavigationController>().ok())
+                })?;
+            return top_of(&inner);
+        }
+        // Each host's stack that is showing pages: the merged one while collapsed, otherwise the
+        // column the item was declared in.
+        let navs: Vec<Retained<objc2_ui_kit::UINavigationController>> = NAV_STATE.with(|m| {
+            m.borrow()
+                .values()
+                .filter(|s| {
+                    let view = match &s.split {
+                        Some(parts) => parts.split_vc.view(),
+                        None => s.nav.view(),
+                    };
+                    view.is_some_and(|v| unsafe { v.isDescendantOfView(root_view) })
+                })
+                .map(|s| {
+                    let nav: Retained<DayNavController> = match &s.split {
+                        Some(parts) if !s.is_collapsed() => match column {
+                            day_spec::ToolbarColumn::Sidebar => parts.primary_nav.clone(),
+                            day_spec::ToolbarColumn::List => parts
+                                .supplementary_nav
+                                .clone()
+                                .unwrap_or_else(|| s.nav.clone()),
+                            _ => s.nav.clone(),
+                        },
+                        _ => s.active_nav(),
+                    };
+                    Retained::into_super(nav)
+                })
+                .collect()
+        });
+        navs.into_iter()
+            .find(|nav| bar_placement(nav) != BarPlacement::Nested)
+            .and_then(|nav| top_of(&nav))
+    }
+
+    /// Take a page's field off its navigation item, if it is still the one there.
+    fn detach_page_search(entry: &PageSearch) {
+        unsafe {
+            if entry.sc.isActive() {
+                entry.sc.setActive(false);
+            }
+            let item = entry.vc.navigationItem();
+            if item
+                .searchController()
+                .is_some_and(|sc| std::ptr::eq(&*sc, &*entry.sc))
+            {
+                item.setSearchController(None);
+            }
+        }
+    }
+
+    /// Put the window's `day::search` item on the page it belongs to, and take it off the page
+    /// on top when that page stopped offering one. Run after every change to the bar's model,
+    /// after a page shows, and before a value patch, so the field is in place to take it.
+    /// Answers the page's controller and its handler, when the item is on one.
+    fn sync_page_search(
+        root: usize,
+        root_view: &UIView,
+    ) -> Option<(
+        Retained<objc2_ui_kit::UISearchController>,
+        Retained<DayPageSearch>,
+    )> {
+        let mtm = MainThreadMarker::new()?;
+        let item = page_search_item(root);
+        let column = item
+            .as_ref()
+            .map_or(day_spec::ToolbarColumn::Detail, |i| i.column);
+        let target = page_search_target(root_view, column);
+        if item.is_none() {
+            // Only the page on top loses its field: a covered page keeps its own for when it
+            // shows again, and a page that left the stack takes its field with it.
+            let gone = target.and_then(|vc| {
+                PAGE_SEARCH.with(|m| {
+                    let mut m = m.borrow_mut();
+                    m.get(&vc_key(&vc))
+                        .is_some_and(|e| e.root == root)
+                        .then(|| m.remove(&vc_key(&vc)))
+                        .flatten()
+                })
+            });
+            if let Some(entry) = gone {
+                detach_page_search(&entry);
+            }
+            return None;
+        }
+        let (item, vc) = (item?, target?);
+        let day_spec::ToolbarItemKind::Search {
+            text, placeholder, ..
+        } = &item.kind
+        else {
+            return None;
+        };
+        let nav_item = unsafe { vc.navigationItem() };
+        let existing = PAGE_SEARCH.with(|m| {
+            m.borrow()
+                .get(&vc_key(&vc))
+                .map(|e| (e.sc.clone(), e.handler.clone()))
+        });
+        let (sc, handler) = match existing {
+            Some(found) => found,
+            None => {
+                // A sidebar root carries its navigation surface's own search; that one stays.
+                if unsafe { nav_item.searchController() }.is_some() {
+                    return None;
+                }
+                let handler = DayPageSearch::new(mtm, item.action, text);
+                let sc = unsafe {
+                    objc2_ui_kit::UISearchController::initWithSearchResultsController(
+                        objc2_ui_kit::UISearchController::alloc(mtm),
+                        None,
+                    )
+                };
+                unsafe {
+                    sc.setSearchResultsUpdater(Some(ProtocolObject::from_ref(&*handler)));
+                    // The results replace the page's own content, so nothing is dimmed.
+                    sc.setObscuresBackgroundDuringPresentation(false);
+                    let bar = sc.searchBar();
+                    bar.setDelegate(Some(ProtocolObject::from_ref(&*handler)));
+                    // Already UISearchBar's default; said here because Return means "search".
+                    if let Some(field) = search_text_field(&bar) {
+                        send_input_trait(
+                            &field,
+                            sel!(setReturnKeyType:),
+                            UIReturnKeyType::Search.0,
+                        );
+                    }
+                    if !text.is_empty() {
+                        bar.setText(Some(&NSString::from_str(text)));
+                    }
+                    // Mail's: the bar slides away with the content and comes back on a pull.
+                    // Pinned for the turn it arrives in, though: a field that joins a page
+                    // already on screen (a feed that had to load first) would otherwise start
+                    // collapsed, behind a pull nobody knows to make. Showing first and turning
+                    // the hiding on once it has drawn is UIKit's own recipe for that.
+                    nav_item.setHidesSearchBarWhenScrolling(false);
+                    hide_page_search_when_drawn(vc.clone(), 0);
+                    // Under the title, at every width: an iPad would otherwise fold it into the
+                    // bar's trailing end, away from the page title it searches under.
+                    if os_at_least(16) {
+                        nav_item.setPreferredSearchBarPlacement(
+                            objc2_ui_kit::UINavigationItemSearchBarPlacement::Stacked,
+                        );
+                    }
+                    // A push while the field is active must cover it, not run under it.
+                    vc.setDefinesPresentationContext(true);
+                }
+                PAGE_SEARCH.with(|m| {
+                    m.borrow_mut().insert(
+                        vc_key(&vc),
+                        PageSearch {
+                            root,
+                            vc: vc.clone(),
+                            sc: sc.clone(),
+                            handler: handler.clone(),
+                        },
+                    )
+                });
+                (sc, handler)
+            }
+        };
+        handler.ivars().action.set(item.action);
+        unsafe {
+            if nav_item.searchController().is_none() {
+                nav_item.setSearchController(Some(&sc));
+            }
+            let bar = sc.searchBar();
+            let prompt = if placeholder.is_empty() {
+                &item.label
+            } else {
+                placeholder
+            };
+            if bar.placeholder().is_none_or(|p| p.to_string() != *prompt) {
+                bar.setPlaceholder(Some(&NSString::from_str(prompt)));
+            }
+            bar.setUserInteractionEnabled(item.enabled);
+        }
+        Some((sc, handler))
+    }
+
+    /// Turn on a new page field's hide-on-scroll once its bar has drawn it open: before then
+    /// the flag starts it collapsed. A page still on its way in (a queued push) is waited for,
+    /// a turn at a time and boundedly, and one that never arrives keeps its field pinned.
+    fn hide_page_search_when_drawn(vc: Retained<UIViewController>, attempt: u32) {
+        let Some(mtm) = MainThreadMarker::new() else {
+            return;
+        };
+        let vc = dispatch2::MainThreadBound::new(vc, mtm);
+        let when = dispatch2::DispatchTime::try_from(std::time::Duration::from_millis(50))
+            .unwrap_or(dispatch2::DispatchTime::NOW);
+        let _ = dispatch2::DispatchQueue::main().after(when, move || {
+            day_spec::ffi_guard::contain((), || {
+                let Some(mtm) = MainThreadMarker::new() else {
+                    return;
+                };
+                let vc = vc.get(mtm);
+                let nav = unsafe { vc.navigationController() };
+                let shown = vc.viewIfLoaded().is_some_and(|v| v.window().is_some());
+                match nav.and_then(|n| n.viewIfLoaded()) {
+                    Some(nav_view) if shown => {
+                        // The open bar is laid out first; the flag only governs what scrolling
+                        // does from there.
+                        nav_view.layoutIfNeeded();
+                        unsafe { vc.navigationItem().setHidesSearchBarWhenScrolling(true) };
+                    }
+                    _ if attempt < 100 => hide_page_search_when_drawn(vc.retain(), attempt + 1),
+                    _ => {}
+                }
+            });
+        });
+    }
+
+    /// `UISearchBar.searchTextField` (iOS 13), typed as the `UITextField` it is.
+    fn search_text_field(bar: &objc2_ui_kit::UISearchBar) -> Option<Retained<UITextField>> {
+        unsafe { msg_send![bar, searchTextField] }
+    }
+
+    /// [`sync_page_search`] for the window `nav` is in.
+    fn sync_page_search_near(nav: &objc2_ui_kit::UINavigationController) {
+        let Some(nav_view) = nav.view() else {
+            return;
+        };
+        let found = WINDOW_TOOLBARS.with(|t| {
+            t.borrow()
+                .iter()
+                .find(|(_, w)| unsafe { nav_view.isDescendantOfView(&w.root) })
+                .map(|(root, w)| (*root, w.root.clone()))
+        });
+        if let Some((root, root_view)) = found {
+            sync_page_search(root, &root_view);
+        }
+    }
+
+    /// A search item's value patch on a phone (docs/toolbars.md): the field on the page showing
+    /// takes it without a rebuild, and without reporting it back.
+    fn patch_page_search(root: usize, root_view: &UIView, patch: &day_spec::ToolbarPatch) {
+        let Some((sc, handler)) = sync_page_search(root, root_view) else {
+            return;
+        };
+        match patch {
+            day_spec::ToolbarPatch::Text { text, .. } => handler.show_text(&sc, text),
+            day_spec::ToolbarPatch::Focus { .. } => unsafe {
+                sc.setActive(true);
+                sc.searchBar().becomeFirstResponder();
+            },
+            day_spec::ToolbarPatch::Placeholder { text, .. } => unsafe {
+                sc.searchBar()
+                    .setPlaceholder(Some(&NSString::from_str(text)));
+            },
+            // UIKit's completion surface is not wired yet (as for a surface's own search).
+            _ => {}
+        }
+    }
+
+    struct FrameSource {
+        link: Retained<CADisplayLink>,
+        target: Retained<DayFrameTarget>,
+    }
+    impl Drop for FrameSource {
+        fn drop(&mut self) {
+            unsafe { self.link.invalidate() };
+        }
+    }
+    struct FrameState {
+        key: usize,
+        token: Cell<u64>,
+    }
+    define_class!(
+        #[unsafe(super(NSObject))]
+        #[thread_kind = MainThreadOnly]
+        #[name = "DayUIKitFrameTarget"]
+        #[ivars = FrameState]
+        struct DayFrameTarget;
+        unsafe impl NSObjectProtocol for DayFrameTarget {}
+        impl DayFrameTarget {
+            #[unsafe(method(step:))]
+            fn step(&self, link: &CADisplayLink) {
+                day_spec::ffi_guard::contain((), || {
+                    unsafe { link.setPaused(true) };
+                    let token = self.ivars().token.replace(0);
+                    day_core::frame::native::deliver(token, day_spec::FrameStamp {
+                        timestamp: unsafe { link.timestamp() },
+                        target_timestamp: Some(unsafe { link.targetTimestamp() }),
+                    });
+                    if self.ivars().token.get() == 0 {
+                        FRAMES.with(|s| s.borrow_mut().remove(&self.ivars().key));
+                    }
+                });
+            }
+        }
+    );
+
+    // -----------------------------------------------------------------------
+    // DayTextLink — a text view's link delegate (docs/text-runs.md)
+    // -----------------------------------------------------------------------
+
+    define_class!(
+        #[unsafe(super(NSObject))]
+        #[thread_kind = MainThreadOnly]
+        #[name = "DayUIKitTextLink"]
+        #[ivars = NodeId]
+        struct DayTextLink;
+
+        unsafe impl NSObjectProtocol for DayTextLink {}
+
+        // UITextViewDelegate refines UIScrollViewDelegate; both are declared, and the scroll
+        // half stays empty — a non-scrolling text view never calls it.
+        unsafe impl UIScrollViewDelegate for DayTextLink {}
+
+        unsafe impl UITextViewDelegate for DayTextLink {
+            /// Answer NO so UIKit does not open the URL itself: the target goes to day-core,
+            /// and the label's `.on_link()` decides (its default opens it, which is the same
+            /// destination by the route Day controls).
+            #[unsafe(method(textView:shouldInteractWithURL:inRange:interaction:))]
+            fn should_interact(
+                &self,
+                _tv: &UITextView,
+                url: &objc2_foundation::NSURL,
+                _range: objc2_foundation::NSRange,
+                // `UITextItemInteraction`, taken as the NSInteger it wraps: objc2 deprecates
+                // the newtype in favor of iOS 17 text-item methods that do not exist on the
+                // versions Day targets. Unused either way.
+                _interaction: isize,
+            ) -> bool {
+                day_spec::ffi_guard::contain((), || {
+                    if let Some(s) = unsafe { url.absoluteString() } {
+                        let s = s.to_string();
+                        // Already reported by the tap recognizer, a beat earlier.
+                        let echo = LAST_LINK_TAP.with(|l| {
+                            l.borrow_mut().take_if(|(u, at)| {
+                                *u == s && at.elapsed() < std::time::Duration::from_secs(2)
+                            })
+                        });
+                        if echo.is_none() {
+                            emit(*self.ivars(), Event::LinkActivated(s));
+                        }
+                    }
+                });
+                false
+            }
+        }
+
+        // The tap recognizer shares the touch with the text view's own recognizers.
+        unsafe impl UIGestureRecognizerDelegate for DayTextLink {
+            #[unsafe(method(gestureRecognizer:shouldRecognizeSimultaneouslyWithGestureRecognizer:))]
+            fn simultaneous(&self, _a: &UIGestureRecognizer, _b: &UIGestureRecognizer) -> bool {
+                true
+            }
+        }
+
+        impl DayTextLink {
+            /// A tap on a link, reported on touch-up. A selectable `UITextView` calls its
+            /// delegate for a link only once its selection gestures (double tap, the long-press
+            /// preview) have given up, which reads as a lag before every in-app link; the
+            /// character under the finger answers at once. The delegate path stays for what only
+            /// it sees (VoiceOver activation, the preview's open).
+            #[unsafe(method(tapped:))]
+            fn tapped(&self, recognizer: &UIGestureRecognizer) {
+                day_spec::ffi_guard::contain((), || {
+                    let Some(view) = (unsafe { recognizer.view() }) else {
+                        return;
+                    };
+                    let point = unsafe { recognizer.locationInView(Some(&view)) };
+                    let Some(url) = link_at(&view, point) else {
+                        return;
+                    };
+                    LAST_LINK_TAP.with(|l| {
+                        *l.borrow_mut() = Some((url.clone(), std::time::Instant::now()))
+                    });
+                    emit(*self.ivars(), Event::LinkActivated(url));
+                });
+            }
+        }
+    );
+
+    thread_local! {
+        /// A stock cell's (vertical margin, one-line height), measured once (`native_row`).
+        static NATIVE_ROW: std::cell::OnceCell<(f64, f64)> = const { std::cell::OnceCell::new() };
+    }
+
+    /// A stock `UITableViewCell` with one line of its default content configuration: its top
+    /// margin and the height UIKit fits it to, which is the row a native list shows.
+    fn native_row() -> (f64, f64) {
+        let Some(mtm) = MainThreadMarker::new() else {
+            return (11.0, 44.0);
+        };
+        unsafe {
+            let cell = objc2_ui_kit::UITableViewCell::initWithStyle_reuseIdentifier(
+                objc2_ui_kit::UITableViewCell::alloc(mtm),
+                objc2_ui_kit::UITableViewCellStyle::Default,
+                None,
+            );
+            let config: Retained<AnyObject> = msg_send![&*cell, defaultContentConfiguration];
+            let text = NSString::from_str("Hg");
+            let _: () = msg_send![&*config, setText: &*text];
+            let _: () = msg_send![&*cell, setContentConfiguration: &*config];
+            let margins: objc2_ui_kit::NSDirectionalEdgeInsets =
+                msg_send![&*config, directionalLayoutMargins];
+            let size = cell
+                .systemLayoutSizeFittingSize_withHorizontalFittingPriority_verticalFittingPriority(
+                    CGSize::new(375.0, 0.0),
+                    1000.0,
+                    50.0,
+                );
+            (margins.top, size.height)
+        }
+    }
+
+    /// The link target of the character at `point` in text view `view`, if it carries one.
+    fn link_at(view: &UIView, point: objc2_core_foundation::CGPoint) -> Option<String> {
+        unsafe {
+            let range: Option<Retained<AnyObject>> = msg_send![view, characterRangeAtPoint: point];
+            let range = range?;
+            let start: Retained<AnyObject> = msg_send![&*range, start];
+            let begin: Retained<AnyObject> = msg_send![view, beginningOfDocument];
+            let index: isize = msg_send![view, offsetFromPosition: &*begin, toPosition: &*start];
+            let text: Option<Retained<objc2_foundation::NSAttributedString>> =
+                msg_send![view, attributedText];
+            let text = text?;
+            if index < 0 || index as usize >= text.length() {
+                return None;
+            }
+            let value = text.attribute_atIndex_effectiveRange(
+                objc2_ui_kit::NSLinkAttributeName,
+                index as usize,
+                std::ptr::null_mut(),
+            )?;
+            if let Some(url) = value.downcast_ref::<objc2_foundation::NSURL>() {
+                return url.absoluteString().map(|s| s.to_string());
+            }
+            value.downcast_ref::<NSString>().map(|s| s.to_string())
+        }
+    }
+
+    impl DayTextLink {
+        /// Make `tv` report its link taps against `node`, and keep the delegate alive with it.
+        fn attach(tv: &UITextView, node: NodeId, mtm: MainThreadMarker) {
+            let this = Self::alloc(mtm).set_ivars(node);
+            let delegate: Retained<Self> = unsafe { msg_send![super(this), init] };
+            unsafe { tv.setDelegate(Some(ProtocolObject::from_ref(&*delegate))) };
+            let tap = unsafe {
+                UITapGestureRecognizer::initWithTarget_action(
+                    UITapGestureRecognizer::alloc(mtm),
+                    Some(&delegate),
+                    Some(sel!(tapped:)),
+                )
+            };
+            unsafe {
+                // The text view keeps the touch: its long-press preview and VoiceOver still work.
+                tap.setCancelsTouchesInView(false);
+                tap.setDelegate(Some(ProtocolObject::from_ref(&*delegate)));
+                tv.addGestureRecognizer(&tap);
+            }
+            TEXT_LINKS.with(|t| t.insert(ptr_of_view(tv), delegate));
+        }
+    }
+
+    /// The side-table key for a view: its address, the same key `release` sweeps.
+    fn ptr_of_view(v: &UITextView) -> usize {
+        let v: &UIView = v.as_ref();
+        v as *const UIView as usize
+    }
+
+    /// A label backing that can activate links: a read-only, non-scrolling `UITextView` laid out
+    /// to measure like the `UILabel` it stands in for (zero inset, no line-fragment padding).
+    /// `TextAlign` → `NSTextAlignment` on a `UILabel` or `UITextView`, set after any attributed
+    /// text: on both, the setter re-styles the whole string, which a Markdown label's runs would
+    /// otherwise leave leading-aligned. Leading stays the view's own natural default, so an RTL
+    /// locale aligns right without the app asking (docs/localization.md).
+    fn set_text_alignment(view: &AnyObject, align: day_spec::props::TextAlign) {
+        // NSTextAlignment on iOS: Left 0, Center 1, Right 2, Natural 4.
+        let value: isize = match align {
+            day_spec::props::TextAlign::Leading => return,
+            day_spec::props::TextAlign::Center => 1,
+            day_spec::props::TextAlign::Trailing => 2,
+        };
+        unsafe {
+            let _: () = msg_send![view, setTextAlignment: value];
+        }
+    }
+
+    /// Re-apply a view's alignment after new attributed text replaced the whole string.
+    fn reapply_text_alignment(view: &AnyObject) {
+        unsafe {
+            let value: isize = msg_send![view, textAlignment];
+            let _: () = msg_send![view, setTextAlignment: value];
+        }
+    }
+
+    fn link_text_view(p: &LabelProps, id: NodeId, mtm: MainThreadMarker) -> Retained<UITextView> {
+        let tv = UITextView::new(mtm);
+        let font = resolve_font(p.font);
+        unsafe {
+            tv.setFont(Some(&font));
+            let _: () = msg_send![&*tv, setAdjustsFontForContentSizeCategory: true];
+            if let Some(c) = p.color {
+                tv.setTextColor(Some(&uicolor(c)));
+            }
+            tv.setAttributedText(Some(&attributed_label(&p.text, &font, p.color, &p.runs)));
+            tv.setEditable(false);
+            tv.setSelectable(true); // required for link interaction, not for selection alone
+            tv.setScrollEnabled(false);
+            tv.setBackgroundColor(None);
+            tv.setTextContainerInset(UIEdgeInsets {
+                top: 0.0,
+                left: 0.0,
+                bottom: 0.0,
+                right: 0.0,
+            });
+            let container: *mut AnyObject = msg_send![&*tv, textContainer];
+            let _: () = msg_send![container, setLineFragmentPadding: 0.0f64];
+        }
+        set_text_alignment(&tv, p.align);
+        DayTextLink::attach(&tv, id, mtm);
+        tv
+    }
+
+    // -----------------------------------------------------------------------
+    // DayGesture — tap/pan recognizer target, node-id keyed (docs/shapes.md)
+    // -----------------------------------------------------------------------
+
+    struct GestureIvars {
+        node: NodeId,
+        kind: day_spec::GestureKind,
+    }
+
+    define_class!(
+        #[unsafe(super(NSObject))]
+        #[thread_kind = MainThreadOnly]
+        #[name = "DayUIKitGesture"]
+        #[ivars = GestureIvars]
+        struct DayGesture;
+
+        unsafe impl NSObjectProtocol for DayGesture {}
+
+        impl DayGesture {
+            #[unsafe(method(fire:))]
+            fn fire(&self, g: &UIGestureRecognizer) {
+                day_spec::ffi_guard::contain((), || {
+                    let node = self.ivars().node;
+                    let view = unsafe { g.view() };
+                    let loc = unsafe { g.locationInView(view.as_deref()) };
+                    let at = day_spec::Point::new(loc.x, loc.y);
+                    let phase = match unsafe { g.state() } {
+                        UIGestureRecognizerState::Began => day_spec::DragPhase::Began,
+                        UIGestureRecognizerState::Ended
+                        | UIGestureRecognizerState::Cancelled
+                        | UIGestureRecognizerState::Failed => day_spec::DragPhase::Ended,
+                        _ => day_spec::DragPhase::Changed,
+                    };
+                    let obj: &AnyObject = g.as_ref();
+                    match self.ivars().kind {
+                        day_spec::GestureKind::Drag => {
+                            let translation = if let Some(pan) =
+                                obj.downcast_ref::<UIPanGestureRecognizer>()
+                            {
+                                let t = unsafe { pan.translationInView(view.as_deref()) };
+                                day_spec::Point::new(t.x, t.y)
+                            } else {
+                                day_spec::Point::ZERO
+                            };
+                            emit(
+                                node,
+                                Event::Drag {
+                                    phase,
+                                    location: at,
+                                    translation,
+                                },
+                            );
+                        }
+                        day_spec::GestureKind::Pinch => {
+                            // UIPinchGestureRecognizer's scale is cumulative since Began —
+                            // exactly Event::Pinch's contract.
+                            let scale = obj
+                                .downcast_ref::<UIPinchGestureRecognizer>()
+                                .map(|p| unsafe { p.scale() })
+                                .unwrap_or(1.0);
+                            emit(
+                                node,
+                                Event::Pinch {
+                                    phase,
+                                    scale,
+                                    location: at,
+                                },
+                            );
+                        }
+                        day_spec::GestureKind::Hover => {
+                            emit(node, Event::Hover { phase, location: at });
+                        }
+                        day_spec::GestureKind::Pan => {
+                            // Event::Pan's delta is INCREMENTAL: read the recognizer's
+                            // cumulative translation, then zero it so the next fire reports
+                            // only the movement since this one.
+                            let delta = if let Some(pan) =
+                                obj.downcast_ref::<UIPanGestureRecognizer>()
+                            {
+                                let t = unsafe { pan.translationInView(view.as_deref()) };
+                                unsafe {
+                                    pan.setTranslation_inView(
+                                        CGPoint::new(0.0, 0.0),
+                                        view.as_deref(),
+                                    )
+                                };
+                                day_spec::Point::new(t.x, t.y)
+                            } else {
+                                day_spec::Point::ZERO
+                            };
+                            emit(
+                                node,
+                                Event::Pan {
+                                    phase,
+                                    delta,
+                                    location: at,
+                                },
+                            );
+                        }
+                        _ => emit(node, Event::Tap(at)),
+                    }
+                });
+            }
+        }
+    );
+
+    impl DayGesture {
+        fn new(mtm: MainThreadMarker, node: NodeId, kind: day_spec::GestureKind) -> Retained<Self> {
+            let this = Self::alloc(mtm).set_ivars(GestureIvars { node, kind });
+            unsafe { msg_send![super(this), init] }
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Menus (docs/menus.md): the day-neutral MenuItem tree becomes a UIMenu of UIActions, shown
+    // by a UIContextMenuInteraction on long-press. Custom actions emit MenuAction(id); standard
+    // roles route their selector up the responder chain so Cut/Copy/Paste hit the focused field.
+    // -----------------------------------------------------------------------
+
+    struct CtxMenuIvars {
+        menu: Retained<UIMenu>,
+    }
+
+    define_class!(
+        #[unsafe(super(NSObject))]
+        #[thread_kind = MainThreadOnly]
+        #[name = "DayUIKitContextMenu"]
+        #[ivars = CtxMenuIvars]
+        struct DayContextMenu;
+
+        unsafe impl NSObjectProtocol for DayContextMenu {}
+
+        unsafe impl UIContextMenuInteractionDelegate for DayContextMenu {
+            #[unsafe(method_id(contextMenuInteraction:configurationForMenuAtLocation:))]
+            fn configuration_for_menu(
+                &self,
+                _interaction: &UIContextMenuInteraction,
+                _location: CGPoint,
+            ) -> Option<Retained<UIContextMenuConfiguration>> {
+                let menu = self.ivars().menu.clone();
+                let provider = block2::RcBlock::new(
+                    move |_suggested: NonNull<objc2_foundation::NSArray<UIMenuElement>>| -> *mut UIMenu {
+                        // A block's object return is +0 by convention: hand back an
+                        // autoreleased pointer. `into_raw` (+1) leaked one retain of the
+                        // whole menu graph per summon.
+                        Retained::autorelease_return(menu.clone())
+                    },
+                );
+                Some(unsafe {
+                    UIContextMenuConfiguration::configurationWithIdentifier_previewProvider_actionProvider(
+                        None,
+                        std::ptr::null_mut(),
+                        block2::RcBlock::as_ptr(&provider),
+                        mtm(),
+                    )
+                })
+            }
+        }
+    );
+
+    impl DayContextMenu {
+        fn new(mtm: MainThreadMarker, menu: Retained<UIMenu>) -> Retained<Self> {
+            let this = Self::alloc(mtm).set_ivars(CtxMenuIvars { menu });
+            unsafe { msg_send![super(this), init] }
+        }
+    }
+
+    // The summon-time variant (docs/menus.md "Dynamic context menus"): the menu is built
+    // when the long-press lands, from the provider — UIContextMenuInteraction's
+    // configuration callback is exactly that moment, and it hands over the location.
+    struct CtxMenuFnIvars {
+        f: day_spec::ContextMenuFn,
+    }
+
+    define_class!(
+        #[unsafe(super(NSObject))]
+        #[thread_kind = MainThreadOnly]
+        #[name = "DayUIKitContextMenuFn"]
+        #[ivars = CtxMenuFnIvars]
+        struct DayContextMenuFn;
+
+        unsafe impl NSObjectProtocol for DayContextMenuFn {}
+
+        unsafe impl UIContextMenuInteractionDelegate for DayContextMenuFn {
+            #[unsafe(method_id(contextMenuInteraction:configurationForMenuAtLocation:))]
+            fn configuration_for_menu(
+                &self,
+                _interaction: &UIContextMenuInteraction,
+                location: CGPoint,
+            ) -> Option<Retained<UIContextMenuConfiguration>> {
+                // Guarded: the provider is app code (it usually re-selects, then builds).
+                day_spec::ffi_guard::contain(None, || {
+                    let items = (self.ivars().f)(day_spec::Point::new(location.x, location.y));
+                    if items.is_empty() {
+                        return None;
+                    }
+                    let mtm = self.mtm();
+                    let menu = build_ui_menu(mtm, "", &items);
+                    let provider = block2::RcBlock::new(
+                        move |_suggested: NonNull<objc2_foundation::NSArray<UIMenuElement>>| -> *mut UIMenu {
+                            Retained::autorelease_return(menu.clone())
+                        },
+                    );
+                    Some(unsafe {
+                        UIContextMenuConfiguration::configurationWithIdentifier_previewProvider_actionProvider(
+                            None,
+                            std::ptr::null_mut(),
+                            block2::RcBlock::as_ptr(&provider),
+                            mtm,
+                        )
+                    })
+                })
+            }
+        }
+    );
+
+    impl DayContextMenuFn {
+        fn new(mtm: MainThreadMarker, f: day_spec::ContextMenuFn) -> Retained<Self> {
+            let this = Self::alloc(mtm).set_ivars(CtxMenuFnIvars { f });
+            unsafe { msg_send![super(this), init] }
+        }
+    }
+
+    /// Default label for a standard role left unlabeled by the app.
+    fn ui_role_label(role: day_spec::MenuRole) -> &'static str {
+        use day_spec::MenuRole::*;
+        match role {
+            Cut => "Cut",
+            Copy => "Copy",
+            Paste => "Paste",
+            SelectAll => "Select All",
+            Undo => "Undo",
+            Redo => "Redo",
+            Delete => "Delete",
+            About => "About",
+            Quit => "Quit",
+            Preferences => "Settings",
+            Minimize => "Minimize",
+            CloseWindow => "Close",
+            Fullscreen => "Full Screen",
+            NewWindow => "New Window",
+            CheckForUpdates => "Check for Updates…",
+        }
+    }
+
+    /// The UIResponder standard-edit nav host a role routes to (None → a no-op labeled action, since
+    /// iOS has no responder equivalent — e.g. Quit/About/window management).
+    fn ui_role_selector(role: day_spec::MenuRole) -> Option<objc2::runtime::Sel> {
+        use day_spec::MenuRole::*;
+        Some(match role {
+            Cut => sel!(cut:),
+            Copy => sel!(copy:),
+            Paste => sel!(paste:),
+            SelectAll => sel!(selectAll:),
+            Delete => sel!(delete:),
+            _ => return None,
+        })
+    }
+
+    thread_local! {
+        /// Each realized list item's current props, by its view: a patch updates one part and
+        /// the item is re-dressed from the whole (docs/list.md "List items").
+        static LIST_ITEMS: RefCell<HashMap<usize, day_spec::props::ListItemProps>> =
+            RefCell::new(HashMap::new());
+    }
+
+    /// A list row's standard content (docs/list.md "List items"), the way UIKit draws its own
+    /// rows: a `UIListContentView` showing the cell's default content configuration (its fonts,
+    /// image size and spacing, the secondary color for the subtitle) beside a trailing value
+    /// and the system checkmark, in a horizontal stack. The configuration keeps no margins of
+    /// its own: the list gives the row the table's side margins, and the content view's own
+    /// sizing gives it the cell's height (docs/list.md "Row metrics").
+    fn make_list_item(
+        p: &day_spec::props::ListItemProps,
+        mtm: MainThreadMarker,
+    ) -> Retained<UIView> {
+        unsafe {
+            let stack = objc2_ui_kit::UIStackView::new(mtm);
+            stack.setAxis(objc2_ui_kit::UILayoutConstraintAxis::Horizontal);
+            stack.setAlignment(objc2_ui_kit::UIStackViewAlignment::Center);
+            stack.setSpacing(8.0);
+            let config: Retained<AnyObject> =
+                msg_send![objc2::class!(UIListContentConfiguration), cellConfiguration];
+            let content: Retained<UIView> = msg_send![
+                msg_send![objc2::class!(UIListContentView), alloc],
+                initWithConfiguration: &*config
+            ];
+            // The content takes the width; the trailing parts keep their own.
+            content.setContentHuggingPriority_forAxis(
+                1.0,
+                objc2_ui_kit::UILayoutConstraintAxis::Horizontal,
+            );
+            content.setContentCompressionResistancePriority_forAxis(
+                250.0,
+                objc2_ui_kit::UILayoutConstraintAxis::Horizontal,
+            );
+            stack.addArrangedSubview(&content);
+            let detail = UILabel::new(mtm);
+            detail.setFont(Some(&objc2_ui_kit::UIFont::preferredFontForTextStyle(
+                objc2_ui_kit::UIFontTextStyleBody,
+            )));
+            let _: () = msg_send![&*detail, setAdjustsFontForContentSizeCategory: true];
+            detail.setTextColor(Some(&objc2_ui_kit::UIColor::secondaryLabelColor()));
+            detail.setContentHuggingPriority_forAxis(
+                751.0,
+                objc2_ui_kit::UILayoutConstraintAxis::Horizontal,
+            );
+            stack.addArrangedSubview(&detail);
+            // The checkmark accessory's glyph: body size, semibold, in the tint color.
+            let symbol: Retained<AnyObject> = msg_send![
+                objc2::class!(UIImageSymbolConfiguration),
+                configurationWithTextStyle: objc2_ui_kit::UIFontTextStyleBody,
+                scale: 2isize
+            ];
+            let weight: Retained<AnyObject> = msg_send![
+                objc2::class!(UIImageSymbolConfiguration),
+                configurationWithWeight: 6isize
+            ];
+            let symbol: Retained<AnyObject> =
+                msg_send![&*symbol, configurationByApplyingConfiguration: &*weight];
+            let check: Option<Retained<objc2_ui_kit::UIImage>> = msg_send![
+                objc2::class!(UIImage),
+                systemImageNamed: &*NSString::from_str("checkmark"),
+                withConfiguration: &*symbol
+            ];
+            let mark = objc2_ui_kit::UIImageView::initWithImage(
+                objc2_ui_kit::UIImageView::alloc(mtm),
+                check.as_deref(),
+            );
+            mark.setContentHuggingPriority_forAxis(
+                751.0,
+                objc2_ui_kit::UILayoutConstraintAxis::Horizontal,
+            );
+            stack.addArrangedSubview(&mark);
+            let view: Retained<UIView> = Retained::into_super(stack);
+            LIST_ITEMS.with(|m| m.borrow_mut().insert(ptr_of(&view), p.clone()));
+            dress_list_item(&view, p);
+            view
+        }
+    }
+
+    /// Show `p` on a list item's stack: its content configuration, value and check mark, and
+    /// one accessibility element naming them all.
+    fn dress_list_item(view: &UIView, p: &day_spec::props::ListItemProps) {
+        let Some(stack) = view.downcast_ref::<objc2_ui_kit::UIStackView>() else {
+            return;
+        };
+        let parts = unsafe { stack.arrangedSubviews() };
+        if parts.len() < 3 {
+            return;
+        }
+        let Some(mtm) = MainThreadMarker::new() else {
+            return;
+        };
+        unsafe {
+            let content = &parts.objectAtIndex(0);
+            let config: Retained<AnyObject> =
+                msg_send![objc2::class!(UIListContentConfiguration), cellConfiguration];
+            let _: () = msg_send![&*config, setText: &*NSString::from_str(&p.title)];
+            let subtitle = (!p.subtitle.is_empty()).then(|| NSString::from_str(&p.subtitle));
+            let _: () = msg_send![&*config, setSecondaryText: subtitle.as_deref()];
+            let image = menu_image(p.icon.as_ref()).map(|img| {
+                img.imageWithRenderingMode(objc2_ui_kit::UIImageRenderingMode::AlwaysTemplate)
+            });
+            let _: () = msg_send![&*config, setImage: image.as_deref()];
+            let props: Retained<AnyObject> = msg_send![&*config, imageProperties];
+            let tint = p.icon_tint.map(uicolor);
+            let _: () = msg_send![&*props, setTintColor: tint.as_deref()];
+            let zero = objc2_ui_kit::NSDirectionalEdgeInsets {
+                top: 0.0,
+                leading: 0.0,
+                bottom: 0.0,
+                trailing: 0.0,
+            };
+            let _: () = msg_send![&*config, setDirectionalLayoutMargins: zero];
+            // And none inherited: by default the content keeps its superview's margins too,
+            // which would add the cell's margins a second time (`UIAxis` none).
+            let _: () = msg_send![&*config, setAxesPreservingSuperviewLayoutMargins: 0usize];
+            let _: () = msg_send![&**content, setConfiguration: &*config];
+            let detail = &parts.objectAtIndex(1);
+            if let Some(label) = detail.downcast_ref::<UILabel>() {
+                label.setText(Some(&NSString::from_str(&p.detail)));
+            }
+            detail.setHidden(p.detail.is_empty());
+            parts.objectAtIndex(2).setHidden(!p.checked);
+            // One element for the row, as a standard cell is: its words, and selected while
+            // the check mark shows.
+            view.setIsAccessibilityElement(true, mtm);
+            let words = [&p.title, &p.subtitle, &p.detail]
+                .into_iter()
+                .filter(|w| !w.is_empty())
+                .map(String::as_str)
+                .collect::<Vec<_>>()
+                .join(", ");
+            view.setAccessibilityLabel(Some(&NSString::from_str(&words)), mtm);
+            view.setAccessibilityTraits(
+                if p.checked {
+                    objc2_ui_kit::UIAccessibilityTraitSelected
+                } else {
+                    0
+                },
+                mtm,
+            );
+        }
+    }
+
+    /// Build a single UIAction; `handler` runs on the main thread when chosen.
+    /// The item's glyph: an SF Symbol for a standard symbol (the shared Apple table), or a
+    /// bundled image for an app's own vocabulary — the staged vector first, exactly as every
+    /// other image channel resolves (docs/vectors.md).
+    fn menu_image(icon: Option<&day_spec::Icon>) -> Option<Retained<objc2_ui_kit::UIImage>> {
+        match icon? {
+            day_spec::Icon::Symbol(s) => {
+                let name = day_spec::sf_symbol_name(*s);
+                (!name.is_empty())
+                    .then(|| objc2_ui_kit::UIImage::systemImageNamed(&NSString::from_str(name)))
+                    .flatten()
+            }
+            // The asset catalog first (an app's vectors and images are staged there, and a
+            // file path only exists in a `day launch` tree), then the loose-file fallbacks.
+            day_spec::Icon::Image(name) => load_bundled_uiimage(name).or_else(|| {
+                let path = day_spec::resource::resolve_vector_svg(name)
+                    .or_else(|| day_spec::resource::resolve_image_file(name))?;
+                objc2_ui_kit::UIImage::imageWithContentsOfFile(&NSString::from_str(
+                    &path.to_string_lossy(),
+                ))
+            }),
+        }
+    }
+
+    fn ui_action(
+        mtm: MainThreadMarker,
+        title: &str,
+        enabled: bool,
+        checked: Option<bool>,
+        icon: Option<&day_spec::Icon>,
+        handler: impl Fn() + 'static,
+    ) -> Retained<UIMenuElement> {
+        let block = block2::RcBlock::new(move |_a: NonNull<UIAction>| handler());
+        let image = menu_image(icon);
+        let action = unsafe {
+            UIAction::actionWithTitle_image_identifier_handler(
+                &NSString::from_str(title),
+                image.as_deref(),
+                None,
+                block2::RcBlock::as_ptr(&block),
+                mtm,
+            )
+        };
+        if !enabled {
+            unsafe { action.setAttributes(UIMenuElementAttributes::Disabled) };
+        }
+        // UIKit's own on/off state, so the item gets the system check mark and reserves its
+        // column when off — the same look UIKit gives a picker's selected row (docs/menus.md).
+        if let Some(on) = checked {
+            action.setState(if on {
+                objc2_ui_kit::UIMenuElementState::On
+            } else {
+                objc2_ui_kit::UIMenuElementState::Off
+            });
+        }
+        Retained::into_super(action)
+    }
+
+    /// Lower one run of items (already split on separators) into UIMenuElements.
+    fn ui_menu_elements(
+        mtm: MainThreadMarker,
+        items: &[day_spec::MenuItem],
+    ) -> Vec<Retained<UIMenuElement>> {
+        let mut out: Vec<Retained<UIMenuElement>> = Vec::new();
+        for item in items {
+            match item {
+                day_spec::MenuItem::Separator => {}
+                day_spec::MenuItem::Submenu { label, items, .. } => {
+                    out.push(Retained::into_super(build_ui_menu(mtm, label, items)));
+                }
+                day_spec::MenuItem::Action {
+                    action: dispatch,
+                    label,
+                    shortcut: _,
+                    enabled,
+                    checked,
+                    role,
+                    icon,
+                    ..
+                } => {
+                    if let Some(role) = role {
+                        let title = if label.is_empty() {
+                            ui_role_label(*role).to_string()
+                        } else {
+                            label.clone()
+                        };
+                        let sel = ui_role_selector(*role);
+                        let id = *dispatch;
+                        out.push(ui_action(
+                            mtm,
+                            &title,
+                            *enabled,
+                            *checked,
+                            icon.as_ref(),
+                            move || {
+                                if let Some(sel) = sel {
+                                    let app = UIApplication::sharedApplication(mtm);
+                                    unsafe {
+                                        app.sendAction_to_from_forEvent(sel, None, None, None);
+                                    }
+                                } else if id != 0 {
+                                    // No UIKit nav host for this role (Undo/Redo): the item
+                                    // carries the day dispatcher id instead — the same route a
+                                    // labeled action takes, landing on the installed undo bridge.
+                                    emit(WINDOW_NODE, Event::MenuAction(id));
+                                }
+                            },
+                        ));
+                    } else {
+                        let id = *dispatch;
+                        out.push(ui_action(
+                            mtm,
+                            label,
+                            *enabled,
+                            *checked,
+                            icon.as_ref(),
+                            move || {
+                                emit(WINDOW_NODE, Event::MenuAction(id));
+                            },
+                        ));
+                    }
+                }
+            }
+        }
+        out
+    }
+
+    /// Build a UIMenu whose children preserve separators as inline sections (the native iOS look).
+    fn build_ui_menu(
+        mtm: MainThreadMarker,
+        title: &str,
+        items: &[day_spec::MenuItem],
+    ) -> Retained<UIMenu> {
+        // Split on separators; each run becomes an inline submenu so dividers render natively.
+        let groups: Vec<&[day_spec::MenuItem]> = items
+            .split(|i| matches!(i, day_spec::MenuItem::Separator))
+            .filter(|g| !g.is_empty())
+            .collect();
+        let children: Vec<Retained<UIMenuElement>> = if groups.len() <= 1 {
+            ui_menu_elements(mtm, items)
+        } else {
+            groups
+                .into_iter()
+                .map(|g| {
+                    let elems = ui_menu_elements(mtm, g);
+                    let arr = objc2_foundation::NSArray::from_retained_slice(&elems);
+                    let inline = unsafe {
+                        UIMenu::menuWithTitle_image_identifier_options_children(
+                            &NSString::from_str(""),
+                            None,
+                            None,
+                            UIMenuOptions::DisplayInline,
+                            &arr,
+                            mtm,
+                        )
+                    };
+                    Retained::into_super(inline)
+                })
+                .collect()
+        };
+        let arr = objc2_foundation::NSArray::from_retained_slice(&children);
+        unsafe { UIMenu::menuWithTitle_children(&NSString::from_str(title), &arr, mtm) }
+    }
+
+    // -----------------------------------------------------------------------
+    // Navigation (docs/navigation.md): UINavigationController child-contained in the
+    // root VC. Each page = UIViewController whose view pins a content subview to the
+    // safe area; the content view is Day's handle (its frame is native-owned).
+    // -----------------------------------------------------------------------
+
+    /// The adaptive half of a nav host (docs/size-classes.md) — present only when the host was
+    /// lowered as `Split`. A host lowered `Stack` is a stack at every size (a nested `nav_stack()`
+    /// under a split host), and realizes as a plain navigation controller instead: a
+    /// `UISplitViewController` assumes it owns the window, and nesting one inside a pane breaks
+    /// its layout (the embedded-split trap).
+    struct SplitParts {
+        /// The adaptive host. `NavState::nav` is its SECONDARY column; the sidebar page's
+        /// controller is its primary. Retained because a view holds no strong reference to its
+        /// controller, and this one owns the columns and the collapse behavior.
+        split_vc: Retained<objc2_ui_kit::UISplitViewController>,
+        /// The PRIMARY column's navigation controller — the sidebar page's stack.
+        ///
+        /// It has to be a navigation controller, not a bare view controller: UIKit merges the
+        /// secondary column into the primary's stack when it collapses, and with nothing to merge
+        /// into it drops the navigation bar entirely — the collapsed list rendered with no title
+        /// and no bar button. Which of the two is live therefore depends on the presentation,
+        /// which is what `active_nav` answers (docs/size-classes.md).
+        primary_nav: Retained<DayNavController>,
+        /// The SUPPLEMENTARY column's controller (docs/navigation.md), `Some` only on a
+        /// triple-column host (`NavProps::list_width`): the `Pane::List` page's stack. While
+        /// collapsed, the pieces layer interposes its root between the sidebar root and the
+        /// detail (`NavPatch::ListInStack`) and the `vcs` mirror carries it like any page.
+        supplementary_nav: Option<Retained<DayNavController>>,
+        /// The app's content-list width (`NavProps::list_width`), `Some` when the app declares
+        /// a content-list pane: the supplementary column's width on a triple-column host.
+        list_width: Option<f64>,
+        /// Whether the destination in force shows the content list (the last
+        /// `NavPatch::ListVisible`). A split's column count is fixed at creation, it never
+        /// shows the primary without the supplementary, and a controller cannot be re-mounted
+        /// in another of its columns (UIKit drops it) — so a list-backed destination gets a
+        /// TRIPLE-column host and a list-less one a DOUBLE-column host, and a change between
+        /// the two while expanded rebuilds the host (`rehost_split`, docs/navigation.md), the
+        /// way SwiftUI rebuilds a `NavigationSplitView` whose column count changes.
+        list_shown: std::cell::Cell<bool>,
+        /// The host's own view (Day's handle for the node), a plain container the split's
+        /// view fills. Stable across a rebuild, which is what keeps the handle valid.
+        container: Retained<UIView>,
+        /// The `Pane::List` page's controller, retained at `insert` — the RELIABLE identity
+        /// for the collapse/expand bookkeeping. While merged, the supplementary column's own
+        /// stack is empty (UIKit moved the controller into the primary's), so reading
+        /// `supplementary_nav.viewControllers()` at a transition answers nothing; this
+        /// reference is what the mirror rebase and the expand rebuild key on.
+        list_vc: std::cell::RefCell<Option<Retained<UIViewController>>>,
+        /// Triple-column only: a blank root the SECONDARY stack holds whenever Day has no
+        /// detail page. Older runtimes (iOS 16) throw "Cannot display a nested
+        /// UINavigationController with zero viewControllers" the moment a collapse nests an
+        /// empty column; the placeholder keeps the nav non-empty and `apply_ops` swaps
+        /// it for real pages. Never in the `vcs` mirror.
+        secondary_placeholder: Option<Retained<UIViewController>>,
+        _split_delegate: Retained<DaySplitDelegate>,
+    }
+
+    struct NavState {
+        nav: Retained<DayNavController>,
+        host_node: NodeId,
+        /// `Some` for the adaptive (Split-lowered) host, `None` for a plain stack host.
+        split: Option<SplitParts>,
+        /// Set around Day's OWN calls to a pop method (the collapsed triple column's pops),
+        /// so `DayNavController`'s pop overrides — the observation point for the user's back
+        /// button, swipe and history menu — know those are not the user's. There is no mirror
+        /// of the stack (docs/navigation.md): UIKit's `viewControllers` is read whenever a
+        /// change is computed, and a page that has already left it is simply not there.
+        day_pop: std::cell::Cell<bool>,
+        /// Pending column request only; native viewControllers remains the stack authority.
+        pending_list: std::cell::Cell<Option<(u64, bool)>>,
+        column_request: std::cell::Cell<Option<std::time::Instant>>,
+        _delegate: Retained<DayNavDelegate>,
+        /// Inline search (docs/search.md): the controller lives on the ROOT page's navigation
+        /// item, so pulling the top-level list down reveals it. `None` when the surface is not
+        /// searchable or its placement resolved elsewhere. Retained here because the navigation
+        /// item does not own the updater.
+        search_hides_on_scroll: bool,
+        search_initially_hidden: bool,
+        search: Option<(
+            Retained<objc2_ui_kit::UISearchController>,
+            Retained<DaySearchUpdater>,
+        )>,
+    }
+
+    impl NavState {
+        /// Presentation callbacks can run before this state is registered. Read UIKit's
+        /// settled answer when routing operations instead of caching that initial callback.
+        fn is_collapsed(&self) -> bool {
+            self.split
+                .as_ref()
+                .is_some_and(|parts| unsafe { parts.split_vc.isCollapsed() })
+        }
+
+        /// The navigation controller that currently OWNS the stack (docs/size-classes.md).
+        ///
+        /// Collapsed, UIKit has merged the secondary's pages into the primary's, so a push has to
+        /// land there; expanded, the two are separate and details belong to the secondary.
+        /// Everything that pushes, pops, or inspects the stack goes through this rather than
+        /// naming a column, so the same code is right in both presentations.
+        fn active_nav(&self) -> Retained<DayNavController> {
+            match &self.split {
+                Some(parts) if self.is_collapsed() => parts.primary_nav.clone(),
+                _ => self.nav.clone(),
+            }
+        }
+    }
+
+    struct NavPageIvars {
+        node: NodeId,
+    }
+
+    thread_local! {
+        /// A re-measure for a text size change is posted and has not run yet.
+        static TEXT_SIZE_PENDING: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+        static APPEARANCE_PENDING: Cell<bool> = const { Cell::new(false) };
+    }
+
+    /// Re-measure everything Day laid out (`day_core::note_text_size_changed`) on the next turn
+    /// of the main queue, once: by then every label in the windows has taken the new size from
+    /// its own trait change. Coalesced, since one change reaches many views.
+    fn schedule_text_size_remeasure() {
+        if TEXT_SIZE_PENDING.with(|p| p.replace(true)) {
+            return;
+        }
+        dispatch2::DispatchQueue::main().exec_async(|| {
+            TEXT_SIZE_PENDING.with(|p| p.set(false));
+            day_spec::ffi_guard::contain((), day_core::note_text_size_changed);
+        });
+    }
+
+    /// Native system colors update themselves; app palette closures need Day's signal too.
+    /// Defer and coalesce across pages/windows so UIKit can finish propagating traits and
+    /// a synchronous setOverrideUserInterfaceStyle never re-enters the borrowed Day tree.
+    fn schedule_appearance_refresh() {
+        if APPEARANCE_PENDING.with(|p| p.replace(true)) {
+            return;
+        }
+        dispatch2::DispatchQueue::main().exec_async(|| {
+            APPEARANCE_PENDING.with(|p| p.set(false));
+            day_spec::ffi_guard::contain((), day_core::note_appearance_changed);
+        });
+    }
+
+    /// A Day host view's traits changed: if the text size category is not the one it had, the
+    /// labels under it have just taken a new size (docs/list.md "Row heights"). The app-wide
+    /// notification covers the views in a window when the setting changes; this covers the
+    /// rest, a tab or a page that was off screen then and only gets the new traits when it is
+    /// shown, after the re-measure that notification ran.
+    fn note_host_traits(view: &UIView, previous: Option<&objc2_ui_kit::UITraitCollection>) {
+        use objc2_ui_kit::UITraitEnvironment as _;
+        let traits = view.traitCollection();
+        if previous
+            .is_none_or(|old| unsafe { old.userInterfaceStyle() != traits.userInterfaceStyle() })
+        {
+            schedule_appearance_refresh();
+        }
+        let Some(previous) = previous else { return };
+        let now = unsafe { traits.preferredContentSizeCategory() };
+        let before = unsafe { previous.preferredContentSizeCategory() };
+        if !now.isEqualToString(&before) {
+            schedule_text_size_remeasure();
+        }
+    }
+
+    define_class!(
+        #[unsafe(super(UIView))]
+        #[thread_kind = MainThreadOnly]
+        #[name = "DayNavPageView"]
+        #[ivars = NavPageIvars]
+        struct DayNavPageView;
+
+        impl DayNavPageView {
+            /// Re-lay whenever the page joins (or rejoins) a window.
+            ///
+            /// `safeAreaInsets` is only meaningful for a view that is actually IN a window —
+            /// UIKit does not recompute it for the off-screen members of a navigation stack. After
+            /// a split collapse the sidebar page sits at the bottom of the merged stack, so it
+            /// kept the insets it had in the other orientation (a landscape notch inset of 100pt
+            /// applied in portrait). Reporting on entry is what makes the geometry right at the
+            /// moment it starts to matter (docs/size-classes.md).
+            #[unsafe(method(didMoveToWindow))]
+            fn did_move_to_window(&self) {
+                let _: () = unsafe { msg_send![super(self), didMoveToWindow] };
+                if unsafe { self.window() }.is_some() {
+                    self.setNeedsLayout();
+                }
+            }
+
+            /// The designated change hook for the insets themselves: a page can gain or lose
+            /// bar height with its bounds unchanged (standard vs large-title bar as it moves
+            /// between columns), and `layoutSubviews` alone never re-fires for that.
+            #[unsafe(method(safeAreaInsetsDidChange))]
+            fn safe_area_insets_did_change(&self) {
+                let _: () = unsafe { msg_send![super(self), safeAreaInsetsDidChange] };
+                self.setNeedsLayout();
+            }
+
+            #[unsafe(method(traitCollectionDidChange:))]
+            fn trait_collection_did_change(
+                &self,
+                previous: Option<&objc2_ui_kit::UITraitCollection>,
+            ) {
+                let _: () = unsafe { msg_send![super(self), traitCollectionDidChange: previous] };
+                day_spec::ffi_guard::contain((), || note_host_traits(self, previous));
+            }
+
+            #[unsafe(method(layoutSubviews))]
+            fn layout_subviews(&self) {
+                let _: () = unsafe { msg_send![super(self), layoutSubviews] };
+                // The FrameChanged report dispatches day-core's relayout — contained (§8.5).
+                day_spec::ffi_guard::contain((), || {
+                    // Out of any window the insets below are stale, and a report built from
+                    // them would size the content for wherever this page last WAS.
+                    if unsafe { self.window() }.is_none() {
+                        return;
+                    }
+                    // Where the content goes depends on what it IS (§7.7). A page whose content
+                    // resolves to one scroll view — the sidebar list, a `scroll`-rooted detail,
+                    // a tree — fills the page's whole bounds, bars included, and UIKit's own
+                    // inset adjustment starts its CONTENT below the bar and lets it run under
+                    // the translucent chrome on the way past: Settings, Mail and every other
+                    // list-shaped screen on the platform. Everything else is pinned inside the
+                    // safe area, because a form or a canvas has no scroll insets to absorb a bar
+                    // and would put its first row under it.
+                    let bounds = self.bounds();
+                    let insets = self.safeAreaInsets();
+                    let subs = unsafe { self.subviews() };
+                    let content = subs.firstObject();
+                    let full_bleed = content.as_ref().is_some_and(|c| scroll_leaf(c));
+                    let frame = content_frame(bounds, insets, full_bleed);
+                    if let Some(content) = content {
+                        unsafe { content.setFrame(frame) };
+                        if *DIAG_NAV {
+                            let a = content.frame();
+                            log::debug!(
+                                "DAYDIAG   applied node={} nsubs={} content=({},{} {}x{})",
+                                self.ivars().node.0, subs.count(),
+                                a.origin.x, a.origin.y, a.size.width, a.size.height,
+                            );
+                        }
+                    }
+                    if *DIAG_NAV {
+                        let sup = unsafe { self.superview() }.map(|v| v.bounds()).unwrap_or(bounds);
+                        let winf = unsafe { self.convertRect_toView(bounds, None) };
+                        log::debug!(
+                            "DAYDIAG page node={} bounds={}x{} win=({},{} {}x{}) safe(t{} b{} l{} r{}) bleed={} -> report {}x{} super={}x{} hidden={}",
+                            self.ivars().node.0,
+                            bounds.size.width, bounds.size.height,
+                            winf.origin.x, winf.origin.y, winf.size.width, winf.size.height,
+                            insets.top, insets.bottom, insets.left, insets.right,
+                            full_bleed,
+                            frame.size.width, frame.size.height,
+                            sup.size.width, sup.size.height,
+                            self.isHidden(),
+                        );
+                    }
+                    emit(
+                        self.ivars().node,
+                        Event::FrameChanged(Size::new(frame.size.width, frame.size.height)),
+                    );
+                });
+            }
+        }
+    );
+
+    impl DayNavPageView {
+        fn new(mtm: MainThreadMarker, node: NodeId) -> Retained<Self> {
+            let this = Self::alloc(mtm).set_ivars(NavPageIvars { node });
+            let v: Retained<Self> = unsafe { msg_send![super(this), init] };
+            // GROUPED, not plain. iOS gives content two grounds and they are a matched pair:
+            // `systemGroupedBackground` behind, `secondarySystemGroupedBackground` for the cards
+            // that sit on it — the pairing every Settings-shaped screen and every inset-grouped
+            // list uses, and the one that makes a split's two columns read as one surface rather
+            // than two white sheets meeting at a seam. `SurfaceRole::SectionCard` takes the other
+            // half; changing one without the other leaves grey on grey.
+            unsafe { v.setBackgroundColor(Some(&UIColor::systemGroupedBackgroundColor())) };
+            v
+        }
+    }
+
+    /// Whether a page's content is one thing that absorbs the bars itself — the shape that
+    /// fills the page's bounds instead of the safe area (`DayNavPageView::layoutSubviews`).
+    ///
+    /// Walks the chain of single-child wrappers Day's layout leaves between the content view and
+    /// its leaf (the sidebar is `column((menu,))`, a detail is often `scroll(column(…))`), and
+    /// answers yes when the chain reaches either a `UIScrollView` — which is what a list, a
+    /// tree, a text view and a `scroll` piece all are underneath — or a navigation host's view
+    /// (a `UINavigationController`'s, or a split host's container), which passes the bars on to
+    /// its own pages: a tab whose content is a nav host must reach under the tab bar, or the
+    /// list inside it never can. A page with two children at any level is neither: a heading
+    /// over a list has nowhere to absorb a bar, so that page keeps the safe-area pin.
+    /// The frame a page or the window root gives its content inside `bounds`, given the safe
+    /// area `insets` there. Pinned, all four insets pad it. Bleeding (`scroll_leaf`), only the
+    /// SIDES still do: a bar is vertical chrome, and a scroll view absorbs it as a content
+    /// inset on the way past — a side inset never is. iPadOS 26 floats the split view's
+    /// sidebar over the secondary column and reports it as that column's left safe area
+    /// (330pt on an iPad Pro), and a landscape iPhone reports its sensor housing the same way;
+    /// a scroll view laid out across either puts its content under the sidebar, and the user
+    /// sees a detail that runs on beneath the list. So the sides pad the frame in both modes,
+    /// and the content moves aside when the sidebar is shown, which is what `FrameChanged`
+    /// then reports (docs/size-classes.md).
+    fn content_frame(bounds: CGRect, insets: UIEdgeInsets, bleed: bool) -> CGRect {
+        let (top, bottom) = if bleed {
+            (0.0, 0.0)
+        } else {
+            (insets.top, insets.bottom)
+        };
+        CGRect::new(
+            CGPoint::new(insets.left, top),
+            CGSize::new(
+                (bounds.size.width - insets.left - insets.right).max(0.0),
+                (bounds.size.height - top - bottom).max(0.0),
+            ),
+        )
+    }
+
+    fn scroll_leaf(content: &UIView) -> bool {
+        let mut view = content.retain();
+        // Day's wrappers are shallow; a bound keeps a pathological tree from being walked twice
+        // a frame during a resize.
+        for _ in 0..6 {
+            let subs = unsafe { view.subviews() };
+            if subs.count() != 1 {
+                return false;
+            }
+            let Some(child) = subs.firstObject() else {
+                return false;
+            };
+            // A view controller's view answers to its controller: a nav or split host here
+            // means the bars are that host's pages' business.
+            let hosted = unsafe { child.nextResponder() }.is_some_and(|r| {
+                r.downcast_ref::<objc2_ui_kit::UINavigationController>()
+                    .is_some()
+                    || r.downcast_ref::<objc2_ui_kit::UISplitViewController>()
+                        .is_some()
+                    || r.downcast_ref::<objc2_ui_kit::UITabBarController>()
+                        .is_some()
+            });
+            if hosted {
+                return true;
+            }
+            match child.downcast::<UIScrollView>() {
+                Ok(_) => return true,
+                Err(v) => view = v,
+            }
+        }
+        false
+    }
+
+    /// Schedule a re-pin of the page (or window holder) whose content chain `changed` sits in.
+    ///
+    /// Whether a page pins its content inside the safe area or runs it edge to edge depends on
+    /// what the content IS (`scroll_leaf`), and that changes when a child joins or leaves the
+    /// chain: a reader cover swapping its web view for a settings form kept the web view's
+    /// edge-to-edge frame, and the form's header went under the status bar. `scroll_leaf`
+    /// looks six single-child levels below a page's content view, so walking that far up
+    /// finds every page whose answer the change can move. Only scheduled: the pass runs
+    /// after the tree edit lands.
+    fn reask_content_frame(changed: &UIView) {
+        let mut view = Some(changed.retain());
+        for _ in 0..8 {
+            let Some(v) = view else {
+                return;
+            };
+            if v.downcast_ref::<DayNavPageView>().is_some()
+                || v.downcast_ref::<DayHolderView>().is_some()
+            {
+                v.setNeedsLayout();
+                return;
+            }
+            view = unsafe { v.superview() };
+        }
+    }
+
+    struct NavControllerIvars {
+        host: std::cell::Cell<usize>,
+        guarded: std::cell::Cell<bool>,
+    }
+
+    // A UINavigationController subclass that intercepts the BACK BUTTON via its own bar-delegate
+    // `shouldPop` (docs/navigation.md). A nav controller IS its bar's delegate, so overriding
+    // the method here is the sanctioned way to veto a back-button pop. While `guarded`, we veto
+    // (return false) and emit `NavBack { already_popped: false }` so Rust's guard decides — the
+    // sync/async mismatch resolves because the native pop simply never happens; Rust performs it
+    // on `Proceed`. The swipe is a separate path (interactivePopGestureRecognizer), disabled in
+    // the GuardTop patch.
+    define_class!(
+        #[unsafe(super(UINavigationController))]
+        #[thread_kind = MainThreadOnly]
+        #[name = "DayNavController"]
+        #[ivars = NavControllerIvars]
+        struct DayNavController;
+
+        unsafe impl NSObjectProtocol for DayNavController {}
+        unsafe impl UIBarPositioningDelegate for DayNavController {}
+
+        unsafe impl UINavigationBarDelegate for DayNavController {
+            #[unsafe(method(navigationBar:shouldPopItem:))]
+            fn should_pop(&self, bar: &UINavigationBar, _item: &UINavigationItem) -> bool {
+                // Contained (§8.5): a panic can only arise on the guarded branch, whose
+                // intended answer is the veto — so the default is `false`.
+                day_spec::ffi_guard::contain(false, || {
+                    // The host's NODE, resolved through NAV_STATE — `ivars().host` is the host
+                    // VIEW's pointer, which is the key of that map and not a `NodeId` at all.
+                    // Casting it to one addressed a node that has never existed, so day-core
+                    // never saw the event, the guard never ran, and the veto below stood
+                    // forever: tapping back did nothing at all. Every other `NavBack` emit here
+                    // already went through `state.host_node`; this was the one that did not, and
+                    // it is invisible to the walkthrough because `nav_back:` drives day-core's
+                    // rail directly and never reaches `shouldPopItem:`. Long-pressing the back
+                    // button worked for the same reason — the history menu pops the controller
+                    // itself, so the settle path reports it with the right node.
+                    let node = NAV_STATE.with(|m| {
+                        m.borrow()
+                            .get(&self.ivars().host.get())
+                            .map(|s| s.host_node)
+                    });
+                    match (self.ivars().guarded.get(), node) {
+                        (true, Some(node)) => {
+                            emit(
+                                node,
+                                Event::NavBack {
+                                    already_popped: false,
+                                },
+                            );
+                            // UIKit dims the back button after a vetoed pop; restore the bar's
+                            // opacity on the next runloop turn (the documented shouldPop cosmetic
+                            // fix).
+                            let bar: Retained<UINavigationBar> = Retained::from(bar);
+                            modal_after_idle(move || {
+                                for v in unsafe { bar.subviews() }.iter() {
+                                    unsafe { v.setAlpha(1.0) };
+                                }
+                            });
+                            false
+                        }
+                        // Not guarded, or a host this bar no longer belongs to: let UIKit pop.
+                        // Vetoing with no one to answer is the one outcome that strands the
+                        // user, so an unresolvable host fails OPEN.
+                        _ => true,
+                    }
+                })
+            }
+        }
+
+        // The swipe's own gate, the counterpart of `shouldPopItem:` for the back button. The
+        // recognizer takes one delegate, so this one also answers UIKit's two stock questions —
+        // more than the root on the stack, and no transition already running — which the
+        // default delegate answered before it was replaced. While guarded, the swipe asks Day's
+        // guard exactly as the button does and starts nothing itself; the gesture stays
+        // enabled, so a guard that says Proceed pops through Day's rail and the next swipe
+        // works again without anyone re-enabling anything.
+        unsafe impl UIGestureRecognizerDelegate for DayNavController {
+            #[unsafe(method(gestureRecognizerShouldBegin:))]
+            fn gesture_should_begin(&self, _g: &objc2_ui_kit::UIGestureRecognizer) -> bool {
+                day_spec::ffi_guard::contain(false, || {
+                    let count = unsafe { self.viewControllers() }.count();
+                    if count < 2 || unsafe { self.transitionCoordinator() }.is_some() {
+                        return false;
+                    }
+                    if self.ivars().guarded.get() {
+                        let node = NAV_STATE.with(|m| {
+                            m.borrow()
+                                .get(&self.ivars().host.get())
+                                .map(|s| s.host_node)
+                        });
+                        if let Some(node) = node {
+                            emit(
+                                node,
+                                Event::NavBack {
+                                    already_popped: false,
+                                },
+                            );
+                            return false;
+                        }
+                        // Fail OPEN, as the button does.
+                    }
+                    true
+                })
+            }
+        }
+
+        // The observation point for the user's back (docs/navigation.md): UIKit routes the
+        // back button here once `shouldPopItem:` agrees, the swipe here under an interactive
+        // transition, and the history menu to `popToViewController:`. Day's own stack changes
+        // are `setViewControllers:` and never arrive here; its two pops on a collapsed triple
+        // column announce themselves through `with_day_pop`. So a call that reaches super
+        // with the flag clear IS the user's, and `observe_user_pop` reports it once its
+        // transition has actually happened.
+        impl DayNavController {
+            #[unsafe(method_id(popViewControllerAnimated:))]
+            fn pop_view_controller(&self, animated: bool) -> Option<Retained<UIViewController>> {
+                let popped: Option<Retained<UIViewController>> =
+                    unsafe { msg_send![super(self), popViewControllerAnimated: animated] };
+                if let Some(p) = &popped {
+                    self.note_pop(vec![p.clone()]);
+                }
+                popped
+            }
+
+            #[unsafe(method_id(popToViewController:animated:))]
+            fn pop_to_view_controller(
+                &self,
+                vc: &UIViewController,
+                animated: bool,
+            ) -> Option<Retained<objc2_foundation::NSArray<UIViewController>>> {
+                let popped: Option<Retained<objc2_foundation::NSArray<UIViewController>>> = unsafe {
+                    msg_send![super(self), popToViewController: vc, animated: animated]
+                };
+                if let Some(p) = popped.as_ref().filter(|p| p.count() > 0) {
+                    self.note_pop(p.iter().collect());
+                }
+                popped
+            }
+
+            #[unsafe(method_id(popToRootViewControllerAnimated:))]
+            fn pop_to_root_view_controller(
+                &self,
+                animated: bool,
+            ) -> Option<Retained<objc2_foundation::NSArray<UIViewController>>> {
+                let popped: Option<Retained<objc2_foundation::NSArray<UIViewController>>> =
+                    unsafe { msg_send![super(self), popToRootViewControllerAnimated: animated] };
+                if let Some(p) = popped.as_ref().filter(|p| p.count() > 0) {
+                    self.note_pop(p.iter().collect());
+                }
+                popped
+            }
+
+            /// The swipe recognizer exists once the view does; give it this controller as its
+            /// gate (`gestureRecognizerShouldBegin:` above).
+            #[unsafe(method(viewDidLoad))]
+            fn view_did_load(&self) {
+                let _: () = unsafe { msg_send![super(self), viewDidLoad] };
+                if let Some(g) = unsafe { self.interactivePopGestureRecognizer() } {
+                    let delegate =
+                        ProtocolObject::<dyn objc2_ui_kit::UIGestureRecognizerDelegate>::from_ref(
+                            self,
+                        );
+                    unsafe { g.setDelegate(Some(delegate)) };
+                }
+            }
+        }
+    );
+
+    impl DayNavController {
+        fn new(mtm: MainThreadMarker, host: usize) -> Retained<Self> {
+            let this = Self::alloc(mtm).set_ivars(NavControllerIvars {
+                host: std::cell::Cell::new(host),
+                guarded: std::cell::Cell::new(false),
+            });
+            let this: Retained<Self> = unsafe { msg_send![super(this), init] };
+            let bar = unsafe { this.navigationBar() };
+            configure_navigation_bar(&bar, mtm);
+            this
+        }
+
+        /// A pop just went through one of the overrides above: the user's, unless Day
+        /// announced its own (`with_day_pop`).
+        fn note_pop(&self, popped: Vec<Retained<UIViewController>>) {
+            let host = self.ivars().host.get();
+            // A size-class transition is UIKit rearranging its own columns, not the user going
+            // back: expanding a split view takes the detail back out of the merged stack with
+            // this very call. Reported as a back it pops day's model, which deselects the row
+            // the user was on, and the widened split then fills its empty detail with the first
+            // row — the page they were reading replaced by the first one in the list.
+            if CLASS_TRANSITIONS.with(|c| c.get()) > 0 {
+                if *DIAG_NAV {
+                    log::debug!(
+                        "DAYDIAG pop during a size-class transition: UIKit's own, not reported"
+                    );
+                }
+                return;
+            }
+            let day = NAV_STATE.with(|m| m.borrow().get(&host).map(|s| s.day_pop.get()));
+            // `Some(true)` is Day's own pop; `None` a controller no host owns any more.
+            if day == Some(false) {
+                observe_user_pop(host, self, popped);
+            }
+        }
+
+        /// The back button's own path, without the button: ask `shouldPopItem:` — where the
+        /// guard's veto and its `NavBack` live — and pop when it agrees. `Toolkit::native_back`
+        /// runs this, so dayscript's `nav_back: { native: true }` covers the code a tap runs.
+        /// `true` when the affordance did something: popped, or handed a guarded back to Day.
+        fn press_back(&self) -> bool {
+            let bar = unsafe { self.navigationBar() };
+            let Some(item) = (unsafe { bar.topItem() }) else {
+                return false;
+            };
+            if unsafe { self.viewControllers() }.count() < 2 {
+                return false;
+            }
+            // Asked the way the bar asks it — through the selector — so the guard's veto and
+            // its `NavBack` run as they do for a tap.
+            let agreed: bool =
+                unsafe { msg_send![self, navigationBar: &*bar, shouldPopItem: &*item] };
+            if !agreed {
+                return true;
+            }
+            unsafe { self.popViewControllerAnimated(!day_core::testing::fast_animations()) }
+                .is_some()
+        }
+    }
+
+    struct NavDelegateIvars {
+        host: std::cell::Cell<usize>,
+    }
+
+    /// Inline search on a `.searchable()` surface (docs/search.md).
+    ///
+    /// A `UISearchController` on the ROOT page's `navigationItem`. Search is pinned by
+    /// default; opting into initially hidden search uses a compact title and native drawer.
+    /// It is not a
+    /// toolbar item — the phones have no toolbar — so the placement resolver hands it here
+    /// instead, and the field belongs to the navigation surface it filters.
+    struct SearchUpdaterIvars {
+        /// The nav host's day node, so edits emit against the surface that declared the search.
+        node: std::cell::Cell<u64>,
+        /// Suppresses the echo while day writes the field's text back into it.
+        suppress: std::cell::Cell<bool>,
+    }
+
+    define_class!(
+        #[unsafe(super(NSObject))]
+        #[thread_kind = MainThreadOnly]
+        #[name = "DaySearchUpdater"]
+        #[ivars = SearchUpdaterIvars]
+        struct DaySearchUpdater;
+
+        unsafe impl NSObjectProtocol for DaySearchUpdater {}
+
+        unsafe impl UISearchResultsUpdating for DaySearchUpdater {
+            #[unsafe(method(updateSearchResultsForSearchController:))]
+            fn update(&self, sc: &objc2_ui_kit::UISearchController) {
+                day_spec::ffi_guard::contain((), || {
+                    if self.ivars().suppress.get() {
+                        return;
+                    }
+                    let text = unsafe { sc.searchBar().text() }
+                        .map(|t| t.to_string())
+                        .unwrap_or_default();
+                    emit(NodeId(self.ivars().node.get()), Event::SearchChanged(text));
+                });
+            }
+        }
+
+        unsafe impl UIBarPositioningDelegate for DaySearchUpdater {}
+
+        unsafe impl UISearchBarDelegate for DaySearchUpdater {
+            /// The Search key (docs/search.md): every edit has already been reported by
+            /// `updateSearchResultsForSearchController:`, so this only says "run it now". The
+            /// keyboard goes, as in Settings and Mail, so the results are not under it.
+            #[unsafe(method(searchBarSearchButtonClicked:))]
+            fn search_clicked(&self, bar: &objc2_ui_kit::UISearchBar) {
+                day_spec::ffi_guard::contain((), || {
+                    let text = unsafe { bar.text() }
+                        .map(|t| t.to_string())
+                        .unwrap_or_default();
+                    emit(
+                        NodeId(self.ivars().node.get()),
+                        Event::SearchSubmitted(text),
+                    );
+                    let _ = bar.resignFirstResponder();
+                });
+            }
+        }
+    );
+
+    impl DaySearchUpdater {
+        fn new(mtm: MainThreadMarker, node: NodeId) -> Retained<Self> {
+            let this = Self::alloc(mtm).set_ivars(SearchUpdaterIvars {
+                node: std::cell::Cell::new(node.0),
+                suppress: std::cell::Cell::new(false),
+            });
+            unsafe { msg_send![super(this), init] }
+        }
+    }
+
+    // The split host's own delegate (docs/size-classes.md). UIKit owns the decision here — a
+    // `UISplitViewController` collapses and expands on its own as the horizontal size class
+    // changes, which on a Plus/Pro Max iPhone happens on every rotation — so Day OBSERVES and
+    // reports rather than driving. Pushing a presentation back at it would be a second source of
+    // truth racing UIKit's own collapse animation.
+    define_class!(
+        #[unsafe(super(NSObject))]
+        #[thread_kind = MainThreadOnly]
+        #[name = "DaySplitDelegate"]
+        #[ivars = NavDelegateIvars]
+        struct DaySplitDelegate;
+
+        unsafe impl NSObjectProtocol for DaySplitDelegate {}
+
+        unsafe impl UISplitViewControllerDelegate for DaySplitDelegate {
+            #[unsafe(method(splitViewControllerDidCollapse:))]
+            fn did_collapse(&self, _svc: &objc2_ui_kit::UISplitViewController) {
+                day_spec::ffi_guard::contain((), || {
+                    split_presentation_changed(self.ivars().host.get(), false);
+                });
+            }
+
+            #[unsafe(method(splitViewControllerDidExpand:))]
+            fn did_expand(&self, _svc: &objc2_ui_kit::UISplitViewController) {
+                day_spec::ffi_guard::contain((), || {
+                    split_presentation_changed(self.ivars().host.get(), true);
+                });
+            }
+
+            /// Which column tops the collapsed stack (docs/navigation.md, docs/size-classes.md):
+            /// Day's MIRROR answers, for a double-column host as much as a triple. UIKit's own
+            /// proposal is not the same on every release — at launch, with the detail column
+            /// holding the first destination, iOS 26 proposes the secondary (the page shows)
+            /// and iOS 18 the primary (the sidebar shows over a page the model says is open,
+            /// with nothing to pop) — so leaving it to the proposal made the first screen
+            /// depend on the OS. The detail tops while one is actually pushed; on a triple
+            /// host the content list tops while it belongs to the destination; otherwise the
+            /// sidebar.
+            #[unsafe(method(splitViewController:topColumnForCollapsingToProposedTopColumn:))]
+            fn top_column_for_collapsing(
+                &self,
+                _svc: &objc2_ui_kit::UISplitViewController,
+                proposed: objc2_ui_kit::UISplitViewControllerColumn,
+            ) -> objc2_ui_kit::UISplitViewControllerColumn {
+                day_spec::ffi_guard::contain(proposed, || {
+                    NAV_STATE.with(|m| {
+                        let m = m.borrow();
+                        let Some(state) = m.get(&self.ivars().host.get()) else {
+                            return proposed;
+                        };
+                        let Some(parts) = state.split.as_ref() else {
+                            return proposed;
+                        };
+                        // The mirror, not the native count — a triple host's secondary holds
+                        // a placeholder while no real detail page exists, and the placeholder
+                        // must never top the collapsed stack. The content list tops it only
+                        // while it belongs to the destination (`NavPatch::ListInStack`);
+                        // a destination without one leaves the sidebar root on top, which
+                        // is what a phone opening on such a section must show.
+                        let detail =
+                            !day_pages(&state.nav, parts.secondary_placeholder.as_deref()).is_empty();
+                        let column = if detail {
+                            objc2_ui_kit::UISplitViewControllerColumn::Secondary
+                        } else if parts.supplementary_nav.is_some() && parts.list_shown.get() {
+                            objc2_ui_kit::UISplitViewControllerColumn::Supplementary
+                        } else {
+                            objc2_ui_kit::UISplitViewControllerColumn::Primary
+                        };
+                        if *DIAG_NAV {
+                            log::debug!(
+                                "DAYDIAG collapse top column proposed={} chosen={} detail={detail} list_shown={}",
+                                proposed.0,
+                                column.0,
+                                parts.list_shown.get()
+                            );
+                        }
+                        column
+                    })
+                })
+            }
+        }
+    );
+
+    impl DaySplitDelegate {
+        fn new(mtm: MainThreadMarker, host: usize) -> Retained<Self> {
+            let this = Self::alloc(mtm).set_ivars(NavDelegateIvars {
+                host: std::cell::Cell::new(host),
+            });
+            unsafe { msg_send![super(this), init] }
+        }
+    }
+
+    /// UIKit collapsed or expanded the split host: reconcile stranded double-column
+    /// pages and report the new presentation. Operations read the native presentation
+    /// directly, including when this callback preceded navigation state registration.
+    fn split_presentation_changed(host: usize, expanded: bool) {
+        let plan = NAV_STATE.with(|m| {
+            let mut m = m.borrow_mut();
+            let state = m.get_mut(&host)?;
+            let parts = state.split.as_ref()?;
+            if *DIAG_NAV {
+                log::debug!(
+                    "DAYDIAG split {} primary={} secondary={} supplementary={:?}",
+                    if expanded { "EXPANDED" } else { "COLLAPSED" },
+                    unsafe { parts.primary_nav.viewControllers() }.count(),
+                    unsafe { state.nav.viewControllers() }.count(),
+                    parts
+                        .supplementary_nav
+                        .as_ref()
+                        .map(|n| unsafe { n.viewControllers() }.count()),
+                );
+            }
+            // Nothing rebuilds columns here: the collapsed stack is only ever driven through
+            // UIKit's own APIs (`Act::Triple*`), so its bookkeeping stays intact and its own
+            // expand puts every column back where it belongs.
+            //
+            // A DOUBLE-column collapse can leave the detail STRANDED: UIKit decides the merge
+            // before Day's launch sync has put the first destination in the secondary column
+            // (iOS 18 asks for the top column that early; iOS 26 asks after), so the merge
+            // carries nothing and the page the model says is open sits in a hidden column
+            // with the sidebar on top and nothing to pop. Finish the merge UIKit started:
+            // whatever the secondary still holds goes on top of the primary's stack, which is
+            // the shape the mirror already has. Applied outside this borrow (a stack change
+            // re-enters the delegates).
+            // Stranded means the primary holds nothing but the sidebar root while the
+            // secondary holds pages. Nothing subtler is safe to read: after an iOS 26 collapse
+            // the primary carries the sidebar plus the NESTED secondary controller (its pages
+            // inside it, and the secondary still reporting them), so a membership test by
+            // identity would move a page UIKit had already merged and put it up twice.
+            let strand = (!expanded && parts.supplementary_nav.is_none()).then(|| {
+                let merged: Vec<Retained<UIViewController>> =
+                    unsafe { parts.primary_nav.viewControllers() }
+                        .iter()
+                        .collect();
+                let stranded: Vec<Retained<UIViewController>> = if merged.len() <= 1 {
+                    unsafe { state.nav.viewControllers() }.iter().collect()
+                } else {
+                    Vec::new()
+                };
+                let kept: Vec<Retained<UIViewController>> = Vec::new();
+                (
+                    parts.primary_nav.clone(),
+                    state.nav.clone(),
+                    merged,
+                    stranded,
+                    kept,
+                )
+            });
+            Some((state.host_node, strand))
+        });
+        let Some((node, strand)) = plan else { return };
+        if let Some((primary, secondary, mut merged, stranded, kept)) = strand
+            && !stranded.is_empty()
+        {
+            if *DIAG_NAV {
+                log::debug!(
+                    "DAYDIAG split COLLAPSED merging {} stranded page(s) onto primary={}",
+                    stranded.len(),
+                    merged.len()
+                );
+            }
+            let rest = objc2_foundation::NSArray::from_retained_slice(&kept);
+            unsafe { secondary.setViewControllers(&rest) };
+            merged.extend(stranded);
+            let arr = objc2_foundation::NSArray::from_retained_slice(&merged);
+            unsafe { primary.setViewControllers_animated(&arr, false) };
+        }
+        emit(
+            node,
+            Event::NavPresentationChanged(if expanded {
+                day_spec::props::NavPresentation::Split
+            } else {
+                day_spec::props::NavPresentation::Stack
+            }),
+        );
+        // Re-lay every page against its NEW column, one runloop turn later.
+        //
+        // A merge REPARENTS the page views, and `layoutSubviews` only fires — and only reports
+        // `FrameChanged` — when a view's own bounds change. Reparenting alone may not change
+        // them in the same pass, so each page can keep the frame it had in the other
+        // presentation: the list drawn at sidebar width on top of a detail still sized for the
+        // split. Forcing the layout inline does not help either, because this callback runs
+        // During the transition and the bounds are still mid-animation. Deferring is the same
+        // shape as the Qt fix, where hiding a splitter pane does not resize its sibling until Qt
+        // has run its own layout pass (docs/size-classes.md).
+        dispatch2::DispatchQueue::main().exec_async(move || {
+            // Expanded again: the host the destination in force calls for
+            // (`SplitParts::list_shown`), before the columns below are laid out.
+            if expanded {
+                rehost_split(host);
+            }
+            split_settle(host);
+        });
+    }
+
+    /// Lay the split host's columns out for the presentation or host they now have, then
+    /// re-place the window toolbar and the search field against them. Runs a turn after a
+    /// collapse or expand, and after a rebuild.
+    fn split_settle(host: usize) {
+        // Copied out of NAV_STATE first, the file's re-entrancy rule: laying a column out
+        // makes UIKit lay out what it shows, which binds list rows synchronously, and a row
+        // built there inserts views through `Toolkit::insert`, which borrows NAV_STATE again.
+        let settled = NAV_STATE.with(|m| {
+            let m = m.borrow();
+            let state = m.get(&host)?;
+            let parts = state.split.as_ref()?;
+            Some((
+                parts.primary_nav.clone(),
+                state.nav.clone(),
+                parts.split_vc.clone(),
+                state.search.is_some(),
+                state.search_hides_on_scroll,
+                state.search_initially_hidden,
+            ))
+        });
+        let Some((primary_nav, nav, split_vc, search, hides_on_scroll, initially_hidden)) = settled
+        else {
+            return;
+        };
+        // RESIZE each page to the column that now owns it, then lay it out.
+        //
+        // Laying a view out does not change its own frame, which is why forcing
+        // `layoutIfNeeded` alone never fixed this: UIKit does not resize the OFF-SCREEN
+        // members of a navigation stack, and after a collapse the sidebar page sits at
+        // the bottom of the merged stack. It kept the column bounds it had while
+        // expanded — measured at 420x409 in landscape while the detail had correctly
+        // re-laid to 430x839 — so its content stayed sized for the other presentation
+        // (docs/size-classes.md).
+        //
+        // Every page is full-bleed within its own navigation controller, so that
+        // controller's view bounds are the page's frame.
+        // Ask each COLUMN to lay itself out, rather than resizing pages by hand.
+        //
+        // The navigation controller owns its pages' frames AND their safe-area insets, so
+        // laying it out propagates both. Setting a page's frame directly does not: the
+        // insets stay whatever they were where the page last lived, which is how a
+        // landscape notch inset of 100pt survived into portrait.
+        let relayout = |nav: &DayNavController| {
+            if let Some(v) = unsafe { nav.viewIfLoaded() } {
+                v.setNeedsLayout();
+                v.layoutIfNeeded();
+            }
+        };
+        relayout(&primary_nav);
+        relayout(&nav);
+        if let Some(v) = unsafe { split_vc.viewIfLoaded() } {
+            v.setNeedsLayout();
+            v.layoutIfNeeded();
+        }
+        // The window bar and the columns' bar actions follow the presentation
+        // (docs/toolbars.md): the bar moves between the detail column's navigation
+        // bar and the bottom of the merged stack, and the sidebar's every-page actions
+        // leave it or rejoin it. `isCollapsed` has settled by now, one turn later.
+        let roots: Vec<usize> = WINDOW_TOOLBARS.with(|t| t.borrow().keys().copied().collect());
+        for root in roots {
+            reapply_window_toolbar(root);
+        }
+        // The search policy follows its owning column (docs/search.md), including
+        // the compact-title drawer opt-in. Both stacks are walked because the
+        // sidebar page lives in the primary column expanded and in the merged one
+        // collapsed, and only the page that has the controller is touched.
+        if search {
+            for nav in [&primary_nav, &nav] {
+                for vc in unsafe { nav.viewControllers() }.iter() {
+                    let item = unsafe { vc.navigationItem() };
+                    if unsafe { item.searchController() }.is_some() {
+                        configure_sidebar_search(&item, nav, hides_on_scroll, initially_hidden);
+                    }
+                }
+            }
+        }
+    }
+
+    /// The column controllers of a split host, built by `realize` and again by `rehost_split`.
+    struct SplitBuild {
+        split_vc: Retained<objc2_ui_kit::UISplitViewController>,
+        primary_nav: Retained<DayNavController>,
+        supplementary_nav: Option<Retained<DayNavController>>,
+        secondary_placeholder: Option<Retained<UIViewController>>,
+    }
+
+    /// A blank, grouped-background controller: the seed a column takes while it has no page.
+    fn blank_vc(mtm: MainThreadMarker) -> Retained<UIViewController> {
+        let vc = unsafe { UIViewController::new(mtm) };
+        if let Some(v) = unsafe { vc.view() } {
+            unsafe { v.setBackgroundColor(Some(&UIColor::systemGroupedBackgroundColor())) };
+        }
+        vc
+    }
+
+    /// Build a split host of the style the destination calls for (docs/size-classes.md,
+    /// docs/navigation.md): a double-column `UISplitViewController` whose SECONDARY column is
+    /// Day's navigation stack (`secondary`) and whose PRIMARY is the sidebar page's own
+    /// stack, with a SUPPLEMENTARY column for the content list when `triple`. UIKit
+    /// collapses it to a single stack at compact width and expands it at regular — which is a
+    /// rotation away on a Plus/Pro Max iPhone and the standing state on an iPad.
+    ///
+    /// Collapsing MERGES: UIKit inserts the primary's controller at the bottom of the
+    /// secondary's navigation stack. That lands on exactly the shape Day's model already has
+    /// in a stack presentation — the sidebar page as the stack's root — so the phone path is
+    /// unchanged and only the mirror needs rebasing.
+    ///
+    /// The secondary column must never be an EMPTY navigation controller on the older
+    /// runtimes (see `SplitParts::secondary_placeholder`): a triple-column host seeds it here
+    /// when it holds nothing, and seeds the supplementary the same way, because the
+    /// window-attach collapse can nest either before its page arrives.
+    fn build_split(
+        mtm: MainThreadMarker,
+        secondary: &DayNavController,
+        list_width: Option<f64>,
+        triple: bool,
+    ) -> SplitBuild {
+        let split_vc = unsafe {
+            objc2_ui_kit::UISplitViewController::initWithStyle(
+                objc2_ui_kit::UISplitViewController::alloc(mtm),
+                if triple {
+                    objc2_ui_kit::UISplitViewControllerStyle::TripleColumn
+                } else {
+                    objc2_ui_kit::UISplitViewControllerStyle::DoubleColumn
+                },
+            )
+        };
+        let primary_nav = DayNavController::new(mtm, 0); // host ptr set by the caller
+        let secondary_placeholder = triple.then(|| {
+            let ph = blank_vc(mtm);
+            if unsafe { secondary.viewControllers() }.count() == 0 {
+                let arr = objc2_foundation::NSArray::from_retained_slice(std::slice::from_ref(&ph));
+                unsafe { secondary.setViewControllers(&arr) };
+            }
+            ph
+        });
+        let supplementary_nav = triple.then(|| {
+            let snav = DayNavController::new(mtm, 0);
+            unsafe {
+                let arr = objc2_foundation::NSArray::from_retained_slice(&[blank_vc(mtm)]);
+                snav.setViewControllers(&arr);
+                split_vc.setViewController_forColumn(
+                    Some(&snav),
+                    objc2_ui_kit::UISplitViewControllerColumn::Supplementary,
+                );
+                split_vc.setPreferredSupplementaryColumnWidth(
+                    list_width.unwrap_or(day_spec::NAV_LIST_MIN_W),
+                );
+            }
+            snav
+        });
+        unsafe {
+            split_vc.setViewController_forColumn(
+                Some(&primary_nav),
+                objc2_ui_kit::UISplitViewControllerColumn::Primary,
+            );
+            split_vc.setViewController_forColumn(
+                Some(secondary),
+                objc2_ui_kit::UISplitViewControllerColumn::Secondary,
+            );
+            // Every column side by side when there is room; UIKit still collapses to one
+            // stack at compact width. `oneBesideSecondary` is "primary beside secondary" on
+            // a double-column host and "supplementary beside secondary" on a triple-column
+            // one, which is why the list-less destination gets a host of its own.
+            split_vc.setPreferredDisplayMode(if triple {
+                objc2_ui_kit::UISplitViewControllerDisplayMode::TwoBesideSecondary
+            } else {
+                objc2_ui_kit::UISplitViewControllerDisplayMode::OneBesideSecondary
+            });
+            // TILE, explicitly. Left automatic, UIKit picks an OVERLAY on a portrait iPad:
+            // the sidebar floats above a dimmed detail, and the detail keeps the full window
+            // width — so Day lays its content out for a width the user cannot see the left
+            // edge of. Tiling gives the detail column its own narrower bounds, which is what
+            // the page then reports through `FrameChanged` (docs/size-classes.md).
+            split_vc
+                .setPreferredSplitBehavior(objc2_ui_kit::UISplitViewControllerSplitBehavior::Tile);
+        }
+        SplitBuild {
+            split_vc,
+            primary_nav,
+            supplementary_nav,
+            secondary_placeholder,
+        }
+    }
+
+    define_class!(
+        #[unsafe(super(UIView))]
+        #[thread_kind = MainThreadOnly]
+        #[name = "DayNavContainer"]
+        struct DayNavContainer;
+
+        /// The split host's container: Day's handle for the node, sized by Day's layout, and
+        /// the one thing that sizes the split's view — to its own bounds, every pass.
+        ///
+        /// Explicit, not an autoresizing mask. A flexible child of a superview that grows FROM
+        /// ZERO gets its own size plus the delta, so a split view that had already measured
+        /// 420×810 came out 840×1620 the moment its container took that size — the list's
+        /// trailing accessories and the bar title off the right edge of the phone. Which
+        /// order the container and the split get their first size in depends on the page
+        /// above (a tab page that bleeds under its bar reports before the tab settles), so
+        /// the mask was never safe; a layout pass is.
+        impl DayNavContainer {
+            #[unsafe(method(layoutSubviews))]
+            fn layout_subviews(&self) {
+                let _: () = unsafe { msg_send![super(self), layoutSubviews] };
+                let bounds = self.bounds();
+                for v in unsafe { self.subviews() }.iter() {
+                    unsafe { v.setFrame(bounds) };
+                }
+            }
+        }
+    );
+
+    impl DayNavContainer {
+        fn new(mtm: MainThreadMarker) -> Retained<Self> {
+            let this = Self::alloc(mtm).set_ivars(());
+            unsafe { msg_send![super(this), init] }
+        }
+    }
+
+    /// Mount a split's view in the host's container under the window root's containment.
+    fn mount_split(split_vc: &objc2_ui_kit::UISplitViewController, container: &UIView) {
+        let root_vc = WINDOW
+            .with(|w| w.borrow().clone())
+            .and_then(|w| w.rootViewController());
+        unsafe {
+            if let Some(root_vc) = &root_vc {
+                root_vc.addChildViewController(split_vc);
+            }
+            if let Some(v) = split_vc.view() {
+                // No mask, for the reason the stack host gives: the container lays it out.
+                v.setAutoresizingMask(objc2_ui_kit::UIViewAutoresizing::empty());
+                v.setFrame(container.bounds());
+                container.addSubview(&v);
+                container.setNeedsLayout();
+            }
+            if let Some(root_vc) = &root_vc {
+                split_vc.didMoveToParentViewController(Some(root_vc));
+            }
+        }
+    }
+
+    /// Rebuild the split host for the destination in force (`SplitParts::list_shown`,
+    /// docs/navigation.md): a fresh split of the other style with fresh column controllers,
+    /// the pages moved across, swapped into the same container. Expanded only — collapsed,
+    /// the columns are one stack and the list joins it through `NavPatch::ListInStack`. Every
+    /// UIKit call runs outside the state borrow: each re-enters the navigation delegate.
+    fn rehost_split(host: usize) {
+        let Some(mtm) = MainThreadMarker::new() else {
+            return;
+        };
+        let plan = NAV_STATE.with(|m| {
+            let m = m.borrow();
+            let state = m.get(&host)?;
+            let parts = state.split.as_ref()?;
+            let list_width = parts.list_width?;
+            if state.is_collapsed() {
+                return None;
+            }
+            let triple = parts.list_shown.get();
+            if triple == parts.supplementary_nav.is_some() {
+                return None;
+            }
+            Some((
+                parts.split_vc.clone(),
+                parts.primary_nav.clone(),
+                parts.supplementary_nav.clone(),
+                state.nav.clone(),
+                day_pages(&state.nav, parts.secondary_placeholder.as_deref()),
+                parts.list_vc.borrow().clone(),
+                parts.container.clone(),
+                parts._split_delegate.clone(),
+                list_width,
+                triple,
+                state._delegate.clone(),
+            ))
+        });
+        let Some((
+            old_split,
+            old_primary,
+            old_snav,
+            old_secondary,
+            vcs,
+            list_vc,
+            container,
+            split_delegate,
+            list_width,
+            triple,
+            delegate,
+        )) = plan
+        else {
+            return;
+        };
+        if *DIAG_NAV {
+            log::debug!("DAYDIAG rehost triple={triple} details={}", vcs.len());
+        }
+        note_ui_transition();
+        let empty = objc2_foundation::NSArray::<UIViewController>::new();
+        let sidebar = unsafe { old_primary.viewControllers() }.firstObject();
+        unsafe {
+            // Pages out of the old columns — a page mounts in one stack at a time — then the
+            // old host out of the window, then a fresh host with fresh column controllers.
+            old_primary.setViewControllers(&empty);
+            if let Some(snav) = &old_snav {
+                snav.setViewControllers(&empty);
+            }
+            old_secondary.setViewControllers(&empty);
+            old_split.willMoveToParentViewController(None);
+            if let Some(v) = old_split.viewIfLoaded() {
+                v.removeFromSuperview();
+            }
+            old_split.removeFromParentViewController();
+        }
+        let secondary = DayNavController::new(mtm, host);
+        secondary
+            .ivars()
+            .guarded
+            .set(old_secondary.ivars().guarded.get());
+        let built = build_split(mtm, &secondary, Some(list_width), triple);
+        built.primary_nav.ivars().host.set(host);
+        unsafe {
+            secondary.setDelegate(Some(ProtocolObject::from_ref(&*delegate)));
+            built
+                .primary_nav
+                .setDelegate(Some(ProtocolObject::from_ref(&*delegate)));
+            if let Some(snav) = &built.supplementary_nav {
+                snav.setDelegate(Some(ProtocolObject::from_ref(&*delegate)));
+                snav.ivars().host.set(host);
+                if let Some(lv) = &list_vc {
+                    let arr =
+                        objc2_foundation::NSArray::from_retained_slice(std::slice::from_ref(lv));
+                    snav.setViewControllers(&arr);
+                }
+            }
+            if let Some(sb) = &sidebar {
+                let arr = objc2_foundation::NSArray::from_retained_slice(std::slice::from_ref(sb));
+                built.primary_nav.setViewControllers(&arr);
+            }
+            if !vcs.is_empty() {
+                let arr = objc2_foundation::NSArray::from_retained_slice(&vcs);
+                secondary.setViewControllers(&arr);
+            }
+            built
+                .split_vc
+                .setDelegate(Some(ProtocolObject::from_ref(&*split_delegate)));
+        }
+        NAV_STATE.with(|m| {
+            let mut m = m.borrow_mut();
+            let Some(state) = m.get_mut(&host) else {
+                return;
+            };
+            state.nav = secondary.clone();
+            let Some(parts) = state.split.as_mut() else {
+                return;
+            };
+            parts.split_vc = built.split_vc.clone();
+            parts.primary_nav = built.primary_nav;
+            parts.supplementary_nav = built.supplementary_nav;
+            parts.secondary_placeholder = built.secondary_placeholder;
+        });
+        mount_split(&built.split_vc, &container);
+    }
+
+    /// Apply Day's model of the stack to the ACTIVE navigation controller in one
+    /// `setViewControllers:animated:` — UIKit's atomic stack primitive (docs/navigation.md).
+    ///
+    /// Incremental push/pop calls raced a fast driver: a selection change is a pop AND a
+    /// push, and issuing the second while the first still animates leaves `viewControllers`
+    /// reporting a transient state — one mid-flight read hit a 1-count and the detail-column
+    /// wipe emptied the MERGED stack, sidebar included; the late didShow train then read as
+    /// a user back and tore the route down. Deriving the whole array from the mirror at
+    /// execution time is idempotent: however calls interleave, the last sync applies the
+    /// final model and every intermediate state converges. A sync's settled count equals the
+    /// mirror's by construction, so `didShow` can never mistake it for a user pop.
+    /// The stack UIKit reports for `nav`, flattened: a merge on iOS 26 nests the secondary
+    /// controller onto the primary as one entry, so a nested navigation controller reads as
+    /// its own pages. `placeholder` — a triple host's blank secondary root — is left out.
+    fn day_pages(
+        nav: &objc2_ui_kit::UINavigationController,
+        placeholder: Option<&UIViewController>,
+    ) -> Vec<Retained<UIViewController>> {
+        let mut out = Vec::new();
+        for vc in unsafe { nav.viewControllers() }.iter() {
+            if let Some(nested) = vc.downcast_ref::<objc2_ui_kit::UINavigationController>() {
+                out.extend(day_pages(nested, placeholder));
+            } else if !placeholder.is_some_and(|p| std::ptr::eq(p, &*vc)) {
+                out.push(vc);
+            }
+        }
+        out
+    }
+
+    /// Whether `vc` is a Day page at all (a nav page's controller, `PAGE_VCS`), and which pane
+    /// it was declared for.
+    fn pane_of(vc: &UIViewController) -> Option<Option<day_spec::props::Pane>> {
+        let handle = PAGE_VCS.with(|m| {
+            m.borrow()
+                .iter()
+                .find(|(_, v)| std::ptr::eq(&***v, vc))
+                .map(|(h, _)| *h)
+        })?;
+        Some(PAGE_PANE.with(|t| t.get(handle)))
+    }
+
+    /// The detail pages on a host's active stack — everything that is a Day page and neither
+    /// the sidebar nor the content list — in stack order.
+    fn detail_pages(state: &NavState) -> Vec<Retained<UIViewController>> {
+        let placeholder = state
+            .split
+            .as_ref()
+            .and_then(|p| p.secondary_placeholder.clone());
+        day_pages(&state.active_nav(), placeholder.as_deref())
+            .into_iter()
+            .filter(|vc| {
+                // A Day page that is neither the sidebar nor the content list.
+                matches!(
+                    pane_of(vc),
+                    Some(pane) if !matches!(
+                        pane,
+                        Some(day_spec::props::Pane::Sidebar) | Some(day_spec::props::Pane::List)
+                    )
+                )
+            })
+            .collect()
+    }
+
+    /// The Day page on top of `nav`, through a nested merge.
+    fn top_page(nav: &objc2_ui_kit::UINavigationController) -> Option<Retained<UIViewController>> {
+        day_pages(nav, None).pop()
+    }
+
+    /// Apply `target` to `nav` — one `setViewControllers:animated:` — and, if UIKit cancels
+    /// the transition under it (a window capture mid-flight does that on iOS 26+), apply it
+    /// once more. Callers compute `target` from what UIKit REPORTS at that moment
+    /// (`day_pages`) plus their one change, never from a copy Day keeps: there is no mirror
+    /// to fall out of step with (docs/navigation.md).
+    fn set_stack(
+        host: usize,
+        generation: u64,
+        nav: &DayNavController,
+        target: Vec<Retained<UIViewController>>,
+        retry: bool,
+        quiet: bool,
+    ) {
+        let current = day_pages(nav, None);
+        let unchanged = current.len() == target.len()
+            && current
+                .iter()
+                .zip(&target)
+                .all(|(a, b)| std::ptr::eq(&**a, &**b));
+        if unchanged {
+            settled(host, generation);
+            return;
+        }
+        if *DIAG_NAV {
+            log::debug!(
+                "DAYDIAG exec SET native={} -> target={}",
+                current.len(),
+                target.len()
+            );
+        }
+        let arr = objc2_foundation::NSArray::from_retained_slice(&target);
+        // Re-stamp the transition clock at execution (docs: `ui_idle`), and never ANIMATE to
+        // an empty stack — that transition never completes and holds `ui_idle` false.
+        note_ui_transition();
+        let animated = !target.is_empty() && !quiet && !day_core::testing::fast_animations();
+        unsafe { nav.setViewControllers_animated(&arr, animated) };
+        let Some(coordinator) = (unsafe { nav.transitionCoordinator() }) else {
+            // No transition: the set applied on the spot.
+            settled(host, generation);
+            return;
+        };
+        use objc2_ui_kit::{
+            UIViewControllerTransitionCoordinator, UIViewControllerTransitionCoordinatorContext,
+        };
+        {
+            let mtm = MainThreadMarker::new().expect("nav changes run on main");
+            let again = dispatch2::MainThreadBound::new((nav.retain(), target), mtm);
+            let again = std::rc::Rc::new(std::cell::RefCell::new(Some(again)));
+            let completion = block2::RcBlock::new(
+                move |ctx: NonNull<
+                    ProtocolObject<dyn objc2_ui_kit::UIViewControllerTransitionCoordinatorContext>,
+                >| {
+                    if !unsafe { ctx.as_ref().isCancelled() } || !retry {
+                        settled(host, generation);
+                        return;
+                    }
+                    if *DIAG_NAV {
+                        log::debug!("DAYDIAG exec SET cancelled -> once more");
+                    }
+                    let Some(again) = again.borrow_mut().take() else {
+                        settled(host, generation);
+                        return;
+                    };
+                    dispatch2::DispatchQueue::main().exec_async(move || {
+                        let mtm = MainThreadMarker::new().expect("dispatched to main");
+                        let (nav, target) = again.into_inner(mtm);
+                        day_spec::ffi_guard::contain((), || {
+                            set_stack(host, generation, &nav, target, false, false)
+                        });
+                    });
+                },
+            );
+            unsafe { coordinator.animateAlongsideTransition_completion(None, Some(&completion)) };
+        }
+    }
+
+    /// The stack changes a host has been asked for and not yet applied, and the target of the
+    /// change last applied while its transition is still running.
+    ///
+    /// The only stack state Day keeps, and only while something is in flight. iOS 18 DEFERS a
+    /// `setViewControllers:animated:` issued during another transition and keeps reporting
+    /// the old stack until it lands, so a push computed from that read put the page the
+    /// previous pop had just removed straight back — one leaked page per route change, and a
+    /// twenty-deep stack by the end of a walkthrough (iOS 26 reports the new stack at once).
+    /// So changes issued in one turn coalesce into one set, and a change issued while a set is
+    /// in flight is based on that set's target rather than on the read. At rest, UIKit's
+    /// `viewControllers` is the truth and this holds nothing.
+    struct NavQueue {
+        ops: Vec<NavOp>,
+        scheduled: bool,
+        in_flight: Option<Vec<Retained<UIViewController>>>,
+        generation: u64,
+        /// The next set is applied without animation: it was held back until the host first
+        /// appeared, and what it restores was never on screen to animate away from.
+        quiet: bool,
+        /// How many turns `apply_ops` has waited for the host's first appearance.
+        first_show_waits: u32,
+    }
+
+    /// The most turns (50 ms each) a stack change waits for its host's first appearance.
+    const FIRST_SHOW_MAX_WAITS: u32 = 20;
+
+    thread_local! {
+        /// Hosts that have been in a window at least once: their changes never wait again.
+        static NAV_SEEN: RefCell<std::collections::HashSet<usize>> =
+            RefCell::new(std::collections::HashSet::new());
+    }
+
+    enum NavOp {
+        Push(Retained<UIViewController>),
+        Pop(Retained<UIViewController>),
+    }
+
+    thread_local! {
+        static NAV_OPS: RefCell<HashMap<usize, NavQueue>> = RefCell::new(HashMap::new());
+    }
+
+    /// A decoded bitmap (docs/images.md), held until day-core drops its last handle.
+    struct UikitBitmap {
+        image: Retained<objc2_ui_kit::UIImage>,
+        info: day_spec::BitmapInfo,
+    }
+
+    thread_local! {
+        /// `BitmapId` → the decoded image. Keyed by the id day-core minted rather than by a view
+        /// pointer: one bitmap outlives any view and may be drawn by several at once. Entries
+        /// leave only through `release_image`.
+        static BITMAPS: RefCell<HashMap<u64, UikitBitmap>> = RefCell::new(HashMap::new());
+    }
+
+    /// A Day page joins a host's stack (the insert duty).
+    fn push_page(host: usize, vc: Retained<UIViewController>) {
+        queue_op(host, NavOp::Push(vc));
+    }
+
+    /// A Day page leaves a host (the remove duty): off the active stack if it is still there.
+    /// After a user's back it is not — the override reported that pop already — and the change
+    /// is a no-op, which is the whole protocol between the two.
+    fn pop_page(host: usize, vc: Retained<UIViewController>) {
+        queue_op(host, NavOp::Pop(vc));
+    }
+
+    fn queue_op(host: usize, op: NavOp) {
+        let schedule = NAV_OPS.with(|q| {
+            let mut q = q.borrow_mut();
+            let entry = q.entry(host).or_insert_with(|| NavQueue {
+                ops: Vec::new(),
+                scheduled: false,
+                in_flight: None,
+                quiet: false,
+                first_show_waits: 0,
+                generation: 0,
+            });
+            entry.ops.push(op);
+            let first = !entry.scheduled;
+            entry.scheduled = true;
+            first
+        });
+        if schedule {
+            note_ui_transition();
+            // Deferred past any in-flight modal transition, like every stack change: issued the
+            // instant a scripted dialog dismissal starts, it races the dismissal and wedges the
+            // controller.
+            modal_after_idle(move || apply_ops(host));
+        }
+    }
+
+    /// Apply everything queued for `host` as one stack change — or, on a collapsed triple
+    /// column, one UIKit column call per change, since that stack is driven only through
+    /// UIKit's own APIs (docs/navigation.md).
+    fn apply_ops(host: usize) {
+        // A collapsed column presentation queues UIKit's push until after the next CA
+        // commit. Serialize both detail changes and supplementary-column requests across
+        // that blind interval, then across the actual transition coordinator's lifetime.
+        if compact_column_transitioning(host)
+            || NAV_STATE.with(|m| {
+                m.borrow()
+                    .get(&host)
+                    .is_some_and(|s| s.pending_list.get().is_some())
+            })
+        {
+            let when = dispatch2::DispatchTime::try_from(std::time::Duration::from_millis(50))
+                .unwrap_or(dispatch2::DispatchTime::NOW);
+            let _ = dispatch2::DispatchQueue::main().after(when, move || {
+                day_spec::ffi_guard::contain((), || apply_ops(host));
+            });
+            return;
+        }
+
+        // The host's first appearance comes first. A stack set issued before the host is in a
+        // window (a launch restoring the last section) would put the page over a root UIKit has
+        // never laid out, and the root's navigation bar then keeps the state it was never given
+        // — compact title, search field collapsed — for as long as the app runs. UIKit's own
+        // apps push after the root appears; so does this, one turn later and without animation.
+        //
+        // Only before the host's FIRST appearance, and only for a moment: a host that has been
+        // on screen once (a stack in a tab now in the background) applies at once, as before,
+        // and one that never appears (built but never shown) stops waiting after a second
+        // rather than retrying forever with its change unapplied.
+        let in_window = NAV_STATE.with(|m| {
+            m.borrow().get(&host).is_some_and(|s| {
+                s.active_nav()
+                    .viewIfLoaded()
+                    .is_some_and(|v| v.window().is_some())
+            })
+        });
+        if in_window {
+            NAV_SEEN.with(|seen| {
+                seen.borrow_mut().insert(host);
+            });
+        }
+        let waited = NAV_OPS.with(|q| q.borrow().get(&host).map_or(0, |e| e.first_show_waits));
+        let unseen = !in_window
+            && !NAV_SEEN.with(|seen| seen.borrow().contains(&host))
+            && waited < FIRST_SHOW_MAX_WAITS;
+        if unseen {
+            NAV_OPS.with(|q| {
+                if let Some(entry) = q.borrow_mut().get_mut(&host) {
+                    entry.quiet = true;
+                    entry.first_show_waits += 1;
+                }
+            });
+            let when = dispatch2::DispatchTime::try_from(std::time::Duration::from_millis(50))
+                .unwrap_or(dispatch2::DispatchTime::NOW);
+            let _ = dispatch2::DispatchQueue::main().after(when, move || {
+                day_spec::ffi_guard::contain((), || apply_ops(host));
+            });
+            return;
+        }
+
+        let (ops, quiet) = NAV_OPS.with(|q| {
+            let mut q = q.borrow_mut();
+            let Some(entry) = q.get_mut(&host) else {
+                return (Vec::new(), false);
+            };
+            // A set is still animating: leave everything queued (still scheduled) and let its
+            // completion run this again. UIKit defers a `setViewControllers:animated:` issued
+            // mid-transition and keeps reporting the old stack until it lands — the window in
+            // which a scripted back found nothing to pop — and warns about the call besides.
+            if entry.in_flight.is_some() {
+                return (Vec::new(), false);
+            }
+            entry.scheduled = false;
+            (
+                std::mem::take(&mut entry.ops),
+                std::mem::take(&mut entry.quiet),
+            )
+        });
+        if ops.is_empty() {
+            return;
+        }
+        let Some((active, placeholder, triple, secondary, svc)) = NAV_STATE.with(|m| {
+            m.borrow().get(&host).map(|s| {
+                let triple = s.is_collapsed()
+                    && s.split
+                        .as_ref()
+                        .is_some_and(|p| p.supplementary_nav.is_some());
+                (
+                    s.active_nav(),
+                    s.split
+                        .as_ref()
+                        .and_then(|p| p.secondary_placeholder.clone()),
+                    triple,
+                    s.nav.clone(),
+                    s.split.as_ref().map(|p| p.split_vc.clone()),
+                )
+            })
+        }) else {
+            return;
+        };
+        if triple && let Some(svc) = svc {
+            // Fold a route's pop+push (and any further route changes in this turn) into
+            // ONE secondary-column update. Calling showColumn once per push can queue
+            // duplicate pushes of the same secondary UINavigationController.
+            let old = NAV_STATE
+                .with(|m| m.borrow().get(&host).map(detail_pages))
+                .unwrap_or_default();
+            let mut details = old.clone();
+            for op in ops {
+                match op {
+                    NavOp::Push(vc) => {
+                        if !details.iter().any(|v| std::ptr::eq(&**v, &*vc)) {
+                            details.push(vc);
+                        }
+                    }
+                    NavOp::Pop(vc) => details.retain(|v| !std::ptr::eq(&**v, &*vc)),
+                }
+            }
+            if details.is_empty() {
+                if let Some(vc) = old.first()
+                    && let Some((owner, below)) = owner_of(&active, vc)
+                {
+                    let pop = || unsafe {
+                        match &below {
+                            Some(b) => {
+                                let _ = owner.popToViewController_animated(b, false);
+                            }
+                            None => {
+                                let _ = owner.popToRootViewControllerAnimated(false);
+                            }
+                        }
+                    };
+                    match owner.downcast_ref::<DayNavController>() {
+                        Some(d) => with_day_pop(d, pop),
+                        None => pop(),
+                    }
+                    note_column_request(host);
+                }
+            } else {
+                let already_visible = !old.is_empty();
+                let arr = objc2_foundation::NSArray::from_retained_slice(&details);
+                unsafe {
+                    secondary.setViewControllers(&arr);
+                }
+                if !already_visible {
+                    note_column_request(host);
+                    unsafe {
+                        svc.showColumn(objc2_ui_kit::UISplitViewControllerColumn::Secondary);
+                    }
+                }
+            }
+            return;
+        }
+        // Base the target on the change still in flight, if any, else on what UIKit reports.
+        let base = NAV_OPS
+            .with(|q| q.borrow().get(&host).and_then(|e| e.in_flight.clone()))
+            .unwrap_or_else(|| day_pages(&active, placeholder.as_deref()));
+        let mut target = base;
+        for op in ops {
+            match op {
+                NavOp::Push(vc) => target.push(vc),
+                NavOp::Pop(vc) => target.retain(|v| !std::ptr::eq(&**v, &*vc)),
+            }
+        }
+        let generation = NAV_OPS.with(|q| {
+            let mut q = q.borrow_mut();
+            let Some(entry) = q.get_mut(&host) else {
+                return 0;
+            };
+            entry.generation += 1;
+            entry.in_flight = Some(target.clone());
+            entry.generation
+        });
+        set_stack(host, generation, &active, target, true, quiet);
+    }
+
+    /// The change `generation` on `host` has settled: the stack UIKit reports is the truth
+    /// again, unless a newer change has been issued since.
+    fn settled(host: usize, generation: u64) {
+        let more = NAV_OPS.with(|q| {
+            let mut q = q.borrow_mut();
+            let Some(entry) = q.get_mut(&host) else {
+                return false;
+            };
+            if entry.generation != generation {
+                return false;
+            }
+            entry.in_flight = None;
+            !entry.ops.is_empty()
+        });
+        if more {
+            // Off the completion's stack: UIKit is still inside the transition there.
+            dispatch2::DispatchQueue::main().exec_async(move || {
+                day_spec::ffi_guard::contain((), || modal_after_idle(move || apply_ops(host)));
+            });
+        }
+    }
+
+    /// The Day page on top of `host`'s active stack, as the app will see it: the top of the
+    /// change in flight if there is one, else what UIKit reports.
+    fn current_top(host: usize, active: &DayNavController) -> Option<Retained<UIViewController>> {
+        // Changes still queued count too: a page's title arrives in the same turn as its push,
+        // and while a modal transition holds the queue, UIKit's top is still the page below.
+        NAV_OPS.with(|q| {
+            let q = q.borrow();
+            let entry = q.get(&host);
+            if entry.is_none_or(|e| e.in_flight.is_none() && e.ops.is_empty()) {
+                return top_page(active);
+            }
+            let mut stack = entry
+                .and_then(|e| e.in_flight.clone())
+                .unwrap_or_else(|| day_pages(active, None));
+            for op in entry.map(|e| e.ops.as_slice()).unwrap_or_default() {
+                match op {
+                    NavOp::Push(vc) => stack.push(vc.clone()),
+                    NavOp::Pop(vc) => stack.retain(|v| !std::ptr::eq(&**v, &**vc)),
+                }
+            }
+            stack.last().cloned()
+        })
+    }
+
+    /// Which navigation controller directly holds `vc` — `nav` itself or a controller nested
+    /// on its stack — and the entry below it there (`None` for a root). A nested controller
+    /// whose root is `vc` is popped as a whole from `nav`, so that case answers `nav` and the
+    /// entry below the nested controller.
+    fn owner_of(
+        nav: &objc2_ui_kit::UINavigationController,
+        vc: &UIViewController,
+    ) -> Option<(
+        Retained<objc2_ui_kit::UINavigationController>,
+        Option<Retained<UIViewController>>,
+    )> {
+        let stack: Vec<Retained<UIViewController>> =
+            unsafe { nav.viewControllers() }.iter().collect();
+        for (i, entry) in stack.iter().enumerate() {
+            if std::ptr::eq(&**entry, vc) {
+                let below = (i > 0).then(|| stack[i - 1].clone());
+                return Some((nav.retain(), below));
+            }
+            if let Some(nested) = entry.downcast_ref::<objc2_ui_kit::UINavigationController>() {
+                let inner: Vec<Retained<UIViewController>> =
+                    unsafe { nested.viewControllers() }.iter().collect();
+                if inner.first().is_some_and(|r| std::ptr::eq(&**r, vc)) {
+                    let below = (i > 0).then(|| stack[i - 1].clone());
+                    return Some((nav.retain(), below));
+                }
+                if let Some(j) = inner.iter().position(|v| std::ptr::eq(&**v, vc)) {
+                    return Some((nested.retain(), Some(inner[j - 1].clone())));
+                }
+            }
+        }
+        None
+    }
+
+    /// Run one of Day's OWN pop calls on `nav` (the collapsed triple column's
+    /// `popToViewController:` / `popToRootViewControllerAnimated:`) with the controller's pop
+    /// overrides told it is not the user's — so a Day pop is never reported back to Day.
+    fn with_day_pop(nav: &DayNavController, f: impl FnOnce()) {
+        let host = nav.ivars().host.get();
+        let set = |on: bool| {
+            NAV_STATE.with(|m| {
+                if let Some(s) = m.borrow().get(&host) {
+                    s.day_pop.set(on);
+                }
+            })
+        };
+        set(true);
+        f();
+        set(false);
+    }
+
+    /// Coalesce list presentation requests and wait for UIKit's current push/pop. Calling
+    /// showColumn twice during a pop queues two pushes of the SAME supplementary controller.
+    /// The ticket is pending work, not a stack mirror; presence is always read from UIKit.
+    fn note_column_request(host: usize) {
+        note_ui_transition();
+        NAV_STATE.with(|m| {
+            if let Some(state) = m.borrow().get(&host) {
+                state.column_request.set(Some(std::time::Instant::now()));
+            }
+        });
+    }
+
+    fn compact_column_transitioning(host: usize) -> bool {
+        NAV_STATE.with(|m| {
+            let m = m.borrow();
+            let Some(state) = m.get(&host).filter(|s| s.is_collapsed()) else {
+                return false;
+            };
+            let Some(parts) = state.split.as_ref() else {
+                return false;
+            };
+            state
+                .column_request
+                .get()
+                .is_some_and(|t| t.elapsed() < std::time::Duration::from_millis(250))
+                || unsafe { parts.primary_nav.transitionCoordinator() }.is_some()
+                || unsafe { state.nav.transitionCoordinator() }.is_some()
+                || parts
+                    .supplementary_nav
+                    .as_ref()
+                    .is_some_and(|n| unsafe { n.transitionCoordinator() }.is_some())
+                || unsafe { parts.split_vc.transitionCoordinator() }.is_some()
+        })
+    }
+
+    fn request_compact_list(host: usize, show: bool) {
+        static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+        let ticket = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        NAV_STATE.with(|m| {
+            if let Some(state) = m.borrow().get(&host) {
+                state.pending_list.set(Some((ticket, show)));
+            }
+        });
+        apply_compact_list(host, ticket, show);
+    }
+
+    fn apply_compact_list(host: usize, ticket: u64, show: bool) {
+        let found = NAV_STATE.with(|m| {
+            let m = m.borrow();
+            let state = m.get(&host)?;
+            if state.pending_list.get() != Some((ticket, show)) {
+                return None;
+            }
+            if !state.is_collapsed() {
+                state.pending_list.set(None);
+                return None;
+            }
+            let parts = state.split.as_ref()?;
+            Some((
+                parts.split_vc.clone(),
+                parts.primary_nav.clone(),
+                parts.list_vc.borrow().clone()?,
+            ))
+        });
+        let Some((split, primary, list)) = found else {
+            return;
+        };
+        if compact_column_transitioning(host) {
+            let when = dispatch2::DispatchTime::try_from(std::time::Duration::from_millis(50))
+                .unwrap_or(dispatch2::DispatchTime::NOW);
+            let _ = dispatch2::DispatchQueue::main().after(when, move || {
+                day_spec::ffi_guard::contain((), || apply_compact_list(host, ticket, show));
+            });
+            return;
+        }
+        NAV_STATE.with(|m| {
+            if let Some(state) = m.borrow().get(&host) {
+                state.pending_list.set(None);
+            }
+        });
+        if show {
+            if owner_of(&primary, &list).is_none() {
+                note_column_request(host);
+                unsafe {
+                    split.showColumn(objc2_ui_kit::UISplitViewControllerColumn::Supplementary);
+                }
+            }
+        } else {
+            note_column_request(host);
+            with_day_pop(&primary, || unsafe {
+                let _ = primary.popToRootViewControllerAnimated(false);
+            });
+        }
+    }
+
+    /// A pop the USER started on `nav` has been issued — the back button (UIKit calls
+    /// `popViewControllerAnimated:` once `shouldPopItem:` agrees), the swipe (the same call,
+    /// under an interactive transition), or the history menu (`popToViewController:`). Report
+    /// it to Day once it has actually happened: unanimated it already has; animated, its own
+    /// transition says when, and a swipe let go early is a cancelled pop that Day never hears
+    /// of, because the page never left. Nothing is inferred from a `didShow` count any more
+    /// (docs/navigation.md).
+    fn observe_user_pop(
+        host: usize,
+        nav: &objc2_ui_kit::UINavigationController,
+        popped: Vec<Retained<UIViewController>>,
+    ) {
+        use objc2_ui_kit::{
+            UIViewControllerTransitionCoordinator, UIViewControllerTransitionCoordinatorContext,
+        };
+        let Some(coordinator) = (unsafe { nav.transitionCoordinator() }) else {
+            confirm_user_pop(host, popped);
+            return;
+        };
+        let mtm = MainThreadMarker::new().expect("nav pops run on main");
+        // Only an interactive pop (the swipe) can be cancelled. A button or history-menu pop
+        // has already left UIKit's stack, so tell Day now rather than when the slide ends:
+        // the revealed page is live during that slide, and a row tapped there pushes onto a
+        // model that still holds the outgoing page. The late report then popped the NEW page
+        // instead, leaving Day's stack one page off UIKit's (the wrong title, and every later
+        // push applied to the wrong depth).
+        if !coordinator.isInteractive() {
+            let popped = dispatch2::MainThreadBound::new(popped, mtm);
+            // Off the override's stack: the report re-enters day-core, which pops the model
+            // and patches this host, and UIKit is still inside `popViewController` here.
+            dispatch2::DispatchQueue::main().exec_async(move || {
+                let mtm = MainThreadMarker::new().expect("dispatched to main");
+                let popped = popped.into_inner(mtm);
+                day_spec::ffi_guard::contain((), || confirm_user_pop(host, popped));
+            });
+            return;
+        }
+        let popped = dispatch2::MainThreadBound::new(popped, mtm);
+        let popped = std::rc::Rc::new(std::cell::RefCell::new(Some(popped)));
+        let completion = block2::RcBlock::new(
+            move |ctx: NonNull<
+                ProtocolObject<dyn objc2_ui_kit::UIViewControllerTransitionCoordinatorContext>,
+            >| {
+                if unsafe { ctx.as_ref().isCancelled() } {
+                    if *DIAG_NAV {
+                        log::debug!("DAYDIAG user pop cancelled");
+                    }
+                    return;
+                }
+                let Some(popped) = popped.borrow_mut().take() else {
+                    return;
+                };
+                // Off the callback's stack: the report re-enters day-core, which pops the
+                // model and patches this host, and UIKit is still inside the transition here.
+                dispatch2::DispatchQueue::main().exec_async(move || {
+                    let mtm = MainThreadMarker::new().expect("dispatched to main");
+                    let popped = popped.into_inner(mtm);
+                    day_spec::ffi_guard::contain((), || confirm_user_pop(host, popped));
+                });
+            },
+        );
+        unsafe { coordinator.animateAlongsideTransition_completion(None, Some(&completion)) };
+    }
+
+    /// The user's pop has happened. Tell Day, one `NavBack` per Day page that left the stack
+    /// (a nested controller popped as a whole counts each page inside it). Day answers each
+    /// with a `NavPatch::Popped` and a `remove` of the page, which finds it already gone.
+    fn confirm_user_pop(host: usize, popped: Vec<Retained<UIViewController>>) {
+        let Some(node) = NAV_STATE.with(|m| m.borrow().get(&host).map(|s| s.host_node)) else {
+            return;
+        };
+        let mut pages = Vec::new();
+        for vc in popped {
+            match vc.downcast_ref::<objc2_ui_kit::UINavigationController>() {
+                Some(nested) => pages.extend(day_pages(nested, None)),
+                None => pages.push(vc),
+            }
+        }
+        let levels = pages.iter().filter(|vc| pane_of(vc).is_some()).count();
+        if *DIAG_NAV {
+            log::debug!("DAYDIAG user pop levels={levels} of {} popped", pages.len());
+        }
+        for _ in 0..levels {
+            emit(
+                node,
+                Event::NavBack {
+                    already_popped: true,
+                },
+            );
+        }
+    }
+
+    define_class!(
+        #[unsafe(super(NSObject))]
+        #[thread_kind = MainThreadOnly]
+        #[name = "DayNavDelegate"]
+        #[ivars = NavDelegateIvars]
+        struct DayNavDelegate;
+
+        unsafe impl NSObjectProtocol for DayNavDelegate {}
+
+        unsafe impl UINavigationControllerDelegate for DayNavDelegate {
+            #[unsafe(method(navigationController:didShowViewController:animated:))]
+            fn did_show(
+                &self,
+                nav: &objc2_ui_kit::UINavigationController,
+                // Nullable in practice: the split view's detail stack reports a show with no
+                // controller when its stack is swapped out under it (iPad), and messaging that
+                // nil tripped objc2's check on every such call.
+                vc: Option<&UIViewController>,
+                _animated: bool,
+            ) {
+                // Nothing is inferred here (docs/navigation.md). A user's back is observed
+                // where it starts — `DayNavController`'s pop overrides, for the button, the
+                // swipe and the history menu alike — and confirmed by its own transition;
+                // Day's changes are one `setViewControllers:` confirmed by theirs
+                // (`apply_ops`). This callback is left with the window toolbar, which
+                // rides every page and arrives on none of them, and a trace line.
+                day_spec::ffi_guard::contain((), || {
+                    if let Some(vc) = vc {
+                        apply_window_toolbar_to(nav, vc);
+                        sync_page_search_near(nav);
+                    }
+                    if *DIAG_NAV {
+                        let host = self.ivars().host.get();
+                        let (mirror, active) = NAV_STATE.with(|m| {
+                            m.borrow()
+                                .get(&host)
+                                .map(|s| {
+                                    let a = s.active_nav();
+                                    (
+                                        day_pages(&a, None).len(),
+                                        std::ptr::addr_eq(
+                                            (&*a as *const DayNavController)
+                                                .cast::<std::ffi::c_void>(),
+                                            (nav as *const objc2_ui_kit::UINavigationController)
+                                                .cast::<std::ffi::c_void>(),
+                                        ),
+                                    )
+                                })
+                                .unwrap_or((0, false))
+                        });
+                        log::debug!(
+                            "DAYDIAG didShow host={host:x} native={} mirror={mirror} active={active}",
+                            unsafe { nav.viewControllers() }.count(),
+                        );
+                    }
+                });
+            }
+        }
+    );
+
+    impl DayNavDelegate {
+        fn new(mtm: MainThreadMarker, host: usize) -> Retained<Self> {
+            let this = Self::alloc(mtm).set_ivars(NavDelegateIvars {
+                host: std::cell::Cell::new(host),
+            });
+            unsafe { msg_send![super(this), init] }
+        }
+    }
+
+    // -------------------------------------------------------------------
+    // Cover (docs/cover.md): a fullscreen modal DayCoverVC whose view is a
+    // DayNavPageView (safe-area pinning + FrameChanged reports), presented and
+    // dismissed through the modal FIFO like every other VC transition.
+    // -------------------------------------------------------------------
+
+    struct CoverState {
+        vc: Retained<DayCoverVC>,
+        node: NodeId,
+    }
+
+    // -------------------------------------------------------------------
+    // Window properties (docs/windows.md): fullscreen and content protection. iOS gives an
+    // app neither switch, so both are emulated per scene — fullscreen as a hidden status bar
+    // and an auto-hiding home indicator, protection as an opaque shield over the scene while
+    // its screen is recorded or mirrored.
+    // -------------------------------------------------------------------
+
+    /// Whether the window `vc`'s view is in has been asked for fullscreen. The root VC and the
+    /// cover VCs answer the status-bar and home-indicator questions with it; a VC whose view is
+    /// not in a Day window (a detached root under a cover) answers no.
+    fn vc_window_fullscreen(vc: &UIViewController) -> bool {
+        vc.viewIfLoaded()
+            .and_then(|view| with_scene_of(&view, |e| e.fullscreen.get()))
+            .unwrap_or(false)
+    }
+
+    /// The display state a scene reports: `Fullscreen` while the app holds it fullscreen,
+    /// `Normal` otherwise. An iOS window is never minimized or zoomed.
+    fn scene_state(entry: &SceneEntry) -> day_spec::WindowState {
+        if entry.fullscreen.get() {
+            day_spec::WindowState::Fullscreen
+        } else {
+            day_spec::WindowState::Normal
+        }
+    }
+
+    /// The report a scene owes for its display state, to its root node (`WINDOW_NODE` for the
+    /// primary): once per change, or every time with `always`, which a declined request uses
+    /// so day-core's optimistic `state()` signal settles back on the state the window kept.
+    /// Returned rather than emitted, so the caller emits with the registry released.
+    fn scene_state_report(entry: &SceneEntry, always: bool) -> Option<(NodeId, Event)> {
+        let state = scene_state(entry);
+        (entry.reported.replace(state.code()) != state.code() || always).then(|| {
+            log::debug!("uikit: window state now {state:?}");
+            (
+                entry.node.unwrap_or(WINDOW_NODE),
+                Event::WindowStateChanged(state),
+            )
+        })
+    }
+
+    /// Have every view controller in `window` that may own the status bar or the home
+    /// indicator ask again: the root, and whatever is presented over it (a cover takes both
+    /// over while it is up). In an animation block so the status bar fades.
+    fn refresh_window_chrome(window: &UIWindow) {
+        let mut vcs: Vec<Retained<UIViewController>> = Vec::new();
+        let mut next = window.rootViewController();
+        while let Some(vc) = next {
+            next = vc.presentedViewController();
+            vcs.push(vc);
+        }
+        let update = block2::RcBlock::new(move || {
+            for vc in &vcs {
+                vc.setNeedsStatusBarAppearanceUpdate();
+                vc.setNeedsUpdateOfHomeIndicatorAutoHidden();
+            }
+        });
+        unsafe { UIView::animateWithDuration_animations(0.25, &update, mtm()) };
+    }
+
+    /// Whether the screen `window` shows on is being recorded, mirrored or AirPlayed. iOS 17
+    /// moved the answer onto the scene's trait collection and deprecated the screen's flag; the
+    /// older spelling stays for the earlier releases this backend supports.
+    fn window_captured(window: &UIWindow) -> bool {
+        if os_at_least(17) {
+            window.windowScene().is_some_and(|scene| {
+                let state = unsafe { scene.traitCollection().sceneCaptureState() };
+                state == objc2_ui_kit::UISceneCaptureState::Active
+            })
+        } else {
+            #[allow(deprecated)]
+            window.screen().isCaptured()
+        }
+    }
+
+    /// Put up or take down each scene's content-protection shield for the current capture
+    /// state. A shield is a window of its own above the alert level, so nothing the scene
+    /// presents later (an alert, a cover) can land on top of it. It hides the content from a
+    /// recording or a mirrored display; a screenshot still captures the app, because iOS tells
+    /// an app about one only after it is taken.
+    fn refresh_capture_shields() {
+        let mtm = mtm();
+        // Decide with the registry borrowed, act on UIKit without it: a new window joining the
+        // scene can re-enter Day through the root VC's trait callback.
+        let work: Vec<(Retained<UIWindow>, bool, Option<Retained<UIWindow>>)> = SCENES.with(|s| {
+            s.borrow()
+                .iter()
+                .map(|e| {
+                    let want = e.protected.get() && window_captured(&e.window);
+                    (e.window.clone(), want, e.shield.borrow().clone())
+                })
+                .collect()
+        });
+        for (window, want, shield) in work {
+            match (want, shield) {
+                (true, None) => {
+                    let Some(scene) = window.windowScene() else {
+                        continue;
+                    };
+                    log::debug!("uikit: screen captured, shielding protected window");
+                    let cover =
+                        unsafe { UIWindow::initWithWindowScene(UIWindow::alloc(mtm), &scene) };
+                    let vc = UIViewController::new(mtm);
+                    unsafe {
+                        if let Some(view) = vc.view() {
+                            view.setBackgroundColor(Some(&UIColor::systemBackgroundColor()));
+                        }
+                        cover.setWindowLevel(objc2_ui_kit::UIWindowLevelAlert + 1.0);
+                        cover.setRootViewController(Some(&vc));
+                    }
+                    cover.setHidden(false);
+                    store_shield(&window, Some(cover));
+                }
+                (false, Some(cover)) => {
+                    log::debug!("uikit: capture ended or protection off, removing shield");
+                    cover.setHidden(true);
+                    store_shield(&window, None);
+                }
+                _ => {}
+            }
+        }
+    }
+
+    /// Record a scene's shield window (or its removal) against the scene that owns `window`.
+    fn store_shield(window: &UIWindow, shield: Option<Retained<UIWindow>>) {
+        let wp = window as *const UIWindow as usize;
+        SCENES.with(|s| {
+            if let Some(e) = s
+                .borrow()
+                .iter()
+                .find(|e| Retained::as_ptr(&e.window) as usize == wp)
+            {
+                *e.shield.borrow_mut() = shield;
+            }
+        });
+    }
+
+    /// Day `Edges` bits → `UIRectEdge` (leading/trailing map to left/right).
+    fn rect_edges() -> UIRectEdge {
+        let bits = DEFER_EDGES.with(|e| e.get());
+        let mut edge = UIRectEdge::empty();
+        if bits & Edges::TOP.0 != 0 {
+            edge |= UIRectEdge::Top;
+        }
+        if bits & Edges::BOTTOM.0 != 0 {
+            edge |= UIRectEdge::Bottom;
+        }
+        if bits & Edges::LEADING.0 != 0 {
+            edge |= UIRectEdge::Left;
+        }
+        if bits & Edges::TRAILING.0 != 0 {
+            edge |= UIRectEdge::Right;
+        }
+        edge
+    }
+
+    fn first_content_scroll(view: &UIView, depth: usize) -> Option<Retained<UIScrollView>> {
+        if let Some(scroll) = view.downcast_ref::<UIScrollView>() {
+            return Some(scroll.retain());
+        }
+        if depth == 0 {
+            return None;
+        }
+        for child in unsafe { view.subviews() }.iter() {
+            if let Some(scroll) = first_content_scroll(&child, depth - 1) {
+                return Some(scroll);
+            }
+        }
+        None
+    }
+
+    thread_local! {
+        /// Pages (`DayPageVC` pointers) whose list rested at its top when they last left the
+        /// screen, to be put back there on the first layout after they reappear.
+        static PAGE_RESTORE_TOP: RefCell<std::collections::HashSet<usize>> =
+            RefCell::new(std::collections::HashSet::new());
+    }
+
+    // Navigation pages end editing on departure (push, pop and tab selection). Keep the
+    // request scoped to the outgoing view, so an incoming page's first responder survives.
+    define_class!(
+        #[unsafe(super(UIViewController))]
+        #[thread_kind = MainThreadOnly]
+        #[name = "DayPageVC"]
+        struct DayPageVC;
+
+        unsafe impl NSObjectProtocol for DayPageVC {}
+
+        impl DayPageVC {
+            /// What `UITableViewController` does for its table: a page whose list rested at its
+            /// top when it left the screen comes back at its top, whatever the bar above it has
+            /// grown or shrunk to meanwhile. A list left mid-inset reads to UIKit as scrolled,
+            /// and the large title and search field it carries come back collapsed.
+            #[unsafe(method(viewWillAppear:))]
+            fn view_will_appear(&self, animated: bool) {
+                unsafe {
+                    let _: () = msg_send![super(self), viewWillAppear: animated];
+                }
+                // Name the list before UIKit decides the bar's state for this appearance
+                // (`viewDidLayoutSubviews` is after that decision). Headers and a pinned
+                // footer make this a multi-child page, so UIKit's own single-scroll-view
+                // discovery through the wrapper hierarchy finds nothing.
+                if unsafe { self.navigationItem().searchController() }.is_some()
+                    && let Some(view) = self.viewIfLoaded()
+                    && let Some(scroll) = first_content_scroll(&view, 12)
+                {
+                    let edge = objc2_ui_kit::NSDirectionalRectEdge::Top;
+                    if unsafe { self.contentScrollViewForEdge(edge) }.as_deref() != Some(&*scroll) {
+                        unsafe { self.setContentScrollView_forEdge(Some(&scroll), edge) };
+                    }
+                }
+                let at_top = self
+                    .viewIfLoaded()
+                    .and_then(|v| first_content_scroll(&v, 12))
+                    .is_some_and(|scroll| {
+                        let y = scroll.contentOffset().y;
+                        y <= 0.0 && y >= -scroll.adjustedContentInset().top - 1.0
+                    });
+                if at_top {
+                    PAGE_RESTORE_TOP.with(|p| {
+                        p.borrow_mut().insert(self as *const Self as usize);
+                    });
+                }
+            }
+
+            #[unsafe(method(viewDidLayoutSubviews))]
+            fn view_did_layout_subviews(&self) {
+                unsafe {
+                    let _: () = msg_send![super(self), viewDidLayoutSubviews];
+                    let key = self as *const Self as usize;
+                    if PAGE_RESTORE_TOP.with(|p| p.borrow_mut().remove(&key))
+                        && let Some(view) = self.viewIfLoaded()
+                        && let Some(scroll) = first_content_scroll(&view, 12)
+                    {
+                        let top = -scroll.adjustedContentInset().top;
+                        if scroll.contentOffset().y > top {
+                            scroll.setContentOffset(objc2_core_foundation::CGPoint::new(
+                                scroll.contentOffset().x,
+                                top,
+                            ));
+                        }
+                    }
+                    let item = self.navigationItem();
+                    // Whenever the page carries a search controller, not only once its
+                    // hide-on-scroll is on: the flag goes on a turn after the page first
+                    // appears (`configure_sidebar_search`), and UIKit reads the scroll edge
+                    // state from this association at that moment. Without it the bar reads as
+                    // scrolled, and the title and search collapse the instant the flag lands.
+                    if item.searchController().is_some() {
+                        // Headers and a pinned sync footer make this a multi-child page.
+                        // Explicitly identify its list instead of relying on UIKit's
+                        // single-scroll-view discovery through the wrapper hierarchy.
+                        if let Some(view) = self.viewIfLoaded()
+                            && let Some(scroll) = first_content_scroll(&view, 12)
+                        {
+                            let edge = objc2_ui_kit::NSDirectionalRectEdge::Top;
+                            if self.contentScrollViewForEdge(edge).as_deref() != Some(&*scroll) {
+                                self.setContentScrollView_forEdge(Some(&scroll), edge);
+                            }
+                        }
+                    }
+                }
+            }
+
+            #[unsafe(method(viewWillDisappear:))]
+            fn view_will_disappear(&self, animated: bool) {
+                unsafe {
+                    let _: () = msg_send![super(self), viewWillDisappear: animated];
+                    if let Some(view) = self.viewIfLoaded() {
+                        view.endEditing(false);
+                    }
+                }
+            }
+        }
+    );
+
+    /// The cover node a `DayCoverVC` presents, for the sheet's own dismissal report, and how
+    /// it presents: UIKit makes a fresh presentation controller for every presentation, so the
+    /// sheet's detents and delegate are applied each time the VC goes up (`configure_sheet`),
+    /// never once at realize.
+    struct CoverVcIvars {
+        node: Cell<u64>,
+        sheet: Cell<bool>,
+        half: Cell<bool>,
+    }
+
+    define_class!(
+        #[unsafe(super(UIViewController))]
+        #[thread_kind = MainThreadOnly]
+        #[name = "DayCoverVC"]
+        #[ivars = CoverVcIvars]
+        struct DayCoverVC;
+
+        unsafe impl NSObjectProtocol for DayCoverVC {}
+
+        /// A sheet-style cover (`CoverProps::sheet`, the half sheet included) can be pulled
+        /// down by the user. UIKit has already dismissed it when this arrives, so it is reported
+        /// as the back request every cover answers (docs/cover.md): the piece writes `None`,
+        /// the Dismiss patch finds no presentation left and confirms `CoverHidden` at once.
+        /// `isModalInPresentation` (the dismissal shield) keeps the gesture from completing,
+        /// so this never fires for a shielded cover.
+        unsafe impl UIAdaptivePresentationControllerDelegate for DayCoverVC {
+            #[unsafe(method(presentationControllerDidDismiss:))]
+            fn presentation_controller_did_dismiss(
+                &self,
+                _controller: &objc2_ui_kit::UIPresentationController,
+            ) {
+                let node = self.ivars().node.get();
+                if node != 0 {
+                    emit(
+                        NodeId(node),
+                        Event::NavBack {
+                            already_popped: false,
+                        },
+                    );
+                }
+            }
+        }
+
+        /// The presented cover is the VC UIKit consults for system-gesture deferral, so the
+        /// `defers_system_gestures` union applies while a game/cover is up.
+        impl DayCoverVC {
+            #[unsafe(method(viewWillDisappear:))]
+            fn view_will_disappear(&self, animated: bool) {
+                unsafe {
+                    let _: () = msg_send![super(self), viewWillDisappear: animated];
+                    if let Some(view) = self.viewIfLoaded() {
+                        view.endEditing(false);
+                    }
+                }
+            }
+
+            #[unsafe(method(preferredScreenEdgesDeferringSystemGestures))]
+            fn preferred_edges(&self) -> UIRectEdge {
+                rect_edges()
+            }
+
+            /// A fullscreen presentation takes over the status bar's appearance, so the cover
+            /// answers for it while it is up: hidden for a mounted `status_bar_hidden`, or
+            /// while its window is fullscreen (docs/windows.md).
+            #[unsafe(method(prefersStatusBarHidden))]
+            fn prefers_status_bar_hidden(&self) -> bool {
+                STATUS_BAR_HIDDEN.with(|h| h.get()) || vc_window_fullscreen(self)
+            }
+
+            /// And for the home indicator, which fades while the window is fullscreen.
+            #[unsafe(method(prefersHomeIndicatorAutoHidden))]
+            fn prefers_home_indicator_auto_hidden(&self) -> bool {
+                vc_window_fullscreen(self)
+            }
+
+            #[unsafe(method(preferredStatusBarUpdateAnimation))]
+            fn status_bar_animation(&self) -> objc2_ui_kit::UIStatusBarAnimation {
+                objc2_ui_kit::UIStatusBarAnimation::Fade
+            }
+        }
+    );
+
+    impl DayCoverVC {
+        fn new(mtm: MainThreadMarker, node: NodeId, sheet: bool, half: bool) -> Retained<Self> {
+            let this = Self::alloc(mtm).set_ivars(CoverVcIvars {
+                node: Cell::new(node.0),
+                sheet: Cell::new(sheet),
+                half: Cell::new(half),
+            });
+            unsafe { msg_send![super(this), init] }
+        }
+
+        /// Dress the presentation this VC is about to get, every time it is presented (see
+        /// `CoverVcIvars`). A sheet can be pulled down, so the VC hears about it as the
+        /// presentation controller's delegate. The half sheet (docs/cover.md): the medium
+        /// detent, with the large one a pull away, and nothing dimmed at medium so the content
+        /// the sheet describes stays interactive underneath it, the way an iOS inspector sheet
+        /// does; the grabber says it can be pulled.
+        fn configure_sheet(&self, mtm: MainThreadMarker) {
+            if !self.ivars().sheet.get() {
+                return;
+            }
+            unsafe {
+                if let Some(pc) = self.presentationController() {
+                    pc.setDelegate(Some(ProtocolObject::from_ref(self)));
+                }
+                if self.ivars().half.get()
+                    && let Some(sheet) = self.sheetPresentationController()
+                {
+                    use objc2_ui_kit::UISheetPresentationControllerDetent as Detent;
+                    let medium = objc2_ui_kit::UISheetPresentationControllerDetentIdentifierMedium;
+                    sheet.setDetents(&objc2_foundation::NSArray::from_retained_slice(&[
+                        Detent::mediumDetent(mtm),
+                        Detent::largeDetent(mtm),
+                    ]));
+                    sheet.setSelectedDetentIdentifier(Some(medium));
+                    sheet.setLargestUndimmedDetentIdentifier(Some(medium));
+                    sheet.setPrefersGrabberVisible(true);
+                    sheet.setPrefersScrollingExpandsWhenScrolledToEdge(false);
+                }
+            }
+        }
+    }
+
+    /// The native FRONT of the app's one undo stack (docs/model.md): answers the questions
+    /// UIKit's undo affordances ask (three-finger gestures, shake, hardware ⌘Z, the iPad menu
+    /// bar) from mirrored state, and forwards invocations as `Event::Undo`. The stack lives
+    /// in day-model; two histories can never fork.
+    pub(super) struct UndoIvars {
+        pub(super) state: RefCell<day_spec::UndoState>,
+    }
+
+    define_class!(
+        #[unsafe(super(objc2_foundation::NSUndoManager))]
+        #[thread_kind = MainThreadOnly]
+        #[name = "DayUndoManager"]
+        #[ivars = UndoIvars]
+        pub(super) struct DayUndoManager;
+
+        impl DayUndoManager {
+            #[unsafe(method(canUndo))]
+            fn can_undo(&self) -> bool {
+                self.ivars().state.borrow().can_undo
+            }
+
+            #[unsafe(method(canRedo))]
+            fn can_redo(&self) -> bool {
+                self.ivars().state.borrow().can_redo
+            }
+
+            #[unsafe(method(undo))]
+            fn do_undo(&self) {
+                day_spec::ffi_guard::contain((), || {
+                    emit(day_spec::WINDOW_NODE, Event::Undo { redo: false })
+                })
+            }
+
+            #[unsafe(method(redo))]
+            fn do_redo(&self) {
+                day_spec::ffi_guard::contain((), || {
+                    emit(day_spec::WINDOW_NODE, Event::Undo { redo: true })
+                })
+            }
+
+            #[unsafe(method_id(undoMenuItemTitle))]
+            fn undo_menu_item_title(&self) -> Retained<NSString> {
+                let label = self.ivars().state.borrow().undo_label.clone();
+                unsafe { self.undoMenuTitleForUndoActionName(&NSString::from_str(&label)) }
+            }
+
+            #[unsafe(method_id(redoMenuItemTitle))]
+            fn redo_menu_item_title(&self) -> Retained<NSString> {
+                let label = self.ivars().state.borrow().redo_label.clone();
+                unsafe { self.redoMenuTitleForUndoActionName(&NSString::from_str(&label)) }
+            }
+        }
+    );
+
+    pub(super) fn undo_front(mtm: MainThreadMarker) -> Retained<DayUndoManager> {
+        UNDO_FRONT.with(|u| {
+            u.borrow_mut()
+                .get_or_insert_with(|| {
+                    let this = DayUndoManager::alloc(mtm).set_ivars(UndoIvars {
+                        state: RefCell::new(day_spec::UndoState::default()),
+                    });
+                    unsafe { msg_send![super(this), init] }
+                })
+                .clone()
+        })
+    }
+
+    define_class!(
+        #[unsafe(super(UIViewController))]
+        #[thread_kind = MainThreadOnly]
+        #[name = "DayRootVC"]
+        #[ivars = ()]
+        struct DayRootVC;
+
+        /// Same override on the window root, so the modifier also works outside a cover.
+        impl DayRootVC {
+            #[unsafe(method(preferredScreenEdgesDeferringSystemGestures))]
+            fn preferred_edges(&self) -> UIRectEdge {
+                rect_edges()
+            }
+
+            /// The window root answers for the status bar outside a cover. Its children (the
+            /// tab and navigation hosts) are not asked: `childViewControllerForStatusBarHidden`
+            /// stays nil, so one answer covers every page.
+            #[unsafe(method(prefersStatusBarHidden))]
+            fn prefers_status_bar_hidden(&self) -> bool {
+                STATUS_BAR_HIDDEN.with(|h| h.get()) || vc_window_fullscreen(self)
+            }
+
+            #[unsafe(method(preferredStatusBarUpdateAnimation))]
+            fn status_bar_animation(&self) -> objc2_ui_kit::UIStatusBarAnimation {
+                objc2_ui_kit::UIStatusBarAnimation::Fade
+            }
+
+            /// Fullscreen on iOS (docs/windows.md): the home indicator fades after a few
+            /// seconds without a touch and returns on the next one, which is as far as an app
+            /// can take it.
+            #[unsafe(method(prefersHomeIndicatorAutoHidden))]
+            fn prefers_home_indicator_auto_hidden(&self) -> bool {
+                vc_window_fullscreen(self)
+            }
+
+            /// The scene's capture state is a trait (iOS 17+): a recording or mirroring that
+            /// starts or stops changes it, so the content-protection shield follows from here
+            /// as well as from `UIScreenCapturedDidChangeNotification`.
+            #[unsafe(method(traitCollectionDidChange:))]
+            fn trait_collection_did_change(
+                &self,
+                previous: Option<&objc2_ui_kit::UITraitCollection>,
+            ) {
+                let _: () = unsafe { msg_send![super(self), traitCollectionDidChange: previous] };
+                day_spec::ffi_guard::contain((), refresh_capture_shields);
+            }
+
+            /// The window is crossing a size class — the whole reason a split view collapses or
+            /// expands. Hold the flag from here until the transition's own completion, so the
+            /// column restructuring UIKit performs in between is not read as the user
+            /// navigating (`note_pop`). The window root sees this before any descendant does,
+            /// which is what makes it early enough: UIKit un-merges the columns before it
+            /// reports the expansion.
+            #[unsafe(method(willTransitionToTraitCollection:withTransitionCoordinator:))]
+            fn will_transition_to_traits(
+                &self,
+                traits: &objc2_ui_kit::UITraitCollection,
+                coordinator: &ProtocolObject<
+                    dyn objc2_ui_kit::UIViewControllerTransitionCoordinator,
+                >,
+            ) {
+                let _: () = unsafe {
+                    msg_send![
+                        super(self),
+                        willTransitionToTraitCollection: traits,
+                        withTransitionCoordinator: coordinator,
+                    ]
+                };
+                day_spec::ffi_guard::contain((), || begin_class_transition(coordinator));
+            }
+        }
+    );
+
+    impl DayRootVC {
+        fn new(mtm: MainThreadMarker) -> Retained<Self> {
+            let this = Self::alloc(mtm).set_ivars(());
+            unsafe { msg_send![super(this), init] }
+        }
+    }
+
+    define_class!(
+        #[unsafe(super(UIView))]
+        #[thread_kind = MainThreadOnly]
+        #[name = "DayHolderView"]
+        #[ivars = ()]
+        struct DayHolderView;
+
+        /// The window root's content holder. UIKit resizes it on rotation, on iPad
+        /// multitasking, and — since iPadOS 26 — on every drag of a resizable window's edge,
+        /// then runs this layout pass. That is Day's size-change rail: re-pin the day root to
+        /// the current safe area and emit `WindowResized`, the same shape as Android's
+        /// configuration-change delivery (§9). It fires only when the BASE frame really
+        /// changed, so the keyboard rail's shrunken root (which alters the frame but not the
+        /// base) is never stomped.
+        ///
+        /// Everything here is resolved through this holder's own scene, never the primary's
+        /// statics (docs/size-classes.md). One process can hold two windows at two sizes —
+        /// Stage Manager, two side-by-side iPad windows — and reporting a secondary's geometry
+        /// against `WINDOW_NODE` re-framed the primary's root view and re-bucketed the wrong
+        /// window's size class.
+        impl DayHolderView {
+            #[unsafe(method(traitCollectionDidChange:))]
+            fn trait_collection_did_change(
+                &self,
+                previous: Option<&objc2_ui_kit::UITraitCollection>,
+            ) {
+                let _: () = unsafe { msg_send![super(self), traitCollectionDidChange: previous] };
+                day_spec::ffi_guard::contain((), || note_host_traits(self, previous));
+            }
+
+            #[unsafe(method(layoutSubviews))]
+            fn layout_subviews(&self) {
+                let _: () = unsafe { msg_send![super(self), layoutSubviews] };
+                // The WindowResized report dispatches day-core's relayout — contained (§8.5).
+                day_spec::ffi_guard::contain((), || {
+                    // Before this holder's window is in a scene — or before launch published
+                    // its root — the launch frame computation owns this; nothing to re-pin.
+                    let Some((root, base, target)) = with_scene_of(self, |e| {
+                        (e.root_view.clone(), e.base_frame.get(), key_scene_target(e))
+                    }) else {
+                        return;
+                    };
+                    let bounds = self.bounds();
+                    let insets = self.safeAreaInsets();
+                    // The same rule a page applies (§7.7, `scroll_leaf`): a root that is one
+                    // navigation, split or tab host — or one scroll view — takes the WINDOW's
+                    // bounds, bars and all, and the host hands the status bar and the home
+                    // indicator to its pages as safe area. Padded, the host's bars stopped at
+                    // the padding and the strip above the nav bar and below the tab bar was
+                    // this holder's own ground. Anything else keeps the padding: a form has
+                    // nothing to absorb a status bar with.
+                    let full = scroll_leaf(self);
+                    let mut inner = content_frame(bounds, insets, full);
+                    // A window with no navigation host of its own carries the window toolbar
+                    // here, across the top (docs/toolbars.md), where a page's bar would be.
+                    // Framed on every pass rather than autoresized: its height is the bar's
+                    // own answer for this width and it starts at the safe area's top edge,
+                    // both of which a rotation changes — and the root's own frame is measured
+                    // from them. A standalone bar lays its items out in the frame it is GIVEN
+                    // (a navigation controller's insets itself), so a bar spanning the top
+                    // inset would center its items over the status bar.
+                    if let Some(bar) = docked_window_toolbar(&root) {
+                        let h = bar.sizeThatFits(bounds.size).height;
+                        unsafe {
+                            bar.setFrame(CGRect::new(
+                                CGPoint::new(0.0, insets.top),
+                                CGSize::new(bounds.size.width, h),
+                            ))
+                        };
+                        inner.origin.y += h;
+                        inner.size.height = (inner.size.height - h).max(0.0);
+                    }
+                    if inner.origin.x == base.origin.x
+                        && inner.origin.y == base.origin.y
+                        && inner.size.width == base.size.width
+                        && inner.size.height == base.size.height
+                    {
+                        return;
+                    }
+                    // Stored before `emit`, and with the registry borrow already dropped: the
+                    // report re-enters day-core, which reads scenes back.
+                    with_scene_of(self, |e| e.base_frame.set(inner));
+                    if target == WINDOW_NODE {
+                        ROOT_BASE_FRAME.with(|f| f.set(inner));
+                    }
+                    unsafe { root.setFrame(inner) };
+                    if *DIAG_NAV {
+                        log::debug!(
+                            "DAYDIAG holder node={:?} bounds={}x{} safe(t{} b{} l{} r{}) -> inner=({},{} {}x{})",
+                            target,
+                            bounds.size.width,
+                            bounds.size.height,
+                            insets.top,
+                            insets.bottom,
+                            insets.left,
+                            insets.right,
+                            inner.origin.x,
+                            inner.origin.y,
+                            inner.size.width,
+                            inner.size.height,
+                        );
+                    }
+                    emit(
+                        target,
+                        Event::WindowResized(Size::new(inner.size.width, inner.size.height)),
+                    );
+                });
+            }
+        }
+    );
+
+    impl DayHolderView {
+        fn new(mtm: MainThreadMarker) -> Retained<Self> {
+            let this = Self::alloc(mtm).set_ivars(());
+            unsafe { msg_send![super(this), init] }
+        }
+    }
+
+    /// Queue the cover's presentation behind any in-flight modal transition (§dialogs FIFO).
+    fn cover_present(vc: Retained<DayCoverVC>) {
+        modal_enqueue(ModalOp::Cover(vc, 0));
+    }
+
+    /// Queue the cover's dismissal; the completion reports `CoverHidden` so the piece can
+    /// dispose the content only after it left the screen.
+    fn cover_dismiss(vc: Retained<DayCoverVC>, node: NodeId) {
+        modal_enqueue(ModalOp::Run(Box::new(move || {
+            let Some(presenting) = vc.presentingViewController() else {
+                emit(node, Event::CoverHidden);
+                return;
+            };
+            modal_begin_transition();
+            // The completion is the normal `CoverHidden` source — but UIKit can drop a
+            // transition completion outright (same failure the modal watchdog exists for),
+            // and the piece would then never dispose the hidden content. The fallback
+            // watchdog emits once the VC has actually left the hierarchy; the piece's
+            // closing gate makes a duplicate report harmless.
+            let fired = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+            let completion = {
+                let fired = fired.clone();
+                block2::RcBlock::new(move || {
+                    fired.store(true, std::sync::atomic::Ordering::Relaxed);
+                    emit(node, Event::CoverHidden);
+                    modal_end_transition();
+                })
+            };
+            unsafe {
+                presenting.dismissViewControllerAnimated_completion(true, Some(&completion));
+            }
+            let mtm = objc2::MainThreadMarker::new().expect("cover ops run on main");
+            let vc_probe = dispatch2::MainThreadBound::new(vc.clone(), mtm);
+            let when = dispatch2::DispatchTime::try_from(std::time::Duration::from_millis(1500))
+                .unwrap_or(dispatch2::DispatchTime::NOW);
+            let _ = dispatch2::DispatchQueue::main().after(when, move || {
+                let mtm = objc2::MainThreadMarker::new().expect("dispatched to main");
+                if !fired.load(std::sync::atomic::Ordering::Relaxed)
+                    && vc_probe.get(mtm).presentingViewController().is_none()
+                {
+                    log::warn!("cover dismissal completion lost — reporting CoverHidden");
+                    emit(node, Event::CoverHidden);
+                }
+            });
+        })));
+    }
+
+    // -------------------------------------------------------------------
+    // Tabs (docs/navigation.md): UITabBarController child-contained in the root VC.
+    // Each tab page is a UIViewController wrapping a DayNavPageView (safe-area
+    // pinned content + FrameChanged), identical to a nav page.
+    // -------------------------------------------------------------------
+
+    // -------------------------------------------------------------------
+    // Adaptive tabs (docs/navigation.md): a NAV host lowered `Tabs` becomes a
+    // `UITabBarController` in `.tabSidebar` mode — one controller that draws a tab bar when the
+    // window is compact and a sidebar when it is not, with UIKit's own animation and the
+    // iPadOS user-facing toggle. It is what SwiftUI's `.tabViewStyle(.sidebarAdaptable)`
+    // compiles down to.
+    //
+    // Two consequences shape everything below. UIKit draws the SIDEBAR itself, from the same
+    // tabs — so Day's `Pane::Sidebar` page has nothing to render and is left out of the
+    // controller entirely. And every tab keeps its own view controller at every width, so the
+    // host reports `Tabs` once and stays there: it never flips to push/pop as it widens, which
+    // is why day-core keeps its pages resident and drives them with `NavPatch::Select`.
+    // -------------------------------------------------------------------
+
+    // Browser documents are custom containers, never application-section tab controllers.
+    struct DocumentHost {
+        controller: Retained<UIViewController>,
+        pages: Vec<(usize, Retained<UIViewController>)>,
+        selected: usize,
+    }
+    fn document_frames(host: &UIView, state: &DocumentHost) {
+        for (i, (_, vc)) in state.pages.iter().enumerate() {
+            unsafe {
+                if let Some(view) = vc.view() {
+                    view.setFrame(host.bounds());
+                    if i != state.selected && !view.isHidden() {
+                        view.endEditing(false);
+                    }
+                    view.setHidden(i != state.selected);
+                }
+            }
+        }
+    }
+
+    /// A nav host's rows as a `.tabSidebar` host's tabs wear them: label, glyph and badge.
+    #[derive(Clone, Default)]
+    struct NavTabRows {
+        titles: Vec<String>,
+        icons: Vec<Option<String>>,
+        badges: Vec<Option<String>>,
+    }
+
+    struct NavTabsState {
+        tabbar: Retained<UITabBarController>,
+        /// Detail pages in insertion order — index i IS the `Select(i)` index.
+        vcs: Vec<Retained<UIViewController>>,
+        /// The `UITab` per page, parallel to `vcs`. Each carries its index as its IDENTIFIER,
+        /// which is what turns a delegate callback back into a Day row and what `Select` looks up.
+        tabs: Vec<Retained<objc2_ui_kit::UITab>>,
+        /// Row labels, glyphs and badges from the host's NAV_MENU, which is where a nav host's
+        /// rows live. Kept current by the menu's `NavMenuPatch::Items` (a language change, a
+        /// badge count), which re-syncs the tabs.
+        rows: NavTabRows,
+        /// The NAV_MENU's view, which is how that patch finds the host it feeds.
+        menu_view: std::cell::Cell<usize>,
+        /// The NAV_MENU's node — a tab tap emits against it, exactly as a sidebar row click does,
+        /// so the two are one event to everything above this backend.
+        menu_node: std::cell::Cell<i64>,
+        /// Suppresses the echo while Day drives the controller.
+        ///
+        /// `didSelectViewController:` fired for USER taps only, so the old delegate needed no
+        /// guard. `didSelectTab:previousTab:` also fires for programmatic selection — including
+        /// the one UIKit makes for itself inside `setTabs` — so installing the tabs reported a
+        /// selection the user never made, and the app's bound signal followed it (the Showcase's
+        /// tab demo came up on its third tab). This is the same origin guard every other
+        /// two-way control in this backend carries.
+        suppress: std::cell::Cell<bool>,
+        /// Latest deferred selection; stale callbacks cannot override a newer selection.
+        pending_selection: std::cell::Cell<Option<u64>>,
+        _delegate: Retained<DayNavTabsDelegate>,
+    }
+
+    /// Walk up from `v` for a `.tabSidebar` host — either the host's own view, or a PAGE known
+    /// to belong to one.
+    ///
+    /// The page lookup is what makes the sidebar page reachable. Its view is deliberately never
+    /// added to the controller (UIKit draws the sidebar itself), so it has no superview chain
+    /// running to the host — but the rows Day needs for the tab labels live inside it. Recording
+    /// the page → host edge at insert is what lets the menu find its way home anyway.
+    fn enclosing_tabs_host(v: &UIView) -> Option<usize> {
+        let mut cur = Some(v.retain());
+        while let Some(view) = cur {
+            let p = ptr_of(&view_of(view.clone()));
+            if NAV_TABS.with(|m| m.borrow().contains_key(&p)) {
+                return Some(p);
+            }
+            if let Some(host) = TABS_PAGE_HOST.with(|m| m.borrow().get(&p).copied()) {
+                return Some(host);
+            }
+            cur = unsafe { view.superview() };
+        }
+        None
+    }
+
+    struct NavTabsDelegateIvars {
+        host: std::cell::Cell<usize>,
+    }
+
+    define_class!(
+        #[unsafe(super(NSObject))]
+        #[thread_kind = MainThreadOnly]
+        #[name = "DayNavTabsDelegate"]
+        #[ivars = NavTabsDelegateIvars]
+        struct DayNavTabsDelegate;
+
+        unsafe impl NSObjectProtocol for DayNavTabsDelegate {}
+
+        unsafe impl UITabBarControllerDelegate for DayNavTabsDelegate {
+            /// The pre-`UITab` callback (iOS 17 and older, where `setTabs:` does not exist and the
+            /// host runs on `setViewControllers:`). The controller IS the identity there, so the
+            /// row is its position in `vcs` — the same mirror `NavPatch::Select` indexes.
+            #[unsafe(method(tabBarController:didSelectViewController:))]
+            fn did_select_vc(&self, _tabbar: &UITabBarController, selected: &UIViewController) {
+                day_spec::ffi_guard::contain((), || {
+                    let sel = ptr_of(&view_of(
+                        unsafe { selected.view() }.expect("selected page view"),
+                    ));
+                    let found = NAV_TABS.with(|m| {
+                        let m = m.borrow();
+                        let t = m.get(&self.ivars().host.get())?;
+                        if t.suppress.get() {
+                            return None;
+                        }
+                        t.pending_selection.set(None);
+                        let idx = t.vcs.iter().position(|vc| {
+                            unsafe { vc.view() }.is_some_and(|v| ptr_of(&view_of(v)) == sel)
+                        })?;
+                        Some((t.menu_node.get(), idx as i64))
+                    });
+                    if let Some((n, idx)) = found.filter(|(n, _)| *n != 0) {
+                        emit(NodeId(n as u64), Event::SelectionChanged(idx));
+                    }
+                });
+            }
+        }
+
+        /// The tab-based callback, not `didSelectViewController:`. Both fire on iOS 18+, but only
+        /// this one names the TAB — and a tab is the thing Day addresses there, so the row comes
+        /// from its identifier rather than from `selectedIndex`, which cannot see into a group.
+        ///
+        /// Declared outside the protocol block on purpose. A protocol block asks the RUNTIME for
+        /// the nav host's type encoding, and `tabBarController:didSelectTab:previousTab:` is iOS
+        /// 18's — on an older runtime the class fails to register at all ("method not found"),
+        /// which took the whole scene down the moment a tabs host was realized. As a plain method
+        /// objc2 derives the encoding from these types instead, UIKit dispatches it by nav host
+        /// where it exists, and nothing asks for it where it does not.
+        impl DayNavTabsDelegate {
+            #[unsafe(method(tabBarController:didSelectTab:previousTab:))]
+            fn did_select(
+                &self,
+                _tabbar: &UITabBarController,
+                selected: &objc2_ui_kit::UITab,
+                _previous: Option<&objc2_ui_kit::UITab>,
+            ) {
+                // UIKit calls this only for user taps, not programmatic selection — no echo
+                // guard needed; the panic containment is §8.5.
+                day_spec::ffi_guard::contain((), || {
+                    let id = unsafe { selected.identifier() }.to_string();
+                    let found = NAV_TABS.with(|m| {
+                        let m = m.borrow();
+                        let t = m.get(&self.ivars().host.get())?;
+                        if t.suppress.get() {
+                            return None;
+                        }
+                        t.pending_selection.set(None);
+                        let idx = t
+                            .tabs
+                            .iter()
+                            .position(|tab| unsafe { tab.identifier() }.to_string() == id)?;
+                        Some((t.menu_node.get(), idx as i64))
+                    });
+                    if let Some((n, idx)) = found.filter(|(n, _)| *n != 0) {
+                        emit(NodeId(n as u64), Event::SelectionChanged(idx));
+                    }
+                });
+            }
+        }
+    );
+
+    /// Rebuild the host's `UITab`s from its rows and hand them to the controller.
+    /// Called whenever either side changes — a page joining, or the rows arriving/being re-derived.
+    ///
+    /// `UITab` rather than a `viewControllers` array of `UITabBarItem`s (2026-09). Apple's guidance
+    /// since iOS 18 is that adopting `UITab` is what gives a tab bar its automatic adaptivity —
+    /// the tab bar and the sidebar are then two renderings of one list of tabs, which is exactly
+    /// Day's model, and it is what `.tabSidebar` mode is built to consume. The old array still
+    /// works, but the controller has to infer everything from view controllers, and the
+    /// sidebar-side affordances (reordering, customization, `sidebar.preferredPlacement`) have no
+    /// tab to hang on.
+    ///
+    /// Each tab keeps its Day index as its IDENTIFIER, so a delegate callback resolves to a row
+    /// without consulting `selectedIndex` — an index that stops meaning "the nth row" the moment
+    /// tabs nest.
+    ///
+    /// The view-controller provider hands back the page Day already built. `vcs` owns it for the
+    /// life of the host, so the block returns a borrow rather than transferring anything.
+    impl DayNavTabsDelegate {
+        fn new(mtm: MainThreadMarker, host: usize) -> Retained<Self> {
+            let this = Self::alloc(mtm).set_ivars(NavTabsDelegateIvars {
+                host: std::cell::Cell::new(host),
+            });
+            unsafe { msg_send![super(this), init] }
+        }
+    }
+
+    /// The host's tabs, rebuilt from its pages and its rows (docs/navigation.md).
+    ///
+    /// The glyph is handed over exactly as the app staged it: a tab bar draws the image at its own
+    /// size, so a tab icon is a matter of AUTHORING the glyph at icon size (docs/vectors.md), not
+    /// of resizing it here — thumbnailing downsamples the catalog's bitmap rendition and throws
+    /// away the vector representation that put it there.
+    /// Give a tab back its page alone once the page turns out to bring a navigation host of its
+    /// own (a `nav_stack` at its root).
+    ///
+    /// `insert` wraps a tab's page in a navigation controller on a wide window, because that is
+    /// the only thing that gives a tab a bar for its page's commands. A page that composes its
+    /// own stack already has one, and the wrapper stacked a second bar over it with the same
+    /// title and the same commands (Stanza's tabs on an iPad). The stack is inserted after its
+    /// page, so the wrapper is undone here, when it arrives, which leaves the tab as a compact
+    /// window has it: the page, whose stack owns the bar.
+    fn unwrap_tab_page(page_vc: &Retained<UIViewController>) {
+        let found =
+            NAV_TABS.with(|m| {
+                let mut m = m.borrow_mut();
+                m.iter_mut().find_map(|(host, t)| {
+                    let at =
+                        t.vcs.iter().position(|vc| {
+                            vc.downcast_ref::<objc2_ui_kit::UINavigationController>()
+                                .is_some_and(|n| {
+                                    unsafe { n.viewControllers() }.iter().next().is_some_and(
+                                        |root| Retained::as_ptr(&root) == Retained::as_ptr(page_vc),
+                                    )
+                                })
+                        })?;
+                    Some((*host, std::mem::replace(&mut t.vcs[at], page_vc.clone())))
+                })
+            });
+        let Some((host, wrapper)) = found else { return };
+        // The page leaves the wrapper before it becomes the tab's own controller: UIKit takes a
+        // controller with a parent as a tab only after asserting.
+        if let Some(n) = wrapper.downcast_ref::<objc2_ui_kit::UINavigationController>() {
+            unsafe { n.setViewControllers(&objc2_foundation::NSArray::new()) };
+        }
+        nav_tabs_sync(host);
+    }
+
+    fn nav_tabs_sync(host: usize) {
+        let Some(mtm) = MainThreadMarker::new() else {
+            return;
+        };
+        // `UITab` and `setTabs:` are iOS 18's. Asked of the CONTROLLER rather than of a version
+        // number, the way `setMode:` is asked above: it is the fact the call depends on, and an
+        // older runtime then takes the `setViewControllers:` shape an iOS 17 app always had
+        // instead of dying on a class that is not there (docs/navigation.md).
+        let modern = NAV_TABS.with(|m| {
+            m.borrow()
+                .get(&host)
+                .map(|t| t.tabbar.respondsToSelector(objc2::sel!(setTabs:)))
+        });
+        match modern {
+            None => return,
+            Some(false) => {
+                nav_tabs_sync_classic(host);
+                return;
+            }
+            Some(true) => {}
+        }
+        // Build outside the borrow: creating a tab retains a provider block, and `setTabs` can
+        // call back into UIKit while the map is held.
+        let built: Option<(
+            Retained<UITabBarController>,
+            Vec<Retained<objc2_ui_kit::UITab>>,
+        )> = NAV_TABS.with(|m| {
+            let m = m.borrow();
+            let t = m.get(&host)?;
+            let tabs: Vec<Retained<objc2_ui_kit::UITab>> = t
+                .vcs
+                .iter()
+                .enumerate()
+                .map(|(i, vc)| {
+                    let title = t.rows.titles.get(i).cloned().unwrap_or_default();
+                    let badge = t.rows.badges.get(i).cloned().flatten();
+                    let badge = badge
+                        .as_deref()
+                        .filter(|b| !b.is_empty())
+                        .map(NSString::from_str);
+                    let image = t
+                        .rows
+                        .icons
+                        .get(i)
+                        .and_then(|o| o.as_deref())
+                        .and_then(load_bundled_uiimage);
+                    unsafe { vc.setTitle(Some(&NSString::from_str(&title))) };
+                    // REUSE the tab that already stands for this page. A `UITab` is a model
+                    // object with an identity, not a per-render descriptor: its provider
+                    // hands UIKit a view controller and UIKit then owns that controller as
+                    // the tab's. Minting a second tab for the same page — which rebuilding
+                    // on every sync did, and this host syncs on every page insert and every
+                    // rows change — leaves two tabs claiming one controller, and UIKit
+                    // asserts in `-[UITab viewController]` the moment it resolves the
+                    // second. Only the title and the glyph are re-applied.
+                    let key = ptr_of(&view_of(unsafe { vc.view() }.expect("page view")));
+                    if let Some(existing) = t
+                        .tabs
+                        .iter()
+                        .find(|tab| unsafe { tab.identifier() }.to_string() == key.to_string())
+                    {
+                        unsafe {
+                            existing.setTitle(&NSString::from_str(&title));
+                            existing.setImage(image.as_deref());
+                            existing.setBadgeValue(badge.as_deref());
+                        }
+                        return existing.clone();
+                    }
+                    let page = vc.clone();
+                    let provider = block2::RcBlock::new(
+                        move |_tab: NonNull<objc2_ui_kit::UITab>| -> NonNull<UIViewController> {
+                            NonNull::from(&*page)
+                        },
+                    );
+                    let tab = unsafe {
+                        objc2_ui_kit::UITab::initWithTitle_image_identifier_viewControllerProvider(
+                            objc2_ui_kit::UITab::alloc(mtm),
+                            &NSString::from_str(&title),
+                            image.as_deref(),
+                            // The PAGE is the identity, not its position: `insert` can put a
+                            // page in the middle, and a tab's identifier is fixed at
+                            // construction. Day's index is then the tab's position in `tabs`.
+                            &NSString::from_str(&key.to_string()),
+                            Some(&provider),
+                        )
+                    };
+                    unsafe { tab.setBadgeValue(badge.as_deref()) };
+                    tab
+                })
+                .collect();
+            Some((t.tabbar.clone(), tabs))
+        });
+        let Some((tabbar, tabs)) = built else { return };
+        NAV_TABS.with(|m| {
+            if let Some(t) = m.borrow_mut().get_mut(&host) {
+                t.tabs = tabs.clone();
+                t.suppress.set(true);
+            }
+        });
+        unsafe { tabbar.setTabs(&objc2_foundation::NSArray::from_retained_slice(&tabs)) };
+        NAV_TABS.with(|m| {
+            if let Some(t) = m.borrow().get(&host) {
+                t.suppress.set(false);
+            }
+        });
+    }
+
+    /// New words or counts on the same tabs: set on the `UITab`s (or, before iOS 18, the
+    /// controllers' tab bar items) already installed, without handing UIKit the tab array again.
+    fn nav_tabs_refresh(host: usize) {
+        let modern = NAV_TABS.with(|m| {
+            m.borrow()
+                .get(&host)
+                .map(|t| t.tabbar.respondsToSelector(objc2::sel!(setTabs:)))
+        });
+        if modern != Some(true) {
+            // The classic sync already re-sets nothing when the controllers are unchanged.
+            nav_tabs_sync_classic(host);
+            return;
+        }
+        NAV_TABS.with(|m| {
+            let m = m.borrow();
+            let Some(t) = m.get(&host) else { return };
+            for (i, tab) in t.tabs.iter().enumerate() {
+                let title = t.rows.titles.get(i).cloned().unwrap_or_default();
+                let badge = t
+                    .rows
+                    .badges
+                    .get(i)
+                    .cloned()
+                    .flatten()
+                    .filter(|b| !b.is_empty());
+                let image = t
+                    .rows
+                    .icons
+                    .get(i)
+                    .and_then(|o| o.as_deref())
+                    .and_then(load_bundled_uiimage);
+                unsafe {
+                    tab.setTitle(&NSString::from_str(&title));
+                    tab.setImage(image.as_deref());
+                    tab.setBadgeValue(badge.as_deref().map(NSString::from_str).as_deref());
+                    if let Some(vc) = t.vcs.get(i) {
+                        vc.setTitle(Some(&NSString::from_str(&title)));
+                    }
+                }
+            }
+        });
+    }
+
+    /// The same sync on a runtime without `UITab` (iOS 17 and older): the controller's own
+    /// `viewControllers`, each page carrying its title and glyph on the `UITabBarItem` UIKit
+    /// makes for it. `NavTabsState::tabs` stays empty there, which is what tells `Select` and
+    /// the delegate to address a page by its INDEX — the position in `vcs` — rather than by a
+    /// tab identity that does not exist.
+    ///
+    /// The roster is only re-set when it really changed: `setViewControllers:` rebuilds the bar
+    /// and can drop the selection, and this host syncs on every page insert and every rows
+    /// change. The showing page is restored either way, since a rebuild that keeps the same
+    /// pages must not send the user back to the first one.
+    fn nav_tabs_sync_classic(host: usize) {
+        let built = NAV_TABS.with(|m| {
+            let m = m.borrow();
+            let t = m.get(&host)?;
+            for (i, vc) in t.vcs.iter().enumerate() {
+                let title = t.rows.titles.get(i).cloned().unwrap_or_default();
+                let badge = t
+                    .rows
+                    .badges
+                    .get(i)
+                    .cloned()
+                    .flatten()
+                    .filter(|b| !b.is_empty());
+                let image = t
+                    .rows
+                    .icons
+                    .get(i)
+                    .and_then(|o| o.as_deref())
+                    .and_then(load_bundled_uiimage);
+                unsafe {
+                    vc.setTitle(Some(&NSString::from_str(&title)));
+                    // UIKit makes the item on first access; `None` only before the controller
+                    // has one at all, which a page that is already in `vcs` always does.
+                    if let Some(item) = vc.tabBarItem() {
+                        item.setTitle(Some(&NSString::from_str(&title)));
+                        item.setImage(image.as_deref());
+                        item.setBadgeValue(badge.as_deref().map(NSString::from_str).as_deref());
+                    }
+                }
+            }
+            Some((t.tabbar.clone(), t.vcs.clone()))
+        });
+        let Some((tabbar, vcs)) = built else { return };
+        let current = unsafe { tabbar.viewControllers() };
+        let unchanged = current.is_some_and(|cur| {
+            cur.len() == vcs.len()
+                && cur
+                    .iter()
+                    .zip(vcs.iter())
+                    .all(|(a, b)| Retained::as_ptr(&a) == Retained::as_ptr(b))
+        });
+        if unchanged {
+            return;
+        }
+        let showing = unsafe { tabbar.selectedIndex() };
+        NAV_TABS.with(|m| {
+            if let Some(t) = m.borrow().get(&host) {
+                t.suppress.set(true);
+            }
+        });
+        unsafe {
+            tabbar.setViewControllers(Some(&objc2_foundation::NSArray::from_retained_slice(&vcs)));
+            if showing < vcs.len() {
+                tabbar.setSelectedIndex(showing);
+            }
+        }
+        NAV_TABS.with(|m| {
+            if let Some(t) = m.borrow().get(&host) {
+                t.suppress.set(false);
+            }
+        });
+    }
+
+    // -------------------------------------------------------------------
+    // DayNavTableData — nav_menu() as a SIDEBAR list: `UICollectionViewListCell` rows whose
+    // content and background configurations are the adaptive ones, so UIKit draws the glyph, the
+    // label, the chevron and the selection pill from the list's own appearance (docs/navigation.md)
+    // -------------------------------------------------------------------
+
+    struct NavTableIvars {
+        node: NodeId,
+        items: RefCell<Vec<Retained<NSString>>>,
+        /// Per-row icon tint (docs/vectors.md); `None` keeps the neutral template look.
+        tints: RefCell<Vec<Option<day_spec::Color>>>,
+        /// Pre-resolved template icons per row (docs/navigation.md), `None` where a row has none.
+        /// Template mode tints them with the cell's tint color (the iOS list idiom).
+        icons: RefCell<Vec<Option<Retained<objc2_ui_kit::UIImage>>>>,
+        /// Trailing status glyphs per row, resolved the same way as `icons`.
+        icon_progress: RefCell<Vec<(usize, Option<f64>)>>,
+        badges: RefCell<Vec<Option<String>>>,
+        badge_icons: RefCell<Vec<Option<Retained<objc2_ui_kit::UIImage>>>>,
+        /// Tint for `badge_icons`; `None` keeps the neutral template look.
+        badge_tints: RefCell<Vec<Option<day_spec::Color>>>,
+        /// Per-row context menu (docs/menus.md), empty = none — served through the table
+        /// delegate's row-context hook, the standard iOS long-press row menu.
+        menus: RefCell<Vec<Vec<day_spec::MenuItem>>>,
+        /// A heading introducing the row at the same index (`NavMenuProps::sections`): `Some`
+        /// opens a group before that row, `None` continues the current one. Parallel to `items`,
+        /// which is what keeps a heading from shifting the indices rows are addressed by.
+        sections: RefCell<Vec<Option<String>>>,
+        /// Whether the LAYOUT currently draws headings — it is baked in at construction, so a
+        /// data-driven set that changes the answer has to install a new one.
+        headers: std::cell::Cell<bool>,
+    }
+
+    define_class!(
+        #[unsafe(super(NSObject))]
+        #[thread_kind = MainThreadOnly]
+        #[name = "DayNavTableData"]
+        #[ivars = NavTableIvars]
+        struct DayNavTableData;
+
+        unsafe impl NSObjectProtocol for DayNavTableData {}
+        unsafe impl UIScrollViewDelegate for DayNavTableData {}
+
+        unsafe impl UICollectionViewDataSource for DayNavTableData {
+            /// One section per heading (`NavMenuProps::sections`). A list with no headings is one
+            /// section, which is the flat list this always drew.
+            #[unsafe(method(numberOfSectionsInCollectionView:))]
+            fn number_of_sections(&self, _cv: &objc2_ui_kit::UICollectionView) -> isize {
+                self.groups().len().max(1) as isize
+            }
+
+            #[unsafe(method(collectionView:numberOfItemsInSection:))]
+            fn rows_in_section(
+                &self,
+                _cv: &objc2_ui_kit::UICollectionView,
+                section: isize,
+            ) -> isize {
+                self.groups()
+                    .get(section as usize)
+                    .map(|(_, _, len)| *len as isize)
+                    .unwrap_or(0)
+            }
+
+            /// The section's heading, as a list HEADER supplementary (docs/navigation.md).
+            ///
+            /// `headerConfiguration` is the adaptive one, like the cells': it reads the
+            /// `listEnvironment` trait the sidebar appearance publishes and resolves itself to
+            /// that appearance's header — the small, uppercase-ish group label a source list uses
+            /// — so nothing here names a font or an inset.
+            #[unsafe(method_id(collectionView:viewForSupplementaryElementOfKind:atIndexPath:))]
+            fn header_for_section(
+                &self,
+                cv: &objc2_ui_kit::UICollectionView,
+                kind: &NSString,
+                index_path: &objc2_foundation::NSIndexPath,
+            ) -> Retained<objc2_ui_kit::UICollectionReusableView> {
+                let view: Retained<objc2_ui_kit::UICollectionViewListCell> = unsafe {
+                    cv.dequeueReusableSupplementaryViewOfKind_withReuseIdentifier_forIndexPath(
+                        kind,
+                        &NSString::from_str(NAV_HEADER_ID),
+                        index_path,
+                    )
+                }
+                .downcast()
+                .expect("the registered header class IS UICollectionViewListCell");
+                let title = self
+                    .groups()
+                    .get(unsafe { index_path.section() } as usize)
+                    .and_then(|(t, _, _)| t.clone());
+                // The view's OWN default, which UIKit resolves for a header in this list's
+                // style. The adaptive class method `+headerConfiguration` would say the same
+                // thing, but it is iOS 18+, and on anything older the message is not ignored —
+                // it is `method not found` and an abort before the first frame.
+                let content = unsafe { view.defaultContentConfiguration() };
+                unsafe {
+                    // A leading run of rows before the first heading has none to draw. The
+                    // configuration still applies, so the header collapses to nothing rather than
+                    // reserving a blank band.
+                    content.setText(title.as_deref().map(NSString::from_str).as_deref());
+                    view.setContentConfiguration(Some(ProtocolObject::from_ref(&*content)));
+                }
+                // ListCell -> Cell -> ReusableView: the supplementary method answers in the base.
+                objc2::rc::Retained::into_super(objc2::rc::Retained::into_super(view))
+            }
+
+            #[unsafe(method_id(collectionView:cellForItemAtIndexPath:))]
+            fn cell_for_row(
+                &self,
+                cv: &objc2_ui_kit::UICollectionView,
+                index_path: &objc2_foundation::NSIndexPath,
+            ) -> Retained<objc2_ui_kit::UICollectionViewCell> {
+                let mtm = self.mtm();
+                let cell: Retained<objc2_ui_kit::UICollectionViewListCell> = unsafe {
+                    cv.dequeueReusableCellWithReuseIdentifier_forIndexPath(
+                        &NSString::from_str(NAV_CELL_ID),
+                        index_path,
+                    )
+                }
+                .downcast()
+                .expect("the registered class IS UICollectionViewListCell");
+                let row = self
+                    .row_of(
+                        unsafe { index_path.section() } as usize,
+                        unsafe { index_path.item() } as usize,
+                    )
+                    .unwrap_or(0);
+                let title = self
+                    .ivars()
+                    .items
+                    .borrow()
+                    .get(row)
+                    .cloned()
+                    .unwrap_or_else(|| NSString::from_str(""));
+                let img = self.ivars().icons.borrow().get(row).and_then(|o| o.clone());
+                let tint = self.ivars().tints.borrow().get(row).copied().flatten();
+                let badge_text = self.ivars().badges.borrow().get(row).cloned().flatten();
+                let bimg = self
+                    .ivars()
+                    .badge_icons
+                    .borrow()
+                    .get(row)
+                    .and_then(|o| o.clone());
+                let btint = self
+                    .ivars()
+                    .badge_tints
+                    .borrow()
+                    .get(row)
+                    .copied()
+                    .flatten();
+                // Both configurations are the ADAPTIVE ones: each reads the `listEnvironment`
+                // trait the list publishes and resolves itself to that appearance. In a sidebar
+                // list that means the inset rounded pill, the tinted label while selected and no
+                // separators — the Settings look, from UIKit, with nothing here naming a radius
+                // or an inset. (The per-appearance spellings, `sidebarCellConfiguration` and
+                // friends, are deprecated precisely because these adapt; they also draw nothing
+                // useful outside a list that publishes the trait, which is why this had to stop
+                // being a UITableView to work at all.)
+                // `defaultContentConfiguration` rather than the class method: it comes back
+                // already resolved against this cell's list environment and its current state,
+                // which is where the selected row's tinted label comes from. The class method
+                // resolves the environment but not the state, so the pill drew and the label
+                // stayed the resting color.
+                let content = unsafe { cell.defaultContentConfiguration() };
+                unsafe {
+                    content.setText(Some(&title));
+                    content.setImage(img.as_deref());
+                    // A glyph needs a SIZE. An SF Symbol scales itself to the row's text style,
+                    // but Day's are staged rasters (docs/vectors.md) whose intrinsic size is the
+                    // 48pt canvas they were authored on — so left alone they draw at 48pt and
+                    // drag the row's height up with them. This is the size an iOS list icon is,
+                    // and it is the one thing here that has to be said rather than inherited.
+                    content
+                        .imageProperties()
+                        .setMaximumSize(CGSize::new(28.0, 28.0));
+                    if let Some(c) = tint {
+                        content.imageProperties().setTintColor(Some(&uicolor(c)));
+                    }
+                    cell.setContentConfiguration(Some(ProtocolObject::from_ref(&*content)));
+                    // The cell's OWN default, for the same reason the content configuration is
+                    // taken from the cell above: it is resolved against this cell's list
+                    // environment. The class method `listCellConfiguration:` would do as well,
+                    // but it is iOS 18+, and calling it on anything older is not a missing
+                    // background — it is `+[UIBackgroundConfiguration listCellConfiguration]:
+                    // method not found` and an abort before the first frame. The instance method is
+                    // itself iOS 16's; on iOS 15 a list cell already takes its background from the
+                    // list environment, so there is nothing to set.
+                    if os_at_least(16) {
+                        cell.setBackgroundConfiguration(Some(
+                            &cell.defaultBackgroundConfiguration(),
+                        ));
+                    }
+                    cell.setAccessories(&nav_accessories(
+                        mtm,
+                        badge_text.as_deref(),
+                        bimg.as_deref(),
+                        btint,
+                    ));
+                    let progress = self
+                        .ivars()
+                        .icon_progress
+                        .borrow()
+                        .iter()
+                        .find(|(i, _)| *i == row)
+                        .map(|(_, v)| *v);
+                    crate::nav_progress::update(&cell, progress, mtm);
+                }
+                objc2::rc::Retained::into_super(cell)
+            }
+        }
+
+        unsafe impl UICollectionViewDelegate for DayNavTableData {
+            #[unsafe(method(collectionView:didSelectItemAtIndexPath:))]
+            fn did_select(
+                &self,
+                cv: &objc2_ui_kit::UICollectionView,
+                index_path: &objc2_foundation::NSIndexPath,
+            ) {
+                day_spec::ffi_guard::contain((), || {
+                    let _ = cv;
+                    let Some(row) = self.row_of(unsafe { index_path.section() } as usize, unsafe {
+                        index_path.item()
+                    }
+                        as usize)
+                    else {
+                        return;
+                    };
+                    // The row STAYS selected. A sidebar beside its detail is the one place a
+                    // list's selection means "you are here" rather than "you just tapped", and
+                    // UIKit draws that as the rounded pill Settings shows. Clearing it here left
+                    // the split with nothing marking the page on screen. The model answers this
+                    // event with `NavMenuPatch::Selected`, which is what actually settles the
+                    // highlight — including back to `None` where a presentation has no selection.
+                    // Keyboard focus also selects rows inside UIKit's focus-update transaction.
+                    // Deliver after that transaction returns: synchronously rebuilding navigation
+                    // or reloading the selected collection here invalidates UIKit's focus context
+                    // and can throw an Objective-C exception through Rust's event pump.
+                    let node = self.ivars().node;
+                    dispatch2::DispatchQueue::main().exec_async(move || {
+                        emit(node, Event::SelectionChanged(row as i64));
+                    });
+                });
+            }
+
+            /// The row's context menu (docs/menus.md): the same UIMenu the piece decorator
+            /// builds, served through the table's own long-press affordance.
+            #[unsafe(method_id(collectionView:contextMenuConfigurationForItemAtIndexPath:point:))]
+            fn context_menu_for_row(
+                &self,
+                _cv: &objc2_ui_kit::UICollectionView,
+                index_path: &objc2_foundation::NSIndexPath,
+                _point: CGPoint,
+            ) -> Option<Retained<UIContextMenuConfiguration>> {
+                let row = self
+                    .row_of(
+                        unsafe { index_path.section() } as usize,
+                        unsafe { index_path.item() } as usize,
+                    )
+                    .unwrap_or(usize::MAX);
+                let items = self
+                    .ivars()
+                    .menus
+                    .borrow()
+                    .get(row)
+                    .cloned()
+                    .unwrap_or_default();
+                if items.is_empty() {
+                    // `define_class!` rewrites the return, so no early `return` — one expression.
+                    None
+                } else {
+                    let menu = build_ui_menu(self.mtm(), "", &items);
+                    let provider = block2::RcBlock::new(
+                        move |_suggested: NonNull<objc2_foundation::NSArray<UIMenuElement>>| -> *mut UIMenu {
+                            // +0 block return: autorelease, don't leak a retain per summon
+                            // (see DayContextMenu::configuration_for_menu).
+                            Retained::autorelease_return(menu.clone())
+                        },
+                    );
+                    Some(unsafe {
+                        UIContextMenuConfiguration::configurationWithIdentifier_previewProvider_actionProvider(
+                            None,
+                            std::ptr::null_mut(),
+                            block2::RcBlock::as_ptr(&provider),
+                            self.mtm(),
+                        )
+                    })
+                }
+            }
+        }
+    );
+
+    /// Load a bundled image by NAME for a nav/tab icon (docs/navigation.md): by-name from the
+    /// DayPieces asset catalog first — the reliable iOS path, same as the `image()` piece — then a
+    /// loose staged file (dev / assets). Callers apply `.alwaysTemplate` so it tints with the
+    /// control's color.
+    /// The bundle Day's staged glyphs live in — the SwiftPM resource bundle the Apple stager
+    /// writes its asset catalog into (`resources/apple.rs`).
+    fn day_pieces_bundle() -> Option<Retained<objc2_foundation::NSBundle>> {
+        let main = unsafe { objc2_foundation::NSBundle::mainBundle() };
+        let bname = NSString::from_str("DayPieces_DayPieces");
+        let bext = NSString::from_str("bundle");
+        let url = unsafe { main.URLForResource_withExtension(Some(&bname), Some(&bext)) }?;
+        unsafe { objc2_foundation::NSBundle::bundleWithURL(&url) }
+    }
+
+    fn load_bundled_uiimage(name: &str) -> Option<Retained<objc2_ui_kit::UIImage>> {
+        let nsname = NSString::from_str(name);
+        if let Some(day_bundle) = day_pieces_bundle()
+            && let Some(img) = unsafe {
+                objc2_ui_kit::UIImage::imageNamed_inBundle_compatibleWithTraitCollection(
+                    &nsname,
+                    Some(&day_bundle),
+                    None,
+                )
+            }
+        {
+            return Some(img);
+        }
+        if let Some(path) = day_spec::resource::resolve_image_file(name)
+            && let Some(img) = unsafe {
+                objc2_ui_kit::UIImage::imageWithContentsOfFile(&NSString::from_str(
+                    &path.to_string_lossy(),
+                ))
+            }
+        {
+            return Some(img);
+        }
+        None
+    }
+
+    /// Resolve nav glyph names to template images once per rebuild (docs/navigation.md).
+    fn resolve_nav_images(
+        names: &[Option<String>],
+    ) -> Vec<Option<Retained<objc2_ui_kit::UIImage>>> {
+        names
+            .iter()
+            .map(|ic| {
+                let name = ic.as_deref()?;
+                let img = load_bundled_uiimage(name)?;
+                Some(unsafe {
+                    img.imageWithRenderingMode(if std::path::Path::new(name).is_absolute() {
+                        objc2_ui_kit::UIImageRenderingMode::AlwaysOriginal
+                    } else {
+                        objc2_ui_kit::UIImageRenderingMode::AlwaysTemplate
+                    })
+                })
+            })
+            .collect()
+    }
+
+    /// The reuse identifier for a sidebar row.
+    const NAV_CELL_ID: &str = "day.nav.cell";
+    /// The reuse identifier for a sidebar section heading.
+    const NAV_HEADER_ID: &str = "day.nav.header";
+
+    /// The sidebar list's layout. `headers` turns section headings on: left off for a list that
+    /// declares none, so a flat list reserves no band where a heading would go.
+    ///
+    /// The list's appearance follows the width the layout is asked for, the way UIKit's own
+    /// apps do it: at a regular width the SIDEBAR appearance, the Settings sidebar's rounded
+    /// selection pill and group labels; at a compact width an INSET GROUPED list, the phone's
+    /// grouped table with its section headings over each group. Both come from the
+    /// configuration itself (`listEnvironment` is what the cells' and headers' adaptive
+    /// configurations read), so nothing here names a font, an inset or a background, and a
+    /// heading scrolls as the platform scrolls it.
+    fn nav_list_layout(
+        mtm: MainThreadMarker,
+        headers: bool,
+    ) -> Retained<objc2_ui_kit::UICollectionViewLayout> {
+        unsafe {
+            let provider = block2::RcBlock::new(
+                move |_: isize,
+                      environment: NonNull<
+                    ProtocolObject<dyn objc2_ui_kit::NSCollectionLayoutEnvironment>,
+                >|
+                      -> *mut objc2_ui_kit::NSCollectionLayoutSection {
+                    let environment = environment.as_ref();
+                    let compact =
+                        objc2_ui_kit::NSCollectionLayoutEnvironment::traitCollection(environment)
+                            .horizontalSizeClass()
+                            == objc2_ui_kit::UIUserInterfaceSizeClass::Compact;
+                    let config =
+                        objc2_ui_kit::UICollectionLayoutListConfiguration::initWithAppearance(
+                            objc2_ui_kit::UICollectionLayoutListConfiguration::alloc(mtm),
+                            if compact {
+                                objc2_ui_kit::UICollectionLayoutListAppearance::InsetGrouped
+                            } else {
+                                objc2_ui_kit::UICollectionLayoutListAppearance::Sidebar
+                            },
+                        );
+                    config.setHeaderMode(if headers {
+                        objc2_ui_kit::UICollectionLayoutListHeaderMode::Supplementary
+                    } else {
+                        objc2_ui_kit::UICollectionLayoutListHeaderMode::None
+                    });
+                    let section = objc2_ui_kit::NSCollectionLayoutSection::
+                        sectionWithListConfiguration_layoutEnvironment(&config, environment);
+                    Retained::autorelease_return(section)
+                },
+            );
+            Retained::into_super(
+                objc2_ui_kit::UICollectionViewCompositionalLayout::initWithSectionProvider(
+                    objc2_ui_kit::UICollectionViewCompositionalLayout::alloc(mtm),
+                    block2::RcBlock::as_ptr(&provider),
+                ),
+            )
+        }
+    }
+
+    /// A row's trailing accessories: the status glyph an app asked for, then the chevron.
+    ///
+    /// `UICellAccessory` rather than subviews placed by hand — the list positions them, sizes them
+    /// and keeps them clear of a label that has to truncate, which the cell this replaced did in
+    /// its own `layoutSubviews`.
+    fn nav_accessories(
+        mtm: MainThreadMarker,
+        text: Option<&str>,
+        badge: Option<&objc2_ui_kit::UIImage>,
+        badge_tint: Option<day_spec::Color>,
+    ) -> Retained<objc2_foundation::NSArray<objc2_ui_kit::UICellAccessory>> {
+        let mut items: Vec<Retained<objc2_ui_kit::UICellAccessory>> = Vec::new();
+        if let Some(text) = text.filter(|s| !s.is_empty()) {
+            let label = unsafe {
+                objc2_ui_kit::UICellAccessoryLabel::initWithText(
+                    objc2_ui_kit::UICellAccessoryLabel::alloc(mtm),
+                    &NSString::from_str(text),
+                )
+            };
+            items.push(objc2::rc::Retained::into_super(label));
+        }
+        if let Some(img) = badge {
+            let iv = unsafe {
+                objc2_ui_kit::UIImageView::initWithImage(
+                    objc2_ui_kit::UIImageView::alloc(mtm),
+                    Some(img),
+                )
+            };
+            if let Some(c) = badge_tint {
+                unsafe { iv.setTintColor(Some(&uicolor(c))) };
+            }
+            unsafe { iv.sizeToFit() };
+            let acc = unsafe {
+                objc2_ui_kit::UICellAccessoryCustomView::initWithCustomView_placement(
+                    objc2_ui_kit::UICellAccessoryCustomView::alloc(mtm),
+                    &iv,
+                    objc2_ui_kit::UICellAccessoryPlacement::Trailing,
+                )
+            };
+            items.push(objc2::rc::Retained::into_super(acc));
+        }
+        let chevron = unsafe {
+            objc2_ui_kit::UICellAccessoryDisclosureIndicator::init(
+                objc2_ui_kit::UICellAccessoryDisclosureIndicator::alloc(mtm),
+            )
+        };
+        items.push(objc2::rc::Retained::into_super(chevron));
+        objc2_foundation::NSArray::from_retained_slice(&items)
+    }
+
+    /// Move a sidebar list's highlight to `row`, or clear it (`NavMenuProps::selected`), looking
+    /// the row's index path up through the list's registered data source.
+    ///
+    /// Only for callers that hold NO borrow of `NAV_MENUS` and no `DayNavTableData` of their own.
+    /// The ones that do call [`select_nav_path`] with `path_of` applied to the data they already
+    /// have: this lookup borrows the map, and doing that from inside a `borrow_mut` panicked the
+    /// whole nav build ("RefCell already mutably borrowed", contained at the FFI boundary, so the
+    /// app came up with no navigation host at all).
+    fn select_nav_row(cv: &objc2_ui_kit::UICollectionView, row: Option<usize>) {
+        let path = row.and_then(|r| {
+            NAV_MENUS.with(|m| m.borrow().get(&ptr_of(&view_of(cv.retain())))?.0.path_of(r))
+        });
+        select_nav_path(cv, path);
+    }
+
+    /// Move a sidebar list's highlight to `path` — a (section, item) pair, because a row's flat
+    /// index is not its index PATH once the list has headings and the grouping is private to the
+    /// list (`DayNavTableData::path_of`).
+    ///
+    /// Not animated and not scrolled to: this runs while the model syncs the selection, and both
+    /// would read as the list moving under a tap the user already made.
+    fn select_nav_path(cv: &objc2_ui_kit::UICollectionView, path: Option<(usize, usize)>) {
+        unsafe {
+            let ip = path.map(|(section, item)| {
+                objc2_foundation::NSIndexPath::indexPathForItem_inSection(
+                    item as isize,
+                    section as isize,
+                )
+            });
+            cv.selectItemAtIndexPath_animated_scrollPosition(
+                ip.as_deref(),
+                false,
+                objc2_ui_kit::UICollectionViewScrollPosition::empty(),
+            );
+        }
+    }
+
+    impl DayNavTableData {
+        // The parameters are `NavMenuProps`, minus `selected`: index-aligned per-row
+        // decoration arrays. Taking the props struct instead would tie this to one caller —
+        // `NavMenuPatch::Items` carries the same arrays without a props value to hand over.
+        #[allow(clippy::too_many_arguments)]
+        fn new(
+            mtm: MainThreadMarker,
+            node: NodeId,
+            items: &[String],
+            icons: &[Option<String>],
+            tints: &[Option<day_spec::Color>],
+            menus: &[Vec<day_spec::MenuItem>],
+            badges: &[Option<String>],
+            badge_icons: &[Option<String>],
+            badge_tints: &[Option<day_spec::Color>],
+            sections: &[Option<String>],
+        ) -> Retained<Self> {
+            let resolved = resolve_nav_images(icons);
+            let this = Self::alloc(mtm).set_ivars(NavTableIvars {
+                node,
+                items: RefCell::new(items.iter().map(|s| NSString::from_str(s)).collect()),
+                icons: RefCell::new(resolved),
+                icon_progress: RefCell::new(Vec::new()),
+                badges: RefCell::new(badges.to_vec()),
+                badge_icons: RefCell::new(resolve_nav_images(badge_icons)),
+                badge_tints: RefCell::new(badge_tints.to_vec()),
+                tints: RefCell::new(tints.to_vec()),
+                menus: RefCell::new(menus.to_vec()),
+                sections: RefCell::new(sections.to_vec()),
+                headers: std::cell::Cell::new(sections.iter().any(|s| s.is_some())),
+            });
+            unsafe { msg_send![super(this), init] }
+        }
+
+        /// The row groups this menu draws, as `(heading, first row, row count)`.
+        ///
+        /// `NavMenuProps::sections` is parallel to the rows — a heading INTRODUCES the row at its
+        /// own index — so the groups are runs, and a row's flat index is `first + item`. Rows
+        /// before the first heading form a leading group with none, which is what lets a list open
+        /// with ungrouped rows.
+        fn groups(&self) -> Vec<(Option<String>, usize, usize)> {
+            let rows = self.ivars().items.borrow().len();
+            let sections = self.ivars().sections.borrow();
+            let mut out: Vec<(Option<String>, usize, usize)> = Vec::new();
+            for row in 0..rows {
+                match sections.get(row).cloned().flatten() {
+                    Some(title) => out.push((Some(title), row, 1)),
+                    None if out.is_empty() => out.push((None, row, 1)),
+                    None => {
+                        let last = out.last_mut().expect("non-empty");
+                        last.2 += 1;
+                    }
+                }
+            }
+            out
+        }
+
+        /// The flat row an index path addresses, and the reverse — everything above this backend
+        /// speaks in flat row indices (`SelectionChanged`, `NavMenuProps::selected`, the tint and
+        /// badge arrays), so the grouping stays private to the list.
+        fn row_of(&self, section: usize, item: usize) -> Option<usize> {
+            let g = self.groups();
+            let (_, first, len) = g.get(section)?;
+            (item < *len).then_some(first + item)
+        }
+
+        fn path_of(&self, row: usize) -> Option<(usize, usize)> {
+            self.groups()
+                .iter()
+                .enumerate()
+                .find_map(|(s, (_, first, len))| {
+                    (row >= *first && row < first + len).then_some((s, row - first))
+                })
+        }
+
+        /// Data-driven rows changed (`NavMenuPatch::Items`): swap labels/icons in place.
+        // One parallel array per row attribute, which is the shape `NavMenuPatch::Items`
+        // arrives in; bundling them into a struct here would only unpack it again.
+        #[allow(clippy::too_many_arguments)]
+        fn set_items(
+            &self,
+            items: &[String],
+            icons: &[Option<String>],
+            tints: &[Option<day_spec::Color>],
+            menus: &[Vec<day_spec::MenuItem>],
+            badges: &[Option<String>],
+            badge_icons: &[Option<String>],
+            badge_tints: &[Option<day_spec::Color>],
+            sections: &[Option<String>],
+        ) {
+            *self.ivars().items.borrow_mut() =
+                items.iter().map(|s| NSString::from_str(s)).collect();
+            *self.ivars().sections.borrow_mut() = sections.to_vec();
+            *self.ivars().tints.borrow_mut() = tints.to_vec();
+            *self.ivars().menus.borrow_mut() = menus.to_vec();
+            *self.ivars().icons.borrow_mut() = resolve_nav_images(icons);
+            self.ivars().icon_progress.borrow_mut().clear();
+            *self.ivars().badges.borrow_mut() = badges.to_vec();
+            *self.ivars().badge_icons.borrow_mut() = resolve_nav_images(badge_icons);
+            *self.ivars().badge_tints.borrow_mut() = badge_tints.to_vec();
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // The hierarchical tree (docs/tree.md): a list-layout UICollectionView, its rows driven
+    // by a diffable data source over one section's snapshot — the token tree itself. Day owns
+    // disclosure end to end: the cell's outline-disclosure accessory carries a custom action
+    // handler that only EMITS `Event::TreeExpanded`; the piece answers with
+    // `TreePatch::Expand`, which re-applies the section snapshot — so a native tap and the
+    // dayscript `expand:` step share one path, and nothing auto-toggles behind day's back.
+    // -----------------------------------------------------------------------
+
+    struct TreeIvars {
+        node: NodeId,
+        source: RefCell<Option<TreeSource>>,
+        ds: RefCell<
+            Option<Retained<objc2_ui_kit::UICollectionViewDiffableDataSource<NSObject, NSObject>>>,
+        >,
+        /// token → its interned NSNumber: the diffable identifiers compare by isEqual, and
+        /// One object per token also keeps snapshot identity stable across reloads.
+        items: RefCell<HashMap<u64, Retained<objc2_foundation::NSNumber>>>,
+        /// Disclosure by token, as last patched — what a rebuilt snapshot restores.
+        expanded: RefCell<std::collections::HashSet<u64>>,
+        row_height: std::cell::Cell<f64>,
+        selectable: std::cell::Cell<bool>,
+    }
+
+    define_class!(
+        #[unsafe(super(NSObject))]
+        #[thread_kind = MainThreadOnly]
+        #[name = "DayTreeData"]
+        #[ivars = TreeIvars]
+        struct DayTreeData;
+
+        unsafe impl NSObjectProtocol for DayTreeData {}
+
+        unsafe impl UIScrollViewDelegate for DayTreeData {}
+
+        unsafe impl UICollectionViewDelegate for DayTreeData {
+            #[unsafe(method(collectionView:shouldSelectItemAtIndexPath:))]
+            fn should_select_item(
+                &self,
+                _cv: &objc2_ui_kit::UICollectionView,
+                ip: &objc2_foundation::NSIndexPath,
+            ) -> bool {
+                let ds = self.ivars().ds.borrow();
+                ds.as_ref()
+                    .and_then(|ds| ds.itemIdentifierForIndexPath(ip))
+                    .and_then(|it| Self::token_of_item(&it))
+                    .is_some_and(|t| {
+                        self.ivars()
+                            .source
+                            .borrow()
+                            .as_ref()
+                            .is_some_and(|s| !(s.section_header)(t))
+                    })
+            }
+
+            #[unsafe(method(collectionView:didSelectItemAtIndexPath:))]
+            fn did_select(
+                &self,
+                cv: &objc2_ui_kit::UICollectionView,
+                _ip: &objc2_foundation::NSIndexPath,
+            ) {
+                day_spec::ffi_guard::contain((), || self.report_selection(cv));
+            }
+
+            #[unsafe(method(collectionView:didDeselectItemAtIndexPath:))]
+            fn did_deselect(
+                &self,
+                cv: &objc2_ui_kit::UICollectionView,
+                _ip: &objc2_foundation::NSIndexPath,
+            ) {
+                day_spec::ffi_guard::contain((), || self.report_selection(cv));
+            }
+
+            #[unsafe(method_id(collectionView:contextMenuConfigurationForItemAtIndexPath:point:))]
+            fn context_menu_for_item(
+                &self,
+                _cv: &objc2_ui_kit::UICollectionView,
+                index_path: &objc2_foundation::NSIndexPath,
+                _point: CGPoint,
+            ) -> Option<Retained<objc2_ui_kit::UIContextMenuConfiguration>> {
+                // A summon-time ROW menu (docs/menus.md, docs/tree.md): long-press asks the
+                // tree's `row_menu` provider for this row.
+                day_spec::ffi_guard::contain(None, || {
+                    let row_menu = self
+                        .ivars()
+                        .source
+                        .borrow()
+                        .as_ref()
+                        .and_then(|s| s.row_menu.clone())?;
+                    let ds = self.ivars().ds.borrow().clone()?;
+                    let token = ds
+                        .itemIdentifierForIndexPath(index_path)
+                        .and_then(|it| Self::token_of_item(&it))?;
+                    let items = row_menu(token);
+                    if items.is_empty() {
+                        return None;
+                    }
+                    let mtm = self.mtm();
+                    let menu = build_ui_menu(mtm, "", &items);
+                    let provider = block2::RcBlock::new(
+                        move |_suggested: NonNull<objc2_foundation::NSArray<UIMenuElement>>| -> *mut UIMenu {
+                            Retained::autorelease_return(menu.clone())
+                        },
+                    );
+                    Some(unsafe {
+                        UIContextMenuConfiguration::configurationWithIdentifier_previewProvider_actionProvider(
+                            None,
+                            std::ptr::null_mut(),
+                            block2::RcBlock::as_ptr(&provider),
+                            mtm,
+                        )
+                    })
+                })
+            }
+
+            #[unsafe(method(collectionView:didEndDisplayingCell:forItemAtIndexPath:))]
+            fn did_end_displaying(
+                &self,
+                _cv: &objc2_ui_kit::UICollectionView,
+                cell: &objc2_ui_kit::UICollectionViewCell,
+                _ip: &objc2_foundation::NSIndexPath,
+            ) {
+                // The row left the screen (a collapse, a scroll): clear its day element ids
+                // so a hidden row stops answering `find_by_id` — the next bind re-sets the
+                // live row's (docs/tree.md; the rule every tree backend wires).
+                day_spec::ffi_guard::contain((), || {
+                    let content = cell.contentView();
+                    let recycle = self
+                        .ivars()
+                        .source
+                        .borrow()
+                        .as_ref()
+                        .map(|s| s.recycle.clone());
+                    if let Some(recycle) = recycle {
+                        recycle(Retained::as_ptr(&content) as RawHandle);
+                    }
+                });
+            }
+        }
+    );
+
+    impl DayTreeData {
+        fn new(
+            mtm: MainThreadMarker,
+            node: NodeId,
+            selectable: bool,
+            row_height: f64,
+        ) -> Retained<Self> {
+            let this = Self::alloc(mtm).set_ivars(TreeIvars {
+                node,
+                source: RefCell::new(None),
+                ds: RefCell::new(None),
+                items: RefCell::new(HashMap::new()),
+                expanded: RefCell::new(std::collections::HashSet::new()),
+                row_height: std::cell::Cell::new(row_height),
+                selectable: std::cell::Cell::new(selectable),
+            });
+            unsafe { msg_send![super(this), init] }
+        }
+
+        /// The same NSNumber for a token, every time (see `TreeIvars::items`).
+        fn intern(&self, token: u64) -> Retained<objc2_foundation::NSNumber> {
+            self.ivars()
+                .items
+                .borrow_mut()
+                .entry(token)
+                .or_insert_with(|| objc2_foundation::NSNumber::new_u64(token))
+                .clone()
+        }
+
+        fn token_of_item(item: &AnyObject) -> Option<u64> {
+            item.downcast_ref::<objc2_foundation::NSNumber>()
+                .map(|n| n.as_u64())
+        }
+
+        /// The one section's identifier (a lone list has exactly one).
+        fn section() -> Retained<objc2_foundation::NSNumber> {
+            objc2_foundation::NSNumber::new_u64(0)
+        }
+
+        /// Report the FULL selected token set (docs/tree.md).
+        fn report_selection(&self, cv: &objc2_ui_kit::UICollectionView) {
+            if !self.ivars().selectable.get() {
+                return;
+            }
+            let ds = self.ivars().ds.borrow().clone();
+            let Some(ds) = ds else { return };
+            let mut tokens = Vec::new();
+            if let Some(paths) = cv.indexPathsForSelectedItems() {
+                for ip in paths.iter() {
+                    if let Some(tok) = ds
+                        .itemIdentifierForIndexPath(&ip)
+                        .and_then(|it| Self::token_of_item(&it))
+                    {
+                        tokens.push(tok);
+                    }
+                }
+            }
+            emit(self.ivars().node, Event::TreeSelection(tokens));
+        }
+
+        /// Rebuild the section snapshot from the source's current hierarchy and re-apply the
+        /// recorded disclosure. Call outside any day-core borrow (deferred by the patches).
+        fn apply_snapshot(&self, animated: bool) {
+            let Some(ds) = self.ivars().ds.borrow().clone() else {
+                return;
+            };
+            let src = self.ivars().source.borrow().clone();
+            let Some(src) = src else { return };
+            let snap: Retained<objc2_ui_kit::NSDiffableDataSourceSectionSnapshot<NSObject>> = unsafe {
+                msg_send![
+                    <objc2_ui_kit::NSDiffableDataSourceSectionSnapshot<NSObject> as objc2::AnyThread>::alloc(),
+                    init
+                ]
+            };
+            // Parents-first DFS: append each level under its parent item.
+            let mut present: Vec<u64> = Vec::new();
+            let mut stack: Vec<Option<u64>> = vec![None];
+            while let Some(parent) = stack.pop() {
+                let n = (src.children_len)(parent);
+                if n == 0 {
+                    continue;
+                }
+                let kids: Vec<u64> = (0..n).map(|i| (src.child_token)(parent, i)).collect();
+                let arr = objc2_foundation::NSArray::from_retained_slice(
+                    &kids
+                        .iter()
+                        .map(|t| unsafe { Retained::cast_unchecked::<NSObject>(self.intern(*t)) })
+                        .collect::<Vec<_>>(),
+                );
+                match parent {
+                    None => snap.appendItems(&arr),
+                    Some(p) => {
+                        let item = unsafe { Retained::cast_unchecked::<NSObject>(self.intern(p)) };
+                        snap.appendItems_intoParentItem(&arr, Some(&item));
+                    }
+                }
+                for k in kids {
+                    present.push(k);
+                    if (src.expandable)(k) {
+                        stack.push(Some(k));
+                    }
+                }
+            }
+            let open: Vec<Retained<NSObject>> = present
+                .iter()
+                .filter(|t| self.ivars().expanded.borrow().contains(t))
+                .map(|t| unsafe { Retained::cast_unchecked::<NSObject>(self.intern(*t)) })
+                .collect();
+            if !open.is_empty() {
+                snap.expandItems(&objc2_foundation::NSArray::from_retained_slice(&open));
+            }
+            let section = unsafe { Retained::cast_unchecked::<NSObject>(Self::section()) };
+            ds.applySnapshot_toSection_animatingDifferences(&snap, &section, animated);
+        }
+    }
+
+    // A tree row: a UICollectionViewListCell that (a) sizes itself to the tree's UNIFORM row
+    // height — day content is frame-laid, so auto-layout self-sizing would collapse it — and
+    // (b) re-lays its day row at the content view's OWN width on every layout pass, because
+    // indentation and accessories make that width per-row (docs/tree.md `layout_cell`).
+    struct TreeCellIvars {
+        row_height: std::cell::Cell<f64>,
+    }
+
+    define_class!(
+        #[unsafe(super(objc2_ui_kit::UICollectionViewListCell))]
+        #[thread_kind = MainThreadOnly]
+        #[name = "DayTreeListCell"]
+        #[ivars = TreeCellIvars]
+        struct DayTreeListCell;
+
+        impl DayTreeListCell {
+            #[unsafe(method(layoutSubviews))]
+            fn layout_subviews(&self) {
+                let _: () = unsafe { msg_send![super(self), layoutSubviews] };
+                day_spec::ffi_guard::contain((), || {
+                    let content = self.contentView();
+                    let width = content.bounds().size.width;
+                    if width <= 0.0 {
+                        return;
+                    }
+                    // This cell's tree: walk up to the collection view, which keys TREE_STATE.
+                    let mut cur = self.superview();
+                    while let Some(v) = cur {
+                        cur = v.superview();
+                        if let Ok(cv) = v.downcast::<objc2_ui_kit::UICollectionView>() {
+                            let layout = TREE_STATE.with(|m| {
+                                m.borrow().get(&(Retained::as_ptr(&cv) as usize)).and_then(
+                                    |d| {
+                                        d.ivars()
+                                            .source
+                                            .borrow()
+                                            .as_ref()
+                                            .map(|s| s.layout_cell.clone())
+                                    },
+                                )
+                            });
+                            if let Some(f) = layout {
+                                f(Retained::as_ptr(&content) as RawHandle, width);
+                            }
+                            break;
+                        }
+                    }
+                });
+            }
+
+            #[unsafe(method_id(preferredLayoutAttributesFittingAttributes:))]
+            fn preferred_layout_attributes(
+                &self,
+                attrs: &objc2_ui_kit::UICollectionViewLayoutAttributes,
+            ) -> Retained<objc2_ui_kit::UICollectionViewLayoutAttributes> {
+                let mut frame = attrs.frame();
+                frame.size.height = self.ivars().row_height.get();
+                attrs.setFrame(frame);
+                unsafe {
+                    Retained::retain(
+                        attrs as *const objc2_ui_kit::UICollectionViewLayoutAttributes
+                            as *mut objc2_ui_kit::UICollectionViewLayoutAttributes,
+                    )
+                }
+                .expect("attributes retained")
+            }
+        }
+    );
+
+    fn tree_entry_u(key: usize) -> Option<Retained<DayTreeData>> {
+        TREE_STATE.with(|m| m.borrow().get(&key).cloned())
+    }
+
+    // A list row: a UITableViewCell that re-lays its day row at the content view's OWN width
+    // whenever that differs from the width the row was laid at. In editing mode the table
+    // narrows the content view for the delete control and the reorder grip (docs/list.md
+    // "Editing mode"), and a row laid at the table's width would run underneath them.
+    struct ListCellIvars {
+        /// The content width last reported through `ListSource::layout_cell` (0 = none yet).
+        reported: std::cell::Cell<f64>,
+        /// The table this cell was made for (its `LIST_STATE` key) and that list's node: a
+        /// deallocating cell has no superview left to find them by, and the node tells a
+        /// later table at the same address apart from this one.
+        table: usize,
+        node: NodeId,
+        /// The content view's address, the key `bind_row` used: recorded at creation so
+        /// `dealloc` has nothing to ask the cell for.
+        content: std::cell::Cell<usize>,
+    }
+
+    define_class!(
+        #[unsafe(super(objc2_ui_kit::UITableViewCell))]
+        #[thread_kind = MainThreadOnly]
+        #[name = "DayListCell"]
+        #[ivars = ListCellIvars]
+        struct DayListCell;
+
+        impl DayListCell {
+            #[unsafe(method(layoutSubviews))]
+            fn layout_subviews(&self) {
+                let _: () = unsafe { msg_send![super(self), layoutSubviews] };
+                day_spec::ffi_guard::contain((), || {
+                    let content = self.contentView();
+                    let width = content.bounds().size.width;
+                    if width <= 0.0 {
+                        return;
+                    }
+                    let mut cur = self.superview();
+                    while let Some(v) = cur {
+                        cur = v.superview();
+                        let Ok(table) = v.downcast::<objc2_ui_kit::UITableView>() else {
+                            continue;
+                        };
+                        // Outside editing the content view spans the table and the row was
+                        // laid at that width already; report only a width that differs from
+                        // it, and the table's width again once editing ends.
+                        let full = table.bounds().size.width;
+                        let reported = self.ivars().reported.get();
+                        if (width - full).abs() < 0.5 && (reported == 0.0 || reported == width) {
+                            break;
+                        }
+                        let entry = LIST_STATE.with(|m| {
+                            m.borrow().get(&(Retained::as_ptr(&table) as usize)).cloned()
+                        });
+                        let layout = entry.and_then(|(_, data)| {
+                            data.ivars().source.borrow().as_ref().map(|s| s.layout_cell.clone())
+                        });
+                        if let Some(f) = layout {
+                            self.ivars().reported.set(width);
+                            f(Retained::as_ptr(&content) as RawHandle, width);
+                        }
+                        break;
+                    }
+                });
+            }
+
+            /// A self-sizing row's height (`RowHeight::Automatic`, docs/list.md "Row
+            /// heights"): UIKit asks the cell after `cellForRowAtIndexPath:` bound it, and the
+            /// answer is the height Day laid the row at, re-laid first at the width the content
+            /// view has (narrower than the table in editing mode) once the cell has reported
+            /// one. A uniform list never asks: its table has a fixed `rowHeight`.
+            #[unsafe(method(systemLayoutSizeFittingSize:withHorizontalFittingPriority:verticalFittingPriority:))]
+            fn size_fitting(
+                &self,
+                target: CGSize,
+                horizontal: objc2_ui_kit::UILayoutPriority,
+                vertical: objc2_ui_kit::UILayoutPriority,
+            ) -> CGSize {
+                let measured = day_spec::ffi_guard::contain(None, || {
+                    let data = self.list_data()?;
+                    if !data.ivars().automatic {
+                        return None;
+                    }
+                    let source = data.ivars().source.borrow().clone()?;
+                    let content = self.contentView();
+                    let cell = Retained::as_ptr(&content) as RawHandle;
+                    let reported = self.ivars().reported.get();
+                    let width = if reported > 0.0 { reported } else { target.width };
+                    if width > 0.0 {
+                        (source.layout_cell)(cell, width);
+                    }
+                    let height = (source.cell_height)(cell);
+                    (height > 0.0).then_some(CGSize::new(target.width, height))
+                });
+                match measured {
+                    Some(size) => size,
+                    None => unsafe {
+                        msg_send![
+                            super(self),
+                            systemLayoutSizeFittingSize: target,
+                            withHorizontalFittingPriority: horizontal,
+                            verticalFittingPriority: vertical
+                        ]
+                    },
+                }
+            }
+        }
+    );
+
+    impl DayListCell {
+        /// The list data a cell's table answers to, found by walking up to the table.
+        fn list_data(&self) -> Option<Retained<DayListData>> {
+            let mut cur = self.superview();
+            while let Some(v) = cur {
+                cur = v.superview();
+                if let Ok(table) = v.downcast::<objc2_ui_kit::UITableView>() {
+                    return LIST_STATE
+                        .with(|m| {
+                            m.borrow()
+                                .get(&(Retained::as_ptr(&table) as usize))
+                                .cloned()
+                        })
+                        .map(|(_, data)| data);
+                }
+            }
+            None
+        }
+
+        fn new(
+            mtm: MainThreadMarker,
+            ident: &NSString,
+            table: usize,
+            node: NodeId,
+        ) -> Retained<Self> {
+            let this = Self::alloc(mtm).set_ivars(ListCellIvars {
+                reported: std::cell::Cell::new(0.0),
+                table,
+                node,
+                content: std::cell::Cell::new(0),
+            });
+            let this: Retained<Self> = unsafe {
+                msg_send![
+                    super(this),
+                    initWithStyle: objc2_ui_kit::UITableViewCellStyle::Default,
+                    reuseIdentifier: ident
+                ]
+            };
+            this.ivars()
+                .content
+                .set(Retained::as_ptr(&this.contentView()) as usize);
+            this
+        }
+    }
+
+    /// `dealloc` (the macro routes `Drop` there): UITableView is done with this cell for good.
+    /// It reuses queued cells but also discards surplus ones, and every discarded cell used to
+    /// leave the row Day built in its content view behind in day-core. Release that row
+    /// (docs/list.md). Posted, because a cell can deallocate inside a reload Day is applying.
+    /// Nothing is retained here: a first version took the content view and the list entry
+    /// along on the post, and UITableView then died on its own "dataSource is not set"
+    /// assertion mid-layout on iOS 18; copying the addresses recorded at creation does not.
+    /// The content key stays this cell's until the release runs, because day-core holds the
+    /// content view until then; the node id keeps a later table at the same address from
+    /// being mistaken for this one.
+    impl Drop for DayListCell {
+        fn drop(&mut self) {
+            let (table, node) = (self.ivars().table, self.ivars().node);
+            let content = self.ivars().content.get();
+            if content == 0 {
+                return;
+            }
+            <Uikit as Platform>::post(Box::new(move || {
+                let release = LIST_STATE.with(|m| {
+                    let m = m.borrow();
+                    let (_, data) = m.get(&table)?;
+                    if data.ivars().node != node {
+                        return None;
+                    }
+                    let source = data.ivars().source.borrow();
+                    source.as_ref().map(|s| s.release.clone())
+                });
+                if let Some(release) = release {
+                    release(content as RawHandle);
+                }
+            }));
+        }
+    }
+
+    // A sectioned list's header (docs/list.md "Sections"): a plain table's section header view,
+    // which UIKit pins to the top while its section scrolls under it. Day builds the header
+    // row in its content view, as it builds a row in a cell's.
+    define_class!(
+        #[unsafe(super(objc2_ui_kit::UITableViewHeaderFooterView))]
+        #[thread_kind = MainThreadOnly]
+        #[name = "DayListHeader"]
+        #[ivars = ListCellIvars]
+        struct DayListHeader;
+
+        impl DayListHeader {
+            /// A header sizes to its content in every list: lay it at the offered width and
+            /// answer the height Day laid it at.
+            #[unsafe(method(systemLayoutSizeFittingSize:withHorizontalFittingPriority:verticalFittingPriority:))]
+            fn size_fitting(
+                &self,
+                target: CGSize,
+                horizontal: objc2_ui_kit::UILayoutPriority,
+                vertical: objc2_ui_kit::UILayoutPriority,
+            ) -> CGSize {
+                let measured = day_spec::ffi_guard::contain(None, || {
+                    let (table, node) = (self.ivars().table, self.ivars().node);
+                    let source = LIST_STATE.with(|m| {
+                        let m = m.borrow();
+                        let (_, data) = m.get(&table)?;
+                        if data.ivars().node != node {
+                            return None;
+                        }
+                        data.ivars().source.borrow().clone()
+                    })?;
+                    let cell = self.ivars().content.get() as RawHandle;
+                    if target.width > 0.0 {
+                        (source.layout_cell)(cell, target.width);
+                    }
+                    let height = (source.cell_height)(cell);
+                    (height > 0.0).then_some(CGSize::new(target.width, height))
+                });
+                match measured {
+                    Some(size) => size,
+                    None => unsafe {
+                        msg_send![
+                            super(self),
+                            systemLayoutSizeFittingSize: target,
+                            withHorizontalFittingPriority: horizontal,
+                            verticalFittingPriority: vertical
+                        ]
+                    },
+                }
+            }
+        }
+    );
+
+    impl DayListHeader {
+        fn new(
+            mtm: MainThreadMarker,
+            ident: &NSString,
+            table: usize,
+            node: NodeId,
+        ) -> Retained<Self> {
+            let this = Self::alloc(mtm).set_ivars(ListCellIvars {
+                reported: std::cell::Cell::new(0.0),
+                table,
+                node,
+                content: std::cell::Cell::new(0),
+            });
+            let this: Retained<Self> =
+                unsafe { msg_send![super(this), initWithReuseIdentifier: ident] };
+            this.ivars()
+                .content
+                .set(Retained::as_ptr(&this.contentView()) as usize);
+            this
+        }
+    }
+
+    /// The header's goodbye, exactly as `DayListCell`'s: release the row Day built in it.
+    impl Drop for DayListHeader {
+        fn drop(&mut self) {
+            let (table, node) = (self.ivars().table, self.ivars().node);
+            let content = self.ivars().content.get();
+            if content == 0 {
+                return;
+            }
+            <Uikit as Platform>::post(Box::new(move || {
+                let release = LIST_STATE.with(|m| {
+                    let m = m.borrow();
+                    let (_, data) = m.get(&table)?;
+                    if data.ivars().node != node {
+                        return None;
+                    }
+                    let source = data.ivars().source.borrow();
+                    source.as_ref().map(|s| s.release.clone())
+                });
+                if let Some(release) = release {
+                    release(content as RawHandle);
+                }
+            }));
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // DayListData — UITableView data source + delegate for the recycling list (docs/list.md, §10)
+    // -----------------------------------------------------------------------
+
+    /// The association key under which a list's table retains its `DayListData`.
+    static LIST_DATA_SOURCE_KEY: u8 = 0;
+
+    struct ListIvars {
+        node: NodeId,
+        source: RefCell<Option<ListSource>>,
+        row_height: std::cell::Cell<f64>,
+        /// `RowHeight::Automatic`: the table self-sizes its cells through `DayListCell`'s
+        /// `systemLayoutSizeFittingSize:…`, and `row_height` is only the estimate.
+        automatic: bool,
+        /// A height pass is posted and not yet run (`post_row_heights` coalesces).
+        heights_pending: std::cell::Cell<bool>,
+        selectable: std::cell::Cell<bool>,
+        /// The app's localized word for the swipe action (docs/list.md); empty ⇒ trash glyph.
+        delete_label: RefCell<String>,
+        /// The list has section headers (docs/list.md "Sections"). Day's display rows count
+        /// headers; the table gets a section per header, and the header row becomes the
+        /// section's header view, which a plain table pins while the section scrolls.
+        sections: bool,
+        /// The display row of each section's header, ascending: recomputed whenever the table
+        /// asks for its section count (a reload), so the index-path mapping always matches
+        /// the rows the table believes it has.
+        headers: RefCell<Vec<usize>>,
+    }
+
+    define_class!(
+        #[unsafe(super(NSObject))]
+        #[thread_kind = MainThreadOnly]
+        #[name = "DayListData"]
+        #[ivars = ListIvars]
+        struct DayListData;
+
+        unsafe impl NSObjectProtocol for DayListData {}
+
+        impl DayListData {
+            /// Only a sectioned list answers the section-header selectors: a plain list keeps
+            /// UIKit's own section metrics exactly as before. UITableView reads this once, when
+            /// the delegate and data source are set, after `sections` is.
+            #[unsafe(method(respondsToSelector:))]
+            fn responds_to_selector(&self, selector: objc2::runtime::Sel) -> bool {
+                let header_selector = selector == objc2::sel!(numberOfSectionsInTableView:)
+                    || selector == objc2::sel!(tableView:viewForHeaderInSection:)
+                    || selector == objc2::sel!(tableView:heightForHeaderInSection:)
+                    || selector == objc2::sel!(tableView:didEndDisplayingHeaderView:forSection:);
+                if header_selector && !self.ivars().sections {
+                    false
+                } else {
+                    unsafe { msg_send![super(self), respondsToSelector: selector] }
+                }
+            }
+
+            #[unsafe(method(numberOfSectionsInTableView:))]
+            fn number_of_sections(&self, _tv: &objc2_ui_kit::UITableView) -> isize {
+                day_spec::ffi_guard::contain(0, || {
+                    self.refresh_headers();
+                    self.ivars().headers.borrow().len() as isize
+                })
+            }
+
+            #[unsafe(method_id(tableView:viewForHeaderInSection:))]
+            fn view_for_header(
+                &self,
+                tv: &objc2_ui_kit::UITableView,
+                section: isize,
+            ) -> Option<Retained<UIView>> {
+                // (Closure body: define_class converts only the tail expression.)
+                let make = || {
+                let display =
+                    self.ivars().headers.borrow().get(section.max(0) as usize).copied()?;
+                let mtm = self.mtm();
+                let ident = NSString::from_str("day.header");
+                let table = std::ptr::from_ref(tv) as usize;
+                let node = self.ivars().node;
+                let header: Retained<objc2_ui_kit::UITableViewHeaderFooterView> =
+                    unsafe { tv.dequeueReusableHeaderFooterViewWithIdentifier(&ident) }
+                        .unwrap_or_else(|| {
+                            Retained::into_super(DayListHeader::new(mtm, &ident, table, node))
+                        });
+                let content = header.contentView();
+                let source = self.ivars().source.borrow().clone();
+                if let Some(source) = source {
+                    let raw = Retained::as_ptr(&content) as RawHandle;
+                    day_spec::ffi_guard::contain((), || (source.bind_row)(display, raw));
+                }
+                Some(Retained::into_super(header))
+                };
+                make()
+            }
+
+            #[unsafe(method(tableView:heightForHeaderInSection:))]
+            fn height_for_header(&self, _tv: &objc2_ui_kit::UITableView, _section: isize) -> CGFloat {
+                unsafe { objc2_ui_kit::UITableViewAutomaticDimension }
+            }
+
+            /// The header left the screen: park its ids, as a row's cell does.
+            #[unsafe(method(tableView:didEndDisplayingHeaderView:forSection:))]
+            fn did_end_displaying_header(
+                &self,
+                _tv: &objc2_ui_kit::UITableView,
+                view: &UIView,
+                _section: isize,
+            ) {
+                day_spec::ffi_guard::contain((), || {
+                    let Some(header) = view.downcast_ref::<objc2_ui_kit::UITableViewHeaderFooterView>()
+                    else {
+                        return;
+                    };
+                    let content = Retained::as_ptr(&header.contentView()) as usize;
+                    let view = Retained::into_raw(view.retain()) as usize;
+                    let data = Retained::into_raw(self.retain()) as usize;
+                    <Uikit as Platform>::post(Box::new(move || {
+                        // Reclaim both +1s first, so every early return balances them.
+                        let view = unsafe { Retained::from_raw(view as *mut UIView) };
+                        let data = unsafe { Retained::from_raw(data as *mut DayListData) };
+                        let (Some(view), Some(data)) = (view, data) else { return };
+                        if view.window().is_some() {
+                            return; // displayed again: its ids are the live header's
+                        }
+                        let recycle =
+                            data.ivars().source.borrow().as_ref().map(|s| s.recycle.clone());
+                        if let Some(recycle) = recycle {
+                            recycle(content as RawHandle);
+                        }
+                    }));
+                });
+            }
+        }
+
+        unsafe impl UIScrollViewDelegate for DayListData {
+            #[unsafe(method(scrollViewDidScroll:))]
+            fn list_did_scroll(&self, view: &objc2_ui_kit::UIScrollView) {
+                day_spec::ffi_guard::contain((), || {
+                    let source = self.ivars().source.borrow().clone();
+                    if let Some(source) = source
+                        && let Some(report) = &source.first_visible
+                    {
+                        let offset = unsafe { view.contentOffset() }.y.max(0.0);
+                        // A self-sizing list has no pitch to divide by: ask the table which row
+                        // is at the top.
+                        let row = if self.ivars().automatic || self.ivars().sections {
+                            view.downcast_ref::<objc2_ui_kit::UITableView>()
+                                .and_then(|t| unsafe {
+                                    t.indexPathForRowAtPoint(CGPoint::new(0.0, offset))
+                                })
+                                .map(|ip| self.display_of(&ip))
+                                .unwrap_or(0)
+                        } else {
+                            (offset / self.ivars().row_height.get().max(1.0)) as usize
+                        };
+                        report(row.min((source.len)().saturating_sub(1)));
+                    }
+                });
+            }
+        }
+
+        unsafe impl UITableViewDataSource for DayListData {
+            #[unsafe(method(tableView:numberOfRowsInSection:))]
+            fn rows_in_section(&self, _tv: &objc2_ui_kit::UITableView, section: isize) -> isize {
+                // Snapshot-only read (no tree) — safe during reloadData inside a with_tree
+                // borrow. `len` is an app closure, so the body is contained (§8.5).
+                day_spec::ffi_guard::contain(0, || {
+                    let len = self
+                        .ivars()
+                        .source
+                        .borrow()
+                        .as_ref()
+                        .map(|s| (s.len)())
+                        .unwrap_or(0);
+                    if !self.ivars().sections {
+                        return len as isize;
+                    }
+                    // A section's rows run from after its header to the next header.
+                    let headers = self.ivars().headers.borrow();
+                    let section = section.max(0) as usize;
+                    let Some(&start) = headers.get(section) else {
+                        return 0;
+                    };
+                    let end = headers.get(section + 1).copied().unwrap_or(len).max(start + 1);
+                    (end - start - 1) as isize
+                })
+            }
+
+            #[unsafe(method_id(tableView:cellForRowAtIndexPath:))]
+            fn cell_for_row(
+                &self,
+                tv: &objc2_ui_kit::UITableView,
+                index_path: &objc2_foundation::NSIndexPath,
+            ) -> Retained<objc2_ui_kit::UITableViewCell> {
+                let mtm = self.mtm();
+                let ident = NSString::from_str("day.cell");
+                let table = std::ptr::from_ref(tv) as usize;
+                let node = self.ivars().node;
+                let cell =
+                    unsafe { tv.dequeueReusableCellWithIdentifier(&ident) }.unwrap_or_else(|| {
+                        Retained::into_super(DayListCell::new(mtm, &ident, table, node))
+                    });
+                // Day builds/rebinds its row content inside the cell's contentView. The bind
+                // runs day-core's row builder — contained (§8.5); a panicking row leaves the
+                // recycled cell blank rather than aborting.
+                let content = cell.contentView();
+                let row = self.display_of(index_path);
+                if let Some(source) = self.ivars().source.borrow().as_ref() {
+                    let raw = Retained::as_ptr(&content) as RawHandle;
+                    day_spec::ffi_guard::contain((), || (source.bind_row)(row, raw));
+                }
+                cell
+            }
+
+            // --- drag-to-reorder (docs/list.md): the data-source half. With a drag delegate and
+            // `dragInteractionEnabled`, UITableView runs its whole native reorder UX — long-press
+            // lift, the gap under the finger, haptics — and commits through `moveRow`.
+
+            #[unsafe(method(tableView:canMoveRowAtIndexPath:))]
+            fn can_move_row(
+                &self,
+                _tv: &objc2_ui_kit::UITableView,
+                index_path: &objc2_foundation::NSIndexPath,
+            ) -> objc2::runtime::Bool {
+                // A row the guard won't move anywhere (a pinned row) refuses the lift itself:
+                // probing (row -> row) is the cheapest "may this row drag at all" question.
+                // The verdict runs the app's guard closure — contained (§8.5), refusing on panic.
+                let row = self.display_of(index_path);
+                objc2::runtime::Bool::new(day_spec::ffi_guard::contain(false, || {
+                    self.reorder_verdict(row, row) >= 0
+                }))
+            }
+
+            #[unsafe(method(tableView:moveRowAtIndexPath:toIndexPath:))]
+            fn move_row(
+                &self,
+                _tv: &objc2_ui_kit::UITableView,
+                from_path: &objc2_foundation::NSIndexPath,
+                to_path: &objc2_foundation::NSIndexPath,
+            ) {
+                // UIKit hands FINAL indices (post-removal semantics — the seam's own contract).
+                // The table has already animated the move; commit rotates Day's snapshot and
+                // defers the app callback — contained (§8.5).
+                day_spec::ffi_guard::contain((), || {
+                    let (from, to) = (self.display_of(from_path), self.display_of(to_path));
+                    if from == to {
+                        return;
+                    }
+                    let mv = self
+                        .ivars()
+                        .source
+                        .borrow()
+                        .as_ref()
+                        .and_then(|s| s.reorder.as_ref().map(|r| r.move_row.clone()));
+                    if let Some(mv) = mv {
+                        mv(from, to);
+                    }
+                });
+            }
+
+            // --- editing mode (docs/list.md "Editing mode"): the delete control's commit. A
+            // swipe never lands here — the trailing swipe configuration carries its own
+            // handler — only the Delete button the red control reveals while editing.
+            #[unsafe(method(tableView:commitEditingStyle:forRowAtIndexPath:))]
+            fn commit_editing_style(
+                &self,
+                tv: &objc2_ui_kit::UITableView,
+                style: objc2_ui_kit::UITableViewCellEditingStyle,
+                index_path: &objc2_foundation::NSIndexPath,
+            ) {
+                day_spec::ffi_guard::contain((), || {
+                    if style != objc2_ui_kit::UITableViewCellEditingStyle::Delete {
+                        return;
+                    }
+                    let row = self.display_of(index_path);
+                    let del = self
+                        .ivars()
+                        .source
+                        .borrow()
+                        .as_ref()
+                        .and_then(|s| s.delete.clone())
+                        .filter(|d| (d.can_delete)(row));
+                    if let Some(del) = del {
+                        // The seam shortens Day's snapshot first, so the native removal
+                        // animates against the count the data source now reports.
+                        (del.delete_row)(row);
+                        let paths =
+                            objc2_foundation::NSArray::from_retained_slice(&[index_path.retain()]);
+                        unsafe {
+                            tv.deleteRowsAtIndexPaths_withRowAnimation(
+                                &paths,
+                                objc2_ui_kit::UITableViewRowAnimation::Automatic,
+                            )
+                        };
+                    }
+                });
+            }
+        }
+
+        unsafe impl UITableViewDelegate for DayListData {
+            // Editing mode's per-row control: the red delete control on a row `deletable`
+            // offers, none otherwise. Outside editing this answers the same, and the swipe
+            // configuration below supplies the actions; `None` there keeps a row the guard
+            // protects from falling back to UIKit's stock Delete swipe.
+            #[unsafe(method(tableView:editingStyleForRowAtIndexPath:))]
+            fn editing_style(
+                &self,
+                _tv: &objc2_ui_kit::UITableView,
+                index_path: &objc2_foundation::NSIndexPath,
+            ) -> objc2_ui_kit::UITableViewCellEditingStyle {
+                self.row_editing_style(self.display_of(index_path))
+            }
+
+            // A row without a delete control keeps its leading edge while editing, rather than
+            // indenting for a control it does not have.
+            #[unsafe(method(tableView:shouldIndentWhileEditingRowAtIndexPath:))]
+            fn should_indent_while_editing(
+                &self,
+                _tv: &objc2_ui_kit::UITableView,
+                index_path: &objc2_foundation::NSIndexPath,
+            ) -> objc2::runtime::Bool {
+                objc2::runtime::Bool::new(
+                    self.row_editing_style(self.display_of(index_path))
+                        != objc2_ui_kit::UITableViewCellEditingStyle::None,
+                )
+            }
+
+            /// The cell left the screen: park its row's dayscript ids. Deferred and re-checked,
+            /// as AppKit's `didRemoveRowView` is: a reload or batch update can dequeue the very
+            /// cell it is ending, bind it to a row, and only then report the old display ended.
+            /// Recycled there, a row on screen lost its ids, and `wait_for` on it failed (an iPad
+            /// catalog manager opened just as a catalog was added).
+            #[unsafe(method(tableView:didEndDisplayingCell:forRowAtIndexPath:))]
+            fn did_end_displaying(
+                &self,
+                tv: &objc2_ui_kit::UITableView,
+                cell: &objc2_ui_kit::UITableViewCell,
+                _ip: &objc2_foundation::NSIndexPath,
+            ) {
+                day_spec::ffi_guard::contain((), || {
+                    let key = std::ptr::from_ref(tv) as usize;
+                    // A +1 across the post (the closure must be Send, which Retained is not;
+                    // everything stays on the main thread). UIKit may free an ended cell.
+                    let cell = Retained::into_raw(cell.retain()) as usize;
+                    <Uikit as Platform>::post(Box::new(move || {
+                        // Reclaim the +1 first, so every early return balances it.
+                        let cell = unsafe {
+                            Retained::from_raw(cell as *mut objc2_ui_kit::UITableViewCell)
+                        };
+                        let Some(cell) = cell else { return };
+                        let entry = LIST_STATE.with(|m| m.borrow().get(&key).cloned());
+                        let Some((table, data)) = entry else { return };
+                        if unsafe { table.indexPathForCell(&cell) }.is_some() {
+                            return; // displayed again: its ids are the live row's
+                        }
+                        let recycle = data
+                            .ivars()
+                            .source
+                            .borrow()
+                            .as_ref()
+                            .map(|s| s.recycle.clone());
+                        if let Some(recycle) = recycle {
+                            let content = cell.contentView();
+                            recycle(Retained::as_ptr(&content) as RawHandle);
+                        }
+                    }));
+                });
+            }
+
+            #[unsafe(method(tableView:willDisplayCell:forRowAtIndexPath:))]
+            fn will_display(
+                &self,
+                _tv: &objc2_ui_kit::UITableView,
+                cell: &objc2_ui_kit::UITableViewCell,
+                ip: &objc2_foundation::NSIndexPath,
+            ) {
+                day_spec::ffi_guard::contain((), || {
+                    let source = self.ivars().source.borrow().clone();
+                    if let Some(source) = source {
+                        let row = self.display_of(ip);
+                        if row < (source.len)() {
+                            let content = cell.contentView();
+                            (source.bind_row)(row, Retained::as_ptr(&content) as RawHandle);
+                        }
+                    }
+                });
+            }
+
+            #[unsafe(method(tableView:heightForRowAtIndexPath:))]
+            fn height_for_row(
+                &self,
+                _tv: &objc2_ui_kit::UITableView,
+                _index_path: &objc2_foundation::NSIndexPath,
+            ) -> CGFloat {
+                if self.ivars().automatic {
+                    unsafe { objc2_ui_kit::UITableViewAutomaticDimension }
+                } else {
+                    self.ivars().row_height.get()
+                }
+            }
+
+            #[unsafe(method(tableView:didSelectRowAtIndexPath:))]
+            fn did_select(
+                &self,
+                tv: &objc2_ui_kit::UITableView,
+                index_path: &objc2_foundation::NSIndexPath,
+            ) {
+                day_spec::ffi_guard::contain((), || {
+                    let row = self.display_of(index_path);
+                    unsafe { tv.deselectRowAtIndexPath_animated(index_path, true) };
+                    if self.ivars().selectable.get() {
+                        emit(self.ivars().node, Event::SelectionChanged(row as i64));
+                        emit(self.ivars().node, Event::ListActivated(row));
+                    }
+                });
+            }
+
+            // --- swipe actions (docs/list.md). `UISwipeActionsConfiguration` is the modern
+            // spelling: it gives the full native UX — the row tracking the finger, the actions
+            // revealing behind it, the full-swipe shortcut for the first action — where the
+            // older `commitEditingStyle` pair only offered a fixed Delete button. The trailing
+            // edge carries the delete affordance first (full swipe deletes, the Mail idiom),
+            // then the row's own trailing offer; the leading edge is the offer alone.
+            // Returning `None` means this row has no swipe action, which is exactly how a
+            // guarded row declines.
+            #[unsafe(method_id(tableView:trailingSwipeActionsConfigurationForRowAtIndexPath:))]
+            fn trailing_swipe_actions(
+                &self,
+                tv: &objc2_ui_kit::UITableView,
+                index_path: &objc2_foundation::NSIndexPath,
+            ) -> Option<Retained<objc2_ui_kit::UISwipeActionsConfiguration>> {
+                // The whole body runs inside a closure: `define_class!`'s `method_id` return
+                // shim leaves no room for an early `return None`, but a closure gives `?` back.
+                // `contain` doubles as the invoker (§8.5) — the guard seam runs app closures,
+                // and a panic degrades to "no swipe action".
+                let body = || -> Option<Retained<objc2_ui_kit::UISwipeActionsConfiguration>> {
+                    let row = self.display_of(index_path);
+                    let (del, sw) = {
+                        let src = self.ivars().source.borrow();
+                        let s = src.as_ref()?;
+                        (s.delete.clone(), s.swipe.clone())
+                    };
+                    let mtm = MainThreadMarker::new()?;
+                    let mut actions: Vec<Retained<objc2_ui_kit::UIContextualAction>> = Vec::new();
+                    // A guarded row offers NO delete rather than one that fails on use.
+                    if let Some(del) = del.filter(|d| (d.can_delete)(row)) {
+                        let label = self.ivars().delete_label.borrow().clone();
+                        let title = (!label.is_empty()).then(|| NSString::from_str(&label));
+                        let tv: Retained<objc2_ui_kit::UITableView> = Retained::from(tv);
+                        let path: Retained<objc2_foundation::NSIndexPath> =
+                            Retained::from(index_path);
+                        let handler =
+                            block2::RcBlock::new(
+                                move |_a: NonNull<objc2_ui_kit::UIContextualAction>,
+                                      _v: NonNull<UIView>,
+                                      done: NonNull<
+                                    block2::DynBlock<dyn Fn(objc2::runtime::Bool)>,
+                                >| {
+                                    // Commit through the seam first — it shortens Day's snapshot
+                                    // synchronously — then let the table animate the row away.
+                                    // Deleting the row natively (rather than reloading) keeps the
+                                    // swipe's own animation continuous into the removal.
+                                    (del.delete_row)(row);
+                                    let paths = objc2_foundation::NSArray::from_retained_slice(
+                                        std::slice::from_ref(&path),
+                                    );
+                                    unsafe {
+                                        tv.deleteRowsAtIndexPaths_withRowAnimation(
+                                            &paths,
+                                            objc2_ui_kit::UITableViewRowAnimation::Automatic,
+                                        );
+                                        // Report the action finished; the row is gone, so the swipe
+                                        // must not spring back.
+                                        done.as_ref().call((objc2::runtime::Bool::YES,));
+                                    }
+                                },
+                            );
+                        let action = unsafe {
+                            objc2_ui_kit::UIContextualAction::contextualActionWithStyle_title_handler(
+                                objc2_ui_kit::UIContextualActionStyle::Destructive,
+                                title.as_deref(),
+                                block2::RcBlock::as_ptr(&handler),
+                                mtm,
+                            )
+                        };
+                        // No app label ⇒ the wordless idiom: a trash glyph, legible in every
+                        // locale.
+                        if title.is_none()
+                            && let Some(img) = objc2_ui_kit::UIImage::systemImageNamed(
+                                &NSString::from_str("trash"),
+                            )
+                        {
+                            unsafe { action.setImage(Some(&img)) };
+                        }
+                        actions.push(action);
+                    }
+                    if let Some(sw) = sw {
+                        let offer = (sw.actions_at)(row, day_spec::SwipeEdge::Trailing);
+                        for (i, a) in offer.iter().enumerate() {
+                            actions.push(Self::contextual_action(
+                                a,
+                                row,
+                                day_spec::SwipeEdge::Trailing,
+                                i,
+                                sw.perform.clone(),
+                                mtm,
+                            ));
+                        }
+                    }
+                    if actions.is_empty() {
+                        return None;
+                    }
+                    Some(
+                        objc2_ui_kit::UISwipeActionsConfiguration::configurationWithActions(
+                            &objc2_foundation::NSArray::from_retained_slice(&actions),
+                            mtm,
+                        ),
+                    )
+                };
+                day_spec::ffi_guard::contain(None, body)
+            }
+
+            #[unsafe(method_id(tableView:leadingSwipeActionsConfigurationForRowAtIndexPath:))]
+            fn leading_swipe_actions(
+                &self,
+                _tv: &objc2_ui_kit::UITableView,
+                index_path: &objc2_foundation::NSIndexPath,
+            ) -> Option<Retained<objc2_ui_kit::UISwipeActionsConfiguration>> {
+                // Guarded as the trailing edge is: the offer runs the app's provider closure.
+                let body = || -> Option<Retained<objc2_ui_kit::UISwipeActionsConfiguration>> {
+                    let row = self.display_of(index_path);
+                    let sw = self
+                        .ivars()
+                        .source
+                        .borrow()
+                        .as_ref()
+                        .and_then(|s| s.swipe.clone())?;
+                    let mtm = MainThreadMarker::new()?;
+                    let offer = (sw.actions_at)(row, day_spec::SwipeEdge::Leading);
+                    if offer.is_empty() {
+                        return None;
+                    }
+                    let actions: Vec<Retained<objc2_ui_kit::UIContextualAction>> = offer
+                        .iter()
+                        .enumerate()
+                        .map(|(i, a)| {
+                            Self::contextual_action(
+                                a,
+                                row,
+                                day_spec::SwipeEdge::Leading,
+                                i,
+                                sw.perform.clone(),
+                                mtm,
+                            )
+                        })
+                        .collect();
+                    Some(
+                        objc2_ui_kit::UISwipeActionsConfiguration::configurationWithActions(
+                            &objc2_foundation::NSArray::from_retained_slice(&actions),
+                            mtm,
+                        ),
+                    )
+                };
+                day_spec::ffi_guard::contain(None, body)
+            }
+
+            // The guard's live veto/override: UIKit proposes a landing slot while the finger
+            // moves; returning the source path refuses it (the gap stays home), another path
+            // retargets it — the affordance mirrors the app's answer before the drop.
+            #[unsafe(method_id(tableView:targetIndexPathForMoveFromRowAtIndexPath:toProposedIndexPath:))]
+            fn target_for_move(
+                &self,
+                _tv: &objc2_ui_kit::UITableView,
+                from_path: &objc2_foundation::NSIndexPath,
+                proposed: &objc2_foundation::NSIndexPath,
+            ) -> Retained<objc2_foundation::NSIndexPath> {
+                // (Closure body: define_class converts only the tail expression.)
+                let target = || {
+                    let (from, to) = (self.display_of(from_path), self.display_of(proposed));
+                    let accepted = self.reorder_verdict(from, to);
+                    if accepted < 0 {
+                        return from_path.retain();
+                    }
+                    if accepted as usize == to {
+                        return proposed.retain();
+                    }
+                    // A retarget names a display row: in a sectioned table, the end of the
+                    // row's own section when the finger strays past it (docs/list.md
+                    // "Sections").
+                    self.path_of(accepted as usize)
+                        .unwrap_or_else(|| from_path.retain())
+                };
+                // Contained (§8.5): the verdict runs the app's guard closure; a panic refuses
+                // the move (the source path keeps the gap home).
+                day_spec::ffi_guard::contain(from_path.retain(), target)
+            }
+        }
+
+        // The drag delegate that lets rows lift without editing mode (docs/list.md): one drag
+        // item with an empty provider — nothing leaves the table; UIKit treats it as a local
+        // reorder and drives the data-source move above.
+        unsafe impl UITableViewDragDelegate for DayListData {
+            #[unsafe(method_id(tableView:itemsForBeginningDragSession:atIndexPath:))]
+            fn items_for_drag(
+                &self,
+                _tv: &objc2_ui_kit::UITableView,
+                _session: &ProtocolObject<dyn objc2_ui_kit::UIDragSession>,
+                index_path: &objc2_foundation::NSIndexPath,
+            ) -> Retained<objc2_foundation::NSArray<objc2_ui_kit::UIDragItem>> {
+                // (Closure body: define_class converts only the tail expression.)
+                let items = || {
+                    let row = self.display_of(index_path);
+                    if self.reorder_verdict(row, row) < 0 {
+                        return objc2_foundation::NSArray::new();
+                    }
+                    let provider = objc2_foundation::NSItemProvider::new();
+                    let item = unsafe {
+                        objc2_ui_kit::UIDragItem::initWithItemProvider(
+                            objc2_ui_kit::UIDragItem::alloc(self.mtm()),
+                            &provider,
+                        )
+                    };
+                    objc2_foundation::NSArray::from_retained_slice(&[item])
+                };
+                // Contained (§8.5): the verdict runs the app's guard closure; a panic refuses
+                // the lift (no drag items).
+                day_spec::ffi_guard::contain(objc2_foundation::NSArray::new(), items)
+            }
+        }
+    );
+
+    impl DayListData {
+        fn new(
+            mtm: MainThreadMarker,
+            node: NodeId,
+            selectable: bool,
+            row_height: f64,
+            automatic: bool,
+            delete_label: String,
+            sections: bool,
+        ) -> Retained<Self> {
+            let this = Self::alloc(mtm).set_ivars(ListIvars {
+                node,
+                source: RefCell::new(None),
+                row_height: std::cell::Cell::new(row_height),
+                automatic,
+                heights_pending: std::cell::Cell::new(false),
+                selectable: std::cell::Cell::new(selectable),
+                delete_label: RefCell::new(delete_label),
+                sections,
+                headers: RefCell::new(Vec::new()),
+            });
+            unsafe { msg_send![super(this), init] }
+        }
+
+        /// Re-read which display rows are headers (docs/list.md "Sections").
+        fn refresh_headers(&self) {
+            let source = self.ivars().source.borrow().clone();
+            let headers = source
+                .and_then(|s| {
+                    let is_header = s.is_header.clone()?;
+                    Some((0..(s.len)()).filter(|i| is_header(*i)).collect())
+                })
+                .unwrap_or_default();
+            *self.ivars().headers.borrow_mut() = headers;
+        }
+
+        /// The display row (the index Day's source speaks) at a table index path.
+        fn display_of(&self, ip: &objc2_foundation::NSIndexPath) -> usize {
+            let row = unsafe { ip.row() }.max(0) as usize;
+            if !self.ivars().sections {
+                return row;
+            }
+            let section = unsafe { ip.section() }.max(0) as usize;
+            self.ivars()
+                .headers
+                .borrow()
+                .get(section)
+                .map_or(row, |header| header + 1 + row)
+        }
+
+        /// The index path of a display row; `None` for a header, which is no row of the table.
+        fn path_of(&self, display: usize) -> Option<Retained<objc2_foundation::NSIndexPath>> {
+            if !self.ivars().sections {
+                return Some(objc2_foundation::NSIndexPath::indexPathForRow_inSection(
+                    display as isize,
+                    0,
+                ));
+            }
+            let headers = self.ivars().headers.borrow();
+            let section = headers.partition_point(|h| *h <= display).checked_sub(1)?;
+            let row = display.checked_sub(headers[section] + 1)?;
+            Some(objc2_foundation::NSIndexPath::indexPathForRow_inSection(
+                row as isize,
+                section as isize,
+            ))
+        }
+
+        /// The display rows the table currently holds: its rows, plus one header per section
+        /// in a sectioned list.
+        fn table_len(&self, table: &objc2_ui_kit::UITableView) -> usize {
+            let sections = unsafe { table.numberOfSections() }.max(0);
+            let rows: isize = (0..sections)
+                .map(|s| unsafe { table.numberOfRowsInSection(s) }.max(0))
+                .sum();
+            let headers = if self.ivars().sections { sections } else { 0 };
+            (rows + headers) as usize
+        }
+
+        /// `ListPatch::RowSizeInvalidated`: a self-sizing row was re-laid at a new height.
+        /// The patch arrives under the day-core borrow, and re-sizing asks the cells, which ask
+        /// the source; so the table re-sizes its rows on the next turn, once for every row a
+        /// pass changed, and without animation: the row takes its content's height.
+        fn post_row_heights(key: usize) {
+            let entry = LIST_STATE.with(|m| m.borrow().get(&key).cloned());
+            let Some((_, data)) = entry else { return };
+            if data.ivars().heights_pending.replace(true) {
+                return;
+            }
+            <Uikit as Platform>::post(Box::new(move || {
+                let entry = LIST_STATE.with(|m| m.borrow().get(&key).cloned());
+                let Some((table, data)) = entry else { return };
+                data.ivars().heights_pending.set(false);
+                // Only while the table shows the source's row count. A splice or reload that
+                // changed the count is still on its way (both are posted too), and an empty
+                // batch would make the table adopt the new count early; that change's own
+                // batch then failed UITableView's row-count check and threw ("Invalid batch
+                // updates"), aborting the app. The pending change re-sizes the rows itself.
+                let len = data.ivars().source.borrow().as_ref().map(|s| (s.len)());
+                if len != Some(data.table_len(&table)) {
+                    return;
+                }
+                let cls = <objc2_ui_kit::UIView as objc2::ClassType>::class();
+                unsafe {
+                    let was: bool = msg_send![cls, areAnimationsEnabled];
+                    let _: () = msg_send![cls, setAnimationsEnabled: false];
+                    table.beginUpdates();
+                    table.endUpdates();
+                    let _: () = msg_send![cls, setAnimationsEnabled: was];
+                }
+            }));
+        }
+
+        /// A row's editing control: Delete where the delete seam offers one, none otherwise.
+        /// It runs the app's guard closure, so it is contained (§8.5), answering none on panic.
+        fn row_editing_style(&self, row: usize) -> objc2_ui_kit::UITableViewCellEditingStyle {
+            day_spec::ffi_guard::contain(objc2_ui_kit::UITableViewCellEditingStyle::None, || {
+                let deletable = self
+                    .ivars()
+                    .source
+                    .borrow()
+                    .as_ref()
+                    .and_then(|s| s.delete.clone())
+                    .is_some_and(|d| (d.can_delete)(row));
+                if deletable {
+                    objc2_ui_kit::UITableViewCellEditingStyle::Delete
+                } else {
+                    objc2_ui_kit::UITableViewCellEditingStyle::None
+                }
+            })
+        }
+
+        /// The guard's verdict for `from -> to` through the sync seam (accepted index, or -1 —
+        /// also -1 when the list has no reorder seam at all).
+        fn reorder_verdict(&self, from: usize, to: usize) -> i64 {
+            self.ivars()
+                .source
+                .borrow()
+                .as_ref()
+                .and_then(|s| s.reorder.as_ref().map(|r| (r.can_move)(from, to)))
+                .unwrap_or(-1)
+        }
+
+        /// One offered swipe action as a `UIContextualAction` (docs/list.md). The handler
+        /// commits through the seam — which defers the app's callback to the event drain —
+        /// and reports done; the row springs back on its own (an action that removes its row
+        /// does so through the app's data refresh).
+        fn contextual_action(
+            a: &day_spec::ListSwipeAction,
+            row: usize,
+            edge: day_spec::SwipeEdge,
+            index: usize,
+            perform: std::rc::Rc<dyn Fn(usize, day_spec::SwipeEdge, usize)>,
+            mtm: MainThreadMarker,
+        ) -> Retained<objc2_ui_kit::UIContextualAction> {
+            let handler = block2::RcBlock::new(
+                move |_a: NonNull<objc2_ui_kit::UIContextualAction>,
+                      _v: NonNull<UIView>,
+                      done: NonNull<block2::DynBlock<dyn Fn(objc2::runtime::Bool)>>| {
+                    day_spec::ffi_guard::contain((), || {
+                        perform(row, edge, index);
+                        unsafe { done.as_ref().call((objc2::runtime::Bool::YES,)) };
+                    })
+                },
+            );
+            let style = if a.destructive {
+                objc2_ui_kit::UIContextualActionStyle::Destructive
+            } else {
+                objc2_ui_kit::UIContextualActionStyle::Normal
+            };
+            let action = unsafe {
+                objc2_ui_kit::UIContextualAction::contextualActionWithStyle_title_handler(
+                    style,
+                    Some(&NSString::from_str(&a.label)),
+                    block2::RcBlock::as_ptr(&handler),
+                    mtm,
+                )
+            };
+            if let Some(t) = a.tint {
+                unsafe { action.setBackgroundColor(Some(&uicolor(t))) };
+            }
+            // The glyph, where one is declared — UIKit shows it in place of the title on
+            // standard-height rows (the title stays the accessibility name), the same
+            // wordless idiom the delete affordance uses.
+            if let Some(sym) = a.symbol
+                && let Some(img) = objc2_ui_kit::UIImage::systemImageNamed(&NSString::from_str(
+                    day_spec::sf_symbol_name(sym),
+                ))
+            {
+                unsafe { action.setImage(Some(&img)) };
+            }
+            action
+        }
+    }
+
+    /// A realized LIST's (table view, its data source), keyed by table ptr.
+    type ListEntry = (Retained<objc2_ui_kit::UITableView>, Retained<DayListData>);
+
+    // -----------------------------------------------------------------------
+    // DayCanvasView — replay in drawRect (§11)
+    // -----------------------------------------------------------------------
+
+    define_class!(
+        #[unsafe(super(UIView))]
+        #[thread_kind = MainThreadOnly]
+        #[name = "DayFocusableContainer"]
+        #[ivars = ()]
+        struct DayFocusableContainer;
+        impl DayFocusableContainer {
+            #[unsafe(method(canBecomeFirstResponder))]
+            fn can_become_first_responder(&self) -> bool {
+                KEY_NODES.with(|t| t.get((self as *const Self).cast::<UIView>() as usize)).is_some()
+            }
+
+            #[unsafe(method(becomeFirstResponder))]
+            fn become_first_responder(&self) -> bool {
+                let became: bool = unsafe { msg_send![super(self), becomeFirstResponder] };
+                if became {
+                    let ptr = (self as *const DayFocusableContainer).cast::<UIView>() as usize;
+                    if let Some(node) = KEY_NODES.with(|t| t.get(ptr)) {
+                        day_spec::ffi_guard::contain((), || emit(node, Event::FocusChanged(true)));
+                    }
+                }
+                became
+            }
+
+            #[unsafe(method(resignFirstResponder))]
+            fn resign_first_responder(&self) -> bool {
+                let resigned: bool = unsafe { msg_send![super(self), resignFirstResponder] };
+                if resigned {
+                    let ptr = (self as *const DayFocusableContainer).cast::<UIView>() as usize;
+                    if let Some(node) = KEY_NODES.with(|t| t.get(ptr)) {
+                        day_spec::ffi_guard::contain((), || emit(node, Event::FocusChanged(false)));
+                    }
+                }
+                resigned
+            }
+
+            // A touch focuses the canvas, the way a press does on the desktops. The gesture
+            // recognizers still see it: this runs before `super`, which forwards to them.
+            #[unsafe(method(touchesBegan:withEvent:))]
+            fn touches_began(
+                &self,
+                touches: &objc2_foundation::NSSet<objc2_ui_kit::UITouch>,
+                event: Option<&objc2_ui_kit::UIEvent>,
+            ) {
+                if self.canBecomeFirstResponder() && !self.isFirstResponder() {
+                    let _ = self.becomeFirstResponder();
+                }
+                let _: () = unsafe { msg_send![super(self), touchesBegan: touches, withEvent: event] };
+            }
+
+            /// Hardware-keyboard presses while this canvas is first responder. Anything that is
+            /// not a claimed arrow goes to `super`, which walks the responder chain exactly as
+            /// it would have — so a key nobody wanted still reaches whatever else wants it.
+            #[unsafe(method(pressesBegan:withEvent:))]
+            fn presses_began(
+                &self,
+                presses: &objc2_foundation::NSSet<objc2_ui_kit::UIPress>,
+                event: Option<&objc2_ui_kit::UIPressesEvent>,
+            ) {
+                let ptr = (self as *const DayFocusableContainer).cast::<UIView>() as usize;
+                let handled = day_spec::ffi_guard::contain(false, || {
+                    let Some(node) = KEY_NODES.with(|t| t.get(ptr)) else {
+                        return false;
+                    };
+                    if !day_spec::keys::handled(node) {
+                        return false;
+                    }
+                    let mut any = false;
+                    for press in presses.iter() {
+                        let Some(key) = (unsafe { press.key(self.mtm()) }) else {
+                            continue;
+                        };
+                        let Some(name) = key_name(&key) else {
+                            continue;
+                        };
+                        emit(
+                            node,
+                            Event::Key(day_spec::KeyEvent {
+                                key: name.to_string(),
+                                modifiers: key_modifiers(unsafe { key.modifierFlags() }),
+                            }),
+                        );
+                        any = true;
+                    }
+                    any
+                });
+                if !handled {
+                    let _: () =
+                        unsafe { msg_send![super(self), pressesBegan: presses, withEvent: event] };
+                }
+            }
+        }
+    );
+    impl DayFocusableContainer {
+        fn new(mtm: MainThreadMarker) -> Retained<Self> {
+            let this = Self::alloc(mtm).set_ivars(());
+            unsafe { msg_send![super(this), init] }
+        }
+    }
+
+    struct CanvasIvars;
+
+    define_class!(
+        #[unsafe(super(UIView))]
+        #[thread_kind = MainThreadOnly]
+        #[name = "DayCanvasView"]
+        #[ivars = CanvasIvars]
+        struct DayCanvasView;
+
+        impl DayCanvasView {
+            #[unsafe(method(drawRect:))]
+            fn draw_rect(&self, _dirty: CGRect) {
+                let ptr = (self as *const DayCanvasView).cast::<UIView>() as usize;
+                let ops = OPS.with(|t| t.get(ptr)).unwrap_or_default();
+                paint_ops(&ops);
+            }
+
+            // Focus, and with it a hardware keyboard's arrows (docs/menus.md, docs/focus.md).
+            // A plain UIView is never first responder, so nothing an app DRAWS could hear a
+            // key. Focus on iOS is also the software keyboard — but a canvas has no text input
+            // to raise one, so becoming first responder here costs nothing on a touch-only
+            // device and buys the arrows on iPad with a keyboard attached.
+            #[unsafe(method(canBecomeFirstResponder))]
+            fn can_become_first_responder(&self) -> bool {
+                true
+            }
+
+            #[unsafe(method(becomeFirstResponder))]
+            fn become_first_responder(&self) -> bool {
+                let became: bool = unsafe { msg_send![super(self), becomeFirstResponder] };
+                if became {
+                    let ptr = (self as *const DayCanvasView).cast::<UIView>() as usize;
+                    if let Some(node) = KEY_NODES.with(|t| t.get(ptr)) {
+                        day_spec::ffi_guard::contain((), || emit(node, Event::FocusChanged(true)));
+                    }
+                }
+                became
+            }
+
+            #[unsafe(method(resignFirstResponder))]
+            fn resign_first_responder(&self) -> bool {
+                let resigned: bool = unsafe { msg_send![super(self), resignFirstResponder] };
+                if resigned {
+                    let ptr = (self as *const DayCanvasView).cast::<UIView>() as usize;
+                    if let Some(node) = KEY_NODES.with(|t| t.get(ptr)) {
+                        day_spec::ffi_guard::contain((), || emit(node, Event::FocusChanged(false)));
+                    }
+                }
+                resigned
+            }
+
+            // A touch focuses the canvas, the way a press does on the desktops. The gesture
+            // recognizers still see it: this runs before `super`, which forwards to them.
+            #[unsafe(method(touchesBegan:withEvent:))]
+            fn touches_began(
+                &self,
+                touches: &objc2_foundation::NSSet<objc2_ui_kit::UITouch>,
+                event: Option<&objc2_ui_kit::UIEvent>,
+            ) {
+                if !self.isFirstResponder() {
+                    let _ = self.becomeFirstResponder();
+                }
+                let _: () = unsafe { msg_send![super(self), touchesBegan: touches, withEvent: event] };
+            }
+
+            /// Hardware-keyboard presses while this canvas is first responder. Anything that is
+            /// not a claimed arrow goes to `super`, which walks the responder chain exactly as
+            /// it would have — so a key nobody wanted still reaches whatever else wants it.
+            #[unsafe(method(pressesBegan:withEvent:))]
+            fn presses_began(
+                &self,
+                presses: &objc2_foundation::NSSet<objc2_ui_kit::UIPress>,
+                event: Option<&objc2_ui_kit::UIPressesEvent>,
+            ) {
+                let ptr = (self as *const DayCanvasView).cast::<UIView>() as usize;
+                let handled = day_spec::ffi_guard::contain(false, || {
+                    let Some(node) = KEY_NODES.with(|t| t.get(ptr)) else {
+                        return false;
+                    };
+                    if !day_spec::keys::handled(node) {
+                        return false;
+                    }
+                    let mut any = false;
+                    for press in presses.iter() {
+                        let Some(key) = (unsafe { press.key(self.mtm()) }) else {
+                            continue;
+                        };
+                        let Some(name) = key_name(&key) else {
+                            continue;
+                        };
+                        emit(
+                            node,
+                            Event::Key(day_spec::KeyEvent {
+                                key: name.to_string(),
+                                modifiers: key_modifiers(unsafe { key.modifierFlags() }),
+                            }),
+                        );
+                        any = true;
+                    }
+                    any
+                });
+                if !handled {
+                    let _: () =
+                        unsafe { msg_send![super(self), pressesBegan: presses, withEvent: event] };
+                }
+            }
+        }
+    );
+
+    impl DayCanvasView {
+        fn new(mtm: MainThreadMarker) -> Retained<Self> {
+            let this = Self::alloc(mtm).set_ivars(CanvasIvars);
+            let v: Retained<Self> = unsafe { msg_send![super(this), init] };
+            unsafe {
+                v.setBackgroundColor(Some(&UIColor::clearColor()));
+                v.setOpaque(false);
+            }
+            v
+        }
+    }
+
+    /// The text a widget displays, for `read_native`: a label's or text field's string, a
+    /// button's title, a text area's contents. `None` for a secure field (it masks its text),
+    /// an icon-only button (its title is empty, the name rides the accessibility label), and
+    /// every other view.
+    fn native_text(h: &UIView) -> Option<String> {
+        if let Some(label) = h.downcast_ref::<UILabel>() {
+            return Some(
+                unsafe { label.text() }
+                    .map(|s| s.to_string())
+                    .unwrap_or_default(),
+            );
+        }
+        if let Some(tf) = h.downcast_ref::<UITextField>() {
+            if unsafe { is_secure_text_entry(tf) } {
+                return None;
+            }
+            return Some(
+                unsafe { tf.text() }
+                    .map(|s| s.to_string())
+                    .unwrap_or_default(),
+            );
+        }
+        // A text area, or a label with links or `.selectable()` (both read-only text views).
+        if let Some(tv) = h.downcast_ref::<UITextView>() {
+            return Some(unsafe { tv.text() }.to_string());
+        }
+        let btn = h.downcast_ref::<UIButton>()?;
+        // A configured button titles through its configuration (`apply_button_style`), and
+        // falls back to the state title when that is empty, as UIKit draws it.
+        let title = unsafe {
+            btn.configuration()
+                .and_then(|config| config.title())
+                .filter(|t| !t.is_empty())
+                .or_else(|| btn.currentTitle())
+        }
+        .map(|s| s.to_string())
+        .unwrap_or_default();
+        (!title.is_empty()).then_some(title)
+    }
+
+    /// A slider's value or a progress bar's fraction, for `read_native`. The slider is built
+    /// with Day's min and max and the bar runs 0–1, so both are already in Day's range; the
+    /// `f32` goes through its shortest decimal so 0.1 reads back as 0.1, not 0.10000000149.
+    fn native_number(h: &UIView) -> Option<f64> {
+        let v = if let Some(sl) = h.downcast_ref::<UISlider>() {
+            unsafe { sl.value() }
+        } else {
+            unsafe { h.downcast_ref::<UIProgressView>()?.progress() }
+        };
+        v.to_string().parse().ok()
+    }
+
+    /// Shown: in a window, and neither the view nor any superview hidden.
+    fn native_visible(h: &UIView) -> bool {
+        if h.window().is_none() {
+            return false;
+        }
+        let mut view: Option<Retained<UIView>> = Some(Retained::from(h));
+        while let Some(v) = view {
+            if v.isHidden() {
+                return false;
+            }
+            view = v.superview();
+        }
+        true
+    }
+
+    /// The view's frame in its window's coordinates (origin top left, points), for
+    /// `read_native`.
+    fn native_frame(h: &UIView) -> Option<Rect> {
+        h.window()?;
+        let r = h.convertRect_toView(h.bounds(), None);
+        Some(Rect::new(
+            r.origin.x,
+            r.origin.y,
+            r.size.width,
+            r.size.height,
+        ))
+    }
+
+    fn apply_button_content(
+        btn: &UIButton,
+        title: &str,
+        icon: Option<&day_spec::Icon>,
+        icon_only: bool,
+    ) {
+        let image = menu_image(icon).map(|image| {
+            let image = if matches!(icon, Some(day_spec::Icon::Image(_))) {
+                image
+                    .imageByPreparingThumbnailOfSize(CGSize::new(20.0, 20.0))
+                    .unwrap_or(image)
+            } else {
+                image
+            };
+            image.imageWithRenderingMode(objc2_ui_kit::UIImageRenderingMode::AlwaysTemplate)
+        });
+        let visible_title = if icon_only && image.is_some() {
+            ""
+        } else {
+            title
+        };
+        unsafe {
+            // A configuration with an empty title can fall back to the legacy state title.
+            // Clear that title before installing content, particularly for icon-only controls.
+            btn.setTitle_forState(None, UIControlState::Normal);
+            {
+                let config = btn.configuration().unwrap_or_else(|| {
+                    objc2_ui_kit::UIButtonConfiguration::plainButtonConfiguration(btn.mtm())
+                });
+                config.setTitle(Some(&NSString::from_str(visible_title)));
+                config.setImage(image.as_deref());
+                config.setImagePadding(if icon_only { 0.0 } else { 6.0 });
+                btn.setConfiguration(Some(&config));
+            }
+            // The title is the spoken name, unless the app named the button itself; overwriting
+            // that here replaced app labels on every title change.
+            if !APP_LABELED.with(|t| t.contains(ptr_of(btn))) {
+                btn.setAccessibilityLabel(Some(&NSString::from_str(title)), btn.mtm());
+            }
+        }
+        BUTTON_CONTENT.with(|m| {
+            m.insert(
+                ptr_of(btn),
+                day_spec::props::ButtonContent {
+                    title: title.into(),
+                    icon: icon.cloned(),
+                    icon_only,
+                },
+            );
+        });
+    }
+
+    thread_local! {
+        /// Each button's style, keyed by its view pointer, so deselecting a button
+        /// (`set_button_selected`) can give it its own look back.
+        static BUTTON_STYLES: RefCell<HashMap<usize, day_spec::props::ButtonStyleSpec>> =
+            RefCell::new(HashMap::new());
+    }
+
+    /// Put `ButtonProps::selected` on a UIButton. `isSelected` is the control's own state, from
+    /// which VoiceOver adds the selected trait; the look is the system's tinted configuration,
+    /// the treatment iOS gives a chosen filter chip, and deselecting restores the button's own
+    /// style. A touch never toggles `isSelected`, so nothing has to be put back after a press.
+    fn set_button_selected(btn: &UIButton, on: bool, mtm: MainThreadMarker) {
+        unsafe {
+            btn.setSelected(on);
+            let title = btn
+                .configuration()
+                .and_then(|c| c.title())
+                .or_else(|| btn.titleForState(UIControlState::Normal))
+                .map(|s| s.to_string())
+                .unwrap_or_default();
+            if on {
+                let config = objc2_ui_kit::UIButtonConfiguration::tintedButtonConfiguration(mtm);
+                config.setTitle(Some(&NSString::from_str(&title)));
+                btn.setConfiguration(Some(&config));
+            } else {
+                let style = BUTTON_STYLES
+                    .with(|m| m.borrow().get(&ptr_of(btn)).copied())
+                    .unwrap_or_default();
+                apply_button_style(btn, &title, style, mtm);
+            }
+        }
+    }
+
+    /// Put a [`day_spec::props::ButtonStyleSpec`] on a `UIButton`, keeping it a UIButton.
+    ///
+    /// Bordered / Prominent map to `UIButtonConfiguration` tiers (iOS 15+) — the plain system
+    /// button reads as a LINK, not a button. A tint is the FILLED configuration with
+    /// `baseBackgroundColor`, so UIKit still draws the press dimming, the disabled state and the
+    /// focus/pointer effects itself.
+    ///
+    /// A configured button takes its title from the configuration, so the title is set on
+    /// whichever path this takes.
+    fn apply_button_style(
+        btn: &UIButton,
+        title: &str,
+        style: day_spec::props::ButtonStyleSpec,
+        mtm: MainThreadMarker,
+    ) {
+        use day_spec::props::ButtonStyleSpec as S;
+        use objc2_ui_kit::UIButtonConfiguration;
+        BUTTON_STYLES.with(|m| m.borrow_mut().insert(ptr_of(btn), style));
+        unsafe {
+            let config = match style {
+                // The plain system button hugs its title already, so Compact is Automatic.
+                S::Automatic | S::Compact | S::Plain => {
+                    btn.setConfiguration(None);
+                    btn.setTitle_forState(Some(&NSString::from_str(title)), UIControlState::Normal);
+                    return;
+                }
+                S::Prominent => UIButtonConfiguration::borderedProminentButtonConfiguration(mtm),
+                S::Bordered => UIButtonConfiguration::borderedButtonConfiguration(mtm),
+                S::Tinted(c) => {
+                    let config = UIButtonConfiguration::filledButtonConfiguration(mtm);
+                    config.setBaseBackgroundColor(Some(&uicolor(c)));
+                    config.setBaseForegroundColor(Some(&uicolor(S::on_tint(c))));
+                    config
+                }
+            };
+            config.setTitle(Some(&NSString::from_str(title)));
+            btn.setConfiguration(Some(&config));
+        }
+    }
+
+    fn uicolor(c: day_spec::Color) -> Retained<UIColor> {
+        unsafe { UIColor::colorWithRed_green_blue_alpha(c.r, c.g, c.b, c.a) }
+    }
+
+    /// Apply a `background`/`corner_radius` surface to a container view: UIView carries a native
+    /// `backgroundColor`; the corner radius / rounded clip go on its typed CALayer
+    /// (objc2-quartz-core). Idempotent — called at realize and on a background patch.
+    fn apply_surface(v: &UIView, bg: Option<day_spec::Color>, corner_radius: f64, clips: bool) {
+        unsafe {
+            match bg {
+                Some(c) => v.setBackgroundColor(Some(&uicolor(c))),
+                None => v.setBackgroundColor(None),
+            }
+            let layer = v.layer();
+            layer.setCornerRadius(corner_radius);
+            layer.setMasksToBounds(clips || corner_radius > 0.0);
+        }
+    }
+
+    fn cg(r: day_spec::Rect) -> CGRect {
+        CGRect::new(
+            CGPoint::new(r.origin.x, r.origin.y),
+            CGSize::new(r.size.width, r.size.height),
+        )
+    }
+
+    /// Put a [`day_spec::StrokeStyle`] onto a path: width always, and dash/cap/join/miter only
+    /// when they differ from the defaults, so a plain stroke costs no extra messages.
+    fn apply_stroke_style(p: &objc2_ui_kit::UIBezierPath, style: &day_spec::StrokeStyle) {
+        use day_spec::{LineCap, LineJoin};
+        unsafe {
+            p.setLineWidth(style.width);
+            if style.is_plain() {
+                return;
+            }
+            p.setLineCapStyle(match style.cap {
+                LineCap::Butt => objc2_core_graphics::CGLineCap::Butt,
+                LineCap::Round => objc2_core_graphics::CGLineCap::Round,
+                LineCap::Square => objc2_core_graphics::CGLineCap::Square,
+            });
+            p.setLineJoinStyle(match style.join {
+                LineJoin::Miter => objc2_core_graphics::CGLineJoin::Miter,
+                LineJoin::Round => objc2_core_graphics::CGLineJoin::Round,
+                LineJoin::Bevel => objc2_core_graphics::CGLineJoin::Bevel,
+            });
+            p.setMiterLimit(style.miter_limit);
+            if !style.dash.is_empty() {
+                let pattern: Vec<CGFloat> = style.dash.iter().map(|d| *d as CGFloat).collect();
+                p.setLineDash_count_phase(
+                    pattern.as_ptr(),
+                    pattern.len() as isize,
+                    style.dash_phase,
+                );
+            }
+        }
+    }
+
+    /// Draw a gradient through whatever clip is currently installed. Shared by the gradient
+    /// FILL arms and the gradient STROKE arm, which differ only in what they clip to first.
+    fn draw_gradient_in(ctx: &CGContext, paint: &day_spec::Paint, bounds: day_spec::Rect) {
+        let opts = objc2_core_graphics::CGGradientDrawingOptions::DrawsBeforeStartLocation
+            | objc2_core_graphics::CGGradientDrawingOptions::DrawsAfterEndLocation;
+        unsafe {
+            match paint {
+                day_spec::Paint::Linear(g) => {
+                    let Some(grad) = cggradient(&g.stops) else {
+                        return;
+                    };
+                    let (s, e) = (g.start.resolve(bounds), g.end.resolve(bounds));
+                    CGContext::draw_linear_gradient(
+                        Some(ctx),
+                        Some(&grad),
+                        CGPoint::new(s.x, s.y),
+                        CGPoint::new(e.x, e.y),
+                        opts,
+                    );
+                }
+                day_spec::Paint::Radial(g) => {
+                    let Some(grad) = cggradient(&g.stops) else {
+                        return;
+                    };
+                    CGContext::save_g_state(Some(ctx));
+                    CGContext::translate_ctm(Some(ctx), bounds.origin.x, bounds.origin.y);
+                    CGContext::scale_ctm(Some(ctx), bounds.size.width, bounds.size.height);
+                    let c = CGPoint::new(g.center.x, g.center.y);
+                    CGContext::draw_radial_gradient(
+                        Some(ctx),
+                        Some(&grad),
+                        c,
+                        0.0,
+                        c,
+                        g.radius,
+                        opts,
+                    );
+                    CGContext::restore_g_state(Some(ctx));
+                }
+                day_spec::Paint::Solid(_) => {}
+            }
+        }
+    }
+
+    fn draw_op(op: &day_spec::DrawOp) {
+        use day_spec::DrawOp;
+        unsafe {
+            match op {
+                // One path for the whole batch, then one fill or stroke — the AppKit twin
+                // (docs/canvas.md "Stamping"). `apply` is UIBezierPath's own transform, so each
+                // copy is the template translated without touching the graphics state.
+                DrawOp::Stamp(st) => {
+                    let batch = unsafe { objc2_ui_kit::UIBezierPath::bezierPath() };
+                    for p in &st.at {
+                        if let Some(copy) = bezier(&st.shape.translated(p.x, p.y)) {
+                            unsafe { batch.appendPath(&copy) };
+                        }
+                    }
+                    let color = match &st.paint {
+                        day_spec::Paint::Solid(c) => *c,
+                        _ => day_spec::Color::WHITE,
+                    };
+                    match &st.stroke {
+                        None => {
+                            uicolor(color).setFill();
+                            unsafe { batch.fill() };
+                        }
+                        Some(style) => {
+                            uicolor(color).setStroke();
+                            apply_stroke_style(&batch, style);
+                            unsafe { batch.stroke() };
+                        }
+                    }
+                }
+                DrawOp::Fill(shape, paint) => match paint {
+                    day_spec::Paint::Solid(color) => {
+                        uicolor(*color).setFill();
+                        if let Some(p) = bezier(shape) {
+                            p.fill();
+                        }
+                    }
+                    day_spec::Paint::Linear(g) => {
+                        // Native linear gradient: clip to the shape's path, CGGradient along
+                        // the line resolved from the unit points in the shape's bounds.
+                        let ctx = objc2_ui_kit::UIGraphicsGetCurrentContext();
+                        if let (Some(p), Some(ctx), Some(grad)) =
+                            (bezier(shape), ctx, cggradient(&g.stops))
+                        {
+                            let b = shape.bounds();
+                            let (s, e) = (g.start.resolve(b), g.end.resolve(b));
+                            CGContext::save_g_state(Some(&ctx));
+                            p.addClip();
+                            CGContext::draw_linear_gradient(
+                                Some(&ctx),
+                                Some(&grad),
+                                CGPoint::new(s.x, s.y),
+                                CGPoint::new(e.x, e.y),
+                                objc2_core_graphics::CGGradientDrawingOptions::DrawsBeforeStartLocation
+                                    | objc2_core_graphics::CGGradientDrawingOptions::DrawsAfterEndLocation,
+                            );
+                            CGContext::restore_g_state(Some(&ctx));
+                        }
+                    }
+                    day_spec::Paint::Radial(g) => {
+                        // Native radial gradient: clip to the path, map unit space onto the
+                        // bounds via the CTM (elliptical in non-square bounds), draw circular
+                        // in unit coordinates.
+                        let ctx = objc2_ui_kit::UIGraphicsGetCurrentContext();
+                        if let (Some(p), Some(ctx), Some(grad)) =
+                            (bezier(shape), ctx, cggradient(&g.stops))
+                        {
+                            let b = shape.bounds();
+                            CGContext::save_g_state(Some(&ctx));
+                            p.addClip();
+                            CGContext::translate_ctm(Some(&ctx), b.origin.x, b.origin.y);
+                            CGContext::scale_ctm(Some(&ctx), b.size.width, b.size.height);
+                            let c = CGPoint::new(g.center.x, g.center.y);
+                            CGContext::draw_radial_gradient(
+                                Some(&ctx),
+                                Some(&grad),
+                                c,
+                                0.0,
+                                c,
+                                g.radius,
+                                objc2_core_graphics::CGGradientDrawingOptions::DrawsBeforeStartLocation
+                                    | objc2_core_graphics::CGGradientDrawingOptions::DrawsAfterEndLocation,
+                            );
+                            CGContext::restore_g_state(Some(&ctx));
+                        }
+                    }
+                },
+                DrawOp::Stroke(shape, paint, style) => {
+                    let Some(p) = bezier(shape) else { return };
+                    apply_stroke_style(&p, style);
+                    match paint {
+                        day_spec::Paint::Solid(color) => {
+                            uicolor(*color).setStroke();
+                            p.stroke();
+                        }
+                        // A gradient stroke has no CoreGraphics primitive: convert the stroke
+                        // to the region it covers (`CGPathCreateCopyByStrokingPath` via
+                        // `bezierPathByStrokingPath` is unavailable here), clip to it, and draw
+                        // the gradient through. `replacePathWithStrokedPath` on the context is
+                        // the documented way to get exactly that region.
+                        day_spec::Paint::Linear(_) | day_spec::Paint::Radial(_) => {
+                            let Some(ctx) = objc2_ui_kit::UIGraphicsGetCurrentContext() else {
+                                return;
+                            };
+                            CGContext::save_g_state(Some(&ctx));
+                            CGContext::add_path(Some(&ctx), Some(&p.CGPath()));
+                            CGContext::replace_path_with_stroked_path(Some(&ctx));
+                            CGContext::clip(Some(&ctx));
+                            draw_gradient_in(&ctx, paint, shape.bounds());
+                            CGContext::restore_g_state(Some(&ctx));
+                        }
+                    }
+                }
+                DrawOp::Clip(shape) => {
+                    // `addClip` INTERSECTS with the context's current clip and reads the
+                    // path's own even-odd flag, which is exactly Day's contract.
+                    if let Some(p) = bezier(shape) {
+                        p.addClip();
+                    }
+                }
+                DrawOp::Text {
+                    text,
+                    at,
+                    size,
+                    color,
+                    anchor,
+                    font,
+                } => {
+                    let font = canvas_uifont(*size, font);
+                    let attrs = canvas_text_attrs(&font, *color);
+                    let ns = NSString::from_str(text);
+                    let mut origin = CGPoint::new(at.x, at.y);
+                    // `drawAtPoint:` takes the line box's top-leading corner; every other anchor
+                    // is an offset from it, computed from the metrics this draw already holds.
+                    if *anchor != day_spec::TextAnchor::LEADING {
+                        let sz: CGSize = msg_send![&ns, sizeWithAttributes: &*attrs];
+                        let (dx, dy) = anchor.offset(sz.width, sz.height, font.ascender());
+                        origin.x += dx;
+                        origin.y += dy;
+                    }
+                    let _: () = msg_send![&ns, drawAtPoint: origin, withAttributes: &*attrs];
+                }
+                // A released bitmap draws nothing rather than a placeholder: a canvas re-records
+                // on every tracked read, so a handle can be dropped between the record and this
+                // replay, and a frame that flashes a grey box is worse than one that omits it.
+                DrawOp::Image {
+                    image,
+                    rect,
+                    opacity,
+                } => {
+                    let img = BITMAPS.with(|m| m.borrow().get(&image.0).map(|b| b.image.clone()));
+                    if let Some(img) = img {
+                        let dest = CGRect::new(
+                            CGPoint::new(rect.origin.x, rect.origin.y),
+                            CGSize::new(rect.size.width, rect.size.height),
+                        );
+                        // UIImage's plain drawInRect always draws at full opacity, even if
+                        // CGContext's alpha was set. Use its explicit compositing overload.
+                        img.drawInRect_blendMode_alpha(
+                            dest,
+                            objc2_core_graphics::CGBlendMode::Normal,
+                            *opacity,
+                        );
+                    }
+                }
+                DrawOp::Save => {
+                    let ctx = objc2_ui_kit::UIGraphicsGetCurrentContext();
+                    CGContext::save_g_state(ctx.as_deref());
+                }
+                DrawOp::Restore => {
+                    let ctx = objc2_ui_kit::UIGraphicsGetCurrentContext();
+                    CGContext::restore_g_state(ctx.as_deref());
+                }
+                DrawOp::Concat(m) => {
+                    let ctx = objc2_ui_kit::UIGraphicsGetCurrentContext();
+                    // CGAffineTransform shares day_geometry::Affine's row-vector convention.
+                    let t = CGAffineTransform {
+                        a: m.a,
+                        b: m.b,
+                        c: m.c,
+                        d: m.d,
+                        tx: m.tx,
+                        ty: m.ty,
+                    };
+                    CGContext::concat_ctm(ctx.as_deref(), t);
+                }
+            }
+        }
+    }
+
+    /// A `CGGradient` from a display-list gradient's stops (device RGB, like every canvas color).
+    fn cggradient(
+        stops: &[(f64, day_spec::Color)],
+    ) -> Option<objc2_core_foundation::CFRetained<objc2_core_graphics::CGGradient>> {
+        if stops.is_empty() {
+            return None;
+        }
+        let components: Vec<f64> = stops
+            .iter()
+            .flat_map(|(_, c)| [c.r, c.g, c.b, c.a])
+            .collect();
+        let locations: Vec<f64> = stops.iter().map(|(o, _)| *o).collect();
+        let space = objc2_core_graphics::CGColorSpace::new_device_rgb();
+        unsafe {
+            objc2_core_graphics::CGGradient::with_color_components(
+                space.as_deref(),
+                components.as_ptr(),
+                locations.as_ptr(),
+                stops.len(),
+            )
+        }
+    }
+
+    fn bezier(shape: &day_spec::Shape) -> Option<Retained<objc2_ui_kit::UIBezierPath>> {
+        use day_spec::Shape;
+        use objc2_ui_kit::UIBezierPath;
+        unsafe {
+            Some(match shape {
+                Shape::Rect(r) => UIBezierPath::bezierPathWithRect(cg(*r)),
+                Shape::RoundedRect(r, rad) => {
+                    UIBezierPath::bezierPathWithRoundedRect_cornerRadius(cg(*r), *rad)
+                }
+                Shape::Ellipse(r) => UIBezierPath::bezierPathWithOvalInRect(cg(*r)),
+                Shape::Arc {
+                    rect,
+                    start_deg,
+                    sweep_deg,
+                } => {
+                    let center = CGPoint::new(
+                        rect.origin.x + rect.size.width / 2.0,
+                        rect.origin.y + rect.size.height / 2.0,
+                    );
+                    let radius = rect.size.width.min(rect.size.height) / 2.0;
+                    UIBezierPath::bezierPathWithArcCenter_radius_startAngle_endAngle_clockwise(
+                        center,
+                        radius,
+                        start_deg.to_radians(),
+                        (start_deg + sweep_deg).to_radians(),
+                        true,
+                    )
+                }
+                Shape::Line(a, b) => {
+                    let p = UIBezierPath::bezierPath();
+                    p.moveToPoint(CGPoint::new(a.x, a.y));
+                    p.addLineToPoint(CGPoint::new(b.x, b.y));
+                    p
+                }
+                Shape::Path(path) => {
+                    use day_spec::PathSeg;
+                    if path.segs.is_empty() {
+                        return None;
+                    }
+                    let p = UIBezierPath::bezierPath();
+                    for seg in &path.segs {
+                        match seg {
+                            PathSeg::Move(a) => p.moveToPoint(CGPoint::new(a.x, a.y)),
+                            PathSeg::Line(a) => p.addLineToPoint(CGPoint::new(a.x, a.y)),
+                            PathSeg::Quad(c, a) => p.addQuadCurveToPoint_controlPoint(
+                                CGPoint::new(a.x, a.y),
+                                CGPoint::new(c.x, c.y),
+                            ),
+                            PathSeg::Cubic(c1, c2, a) => p
+                                .addCurveToPoint_controlPoint1_controlPoint2(
+                                    CGPoint::new(a.x, a.y),
+                                    CGPoint::new(c1.x, c1.y),
+                                    CGPoint::new(c2.x, c2.y),
+                                ),
+                            PathSeg::Close => p.closePath(),
+                        }
+                    }
+                    // The fill rule travels ON the path, which is also how `addClip` reads it.
+                    p.setUsesEvenOddFillRule(path.rule == day_spec::FillRule::EvenOdd);
+                    p
+                }
+                Shape::Polygon(pts) => {
+                    if pts.len() < 2 {
+                        return None;
+                    }
+                    let p = UIBezierPath::bezierPath();
+                    p.moveToPoint(CGPoint::new(pts[0].x, pts[0].y));
+                    for pt in &pts[1..] {
+                        p.addLineToPoint(CGPoint::new(pt.x, pt.y));
+                    }
+                    p.closePath();
+                    p
+                }
+            })
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // The backend
+    // -----------------------------------------------------------------------
+
+    #[distributed_slice]
+    pub static RENDERERS: [fn() -> Renderer<Uikit>];
+
+    /// Rasterize this app's own window to PNG (docs/window-image.md).
+    ///
+    /// `UIGraphicsImageRenderer` + `drawViewHierarchyInRect:afterScreenUpdates:` — the standard iOS
+    /// way, and SYNCHRONOUS, which is what lets `day::window_image()` stay a plain call on every
+    /// backend. `afterScreenUpdates: true` so a capture taken right after a state change shows the
+    /// change rather than the frame before it.
+    ///
+    /// `chrome` picks the whole window over Day's content view; both are views in the same tree.
+    /// The `UIImage` behind an [`day_spec::ImageSource`] (docs/images.md).
+    ///
+    /// Shared by realize and the `Source` patch on purpose: a swapped source must load exactly
+    /// what a fresh realize would have, or a piece shows different pixels depending on whether it
+    /// was built or updated.
+    pub(crate) fn uikit_image_for(
+        source: &day_spec::ImageSource,
+    ) -> Option<Retained<objc2_ui_kit::UIImage>> {
+        match source {
+            day_spec::ImageSource::Named(named) => {
+                let name = NSString::from_str(named);
+                // Processed image (§18.3): load by name from the DayPieces `Assets.car` — the
+                // SwiftPM `.process` catalog compiled by actool into DayPieces_DayPieces.bundle.
+                let main = unsafe { objc2_foundation::NSBundle::mainBundle() };
+                let bname = NSString::from_str("DayPieces_DayPieces");
+                let bext = NSString::from_str("bundle");
+                if let Some(url) =
+                    unsafe { main.URLForResource_withExtension(Some(&bname), Some(&bext)) }
+                    && let Some(day_bundle) =
+                        unsafe { objc2_foundation::NSBundle::bundleWithURL(&url) }
+                    && let Some(img) = unsafe {
+                        objc2_ui_kit::UIImage::imageNamed_inBundle_compatibleWithTraitCollection(
+                            &name,
+                            Some(&day_bundle),
+                            None,
+                        )
+                    }
+                {
+                    return Some(img);
+                }
+                // Fallback: a loose file staged in the bundle (assets/ or images/), or dev.
+                let path = day_spec::resource::resolve_image_file(named)?;
+                unsafe {
+                    objc2_ui_kit::UIImage::imageWithContentsOfFile(&NSString::from_str(
+                        &path.to_string_lossy(),
+                    ))
+                }
+            }
+            // Bytes the app already holds — a download, a picked file, a paste — with no staged
+            // resource behind them.
+            day_spec::ImageSource::Bytes(bytes) => {
+                let data = objc2_foundation::NSData::with_bytes(bytes);
+                unsafe { objc2_ui_kit::UIImage::imageWithData(&data) }
+            }
+            // Already decoded: share the one UIImage rather than parsing the same bytes twice.
+            day_spec::ImageSource::Decoded(id) => {
+                BITMAPS.with(|m| m.borrow().get(&id.0).map(|b| b.image.clone()))
+            }
+        }
+    }
+
+    /// Redraw `image` at `scale`× its pixel size, for [`day_spec::EncodeSpec`]'s `fit`.
+    fn scaled_image(
+        image: &objc2_ui_kit::UIImage,
+        pixels: Size,
+        scale: f64,
+    ) -> Option<Retained<objc2_ui_kit::UIImage>> {
+        use objc2::AllocAnyThread as _;
+        let w = (pixels.width * scale).round().max(1.0);
+        let h = (pixels.height * scale).round().max(1.0);
+        let bounds = CGRect::new(CGPoint::new(0.0, 0.0), CGSize::new(w, h));
+        // The format's scale is pinned to 1: the renderer would otherwise multiply by the
+        // screen's scale and hand back an image twice the size that was asked for.
+        let format = unsafe { objc2_ui_kit::UIGraphicsImageRendererFormat::preferredFormat() };
+        unsafe { format.setScale(1.0) };
+        let renderer = unsafe {
+            objc2_ui_kit::UIGraphicsImageRenderer::initWithBounds_format(
+                objc2_ui_kit::UIGraphicsImageRenderer::alloc(),
+                bounds,
+                &format,
+            )
+        };
+        let src: Retained<objc2_ui_kit::UIImage> = Retained::from(image);
+        // SAFETY: the renderer runs the block synchronously, inside this call.
+        let out = unsafe {
+            let block = block2::RcBlock::new(
+                move |_ctx: core::ptr::NonNull<objc2_ui_kit::UIGraphicsImageRendererContext>| {
+                    src.drawInRect(bounds);
+                },
+            );
+            renderer.imageWithActions(&*block as *const _ as *mut _)
+        };
+        Some(out)
+    }
+
+    /// Re-encode a decoded bitmap (docs/images.md).
+    ///
+    /// A free function rather than the duty's body so each refusal reads as an early return
+    /// instead of another copy of the same emit.
+    fn encode_bitmap(
+        id: day_spec::BitmapId,
+        spec: &day_spec::EncodeSpec,
+    ) -> Result<Vec<u8>, day_spec::ImageError> {
+        use day_spec::ImageFormat as F;
+        let held = BITMAPS.with(|m| m.borrow().get(&id.0).map(|b| (b.image.clone(), b.info)));
+        let (image, info) = held.ok_or(day_spec::ImageError::Gone)?;
+        // `fit` scales the longest side down first. A box LARGER than the original is ignored:
+        // upscaling on an export path inflates the bytes without adding any detail.
+        let image = match spec.fit {
+            Some(fit) if info.pixels.width > 0.0 && info.pixels.height > 0.0 => {
+                let s = (fit.width / info.pixels.width)
+                    .min(fit.height / info.pixels.height)
+                    .min(1.0);
+                if s < 1.0 {
+                    scaled_image(&image, info.pixels, s).ok_or(day_spec::ImageError::Encode)?
+                } else {
+                    image
+                }
+            }
+            _ => image,
+        };
+        let data = match spec.format {
+            F::Png => image.png_representation(),
+            // UIKit's compression runs 0 (most) … 1 (least), which is `EncodeSpec::quality`'s
+            // scale exactly.
+            F::Jpeg => image.jpeg_representation(spec.quality.unwrap_or(0.9).clamp(0.0, 1.0)),
+            // UIKit ships no other writer; `encode_formats` says so before an app asks.
+            _ => return Err(day_spec::ImageError::Encode),
+        };
+        Ok(data.ok_or(day_spec::ImageError::Encode)?.to_vec())
+    }
+
+    /// Replay a canvas's ops into the current UIKit graphics context: the one painter the
+    /// on-screen `drawRect:` and both exports share (docs/canvas.md "Exporting").
+    fn paint_ops(ops: &[day_spec::DrawOp]) {
+        for op in ops {
+            draw_op(op);
+        }
+    }
+
+    /// Render `ops` offscreen at `scale` pixels per point (docs/canvas.md "Exporting").
+    ///
+    /// `UIGraphicsImageRenderer` hands its block a UIKit context with the top-left origin a
+    /// canvas view draws in, so the painter runs unchanged. The format is pinned to the standard
+    /// (sRGB) range, the space canvas colors are written in, so an encode of the export carries
+    /// the bytes the drawing named rather than their Display P3 conversion.
+    fn render_bitmap_image(
+        ops: &[day_spec::DrawOp],
+        size: Size,
+        scale: f64,
+    ) -> Result<(Retained<objc2_ui_kit::UIImage>, day_spec::BitmapInfo), day_spec::ExportError>
+    {
+        use objc2::AllocAnyThread as _;
+        let (pw, ph) = day_spec::export_pixels(size, scale);
+        // SAFETY: main thread (a Toolkit duty). The renderer runs the block synchronously,
+        // inside `imageWithActions`, so the ops it borrows outlive every use.
+        let image = unsafe {
+            let format = objc2_ui_kit::UIGraphicsImageRendererFormat::preferredFormat();
+            format.setScale(scale);
+            format.setOpaque(false);
+            format.setPreferredRange(objc2_ui_kit::UIGraphicsImageRendererFormatRange::Standard);
+            let renderer = objc2_ui_kit::UIGraphicsImageRenderer::initWithSize_format(
+                objc2_ui_kit::UIGraphicsImageRenderer::alloc(),
+                CGSize::new(size.width, size.height),
+                &format,
+            );
+            let ops = ops.to_vec();
+            let block = block2::RcBlock::new(
+                move |_ctx: core::ptr::NonNull<objc2_ui_kit::UIGraphicsImageRendererContext>| {
+                    day_spec::ffi_guard::contain((), || paint_ops(&ops));
+                },
+            );
+            renderer.imageWithActions(&*block as *const _ as *mut _)
+        };
+        // A renderer that could not allocate its backing store hands back an empty image
+        // rather than an error; that is the only refusal UIKit reports here.
+        // SAFETY: reading the image's backing CGImage, on the thread that made it.
+        if unsafe { image.CGImage() }.is_none() {
+            return Err(day_spec::ExportError::Failed(format!(
+                "UIGraphicsImageRenderer produced no image for {pw}x{ph} pixels"
+            )));
+        }
+        let info = day_spec::BitmapInfo {
+            pixels: Size::new(pw as f64, ph as f64),
+            scale,
+            format: None,
+            has_alpha: true,
+        };
+        Ok((image, info))
+    }
+
+    /// Write `pages` into one PDF with `UIGraphicsPDFRenderer` (docs/canvas.md "Exporting").
+    ///
+    /// Each page opens with `beginPageWithBounds:pageInfo:` at its own size, and UIKit flips
+    /// every page to the top-left origin, so the painter runs unchanged and stays vector: paths
+    /// become PDF paths and text is set from embedded font subsets. Title and author go in the
+    /// format's `documentInfo` under the Core Graphics keys, which land in the file's Info
+    /// dictionary.
+    fn render_pdf_data(
+        pages: &[day_spec::PdfPage],
+        info: &day_spec::PdfInfo,
+    ) -> Result<Vec<u8>, day_spec::ExportError> {
+        use objc2::AllocAnyThread as _;
+        let first = pages.first().ok_or(day_spec::ExportError::Invalid)?;
+        let rect = |s: Size| CGRect::new(CGPoint::new(0.0, 0.0), CGSize::new(s.width, s.height));
+        let mut keys: Vec<&NSString> = Vec::new();
+        let mut values: Vec<Retained<AnyObject>> = Vec::new();
+        // SAFETY: `kCGPDFContextTitle`/`kCGPDFContextAuthor` are immutable CFString constants,
+        // and CFString is toll-free bridged with NSString, so the pointer reads as one.
+        let (title_key, author_key) = unsafe {
+            (
+                &*(objc2_core_graphics::kCGPDFContextTitle
+                    as *const objc2_core_foundation::CFString)
+                    .cast::<NSString>(),
+                &*(objc2_core_graphics::kCGPDFContextAuthor
+                    as *const objc2_core_foundation::CFString)
+                    .cast::<NSString>(),
+            )
+        };
+        for (key, value) in [(title_key, &info.title), (author_key, &info.author)] {
+            if let Some(v) = value {
+                keys.push(key);
+                values.push(Retained::into_super(Retained::into_super(
+                    NSString::from_str(v),
+                )));
+            }
+        }
+        let document_info = objc2_foundation::NSDictionary::from_retained_objects(&keys, &values);
+        let page_info = objc2_foundation::NSDictionary::<NSString, AnyObject>::new();
+        // SAFETY: main thread (a Toolkit duty). The dictionaries hold NSString keys and NSString
+        // values, the types `documentInfo` and `pageInfo` declare. The renderer runs the block
+        // synchronously, inside `PDFDataWithActions`.
+        let data = unsafe {
+            let format = objc2_ui_kit::UIGraphicsPDFRendererFormat::new();
+            format.setDocumentInfo(&document_info);
+            let renderer = objc2_ui_kit::UIGraphicsPDFRenderer::initWithBounds_format(
+                objc2_ui_kit::UIGraphicsPDFRenderer::alloc(),
+                rect(first.size),
+                &format,
+            );
+            let pages = pages.to_vec();
+            let block = block2::RcBlock::new(
+                move |ctx: core::ptr::NonNull<objc2_ui_kit::UIGraphicsPDFRendererContext>| {
+                    day_spec::ffi_guard::contain((), || {
+                        let ctx = ctx.as_ref();
+                        for page in &pages {
+                            ctx.beginPageWithBounds_pageInfo(rect(page.size), &page_info);
+                            paint_ops(&page.ops);
+                        }
+                    });
+                },
+            );
+            renderer.PDFDataWithActions(&*block as *const _ as *mut _)
+        };
+        if data.is_empty() {
+            return Err(day_spec::ExportError::Failed(
+                "UIGraphicsPDFRenderer wrote no data".into(),
+            ));
+        }
+        Ok(data.to_vec())
+    }
+
+    fn snapshot_uikit(chrome: bool) -> Result<Vec<u8>, String> {
+        let view: Retained<UIView> = with_key_scene(|e| {
+            if chrome {
+                Retained::from(&*e.window as &UIView)
+            } else {
+                e.root_view.clone()
+            }
+        })
+        .ok_or("no window to capture")?;
+        snapshot_view(&view)
+    }
+
+    /// Rasterize one view (a window's content container — the primary root, or a secondary
+    /// "window"'s host view, which on iOS is a fullscreen cover's content).
+    fn snapshot_view(view: &UIView) -> Result<Vec<u8>, String> {
+        // A view outside any window cannot be drawn with `afterScreenUpdates: true`: UIKit
+        // moves it into a temporary window to force the commit, and when the view is
+        // controller-backed its hierarchy check raises an NSException — which is foreign to
+        // Rust and aborts the process. This happens to the PRIMARY root while a fullscreen
+        // cover is presented (UIKit detaches the underlay), so refuse rather than raise.
+        if unsafe { view.window() }.is_none() {
+            return Err("view is not in a window".into());
+        }
+        let bounds = view.bounds();
+        if bounds.size.width <= 0.0 || bounds.size.height <= 0.0 {
+            return Err("zero-size window".into());
+        }
+        // SAFETY: main thread (a Toolkit duty); the renderer draws synchronously inside the block.
+        let image: Retained<objc2_ui_kit::UIImage> = unsafe {
+            use objc2::AllocAnyThread as _;
+            // Captures are consumed as sRGB pixels by dayscript and image clients. The
+            // display's preferred format can be Display P3, whose green bytes differ even
+            // for an sRGB source image. Render into sRGB rather than merely retagging it.
+            let traits = objc2_ui_kit::UITraitCollection::traitCollectionWithDisplayGamut(
+                objc2_ui_kit::UIDisplayGamut::SRGB,
+            );
+            let format =
+                objc2_ui_kit::UIGraphicsImageRendererFormat::formatForTraitCollection(&traits);
+            format.setPreferredRange(objc2_ui_kit::UIGraphicsImageRendererFormatRange::Standard);
+            let renderer = objc2_ui_kit::UIGraphicsImageRenderer::initWithBounds_format(
+                objc2_ui_kit::UIGraphicsImageRenderer::alloc(),
+                bounds,
+                &format,
+            );
+            let v: Retained<UIView> = Retained::from(view);
+            let block = block2::RcBlock::new(
+                move |_ctx: core::ptr::NonNull<objc2_ui_kit::UIGraphicsImageRendererContext>| {
+                    v.drawViewHierarchyInRect_afterScreenUpdates(v.bounds(), true);
+                },
+            );
+            renderer.imageWithActions(&*block as *const _ as *mut _)
+        };
+        let data = image.png_representation().ok_or("png encode failed")?;
+        Ok(data.to_vec())
+    }
+
+    pub struct Uikit {
+        registry: Registry<Uikit>,
+        /// One pointer interaction per view carrying a `.cursor()` (docs/cursor.md), keyed by
+        /// the view pointer. Removed when the cursor goes back to `Default`.
+        pointers: HashMap<usize, (Retained<DayPointerDelegate>, Retained<UIPointerInteraction>)>,
+    }
+
+    // ---------------------------------------------------------------------------
+    // DayPointerDelegate — the `.cursor()` decorator on iPadOS (docs/cursor.md)
+    // ---------------------------------------------------------------------------
+
+    struct PointerIvars {
+        cursor: RefCell<Cursor>,
+    }
+
+    // iPadOS draws pointer EFFECTS, not arrow shapes: a beam over text, a highlight or lift
+    // over a target, or nothing. The delegate answers `styleForRegion:` with the nearest of
+    // those for the requested shape, which is why `Cap::Cursor` answers Emulated.
+    define_class!(
+        #[unsafe(super(NSObject))]
+        #[thread_kind = MainThreadOnly]
+        #[name = "DayPointerDelegate"]
+        #[ivars = PointerIvars]
+        struct DayPointerDelegate;
+
+        unsafe impl NSObjectProtocol for DayPointerDelegate {}
+
+        unsafe impl UIPointerInteractionDelegate for DayPointerDelegate {
+            #[unsafe(method_id(pointerInteraction:styleForRegion:))]
+            fn style_for_region(
+                &self,
+                interaction: &UIPointerInteraction,
+                region: &UIPointerRegion,
+            ) -> Option<Retained<UIPointerStyle>> {
+                self.style_for(interaction, region)
+            }
+        }
+    );
+
+    impl DayPointerDelegate {
+        /// The pointer style for the current cursor (the method above cannot return early
+        /// inside `define_class!`, so the logic lives here).
+        fn style_for(
+            &self,
+            interaction: &UIPointerInteraction,
+            region: &UIPointerRegion,
+        ) -> Option<Retained<UIPointerStyle>> {
+            let mtm = MainThreadMarker::from(self);
+            let cursor = self.ivars().cursor.borrow().clone();
+            let rect = unsafe { region.rect() };
+            let view = unsafe { interaction.view() };
+            let preview = || {
+                view.as_deref().map(|v| unsafe {
+                    UITargetedPreview::initWithView(UITargetedPreview::alloc(mtm), v)
+                })
+            };
+            Some(match cursor {
+                Cursor::None => UIPointerStyle::hiddenPointerStyle(mtm),
+                // An I-beam is a vertical beam as tall as the line; vertical text turns it.
+                Cursor::Text => UIPointerStyle::styleWithShape_constrainedAxes(
+                    &UIPointerShape::beamWithPreferredLength_axis(
+                        rect.size.height,
+                        UIAxis::Vertical,
+                        mtm,
+                    ),
+                    UIAxis::Neither,
+                ),
+                Cursor::VerticalText => UIPointerStyle::styleWithShape_constrainedAxes(
+                    &UIPointerShape::beamWithPreferredLength_axis(
+                        rect.size.width,
+                        UIAxis::Horizontal,
+                        mtm,
+                    ),
+                    UIAxis::Neither,
+                ),
+                // Tap-to-activate and drag targets: the pointer morphs onto the view.
+                Cursor::Pointer
+                | Cursor::ContextMenu
+                | Cursor::Copy
+                | Cursor::Alias
+                | Cursor::Grab
+                | Cursor::Grabbing => {
+                    let p = preview()?;
+                    let effect: Retained<UIPointerEffect> =
+                        Retained::into_super(UIPointerHighlightEffect::effectWithPreview(&p));
+                    unsafe { UIPointerStyle::styleWithEffect_shape(&effect, None) }
+                }
+                Cursor::Move => {
+                    let p = preview()?;
+                    let effect: Retained<UIPointerEffect> =
+                        Retained::into_super(UIPointerLiftEffect::effectWithPreview(&p));
+                    unsafe { UIPointerStyle::styleWithEffect_shape(&effect, None) }
+                }
+                // Everything else keeps the system pointer; iPadOS has no such shapes.
+                _ => return None,
+            })
+        }
+    }
+
+    impl DayPointerDelegate {
+        fn new(mtm: MainThreadMarker, cursor: Cursor) -> Retained<Self> {
+            let this = Self::alloc(mtm).set_ivars(PointerIvars {
+                cursor: RefCell::new(cursor),
+            });
+            unsafe { msg_send![super(this), init] }
+        }
+    }
+
+    impl Uikit {
+        pub fn new() -> Self {
+            let mut registry = Registry::default();
+            for f in RENDERERS {
+                registry.register(f());
+            }
+            Uikit {
+                registry,
+                pointers: HashMap::new(),
+            }
+        }
+    }
+
+    impl Default for Uikit {
+        fn default() -> Self {
+            Self::new()
+        }
+    }
+
+    // The expect is an invariant, not a runtime failure mode: every Toolkit duty runs on the
+    // main thread by contract (§8.1).
+    pub(crate) fn mtm() -> MainThreadMarker {
+        MainThreadMarker::new().expect("day-toolkit-uikit: not on the main thread")
+    }
+
+    impl Uikit {
+        /// The main-thread marker every UIKit call needs, for a standalone piece's renderer
+        /// (docs/extending.md) — the same accessor day-toolkit-appkit offers. Sound for the same reason
+        /// the free function above is: holding `&mut Uikit` means a Toolkit duty is running.
+        pub fn mtm(&self) -> MainThreadMarker {
+            mtm()
+        }
+    }
+
+    /// Run `body` (which mutates one or more animatable view properties) inside a UIKit animation
+    /// matching `anim`, or immediately when `anim` is `None`. Backend-executed animation (§8.4):
+    /// UIKit diffs the changes made in the block and animates them on the render server (off the
+    /// main thread), so Day never ticks frames for native widgets.
+    fn with_uikit_anim(anim: Option<&AnimSpec>, body: impl Fn() + 'static) {
+        let Some(a) = anim else {
+            body();
+            return;
+        };
+        let animations = block2::RcBlock::new(body);
+        let delay = a.delay_secs().max(0.0);
+        unsafe {
+            match a.curve {
+                Curve::Spring { damping, .. } => {
+                    // The specified duration is authoritative; `damping` still shapes the bounce.
+                    UIView::animateWithDuration_delay_usingSpringWithDamping_initialSpringVelocity_options_animations_completion(
+                        a.duration_secs().max(0.05),
+                        delay,
+                        damping.clamp(0.05, 1.0),
+                        0.0,
+                        UIViewAnimationOptions(0),
+                        &animations,
+                        None,
+                        mtm(),
+                    );
+                }
+                curve => {
+                    UIView::animateWithDuration_delay_options_animations_completion(
+                        a.duration_secs().max(0.01),
+                        delay,
+                        uiview_anim_options(curve),
+                        &animations,
+                        None,
+                        mtm(),
+                    );
+                }
+            }
+        }
+    }
+
+    fn uiview_anim_options(curve: Curve) -> UIViewAnimationOptions {
+        match curve {
+            Curve::EaseIn => UIViewAnimationOptions::CurveEaseIn,
+            Curve::EaseOut => UIViewAnimationOptions::CurveEaseOut,
+            Curve::Linear => UIViewAnimationOptions::CurveLinear,
+            // EaseInOut is the 0 default; springs never reach here.
+            Curve::EaseInOut | Curve::Spring { .. } => UIViewAnimationOptions::CurveEaseInOut,
+        }
+    }
+
+    /// Build UIKit's `CGAffineTransform` for a Day [`Transform`], composed scale → rotate →
+    /// translate about the view's layer anchor (default center, matching `Transform`'s default
+    /// anchor). Non-center anchors approximate: translation is exact, scale/rotation stay about
+    /// center (§8.4 — arbitrary-anchor transforms need a layer anchorPoint change, a later refinement).
+    fn cgaffine(t: Transform) -> CGAffineTransform {
+        let th = t.rotate_deg.to_radians();
+        let (s, c) = th.sin_cos();
+        CGAffineTransform {
+            a: t.sx * c,
+            b: t.sx * s,
+            c: -t.sy * s,
+            d: t.sy * c,
+            tx: t.tx,
+            ty: t.ty,
+        }
+    }
+
+    /// Day `Role` → the UIAccessibility trait bit to add (explicit canvas/custom roles only —
+    /// native controls self-describe, §13). UIKit has no toggle/meter trait, so those are `None`.
+    fn ui_traits(role: day_spec::Role) -> Option<objc2_ui_kit::UIAccessibilityTraits> {
+        use day_spec::Role;
+        use objc2_ui_kit::{
+            UIAccessibilityTraitAdjustable, UIAccessibilityTraitButton, UIAccessibilityTraitHeader,
+            UIAccessibilityTraitImage, UIAccessibilityTraitTabBar,
+        };
+        unsafe {
+            Some(match role {
+                // UIKit has no trait for one tab: it is a button, and the selected trait
+                // (`set_a11y`'s `selected`) says which one is current. The strip is a tab bar.
+                Role::Button | Role::Toggle | Role::Tab => UIAccessibilityTraitButton,
+                Role::TabList => UIAccessibilityTraitTabBar,
+                Role::Slider => UIAccessibilityTraitAdjustable,
+                Role::Heading(_) => UIAccessibilityTraitHeader,
+                Role::Image => UIAccessibilityTraitImage,
+                _ => return None,
+            })
+        }
+    }
+
+    /// Native UIAccessibility traits → Day `Role` (best-effort, for `read_native`/`a11y_audit`).
+    fn day_role_from_traits(t: objc2_ui_kit::UIAccessibilityTraits) -> day_spec::Role {
+        use day_spec::Role;
+        use objc2_ui_kit::{
+            UIAccessibilityTraitAdjustable, UIAccessibilityTraitButton, UIAccessibilityTraitHeader,
+            UIAccessibilityTraitImage, UIAccessibilityTraitTabBar,
+        };
+        unsafe {
+            if t & UIAccessibilityTraitAdjustable != 0 {
+                Role::Slider
+            } else if t & UIAccessibilityTraitTabBar != 0 {
+                Role::TabList
+            } else if t & UIAccessibilityTraitHeader != 0 {
+                Role::Heading(0)
+            } else if t & UIAccessibilityTraitImage != 0 {
+                Role::Image
+            } else if t & UIAccessibilityTraitButton != 0 {
+                Role::Button
+            } else {
+                Role::None
+            }
+        }
+    }
+
+    /// The iOS native semantic text style for a logical [`Font`] (`None` for a custom size).
+    /// `UIFont.preferredFont(forTextStyle:)` IS Dynamic Type — it scales with the user's chosen text
+    /// size in Settings ▸ Accessibility ▸ Display & Text Size ▸ Larger Text.
+    fn ui_text_style(f: Font) -> Option<&'static objc2_ui_kit::UIFontTextStyle> {
+        use objc2_ui_kit::*;
+        unsafe {
+            Some(match f {
+                Font::LargeTitle => UIFontTextStyleLargeTitle,
+                Font::Title => UIFontTextStyleTitle1,
+                Font::Title2 => UIFontTextStyleTitle2,
+                Font::Title3 => UIFontTextStyleTitle3,
+                Font::Headline => UIFontTextStyleHeadline,
+                Font::Subheadline => UIFontTextStyleSubheadline,
+                Font::Body => UIFontTextStyleBody,
+                Font::Callout => UIFontTextStyleCallout,
+                Font::Footnote => UIFontTextStyleFootnote,
+                Font::Caption => UIFontTextStyleCaption1,
+                Font::Caption2 => UIFontTextStyleCaption2,
+                Font::System(_) | Font::Custom(..) => return None,
+            })
+        }
+    }
+
+    /// Resolve a canvas font (docs/fonts.md) at an absolute size: the system face for `None`,
+    /// else a descriptor for the family with the bold/italic symbolic traits the weight and
+    /// slant ask for (UIKit picks the family's nearest face, or synthesizes), falling back to a
+    /// PostScript/full-name lookup (a bundled font registered in `run`) and then to the system
+    /// font with one warning.
+    fn canvas_uifont(size: f64, font: &day_spec::CanvasFont) -> Retained<objc2_ui_kit::UIFont> {
+        use objc2_ui_kit::*;
+        let weight = font.weight.unwrap_or(day_spec::FontWeight::Regular);
+        let mut traits = UIFontDescriptorSymbolicTraits::empty();
+        if weight >= day_spec::FontWeight::Semibold {
+            traits |= UIFontDescriptorSymbolicTraits::TraitBold;
+        }
+        if font.italic {
+            traits |= UIFontDescriptorSymbolicTraits::TraitItalic;
+        }
+        let with_traits = |base: Retained<UIFont>| -> Retained<UIFont> {
+            if traits.is_empty() {
+                return base;
+            }
+            unsafe {
+                let desc = base.fontDescriptor();
+                match desc.fontDescriptorWithSymbolicTraits(desc.symbolicTraits() | traits) {
+                    Some(d2) => UIFont::fontWithDescriptor_size(&d2, size),
+                    None => base,
+                }
+            }
+        };
+        let Some(family) = font.family.as_deref() else {
+            let base = unsafe { UIFont::systemFontOfSize_weight(size, ui_weight(weight)) };
+            // The weight is already exact; only the slant is left to the descriptor.
+            return if font.italic {
+                unsafe {
+                    let desc = base.fontDescriptor();
+                    match desc.fontDescriptorWithSymbolicTraits(
+                        desc.symbolicTraits() | UIFontDescriptorSymbolicTraits::TraitItalic,
+                    ) {
+                        Some(d2) => UIFont::fontWithDescriptor_size(&d2, size),
+                        None => base,
+                    }
+                }
+            } else {
+                base
+            };
+        };
+        let ns_family = NSString::from_str(family);
+        let known = unsafe { UIFont::fontNamesForFamilyName(&ns_family) }.count() > 0;
+        if known {
+            let keys: [&NSString; 1] = [unsafe { UIFontDescriptorFamilyAttribute }];
+            let objs: [&AnyObject; 1] = [ns_family.as_ref() as &AnyObject];
+            let attrs = objc2_foundation::NSDictionary::from_slices::<NSString>(&keys, &objs);
+            let desc = unsafe { UIFontDescriptor::fontDescriptorWithFontAttributes(&attrs) };
+            let desc = if traits.is_empty() {
+                desc
+            } else {
+                unsafe { desc.fontDescriptorWithSymbolicTraits(traits) }.unwrap_or(desc)
+            };
+            return unsafe { UIFont::fontWithDescriptor_size(&desc, size) };
+        }
+        if let Some(f) = unsafe { UIFont::fontWithName_size(&ns_family, size) } {
+            return with_traits(f);
+        }
+        log::warn!("unknown font family {family:?} — drawing canvas text in the system font");
+        unsafe { UIFont::systemFontOfSize_weight(size, ui_weight(weight)) }
+    }
+
+    /// The attribute dictionary canvas text draws and measures with (the same one, so
+    /// `measure_text` and `replay` agree on the line box).
+    fn canvas_text_attrs(
+        font: &objc2_ui_kit::UIFont,
+        color: day_spec::Color,
+    ) -> Retained<objc2_foundation::NSDictionary<NSString, AnyObject>> {
+        let col = uicolor(color);
+        // SAFETY: both are UIKit's own attribute-name constants, valid for the process lifetime.
+        let keys: [&NSString; 2] = unsafe {
+            [
+                objc2_ui_kit::NSFontAttributeName,
+                objc2_ui_kit::NSForegroundColorAttributeName,
+            ]
+        };
+        let objs: [&AnyObject; 2] = [font as &AnyObject, col.as_ref() as &AnyObject];
+        objc2_foundation::NSDictionary::from_slices::<NSString>(&keys, &objs)
+    }
+
+    /// The Day rung nearest a `UIFontWeightTrait` value (−1 … 1; the constants UIKit documents
+    /// for its own weights: ultraLight −0.8, thin −0.6, light −0.4, regular 0, medium 0.23,
+    /// semibold 0.3, bold 0.4, heavy 0.56, black 0.62).
+    fn weight_from_trait(t: f64) -> day_spec::FontWeight {
+        use day_spec::FontWeight as W;
+        match t {
+            t if t <= -0.7 => W::UltraLight,
+            t if t <= -0.5 => W::Thin,
+            t if t <= -0.2 => W::Light,
+            t if t < 0.15 => W::Regular,
+            t if t < 0.27 => W::Medium,
+            t if t < 0.35 => W::Semibold,
+            t if t < 0.5 => W::Bold,
+            t if t < 0.6 => W::Heavy,
+            _ => W::Black,
+        }
+    }
+
+    fn ui_weight(w: day_spec::FontWeight) -> objc2_ui_kit::UIFontWeight {
+        use day_spec::FontWeight as W;
+        use objc2_ui_kit::*;
+        unsafe {
+            match w {
+                W::UltraLight => UIFontWeightUltraLight,
+                W::Thin => UIFontWeightThin,
+                W::Light => UIFontWeightLight,
+                W::Regular => UIFontWeightRegular,
+                W::Medium => UIFontWeightMedium,
+                W::Semibold => UIFontWeightSemibold,
+                W::Bold => UIFontWeightBold,
+                W::Heavy => UIFontWeightHeavy,
+                W::Black => UIFontWeightBlack,
+            }
+        }
+    }
+
+    /// The iOS Dynamic Type DEFAULT (content size = Large) point size for a semantic style — the base
+    /// that `UIFontMetrics` scales from. Used to build weighted fonts that still auto-scale.
+    fn ui_default_size(f: Font) -> objc2_core_foundation::CGFloat {
+        match f {
+            Font::LargeTitle => 34.0,
+            Font::Title => 28.0,
+            Font::Title2 => 22.0,
+            Font::Title3 => 20.0,
+            Font::Headline => 17.0,
+            Font::Subheadline => 15.0,
+            Font::Body => 17.0,
+            Font::Callout => 16.0,
+            Font::Footnote => 13.0,
+            Font::Caption => 12.0,
+            Font::Caption2 => 11.0,
+            Font::System(pt) => pt,
+            Font::Custom(_, pt) => pt,
+        }
+    }
+
+    /// Resolve a [`day_spec::FontSpec`] to its concrete `UIFont` — semantic style, weight,
+    /// italic, tabular figures, all Dynamic Type scaled. Shared by the `UILabel` path and the
+    /// read-only `UITextView` a `.selectable()` label swaps to (`set_selectable`).
+    fn resolve_font(spec: day_spec::FontSpec) -> Retained<objc2_ui_kit::UIFont> {
+        use objc2_ui_kit::*;
+        let base: Retained<UIFont> = match spec.style {
+            Font::System(pt) => unsafe {
+                // A custom size, weighted, then run through UIFontMetrics so it also honors Dynamic
+                // Type (accessibility text scale) instead of being a fixed pixel size.
+                let w = spec.weight.map(ui_weight).unwrap_or(UIFontWeightRegular);
+                let raw = UIFont::systemFontOfSize_weight(pt, w);
+                UIFontMetrics::metricsForTextStyle(UIFontTextStyleBody).scaledFontForFont(&raw)
+            },
+            // A bundled family (§18.4): registered at launch from the DayPieces bundle (and
+            // listed in UIAppFonts), then scaled through UIFontMetrics like Font::System so it
+            // tracks Dynamic Type. Unknown families fall back to the system font, loudly. A
+            // weight override maps to the bold trait below (the family decides what it has).
+            Font::Custom(name, pt) => unsafe {
+                let raw = match UIFont::fontWithName_size(&NSString::from_str(name), pt) {
+                    Some(f) => f,
+                    None => {
+                        log::warn!(
+                            "unknown font family {name:?} — falling back to the system \
+                             font (is the file in the project's fonts/ directory?)"
+                        );
+                        let w = spec.weight.map(ui_weight).unwrap_or(UIFontWeightRegular);
+                        UIFont::systemFontOfSize_weight(pt, w)
+                    }
+                };
+                UIFontMetrics::metricsForTextStyle(UIFontTextStyleBody).scaledFontForFont(&raw)
+            },
+            style => unsafe {
+                let ts = ui_text_style(style).expect("semantic style");
+                match spec.weight {
+                    // No weight override → preferredFont, which is Dynamic Type (auto-scales live).
+                    None => UIFont::preferredFontForTextStyle(ts),
+                    // A weight override: build the weighted system font at the style's DEFAULT size,
+                    // then run it through the style's UIFontMetrics so it also auto-scales with Dynamic
+                    // Type (a bare `systemFont(ofSize:weight:)` is a fixed size and would NOT re-scale).
+                    Some(w) => {
+                        let raw =
+                            UIFont::systemFontOfSize_weight(ui_default_size(style), ui_weight(w));
+                        UIFontMetrics::metricsForTextStyle(ts).scaledFontForFont(&raw)
+                    }
+                }
+            },
+        };
+        // Symbolic-trait tweaks on the resolved font: italic, plus synthesized bold for a custom
+        // family with a heavy weight override (system fonts got their weight above).
+        let mut extra = UIFontDescriptorSymbolicTraits::empty();
+        if spec.italic {
+            extra |= UIFontDescriptorSymbolicTraits::TraitItalic;
+        }
+        if matches!(spec.style, Font::Custom(..))
+            && spec
+                .weight
+                .is_some_and(|w| w >= day_spec::FontWeight::Semibold)
+        {
+            extra |= UIFontDescriptorSymbolicTraits::TraitBold;
+        }
+        let font = if !extra.is_empty() {
+            unsafe {
+                let desc = base.fontDescriptor();
+                let traits = desc.symbolicTraits() | extra;
+                match desc.fontDescriptorWithSymbolicTraits(traits) {
+                    Some(d2) => UIFont::fontWithDescriptor_size(&d2, base.pointSize()),
+                    None => base,
+                }
+            }
+        } else {
+            base
+        };
+        // Tabular figures: UIKit exposes them as a whole font (like AppKit), so re-pick the
+        // system face at the resolved size/weight. System styles only — a bundled family keeps
+        // its own figures rather than being silently swapped for the system typeface. The result
+        // still goes through UIFontMetrics below, so Dynamic Type keeps working.
+        let font = if spec.tabular && !matches!(spec.style, Font::Custom(..)) {
+            unsafe {
+                let w = spec.weight.map(ui_weight).unwrap_or(UIFontWeightRegular);
+                let raw = UIFont::monospacedDigitSystemFontOfSize_weight(font.pointSize(), w);
+                UIFontMetrics::metricsForTextStyle(UIFontTextStyleBody).scaledFontForFont(&raw)
+            }
+        } else {
+            font
+        };
+        // Monospace, by the same rule and for the same reason (docs/text-runs.md): a whole face
+        // on UIKit too, kept inside UIFontMetrics so inline code still scales with Dynamic Type.
+        let font = if spec.monospace && !matches!(spec.style, Font::Custom(..)) {
+            unsafe {
+                let w = spec.weight.map(ui_weight).unwrap_or(UIFontWeightRegular);
+                let raw = UIFont::monospacedSystemFontOfSize_weight(font.pointSize(), w);
+                UIFontMetrics::metricsForTextStyle(UIFontTextStyleBody).scaledFontForFont(&raw)
+            }
+        } else {
+            font
+        };
+        // Relative size (`FontSpec::scale`), applied last over whatever face the traits settled
+        // on. `fontWithSize:` keeps the typeface, and because the size it scales is the one
+        // Dynamic Type already produced, a scaled run keeps tracking the reader's setting.
+        if spec.scale != 1.0 {
+            unsafe { font.fontWithSize(spec.resolved_points(font.pointSize())) }
+        } else {
+            font
+        }
+    }
+
+    /// Build a `UILabel`'s attributed text from its runs (docs/text-runs.md).
+    ///
+    /// Byte ranges convert to UTF-16 per run: `NSAttributedString` indexes UTF-16, and any
+    /// emoji or CJK in the string makes the two disagree.
+    fn attributed_label(
+        text: &str,
+        base_font: &objc2_ui_kit::UIFont,
+        color: Option<day_spec::Color>,
+        runs: &[day_spec::TextRun],
+    ) -> Retained<objc2_foundation::NSAttributedString> {
+        use objc2::AllocAnyThread as _;
+        use objc2_foundation::{NSMutableAttributedString, NSRange};
+        let ns = NSString::from_str(text);
+        let s = unsafe {
+            NSMutableAttributedString::initWithString(NSMutableAttributedString::alloc(), &ns)
+        };
+        let whole = NSRange::new(0, ns.length());
+        unsafe {
+            s.addAttribute_value_range(objc2_ui_kit::NSFontAttributeName, base_font, whole);
+            // Always a foreground: a UITextView draws an attributed range with no color
+            // attribute in black, which is invisible in dark mode. `labelColor` is the adaptive
+            // default a plain label would have used.
+            let fg = color.map(uicolor).unwrap_or_else(UIColor::labelColor);
+            s.addAttribute_value_range(objc2_ui_kit::NSForegroundColorAttributeName, &fg, whole);
+        }
+        for r in runs {
+            let Some(range) = utf16_range(text, &r.range) else {
+                continue;
+            };
+            unsafe {
+                s.addAttribute_value_range(
+                    objc2_ui_kit::NSFontAttributeName,
+                    &resolve_font(r.font),
+                    range,
+                );
+                if let Some(c) = r.color {
+                    s.addAttribute_value_range(
+                        objc2_ui_kit::NSForegroundColorAttributeName,
+                        &uicolor(c),
+                        range,
+                    );
+                }
+                if let Some(c) = r.background {
+                    s.addAttribute_value_range(
+                        objc2_ui_kit::NSBackgroundColorAttributeName,
+                        &uicolor(c),
+                        range,
+                    );
+                }
+                if r.underline.is_on() {
+                    let style = objc2_foundation::NSNumber::new_i64(ns_underline(r.underline));
+                    s.addAttribute_value_range(
+                        objc2_ui_kit::NSUnderlineStyleAttributeName,
+                        &style,
+                        range,
+                    );
+                }
+                if r.strikethrough {
+                    let one = objc2_foundation::NSNumber::new_i64(1);
+                    s.addAttribute_value_range(
+                        objc2_ui_kit::NSStrikethroughStyleAttributeName,
+                        &one,
+                        range,
+                    );
+                }
+                if let Some(url) = r.link.as_deref() {
+                    // Drawn as a link. ACTIVATION needs a UITextView (a UILabel has no hit
+                    // testing at all), which is Phase 4 — `Cap::TextLinks` stays Unsupported.
+                    let value = NSString::from_str(url);
+                    s.addAttribute_value_range(objc2_ui_kit::NSLinkAttributeName, &value, range);
+                }
+            }
+        }
+        s.into_super()
+    }
+
+    /// [`Underline`](day_spec::Underline) as an `NSUnderlineStyle` bitmask — the line style in
+    /// the low byte, the pattern in the second, the same encoding AppKit uses.
+    fn ns_underline(u: day_spec::Underline) -> i64 {
+        use day_spec::Underline as U;
+        match u {
+            U::None => 0,
+            U::Single => 0x01,
+            U::Double => 0x09,
+            U::Dotted => 0x01 | 0x0100,
+            U::Wavy => 0x01 | 0x0400,
+        }
+    }
+
+    /// A byte range in `text` as an `NSRange` in UTF-16 units.
+    fn utf16_range(text: &str, r: &std::ops::Range<usize>) -> Option<objc2_foundation::NSRange> {
+        let start = text.get(..r.start)?.encode_utf16().count();
+        let len = text.get(r.clone())?.encode_utf16().count();
+        Some(objc2_foundation::NSRange::new(start, len))
+    }
+
+    fn apply_font(label: &UILabel, spec: day_spec::FontSpec) {
+        let font = resolve_font(spec);
+        unsafe {
+            label.setFont(Some(&font));
+            // Re-scale live when the user changes the accessibility text size (works for fonts derived
+            // from preferredFont / UIFontMetrics).
+            let _: () = objc2::msg_send![label, setAdjustsFontForContentSizeCategory: true];
+        }
+    }
+
+    /// Warn once per kind that this backend has no registered renderer for `kind`, before falling
+    /// back to a visible placeholder. A missing renderer usually means the piece's `uikit` feature
+    /// wasn't enabled (Tier A.2 derives it automatically under `day build`). Deduped per kind so a
+    /// placeholder rendered every frame doesn't spam the log.
+    fn warn_missing_renderer(kind: PieceKind) {
+        day_spec::placeholder::report(kind, "uikit");
+    }
+
+    /// The visible placeholder for a kind this backend cannot realize — no registered
+    /// renderer, or a props payload of the wrong type (`day_spec::props_of` reports the
+    /// mismatch before the arm degrades here).
+    pub(crate) fn placeholder_view(kind: PieceKind) -> Handle {
+        let label = unsafe { UILabel::new(mtm()) };
+        unsafe { label.setText(Some(&NSString::from_str(&format!("⟨{kind}⟩")))) };
+        view_of(label)
+    }
+
+    impl Toolkit for Uikit {
+        type Handle = Handle;
+
+        /// iOS badges are NUMBERS only, and they are part of the notification grant: without the
+        /// user allowing notifications the count is simply not drawn (docs/badge.md).
+        ///
+        /// `UNUserNotificationCenter.setBadgeCount:` (iOS 16+) rather than the deprecated
+        /// `UIApplication.applicationIconBadgeNumber`. Hand-rolled through `msg_send!` on two
+        /// nav hosts instead of taking `objc2-user-notifications` as a toolkit dependency — the
+        /// same budget `day-part-permissions` keeps for this exact class.
+        fn set_app_badge(&mut self, badge: &day_spec::AppBadge) {
+            use day_spec::AppBadge;
+            let count: isize = match badge {
+                AppBadge::None => 0,
+                AppBadge::Count(n) => *n as isize,
+                // No text and no dot on iOS. Substituting a number here would invent a value the
+                // caller never asked for, so these clear instead (Cap says they are unsupported).
+                AppBadge::Text(_) | AppBadge::Dot => return,
+            };
+            let Some(cls) = objc2::runtime::AnyClass::get(c"UNUserNotificationCenter") else {
+                return;
+            };
+            unsafe {
+                let center: *mut objc2::runtime::AnyObject =
+                    msg_send![cls, currentNotificationCenter];
+                if center.is_null() {
+                    return;
+                }
+                // A nil completion handler is allowed; a failure surfaces in the system log, and
+                // there is nothing the caller could do with it synchronously.
+                let _: () = msg_send![center, setBadgeCount: count, withCompletionHandler: std::ptr::null::<objc2::runtime::AnyObject>()];
+            }
+        }
+
+        fn edit_toolbar(&mut self, h: &Handle, ops: &[day_spec::ToolbarOp]) -> bool {
+            // The bar is bar-button items rebuilt from the model on every page (a bar button
+            // item belongs to one bar at a time), and none of them holds state of its own:
+            // search rides the navigation item, never the bar. So an edit is applied to the
+            // model and the bar re-filled from it, which is what UIKit does with an items array.
+            let root = ptr_of(h);
+            let empty = WINDOW_TOOLBARS.with(|t| {
+                let mut t = t.borrow_mut();
+                let w = t.entry(root).or_insert_with(|| WindowToolbar {
+                    root: h.clone(),
+                    items: Vec::new(),
+                    targets: Vec::new(),
+                    docked: None,
+                });
+                for op in ops {
+                    op.apply_to(&mut w.items);
+                }
+                w.items.is_empty()
+            });
+            if empty {
+                // Before the entry goes: the window's own bar lives in it, and a dropped
+                // `Retained` would leave the strip on screen with nothing driving it.
+                undock_window_toolbar(root, h);
+                WINDOW_TOOLBARS.with(|t| {
+                    t.borrow_mut().remove(&root);
+                });
+                clear_window_toolbar(h);
+                // A page search field was the last item, and leaves with the bar.
+                sync_page_search(root, h);
+                return true;
+            }
+            reapply_window_toolbar(root);
+            true
+        }
+
+        fn update_toolbar(&mut self, h: &Handle, patch: &day_spec::ToolbarPatch) {
+            let root = ptr_of(h);
+            let changed = WINDOW_TOOLBARS.with(|t| {
+                t.borrow_mut()
+                    .get_mut(&root)
+                    .is_some_and(|w| patch_toolbar_model(&mut w.items, patch))
+            });
+            if changed {
+                reapply_window_toolbar(root);
+            }
+            // A search item's values go to the live field on the page showing, never through
+            // a re-apply (docs/search.md, "Page search").
+            if patch.item() == day_spec::SEARCH_ITEM_ID
+                && matches!(
+                    patch,
+                    day_spec::ToolbarPatch::Text { .. }
+                        | day_spec::ToolbarPatch::Focus { .. }
+                        | day_spec::ToolbarPatch::Placeholder { .. }
+                )
+            {
+                patch_page_search(root, h, patch);
+            }
+        }
+
+        fn set_drag_source(&mut self, h: &Handle, source: day_spec::transfer::Source) {
+            crate::transfer::source(h, source);
+        }
+        fn set_drop_target(&mut self, h: &Handle, target: day_spec::transfer::Target) {
+            crate::transfer::target(h, target);
+        }
+        fn capability(&self, cap: Cap) -> Support {
+            match cap {
+            Cap::SearchField => Support::Native,
+            Cap::ComboBox => Support::Unsupported,
+            Cap::Stepper => Support::Emulated,
+            Cap::DateTimePicker => Support::Native,
+            Cap::ColorPicker => Support::Native,
+            Cap::PullRefresh => Support::Native,
+            Cap::Pager => Support::Native,
+            Cap::PullRefreshGesture => Support::Native,
+                Cap::DragDrop | Cap::DragExternalImport | Cap::DragExternalExport | Cap::DragMultipleItems => Support::Native,
+                // A UIPointerInteraction per view answers pointer EFFECTS (beam, highlight,
+                // lift, hidden) for the nearest shapes; iPadOS draws no arrows (docs/cursor.md).
+                Cap::Cursor => Support::Emulated,
+                // `UIFont.familyNames` + `fontNamesForFamilyName:` (docs/fonts.md).
+                Cap::FontList => Support::Native,
+                // `UIListContentView` with the cell's default content configuration
+                // (docs/list.md "List items").
+                Cap::ListItem => Support::Native,
+                // `UIImage(data:)` reads every container ImageIO knows, and UIKit writes back
+                // PNG and JPEG (docs/images.md). `Cap::ImageProperties` is deliberately NOT here:
+                // reading EXIF would mean linking ImageIO and going through `CGImageSource`, and
+                // an empty struct would read as "this file records nothing" rather than "nobody
+                // looked".
+                Cap::ImageDecode | Cap::ImageEncode => Support::Native,
+                // A canvas renders offscreen through `UIGraphicsImageRenderer` and to a vector PDF
+                // through `UIGraphicsPDFRenderer`, both with the on-screen painter
+                // (docs/canvas.md "Exporting").
+                Cap::CanvasBitmap | Cap::CanvasPdf => Support::Native,
+                // `UIAccessibilityAnnouncementNotification`, queued or interrupting per the
+                // speech attribute (docs/accessibility.md).
+                Cap::Announce => Support::Native,
+                // `UIAccessibilityIsReduceMotionEnabled`, re-read when UIKit posts the
+                // reduce-motion status change (docs/accessibility.md).
+                Cap::ReduceMotion => Support::Native,
+                // UIGraphicsImageRenderer draws this app's own window into a bitmap
+                // (docs/window-image.md).
+                // A label carrying a link run is built as a read-only UITextView, whose delegate
+                // reports the tap — a UILabel could draw the link but never hit-test it
+                // (docs/text-runs.md).
+                Cap::TextRuns
+                | Cap::TextLinks
+                // The window toolbar docks under the navigation controller's pages
+                // (docs/toolbars.md): the phone's second bar, beside the navigation bar.
+                | Cap::Toolbar
+                // NSUndoManager fronted through the root VC's responder chain: three-finger
+                // gestures, shake-to-undo, hardware ⌘Z and the iPad menu bar all land
+                // (docs/model.md).
+                | Cap::UndoBridge
+                | Cap::Snapshot
+                // UITextView natively honors editable / selectable / spell-check.
+                | Cap::Dialogs
+                | Cap::FileDialogs
+                | Cap::EditBridge
+                | Cap::Animation
+                | Cap::Cover
+                // `.sheet()` is a page sheet (`DayCoverVC`, docs/cover.md "Modal sheet").
+                | Cap::CoverSheet
+                // `prefersStatusBarHidden` on the root and cover VCs (docs/cover.md).
+                | Cap::StatusBarHidden
+                // Every page rides a UINavigationController, whose UINavigationBar names the
+                // destination — content needn't repeat the title (docs/navigation.md).
+                | Cap::NavHeader
+                | Cap::TextEditable
+                // A number on the home-screen icon, gated on the notification grant
+                // (docs/badge.md). Text and Dot have no iOS equivalent.
+                | Cap::AppBadgeCount
+                | Cap::TextSelectable
+                | Cap::TextSpellCheck
+                // UITableView's own drag pipeline: long-press lift + gap, in and out of
+                // editing mode.
+                | Cap::ListReorder
+                // UITableView reuses queued cells and discards surplus ones; a discarded
+                // `DayListCell` releases the row Day built in it from `dealloc`, so the rows
+                // alive stay bounded by the table's own pool (docs/list.md).
+                | Cap::ListRecycling
+                // `UITableView` editing: delete controls and reorder grips (docs/list.md).
+                | Cap::ListEditing
+                // A list-layout UICollectionView over one diffable SECTION snapshot hosts
+                // day-built rows natively (docs/tree.md). `Cap::TreeMove` is deliberately
+                // not here yet: native finger-drag lands after seam parity — the dayscript
+                // `tree_move:` step drives the seam regardless.
+                | Cap::Tree
+            | Cap::TreeSections
+                // Trailing swipe actions: the row tracks the finger, the destructive action
+                // reveals behind it, and a full swipe commits (docs/list.md).
+                | Cap::ListDelete
+                // The same pipeline generalized: app-declared actions on either edge, with
+                // the full-swipe shortcut on the first (docs/list.md).
+                | Cap::ListSwipeActions
+                // Plain-table section headers, pinned while their section scrolls
+                // (docs/list.md "Sections").
+                | Cap::ListSections
+                // A `UISplitViewController` hosts every `nav(Sidebar)`, so two columns are
+                // available wherever the window is wide enough — an iPad, and a Plus/Pro Max
+                // iPhone in landscape (docs/size-classes.md).
+                // `.tabSidebar` (docs/navigation.md): One `UITabBarController` that draws a tab
+                // bar when compact and a sidebar when not — what SwiftUI's `.sidebarAdaptable`
+                // compiles down to, and the container adaptive navigation exists for.
+                //
+                // Native on every version this backend deploys to, which was worth MEASURING
+                // rather than reasoning about. `UITabBarController.mode` is annotated
+                // `API_AVAILABLE(ios(18.0))`, so the obvious move is to answer `Unsupported`
+                // below 18 and let the resolver fall back. That made iOS 15.5 and 17.5 worse,
+                // not safer: the fallback lowers a different host shape and broke the scaffold's
+                // walkthrough on both, while the unguarded call ran clean on both. Apple shipped
+                // the nav host before annotating it. An app on iOS 15 therefore gets a plain tab
+                // bar — what it would have drawn anyway — and only the sidebar half is new.
+                | Cap::NavTabsAdaptive
+                | Cap::NavTabs
+                | Cap::NavSplit
+                | Cap::Appearance => Support::Native,
+                // Derived from the control's font: UIKit publishes baselines only as constraint
+                // anchors, with no number to read (docs/baseline.md).
+                Cap::BaselineAlignment => Support::Emulated,
+                // EMULATED, and the distinction is the whole design: UIKit owns the collapse and
+                // expand, on its own schedule and with its own animation, so Day observes it
+                // through `Event::NavPresentationChanged` rather than pushing a presentation
+                // into it (docs/size-classes.md).
+                Cap::NavRepresent => Support::Emulated,
+                // The supplementary column of a `.tripleColumn` UISplitViewController; EMULATED
+                // because the pane MERGES into the stack when the host collapses, and the
+                // pieces layer interposes it there (docs/navigation.md).
+                Cap::NavContentList => Support::Emulated,
+                // Fullscreen hides the status bar and lets the home indicator fade
+                // (`prefersHomeIndicatorAutoHidden`); the app already fills the screen, so
+                // nothing else changes (docs/windows.md).
+                Cap::WindowFullscreen => Support::Emulated,
+                // No switch exists: an opaque shield covers a protected window while its screen
+                // is recorded or mirrored, and screenshots still capture it (docs/windows.md).
+                Cap::ContentProtection => Support::Emulated,
+                // Each scene's window takes its own `overrideUserInterfaceStyle`.
+                Cap::WindowAppearance => Support::Native,
+                // `UIApplication.shortcutItems`: Home Screen quick actions set at run time.
+                Cap::DynamicShortcuts => Support::Native,
+                // The one screen the app runs on, from its scene (docs/windows.md).
+                Cap::Monitors => Support::Emulated,
+                // `Cap::WindowStates` stays Unsupported: an iOS window is never minimized or
+                // zoomed, so those requests report the state the window kept.
+                // Real UIScenes on iPad (docs/windows.md); iPhone shows one scene, so the
+                // cover fallback is the honest answer there.
+                Cap::MultiWindow => {
+                    let app = UIApplication::sharedApplication(mtm());
+                    if unsafe { app.supportsMultipleScenes() } {
+                        Support::Native
+                    } else {
+                        Support::Unsupported
+                    }
+                }
+                _ => Support::Unsupported,
+            }
+        }
+
+        fn realize(&mut self, kind: PieceKind, props: &dyn Any, id: NodeId) -> Handle {
+            let mtm = mtm();
+            match Builtin::from_key(kind) {
+                Some(Builtin::Container) => {
+                    let v: Retained<UIView> = Retained::into_super(DayFocusableContainer::new(mtm));
+                    // A mismatched payload still yields a usable (undecorated) container;
+                    // `props_of` reports it.
+                    if let Some(p) = day_spec::props_of::<ContainerProps>(kind, "uikit", props) {
+                        if p.role == Some(day_spec::SurfaceRole::SectionCard) {
+                            // The card half of the grouped pair (`DayNavPageView`): a card is
+                            // what LIFTS off the grouped ground, so it takes the lighter of the
+                            // two rather than a fill tinted over whatever is behind it —
+                            // `tertiarySystemFill` is translucent, and on the grouped ground it
+                            // read as grey on grey. Dynamic either way: UIKit re-resolves it on
+                            // trait-collection (light/dark) changes automatically.
+                            unsafe {
+                                v.setBackgroundColor(Some(
+                                    &UIColor::secondarySystemGroupedBackgroundColor(),
+                                ));
+                                let layer = v.layer();
+                                layer.setCornerRadius(p.corner_radius);
+                                layer.setMasksToBounds(true);
+                            }
+                        } else if p.background.is_some() || p.corner_radius > 0.0 || p.clips {
+                            apply_surface(&v, p.background, p.corner_radius, p.clips);
+                        }
+                    }
+                    view_of(v)
+                }
+                Some(Builtin::Nav) => {
+                    // Mismatched props degrade to the placeholder rather than panicking in a
+                    // native up-call (§8.5); `props_of` reports once per kind. Same pattern on
+                    // every arm below.
+                    let Some(p) = day_spec::props_of::<NavProps>(kind, "uikit", props) else {
+                        return placeholder_view(kind);
+                    };
+                    if p.documents.is_some() {
+                        let controller = unsafe { UIViewController::new(mtm) };
+                        let host = unsafe { UIView::new(mtm) };
+                        unsafe {
+                            controller.setView(Some(&host));
+                        }
+                        if let Some(root) = WINDOW
+                            .with(|w| w.borrow().clone())
+                            .and_then(|w| w.rootViewController())
+                        {
+                            unsafe {
+                                root.addChildViewController(&controller);
+                                controller.didMoveToParentViewController(Some(&root));
+                            }
+                        }
+                        DOCUMENT_HOSTS.with(|m| {
+                            m.borrow_mut().insert(
+                                ptr_of(&host),
+                                DocumentHost {
+                                    controller,
+                                    pages: Vec::new(),
+                                    selected: 0,
+                                },
+                            )
+                        });
+                        return view_of(host);
+                    }
+                    let nav = DayNavController::new(mtm, 0); // host ptr set just below
+                    // Child-VC containment under the window's root VC (v1: app root).
+                    let root_vc = WINDOW
+                        .with(|w| w.borrow().clone())
+                        .and_then(|w| w.rootViewController());
+                    // `presentation: Stack` in props means a stack at every size — a nested
+                    // `nav_stack()` under a split host (docs/size-classes.md) — realized as a PLAIN
+                    // navigation controller. A `UISplitViewController` assumes it owns the
+                    // window; nested inside a detail pane its column layout collapses into
+                    // garbage (the embedded-split trap), which is exactly what a pane-sized
+                    // gray void looked like.
+                    // An ADAPTIVE TABS host (docs/navigation.md): `.tabSidebar` is the container
+                    // that wears both chromes itself, so there is no split to build and no
+                    // presentation for Day to drive — the controller decides, and reports once.
+                    if p.presentation == day_spec::props::NavPresentation::Tabs {
+                        let tabbar = unsafe { UITabBarController::new(mtm) };
+                        // `mode` is annotated `ios(18.0)` but responds on 15.5 and 17.5, which is
+                        // measured, not assumed (docs/size-classes.md). Guard on whether the
+                        // object ANSWERS the nav host rather than on a version number: that is
+                        // the fact the call actually depends on, it needs no table of which OS
+                        // shipped what, and it degrades to a plain tab bar — an iOS 17 app's own
+                        // shape — instead of dying, on any runtime that really lacks it.
+                        if tabbar.respondsToSelector(objc2::sel!(setMode:)) {
+                            unsafe {
+                                tabbar.setMode(objc2_ui_kit::UITabBarControllerMode::TabSidebar);
+                            }
+                        }
+                        if let Some(root_vc) = &root_vc {
+                            unsafe {
+                                root_vc.addChildViewController(&tabbar);
+                                tabbar.didMoveToParentViewController(Some(root_vc));
+                            }
+                        }
+                        let host = view_of(unsafe { tabbar.view() }.expect("tabbar view"));
+                        let hp = ptr_of(&host);
+                        let delegate = DayNavTabsDelegate::new(mtm, hp);
+                        unsafe { tabbar.setDelegate(Some(ProtocolObject::from_ref(&*delegate))) };
+                        NAV_TABS.with(|m| {
+                            m.borrow_mut().insert(
+                                hp,
+                                NavTabsState {
+                                    tabbar,
+                                    vcs: Vec::new(),
+                                    tabs: Vec::new(),
+                                    rows: NavTabRows::default(),
+                                    menu_view: std::cell::Cell::new(0),
+                                    menu_node: std::cell::Cell::new(0),
+                                    suppress: std::cell::Cell::new(false),
+                                    pending_selection: std::cell::Cell::new(None),
+                                    _delegate: delegate,
+                                },
+                            )
+                        });
+                        // Tell Day this host is a tabs host and stays one. Its pages are resident
+                        // at every width, so day-core must not flip to push/pop as the window
+                        // widens — UIKit swaps the chrome underneath without Day's help.
+                        emit(
+                            id,
+                            Event::NavPresentationChanged(day_spec::props::NavPresentation::Tabs),
+                        );
+                        return host;
+                    }
+                    let (host, split) = if p.presentation == day_spec::props::NavPresentation::Stack
+                    {
+                        if let Some(root_vc) = root_vc {
+                            unsafe {
+                                root_vc.addChildViewController(&nav);
+                                nav.didMoveToParentViewController(Some(&root_vc));
+                            }
+                        }
+                        let host = view_of(unsafe { nav.view() }.expect("nav view"));
+                        // Day owns this frame. UIKit gives every controller's view a W+H
+                        // autoresizing mask, and a masked child of a superview that grows FROM
+                        // ZERO gets its own size plus the delta — a host Day had already sized
+                        // to 420×810 came out 840×1620 under a tab page that took its bounds
+                        // after Day's pass, with the list's trailing edge and the bar title off
+                        // the phone. No mask: a frame set once is the frame.
+                        unsafe {
+                            host.setAutoresizingMask(objc2_ui_kit::UIViewAutoresizing::empty())
+                        };
+                        (host, None)
+                    } else {
+                        // The adaptive host (docs/size-classes.md): a two-column
+                        // UISplitViewController whose SECONDARY column is Day's navigation stack
+                        // and whose PRIMARY is the sidebar page. UIKit collapses it to a single
+                        // stack at compact width and expands it at regular — which is a rotation
+                        // away on a Plus/Pro Max iPhone and the standing state on an iPad.
+                        //
+                        // Collapsing MERGES: UIKit inserts the primary's controller at the bottom
+                        // of the secondary's navigation stack. That lands on exactly the shape
+                        // Day's model already has in a stack presentation — the sidebar page as
+                        // the stack's root — so the phone path is unchanged and only the mirror
+                        // needs rebasing.
+                        // A content list (`NavProps::list_width`) makes this a TRIPLE-column
+                        // host while the first destination shows it; the style is init-only,
+                        // so a later change rebuilds the host (`rehost_split`,
+                        // docs/navigation.md).
+                        let list_width = p.list_width;
+                        let triple = list_width.is_some() && p.list_visible;
+                        let built = build_split(mtm, &nav, list_width, triple);
+                        let split_vc = built.split_vc;
+                        let primary_nav = built.primary_nav;
+                        let supplementary_nav = built.supplementary_nav;
+                        let secondary_placeholder = built.secondary_placeholder;
+                        // Day's handle is a container the split's view fills, so a rebuild
+                        // leaves the handle — and the tree — untouched.
+                        let container: Retained<UIView> =
+                            Retained::into_super(unsafe { DayNavContainer::new(mtm) });
+                        mount_split(&split_vc, &container);
+                        let host = container.clone();
+                        primary_nav.ivars().host.set(ptr_of(&host));
+                        let split_delegate = DaySplitDelegate::new(mtm, ptr_of(&host));
+                        unsafe {
+                            split_vc.setDelegate(Some(ProtocolObject::from_ref(&*split_delegate)))
+                        };
+                        (
+                            host,
+                            Some(SplitParts {
+                                split_vc,
+                                primary_nav,
+                                supplementary_nav,
+                                list_width,
+                                list_shown: std::cell::Cell::new(p.list_visible),
+                                container,
+                                list_vc: std::cell::RefCell::new(None),
+                                secondary_placeholder,
+                                _split_delegate: split_delegate,
+                            }),
+                        )
+                    };
+                    nav.ivars().host.set(ptr_of(&host));
+                    let delegate = DayNavDelegate::new(mtm, ptr_of(&host));
+                    // One delegate for every column: they are the same Day host, and only one
+                    // of them owns the stack at a time.
+                    unsafe {
+                        nav.setDelegate(Some(ProtocolObject::from_ref(&*delegate)));
+                        if let Some(parts) = split.as_ref() {
+                            parts
+                                .primary_nav
+                                .setDelegate(Some(ProtocolObject::from_ref(&*delegate)));
+                            if let Some(snav) = parts.supplementary_nav.as_ref() {
+                                snav.setDelegate(Some(ProtocolObject::from_ref(&*delegate)));
+                                snav.ivars().host.set(ptr_of(&host));
+                            }
+                        }
+                    }
+                    // Inline search (docs/search.md): build the controller now; it is attached to
+                    // the ROOT page's navigation item as that page joins the stack, which is what
+                    // puts it behind the pull-down on the top-level list.
+                    let search = p
+                        .search
+                        .as_ref()
+                        // Every placement lands here, because on iOS the two name one surface.
+                        // `UINavigationItem` owns the bar's buttons AND its search controller, and
+                        // the window toolbar rides that same item (docs/toolbars.md) — so
+                        // "in the toolbar" and "attached to the navigation surface" are the same
+                        // control, and there is nothing for a placement to choose between.
+                        //
+                        // This was a filter on `Inline` alone, which silently dropped the field
+                        // the day iOS gained `Cap::Toolbar`: `SearchPlacement::Automatic` resolves
+                        // to `Toolbar` wherever a toolbar exists, and `build_toolbar_items` skips
+                        // `K::Search` because a `UIBarButtonItem` cannot be a search field. So a
+                        // `.searchable()` surface simply had no field on iOS at all.
+                        .map(|sp| {
+                            let updater = DaySearchUpdater::new(mtm, id);
+                            let sc = unsafe {
+                                objc2_ui_kit::UISearchController::initWithSearchResultsController(
+                                    objc2_ui_kit::UISearchController::alloc(mtm),
+                                    None,
+                                )
+                            };
+                            unsafe {
+                                sc.setSearchResultsUpdater(Some(ProtocolObject::from_ref(
+                                    &*updater,
+                                )));
+                                // The results controller is the app's own list, not a separate
+                                // one, so dimming it while typing would gray out the very rows
+                                // being filtered.
+                                sc.setObscuresBackgroundDuringPresentation(false);
+                                let bar = sc.searchBar();
+                                // The Search key reports a submission (`Event::SearchSubmitted`);
+                                // UISearchController leaves its bar's delegate to the app.
+                                bar.setDelegate(Some(ProtocolObject::from_ref(&*updater)));
+                                bar.setPlaceholder(Some(&NSString::from_str(&sp.prompt)));
+                                if !sp.text.is_empty() {
+                                    bar.setText(Some(&NSString::from_str(&sp.text)));
+                                }
+                            }
+                            (sc, updater)
+                        });
+                    NAV_STATE.with(|m| {
+                        m.borrow_mut().insert(
+                            ptr_of(&host),
+                            NavState {
+                                nav,
+                                host_node: id,
+                                split,
+                                day_pop: std::cell::Cell::new(false),
+                                pending_list: std::cell::Cell::new(None),
+                                column_request: std::cell::Cell::new(None),
+                                _delegate: delegate,
+                                search,
+                                search_hides_on_scroll: p
+                                    .search
+                                    .as_ref()
+                                    .is_some_and(|s| s.hides_on_scroll),
+                                search_initially_hidden: p
+                                    .search
+                                    .as_ref()
+                                    .is_some_and(|s| s.initially_hidden),
+                            },
+                        )
+                    });
+                    host
+                }
+                Some(Builtin::NavPage) => {
+                    let Some(p) = day_spec::props_of::<NavPageProps>(kind, "uikit", props) else {
+                        return placeholder_view(kind);
+                    };
+                    let outer = DayNavPageView::new(mtm, id);
+                    let content = unsafe { UIView::new(mtm) };
+                    unsafe { outer.addSubview(&content) };
+                    let vc: Retained<UIViewController> =
+                        Retained::into_super(unsafe { msg_send![DayPageVC::alloc(mtm), init] });
+                    unsafe {
+                        vc.setView(Some(&outer));
+                        vc.setTitle(Some(&NSString::from_str(&p.title)));
+                    }
+                    let handle = view_of(content);
+                    PAGE_VCS.with(|m| m.borrow_mut().insert(ptr_of(&handle), vc));
+                    NAV_PAGES.with(|set| set.borrow_mut().insert(ptr_of(&handle)));
+                    PAGE_PANE.with(|t| t.insert(ptr_of(&handle), p.pane));
+                    handle
+                }
+                // Fullscreen cover (docs/cover.md): a DayCoverVC over a DayNavPageView (safe-
+                // area pinning + FrameChanged reports, like a nav page), created detached;
+                // CoverPatch::Present shows it modally over the whole window.
+                Some(Builtin::Cover) => {
+                    let outer = DayNavPageView::new(mtm, id);
+                    let content = unsafe { UIView::new(mtm) };
+                    unsafe { outer.addSubview(&content) };
+                    let cover_props = props.downcast_ref::<CoverProps>();
+                    let half = cover_props.is_some_and(|p| p.half);
+                    let sheet = half || cover_props.is_some_and(|p| p.sheet);
+                    let vc = DayCoverVC::new(mtm, id, sheet, half);
+                    unsafe {
+                        vc.setView(Some(&outer));
+                        vc.setModalPresentationStyle(if half {
+                            UIModalPresentationStyle::PageSheet
+                        } else if sheet {
+                            UIModalPresentationStyle::FormSheet
+                        } else {
+                            UIModalPresentationStyle::FullScreen
+                        });
+                    }
+                    let handle = view_of(content);
+                    COVER_STATE.with(|m| {
+                        m.borrow_mut()
+                            .insert(ptr_of(&handle), CoverState { vc, node: id })
+                    });
+                    // The content view's frame is native-owned (the cover VC lays it out).
+                    NAV_PAGES.with(|set| set.borrow_mut().insert(ptr_of(&handle)));
+                    handle
+                }
+                Some(Builtin::NavMenu) => {
+                    let Some(p) = day_spec::props_of::<NavMenuProps>(kind, "uikit", props) else {
+                        return placeholder_view(kind);
+                    };
+                    let data = DayNavTableData::new(
+                        mtm,
+                        id,
+                        &p.items,
+                        &p.icons,
+                        &p.tints,
+                        &p.menus,
+                        &p.badges,
+                        &p.badge_icons,
+                        &p.badge_tints,
+                        &p.sections,
+                    );
+                    // Section headings (`NavMenuProps::sections`), which macos-appkit and
+                    // android-material already draw and iOS used to flatten away. A list header is the
+                    // sidebar's own idiom for them, so the model needs no new vocabulary — the
+                    // rows are grouped into sections and each carries its heading as a header
+                    // supplementary.
+                    let layout = nav_list_layout(mtm, p.sections.iter().any(|s| s.is_some()));
+                    let table = unsafe {
+                        objc2_ui_kit::UICollectionView::initWithFrame_collectionViewLayout(
+                            objc2_ui_kit::UICollectionView::alloc(mtm),
+                            CGRect::new(CGPoint::new(0.0, 0.0), CGSize::new(320.0, 400.0)),
+                            &layout,
+                        )
+                    };
+                    unsafe {
+                        table.registerClass_forCellWithReuseIdentifier(
+                            Some(
+                                <objc2_ui_kit::UICollectionViewListCell as objc2::ClassType>::class(
+                                ),
+                            ),
+                            &NSString::from_str(NAV_CELL_ID),
+                        );
+                        table.registerClass_forSupplementaryViewOfKind_withReuseIdentifier(
+                            Some(
+                                <objc2_ui_kit::UICollectionViewListCell as objc2::ClassType>::class(
+                                ),
+                            ),
+                            objc2_ui_kit::UICollectionElementKindSectionHeader,
+                            &NSString::from_str(NAV_HEADER_ID),
+                        );
+                        table.setDataSource(Some(ProtocolObject::from_ref(&*data)));
+                        table.setDelegate(Some(ProtocolObject::from_ref(&*data)));
+                        // The list draws its own ground; letting the page's grouped background
+                        // show through is what puts the rows on it rather than on a white sheet.
+                        table.setBackgroundColor(Some(&objc2_ui_kit::UIColor::clearColor()));
+                        table.reloadData();
+                    }
+                    // The selection the model already carries (docs/navigation.md). A rebuilt
+                    // sidebar — a language change, a data-driven item set — has to come back
+                    // marking the same page, not blank. Through `data` rather than the map,
+                    // which this row is not in until the insert below.
+                    select_nav_path(&table, p.selected.and_then(|r| data.path_of(r)));
+                    let view = view_of(table);
+                    NAV_MENUS.with(|m| m.borrow_mut().insert(ptr_of(&view), (data, p.items.len())));
+                    // Remember the rows for a `.tabSidebar` host: UIKit draws both its tab bar
+                    // and its sidebar from the tabs, so a nav host's row labels have to reach the
+                    // tabs rather than only this table (docs/navigation.md).
+                    NAV_MENU_ROWS.with(|m| {
+                        m.borrow_mut().insert(
+                            ptr_of(&view),
+                            (
+                                id.0 as i64,
+                                NavTabRows {
+                                    titles: p.items.clone(),
+                                    icons: p.icons.clone(),
+                                    badges: p.badges.clone(),
+                                },
+                            ),
+                        )
+                    });
+                    view
+                }
+
+                Some(Builtin::Tree) => {
+                    let Some(p) = day_spec::props_of::<TreeProps>(kind, "uikit", props) else {
+                        return placeholder_view(kind);
+                    };
+                    let row_height = match p.row_height {
+                        RowHeight::Uniform(h) => h,
+                        RowHeight::Automatic => 44.0,
+                    };
+                    let config = unsafe {
+                        objc2_ui_kit::UICollectionLayoutListConfiguration::initWithAppearance(
+                            objc2_ui_kit::UICollectionLayoutListConfiguration::alloc(mtm),
+                            if p.section_headers {
+                                objc2_ui_kit::UICollectionLayoutListAppearance::Sidebar
+                            } else {
+                                objc2_ui_kit::UICollectionLayoutListAppearance::Plain
+                            },
+                        )
+                    };
+                    unsafe {
+                        config.setShowsSeparators(false);
+                        config.setBackgroundColor(Some(&objc2_ui_kit::UIColor::clearColor()));
+                    }
+                    let layout = unsafe {
+                        objc2_ui_kit::UICollectionViewCompositionalLayout::layoutWithListConfiguration(&config)
+                    };
+                    let cv = unsafe {
+                        objc2_ui_kit::UICollectionView::initWithFrame_collectionViewLayout(
+                            objc2_ui_kit::UICollectionView::alloc(mtm),
+                            CGRect::new(CGPoint::new(0.0, 0.0), CGSize::new(0.0, 0.0)),
+                            &layout,
+                        )
+                    };
+                    unsafe {
+                        cv.registerClass_forCellWithReuseIdentifier(
+                            Some(<DayTreeListCell as objc2::ClassType>::class()),
+                            &NSString::from_str("day.tree.cell"),
+                        );
+                        cv.setBackgroundColor(Some(&objc2_ui_kit::UIColor::clearColor()));
+                        cv.setAllowsSelection(p.selectable);
+                        if p.multi_select {
+                            cv.setAllowsMultipleSelection(true);
+                        }
+                    }
+                    let data = DayTreeData::new(mtm, id, p.selectable, row_height);
+                    unsafe {
+                        cv.setDelegate(Some(ProtocolObject::from_ref(&*data)));
+                    }
+                    let key = Retained::as_ptr(&cv) as usize;
+                    // The cell provider looks its tree up by the collection view it is handed
+                    // — capturing `data` would tie a retain cycle through the data source.
+                    let provider = block2::RcBlock::new(
+                        move |cvp: core::ptr::NonNull<objc2_ui_kit::UICollectionView>,
+                              ip: core::ptr::NonNull<objc2_foundation::NSIndexPath>,
+                              item: core::ptr::NonNull<AnyObject>|
+                              -> *mut objc2_ui_kit::UICollectionViewCell {
+                            day_spec::ffi_guard::contain(core::ptr::null_mut(), || {
+                                let cv = unsafe { cvp.as_ref() };
+                                let ip = unsafe { ip.as_ref() };
+                                let item = unsafe { item.as_ref() };
+                                let cell = unsafe {
+                                    cv.dequeueReusableCellWithReuseIdentifier_forIndexPath(
+                                        &NSString::from_str("day.tree.cell"),
+                                        ip,
+                                    )
+                                };
+                                let Ok(cell) = cell.downcast::<DayTreeListCell>() else {
+                                    return core::ptr::null_mut();
+                                };
+                                let Some(data) = tree_entry_u(cv as *const _ as usize) else {
+                                    return Retained::autorelease_return(cell)
+                                        as *mut objc2_ui_kit::UICollectionViewCell;
+                                };
+                                cell.ivars().row_height.set(data.ivars().row_height.get());
+                                let Some(tok) = DayTreeData::token_of_item(item) else {
+                                    return Retained::autorelease_return(cell)
+                                        as *mut objc2_ui_kit::UICollectionViewCell;
+                                };
+                                let (expandable, header, bind) = {
+                                    let src = data.ivars().source.borrow();
+                                    match src.as_ref() {
+                                        Some(s) => (
+                                            (s.expandable)(tok),
+                                            (s.section_header)(tok),
+                                            Some(s.bind_row.clone()),
+                                        ),
+                                        None => (false, false, None),
+                                    }
+                                };
+                                if expandable {
+                                    // Day-owned disclosure (module comment): the accessory
+                                    // only reports; the patch does the toggling.
+                                    let mtm = unsafe { MainThreadMarker::new_unchecked() };
+                                    let disc: Retained<
+                                        objc2_ui_kit::UICellAccessoryOutlineDisclosure,
+                                    > = unsafe {
+                                        msg_send![
+                                            objc2_ui_kit::UICellAccessoryOutlineDisclosure::alloc(
+                                                mtm
+                                            ),
+                                            init
+                                        ]
+                                    };
+                                    if header {
+                                        unsafe {
+                                            disc.setStyle(objc2_ui_kit::UICellAccessoryOutlineDisclosureStyle::Header)
+                                        };
+                                    }
+                                    let cv_key = cv as *const _ as usize;
+                                    let handler = block2::RcBlock::new(move || {
+                                        day_spec::ffi_guard::contain((), || {
+                                            let Some(data) = tree_entry_u(cv_key) else {
+                                                return;
+                                            };
+                                            let ds = data.ivars().ds.borrow().clone();
+                                            let Some(ds) = ds else { return };
+                                            let section = unsafe {
+                                                Retained::cast_unchecked::<NSObject>(
+                                                    DayTreeData::section(),
+                                                )
+                                            };
+                                            let item = unsafe {
+                                                Retained::cast_unchecked::<NSObject>(
+                                                    data.intern(tok),
+                                                )
+                                            };
+                                            let open =
+                                                ds.snapshotForSection(&section).isExpanded(&item);
+                                            emit(
+                                                data.ivars().node,
+                                                Event::TreeExpanded {
+                                                    token: tok,
+                                                    expanded: !open,
+                                                },
+                                            );
+                                        });
+                                    });
+                                    unsafe { disc.setActionHandler(Some(&handler)) };
+                                    let acc = unsafe {
+                                        Retained::cast_unchecked::<objc2_ui_kit::UICellAccessory>(
+                                            disc,
+                                        )
+                                    };
+                                    cell.setAccessories(
+                                        &objc2_foundation::NSArray::from_retained_slice(&[acc]),
+                                    );
+                                } else {
+                                    cell.setAccessories(&objc2_foundation::NSArray::new());
+                                }
+                                if let Some(bind) = bind {
+                                    let content = cell.contentView();
+                                    bind(tok, Retained::as_ptr(&content) as RawHandle);
+                                }
+                                Retained::autorelease_return(cell)
+                                    as *mut objc2_ui_kit::UICollectionViewCell
+                            })
+                        },
+                    );
+                    let ds = unsafe {
+                        objc2_ui_kit::UICollectionViewDiffableDataSource::<NSObject, NSObject>::initWithCollectionView_cellProvider(
+                            objc2_ui_kit::UICollectionViewDiffableDataSource::alloc(mtm),
+                            &cv,
+                            &*provider as *const block2::DynBlock<_> as *mut block2::DynBlock<_>,
+                        )
+                    };
+                    data.ivars().ds.replace(Some(ds));
+                    TREE_STATE.with(|m| m.borrow_mut().insert(key, data));
+                    view_of(cv)
+                }
+                Some(Builtin::List) => {
+                    let Some(p) = day_spec::props_of::<ListProps>(kind, "uikit", props) else {
+                        return placeholder_view(kind);
+                    };
+                    let row_height = match p.row_height {
+                        RowHeight::Uniform(h) => h,
+                        RowHeight::Automatic => 44.0,
+                    };
+                    let table = unsafe {
+                        objc2_ui_kit::UITableView::initWithFrame_style(
+                            objc2_ui_kit::UITableView::alloc(mtm),
+                            CGRect::new(CGPoint::new(0.0, 0.0), CGSize::new(0.0, 0.0)),
+                            objc2_ui_kit::UITableViewStyle::Plain,
+                        )
+                    };
+                    let automatic = p.row_height == RowHeight::Automatic;
+                    let data = DayListData::new(
+                        mtm,
+                        id,
+                        p.selectable,
+                        row_height,
+                        automatic,
+                        p.delete_label.clone(),
+                        p.sections,
+                    );
+                    unsafe {
+                        if p.sections {
+                            // Section headers (docs/list.md "Sections"): self-sizing, and flush
+                            // with the rows above them; iOS 15's automatic top padding would
+                            // open a gap over every header.
+                            table.setSectionHeaderHeight(
+                                objc2_ui_kit::UITableViewAutomaticDimension,
+                            );
+                            table.setEstimatedSectionHeaderHeight(32.0);
+                            table.setSectionHeaderTopPadding(0.0);
+                        }
+                        if automatic {
+                            // Self-sizing cells (docs/list.md "Row heights"): each row is as
+                            // tall as Day lays it, asked of the cell once it is bound.
+                            table.setRowHeight(objc2_ui_kit::UITableViewAutomaticDimension);
+                            table.setEstimatedRowHeight(row_height);
+                        } else {
+                            table.setRowHeight(row_height);
+                        }
+                        table.setDataSource(Some(ProtocolObject::from_ref(&*data)));
+                        table.setDelegate(Some(ProtocolObject::from_ref(&*data)));
+                        // The table owns its data source for as long as it lives, not only
+                        // while Day's `LIST_STATE` entry does: UITableView holds `dataSource`
+                        // weakly, and a table that lays out once more after its node went (a
+                        // page still animating out, a late pass) asserts "UITableView
+                        // dataSource is not set" and takes the app down. The source's closures
+                        // are safe to call after the node is gone (they find no list).
+                        objc2::ffi::objc_setAssociatedObject(
+                            std::ptr::from_ref::<objc2::runtime::AnyObject>(&table).cast_mut(),
+                            std::ptr::addr_of!(LIST_DATA_SOURCE_KEY).cast(),
+                            std::ptr::from_ref::<objc2::runtime::AnyObject>(&data).cast_mut(),
+                            objc2::ffi::OBJC_ASSOCIATION_RETAIN_NONATOMIC,
+                        );
+                        // Separators are UIKit's default; only a forced OFF changes anything
+                        // (docs/list.md) — a list whose rows draw their own separation turns
+                        // the native line off rather than showing both.
+                        if p.separators == Some(false) {
+                            table.setSeparatorStyle(
+                                objc2_ui_kit::UITableViewCellSeparatorStyle::None,
+                            );
+                        }
+                        if !p.selectable {
+                            table.setAllowsSelection(false);
+                        }
+                        if p.reorderable {
+                            // Native drag-to-reorder (docs/list.md): the drag delegate lifts a
+                            // row on long-press (no editing mode); the data-source move methods
+                            // + target-for-move delegate drive commit and the live guard.
+                            table.setDragDelegate(Some(ProtocolObject::from_ref(&*data)));
+                            table.setDragInteractionEnabled(true);
+                        }
+                        // Editing mode (docs/list.md): a tap still activates the row, as it
+                        // does in Settings' and Mail's edit lists.
+                        table.setAllowsSelectionDuringEditing(p.selectable);
+                        if p.editing {
+                            table.setEditing_animated(true, false);
+                        }
+                    }
+                    let view = view_of(table.clone());
+                    LIST_STATE.with(|m| m.borrow_mut().insert(ptr_of(&view), (table, data)));
+                    view
+                }
+                Some(Builtin::Scroll) => {
+                    let sv = unsafe { UIScrollView::new(mtm) };
+                    view_of(sv)
+                }
+                Some(Builtin::Label) => {
+                    let Some(p) = day_spec::props_of::<LabelProps>(kind, "uikit", props) else {
+                        return placeholder_view(kind);
+                    };
+                    // A UILabel does no hit testing at all, so a label that arrives with a link
+                    // run is built as a read-only text view instead — the same backing
+                    // `.selectable()` swaps to, and the only one UIKit can activate a link in
+                    // (docs/text-runs.md). A link that first appears in a later patch cannot
+                    // upgrade the backing: `patch` has no way to hand back a new handle.
+                    if p.runs.iter().any(|r| r.link.is_some()) {
+                        let tv = link_text_view(p, id, mtm);
+                        return view_of(tv);
+                    }
+                    let label = unsafe { UILabel::new(mtm) };
+                    unsafe {
+                        label.setText(Some(&NSString::from_str(&p.text)));
+                        label.setNumberOfLines(if p.wraps { p.max_lines as isize } else { 1 });
+                        if !p.wraps || p.max_lines > 0 {
+                            label.setLineBreakMode(objc2_ui_kit::NSLineBreakMode::ByTruncatingTail);
+                        }
+                    }
+                    apply_font(&label, p.font);
+                    // An explicit color wins; otherwise the ROLE chooses which adaptive system
+                    // color applies, so a de-emphasized label stays legible in both appearances.
+                    match (p.color, p.role) {
+                        (Some(c), _) => unsafe { label.setTextColor(Some(&uicolor(c))) },
+                        (None, day_spec::props::TextRole::Secondary) => unsafe {
+                            label.setTextColor(Some(&UIColor::secondaryLabelColor()))
+                        },
+                        (None, day_spec::props::TextRole::Primary) => {}
+                    }
+                    if !p.runs.is_empty() {
+                        let s = attributed_label(&p.text, &resolve_font(p.font), p.color, &p.runs);
+                        unsafe { label.setAttributedText(Some(&s)) };
+                    }
+                    set_text_alignment(&label, p.align);
+                    view_of(label)
+                }
+                Some(Builtin::Button) => {
+                    let Some(p) = day_spec::props_of::<ButtonProps>(kind, "uikit", props) else {
+                        return placeholder_view(kind);
+                    };
+                    let target = DayTarget::new(mtm, id);
+                    let btn = unsafe { UIButton::buttonWithType(UIButtonType::System, mtm) };
+                    apply_button_style(&btn, &p.title, p.style, mtm);
+                    if p.icon.is_some() {
+                        apply_button_content(&btn, &p.title, p.icon.as_ref(), p.icon_only);
+                    }
+                    unsafe { btn.setEnabled(p.enabled) };
+                    if p.selected {
+                        set_button_selected(&btn, true, mtm);
+                    }
+                    unsafe {
+                        let tobj: &AnyObject = target.as_ref();
+                        btn.addTarget_action_forControlEvents(
+                            Some(tobj),
+                            sel!(fire:),
+                            UIControlEvents::TouchUpInside,
+                        );
+                    }
+                    let view = view_of(btn);
+                    TARGETS.with(|m| m.borrow_mut().insert(ptr_of(&view), target));
+                    view
+                }
+                Some(Builtin::Toggle) => {
+                    let Some(p) = day_spec::props_of::<ToggleProps>(kind, "uikit", props) else {
+                        return placeholder_view(kind);
+                    };
+                    let target = DayTarget::new(mtm, id);
+                    let sw = unsafe { UISwitch::new(mtm) };
+                    unsafe {
+                        sw.setOn(p.on);
+                        sw.setEnabled(p.enabled);
+                        let tobj: &AnyObject = target.as_ref();
+                        sw.addTarget_action_forControlEvents(
+                            Some(tobj),
+                            sel!(fire:),
+                            UIControlEvents::ValueChanged,
+                        );
+                    }
+                    let view = view_of(sw);
+                    TARGETS.with(|m| m.borrow_mut().insert(ptr_of(&view), target));
+                    view
+                }
+                Some(Builtin::Slider) => {
+                    let Some(p) = day_spec::props_of::<SliderProps>(kind, "uikit", props) else {
+                        return placeholder_view(kind);
+                    };
+                    let target = DayTarget::new(mtm, id);
+                    let sl = unsafe { UISlider::new(mtm) };
+                    unsafe {
+                        sl.setMinimumValue(p.min as f32);
+                        sl.setMaximumValue(p.max as f32);
+                        sl.setValue(p.value as f32);
+                        let tobj: &AnyObject = target.as_ref();
+                        sl.addTarget_action_forControlEvents(
+                            Some(tobj),
+                            sel!(fire:),
+                            UIControlEvents::ValueChanged,
+                        );
+                        // Both lift events: a drag that ends off the track still ends.
+                        sl.addTarget_action_forControlEvents(
+                            Some(tobj),
+                            sel!(commit:),
+                            UIControlEvents::TouchUpInside | UIControlEvents::TouchUpOutside,
+                        );
+                    }
+                    let view = view_of(sl);
+                    TARGETS.with(|m| m.borrow_mut().insert(ptr_of(&view), target));
+                    view
+                }
+                Some(Builtin::Picker) => crate::picker::realize_any(self, props, id),
+                Some(Builtin::TextArea) => crate::textarea::realize_any(self, props, id),
+                Some(Builtin::TextField) => {
+                    let Some(p) = day_spec::props_of::<TextFieldProps>(kind, "uikit", props) else {
+                        return placeholder_view(kind);
+                    };
+                    let target = DayTarget::new(mtm, id);
+                    let tf = unsafe { UITextField::new(mtm) };
+                    unsafe {
+                        tf.setText(Some(&NSString::from_str(&p.text)));
+                        tf.setPlaceholder(Some(&NSString::from_str(&p.placeholder)));
+                        tf.setBorderStyle(UITextBorderStyle::RoundedRect);
+                        // The delegate answers for `read_only` (`set_input_traits`).
+                        tf.setDelegate(Some(ProtocolObject::from_ref(&*target)));
+                        let tobj: &AnyObject = target.as_ref();
+                        tf.addTarget_action_forControlEvents(
+                            Some(tobj),
+                            sel!(fire:),
+                            UIControlEvents::EditingChanged,
+                        );
+                        // Focus + submit (docs/focus.md): begin/end report the focus pair;
+                        // end-on-exit is the Return key (and makes Return dismiss the keyboard).
+                        tf.addTarget_action_forControlEvents(
+                            Some(tobj),
+                            sel!(editBegan:),
+                            UIControlEvents::EditingDidBegin,
+                        );
+                        tf.addTarget_action_forControlEvents(
+                            Some(tobj),
+                            sel!(editEnded:),
+                            UIControlEvents::EditingDidEnd,
+                        );
+                        tf.addTarget_action_forControlEvents(
+                            Some(tobj),
+                            sel!(editExit:),
+                            UIControlEvents::EditingDidEndOnExit,
+                        );
+                    }
+                    let view = view_of(tf);
+                    TARGETS.with(|m| m.borrow_mut().insert(ptr_of(&view), target));
+                    view
+                }
+                Some(Builtin::Divider) => {
+                    let v = unsafe { UIView::new(mtm) };
+                    unsafe { v.setBackgroundColor(Some(&UIColor::separatorColor())) };
+                    view_of(v)
+                }
+                Some(Builtin::Progress) => {
+                    let Some(p) = day_spec::props_of::<ProgressProps>(kind, "uikit", props) else {
+                        return placeholder_view(kind);
+                    };
+                    if p.value.is_none() {
+                        return crate::controls::spinner::make(self, p, id);
+                    }
+                    match p.value {
+                        Some(v) => {
+                            let pv = unsafe { UIProgressView::new(mtm) };
+                            unsafe { pv.setProgress(v as f32) };
+                            view_of(pv)
+                        }
+                        None => {
+                            let ai = unsafe { UIActivityIndicatorView::new(mtm) };
+                            unsafe { ai.startAnimating() };
+                            view_of(ai)
+                        }
+                    }
+                }
+                Some(Builtin::Canvas) => {
+                    let canvas = DayCanvasView::new(mtm);
+                    KEY_NODES.with(|t| t.insert(Retained::as_ptr(&canvas) as usize, id));
+                    view_of(canvas)
+                }
+                Some(Builtin::Image) => {
+                    let Some(p) = day_spec::props_of::<ImageProps>(kind, "uikit", props) else {
+                        return placeholder_view(kind);
+                    };
+                    let iv = unsafe { objc2_ui_kit::UIImageView::new(mtm) };
+                    // Scaling (§18.3): AspectFit / AspectFill (crop, clipped) / ScaleToFill.
+                    let mode = match p.content_mode {
+                        ContentMode::Fit => objc2_ui_kit::UIViewContentMode::ScaleAspectFit,
+                        ContentMode::Fill => objc2_ui_kit::UIViewContentMode::ScaleAspectFill,
+                        ContentMode::Stretch => objc2_ui_kit::UIViewContentMode::ScaleToFill,
+                    };
+                    unsafe {
+                        iv.setContentMode(mode);
+                        iv.setClipsToBounds(true);
+                    }
+                    // Named is the staged-asset path; Bytes and Decoded arrive from
+                    // `day::decode_image` (docs/images.md), so an `image()` piece can show a
+                    // download or a pasted PNG with no staged resource behind it.
+                    if let Some(img) = uikit_image_for(&p.source) {
+                        unsafe { iv.setImage(Some(&img)) };
+                    }
+                    // Vector-glyph tint (docs/vectors.md): template rendering + the view's tint —
+                    // UIKit recolors the alpha mask natively. A template with no tint of its own
+                    // inherits the tint around it (a cell's, a bar's): the iOS idiom, and what
+                    // the nav menu's own rows do.
+                    if (p.tint.is_some() || p.template)
+                        && let Some(img) = unsafe { iv.image() }
+                    {
+                        let templ = unsafe {
+                            img.imageWithRenderingMode(
+                                objc2_ui_kit::UIImageRenderingMode::AlwaysTemplate,
+                            )
+                        };
+                        unsafe { iv.setImage(Some(&templ)) };
+                    }
+                    if let Some(t) = p.tint {
+                        unsafe { iv.setTintColor(Some(&uicolor(t))) };
+                    }
+                    IMAGE_MODES.with(|t| {
+                        t.insert(
+                            ptr_of(&iv),
+                            ImageMode {
+                                template: p.template,
+                                tinted: p.tint.is_some(),
+                            },
+                        )
+                    });
+                    view_of(iv)
+                }
+                Some(Builtin::ListItem) => {
+                    let Some(p) =
+                        day_spec::props_of::<day_spec::props::ListItemProps>(kind, "uikit", props)
+                    else {
+                        return placeholder_view(kind);
+                    };
+                    make_list_item(p, mtm)
+                }
+                // A recycled list cell is ADOPTED from the native list, never realized
+                // through this path; anything else is an extension piece.
+                Some(Builtin::ListCell)
+                | Some(Builtin::Inspector)
+                | Some(Builtin::InspectorPane)
+                | Some(Builtin::Split)
+                | Some(Builtin::SplitPane)
+                | None => {
+                    if let Some(make) = self.registry.get(kind).map(|r| r.make) {
+                        return make(self, props, id);
+                    }
+                    warn_missing_renderer(kind);
+                    placeholder_view(kind)
+                }
+            }
+        }
+
+        fn update(
+            &mut self,
+            h: &Handle,
+            kind: PieceKind,
+            patch: &dyn Any,
+            anim: Option<&AnimSpec>,
+        ) {
+            match kind {
+                kinds::LIST_ITEM => {
+                    let Some(p) = patch.downcast_ref::<day_spec::props::ListItemPatch>() else {
+                        return;
+                    };
+                    let props = LIST_ITEMS.with(|m| {
+                        let mut m = m.borrow_mut();
+                        let props = m.get_mut(&ptr_of(h))?;
+                        use day_spec::props::ListItemPatch as P;
+                        match p {
+                            P::Title(t) => props.title = t.clone(),
+                            P::Subtitle(t) => props.subtitle = t.clone(),
+                            P::Detail(t) => props.detail = t.clone(),
+                            P::Icon(i) => props.icon = i.clone(),
+                            P::IconTint(c) => props.icon_tint = *c,
+                            P::Checked(on) => props.checked = *on,
+                        }
+                        Some(props.clone())
+                    });
+                    if let Some(props) = props {
+                        dress_list_item(h, &props);
+                    }
+                }
+                kinds::IMAGE => {
+                    if let (Some(p), Some(iv)) = (
+                        patch.downcast_ref::<day_spec::props::ImagePatch>(),
+                        h.downcast_ref::<objc2_ui_kit::UIImageView>(),
+                    ) {
+                        match p {
+                            day_spec::props::ImagePatch::Tint(c) => {
+                                // Template rendering + the view's tint, as at realize
+                                // (docs/vectors.md). A template glyph stays one when the tint
+                                // goes; it falls back to the inherited tint.
+                                let template = IMAGE_MODES
+                                    .with(|t| {
+                                        t.with(ptr_of(iv), |m| {
+                                            m.tinted = c.is_some();
+                                            m.renders_template()
+                                        })
+                                    })
+                                    .unwrap_or(c.is_some());
+                                if let Some(img) = unsafe { iv.image() } {
+                                    let mode = if template {
+                                        objc2_ui_kit::UIImageRenderingMode::AlwaysTemplate
+                                    } else {
+                                        objc2_ui_kit::UIImageRenderingMode::AlwaysOriginal
+                                    };
+                                    let next = unsafe { img.imageWithRenderingMode(mode) };
+                                    unsafe { iv.setImage(Some(&next)) };
+                                }
+                                unsafe { iv.setTintColor(c.map(uicolor).as_deref()) };
+                            }
+                            // A source swap repaints the same view (docs/images.md), so an
+                            // `image()` bound to a signal shows new pixels without rebuilding
+                            // its subtree.
+                            day_spec::props::ImagePatch::Source(source) => {
+                                if matches!(source, day_spec::ImageSource::Named(name) if name.is_empty())
+                                {
+                                    unsafe { iv.setImage(None) };
+                                    return;
+                                }
+                                // A source that will not load leaves the view showing what it
+                                // was — the patch's contract, and what GTK, Qt and Android do.
+                                // The new image renders the way the view does: a tinted or
+                                // template glyph stays one, so a recycled sidebar row shows
+                                // the icon it was rebound to in the same color.
+                                if let Some(img) = uikit_image_for(source) {
+                                    let template = IMAGE_MODES
+                                        .with(|t| t.get(ptr_of(iv)))
+                                        .is_some_and(|m| m.renders_template());
+                                    let img = if template {
+                                        unsafe {
+                                            img.imageWithRenderingMode(
+                                                objc2_ui_kit::UIImageRenderingMode::AlwaysTemplate,
+                                            )
+                                        }
+                                    } else {
+                                        img
+                                    };
+                                    unsafe { iv.setImage(Some(&img)) };
+                                }
+                            }
+                        }
+                    }
+                }
+                kinds::CONTAINER => {
+                    if let Some(ContainerPatch::Background(c)) =
+                        patch.downcast_ref::<ContainerPatch>()
+                    {
+                        let v = h.clone();
+                        let c = *c;
+                        with_uikit_anim(anim, move || unsafe {
+                            match c {
+                                Some(c) => v.setBackgroundColor(Some(&uicolor(c))),
+                                None => v.setBackgroundColor(None),
+                            }
+                        });
+                    }
+                }
+                // Data-driven sidebar rows (docs/navigation.md): rebuild the UITableView rows.
+                kinds::NAV_MENU => {
+                    if let Some(p) = patch.downcast_ref::<day_spec::props::RefreshPatch>() {
+                        let Some(scroll) = h.downcast_ref::<UIScrollView>() else {
+                            return;
+                        };
+                        let Some(node) = NAV_MENUS
+                            .with(|m| m.borrow().get(&ptr_of(h)).map(|(d, _)| d.ivars().node))
+                        else {
+                            return;
+                        };
+                        let mtm = MainThreadMarker::new().expect("UIKit updates on main");
+                        let control = unsafe { scroll.refreshControl() }.unwrap_or_else(|| {
+                            let control = unsafe { objc2_ui_kit::UIRefreshControl::new(mtm) };
+                            let target = DayTarget::new(mtm, node);
+                            unsafe {
+                                control.addTarget_action_forControlEvents(
+                                    Some(&target),
+                                    sel!(fire:),
+                                    UIControlEvents::ValueChanged,
+                                );
+                                scroll.setRefreshControl(Some(&control));
+                                // An empty or short sidebar must still be pullable.
+                                scroll.setAlwaysBounceVertical(true);
+                            }
+                            TARGETS.with(|m| m.borrow_mut().insert(ptr_of(h), target));
+                            control
+                        });
+                        unsafe {
+                            if p.refreshing {
+                                control.beginRefreshing();
+                            } else {
+                                control.endRefreshing();
+                            }
+                        }
+                        return;
+                    }
+                    if let Some(NavMenuPatch::Items {
+                        items,
+                        icons,
+                        tints,
+                        menus,
+                        badges,
+                        badge_icons,
+                        badge_tints,
+                        selected,
+                        sections,
+                        rows_changed,
+                        ..
+                    }) = patch.downcast_ref::<NavMenuPatch>()
+                    {
+                        NAV_MENUS.with(|m| {
+                            if let Some((data, n)) = m.borrow_mut().get_mut(&ptr_of(h)) {
+                                data.set_items(
+                                    items,
+                                    icons,
+                                    tints,
+                                    menus,
+                                    badges,
+                                    badge_icons,
+                                    badge_tints,
+                                    sections,
+                                );
+                                *n = items.len();
+                                if let Some(cv) = h.downcast_ref::<objc2_ui_kit::UICollectionView>()
+                                {
+                                    // Header mode is baked into the LAYOUT, so a data-driven set
+                                    // that gains or loses its headings needs a new one — without
+                                    // this those headings would simply never draw.
+                                    let headers = sections.iter().any(|s| s.is_some());
+                                    if headers != data.ivars().headers.get()
+                                        && let Some(mtm) = MainThreadMarker::new()
+                                    {
+                                        data.ivars().headers.set(headers);
+                                        unsafe {
+                                            cv.setCollectionViewLayout(&nav_list_layout(
+                                                mtm, headers,
+                                            ))
+                                        };
+                                    }
+                                    match rows_changed {
+                                        // The same rows with new words or counts: reconfigure
+                                        // just those cells, which keeps each cell and the
+                                        // selection where they are.
+                                        Some(rows) => {
+                                            let paths: Vec<Retained<objc2_foundation::NSIndexPath>> =
+                                                rows.iter()
+                                                    .filter_map(|r| data.path_of(*r))
+                                                    .map(|(section, item)| unsafe {
+                                                        objc2_foundation::NSIndexPath::indexPathForItem_inSection(
+                                                            item as isize,
+                                                            section as isize,
+                                                        )
+                                                    })
+                                                    .collect();
+                                            if !paths.is_empty() {
+                                                unsafe {
+                                                    cv.reconfigureItemsAtIndexPaths(
+                                                        &objc2_foundation::NSArray::from_retained_slice(
+                                                            &paths,
+                                                        ),
+                                                    )
+                                                };
+                                            }
+                                        }
+                                        None => {
+                                            unsafe { cv.reloadData() };
+                                            // Resolved from this data source, which the borrow
+                                            // above holds: `select_nav_row` would borrow the same
+                                            // map again.
+                                            select_nav_path(
+                                                cv,
+                                                selected.and_then(|r| data.path_of(r)),
+                                            );
+                                        }
+                                    }
+                                }
+                            }
+                        });
+                        // The same rows are a `.tabSidebar` host's tabs, which UIKit draws from
+                        // its `UITab`s rather than this list: without this a language change
+                        // left the iPad's tab bar in the old language, and badges never moved.
+                        let menu = ptr_of(h);
+                        let host = NAV_TABS.with(|m| {
+                            let mut m = m.borrow_mut();
+                            let (host, t) =
+                                m.iter_mut().find(|(_, t)| t.menu_view.get() == menu)?;
+                            t.rows = NavTabRows {
+                                titles: items.clone(),
+                                icons: icons.clone(),
+                                badges: badges.clone(),
+                            };
+                            Some(*host)
+                        });
+                        if let Some(host) = host {
+                            match rows_changed {
+                                Some(_) => nav_tabs_refresh(host),
+                                None => nav_tabs_sync(host),
+                            }
+                        }
+                    } else if let Some(NavMenuPatch::IconProgress(progress)) =
+                        patch.downcast_ref::<NavMenuPatch>()
+                    {
+                        NAV_MENUS.with(|menus| {
+                            let menus = menus.borrow();
+                            let Some((data, _)) = menus.get(&ptr_of(h)) else {
+                                return;
+                            };
+                            let previous = data.ivars().icon_progress.replace(progress.clone());
+                            let Some(cv) = h.downcast_ref::<objc2_ui_kit::UICollectionView>()
+                            else {
+                                return;
+                            };
+                            unsafe {
+                                for ip in cv.indexPathsForVisibleItems() {
+                                    let Some(index) =
+                                        data.row_of(ip.section() as usize, ip.item() as usize)
+                                    else {
+                                        continue;
+                                    };
+                                    let value =
+                                        progress.iter().find(|(i, _)| *i == index).map(|(_, v)| *v);
+                                    if previous.iter().find(|(i, _)| *i == index).map(|(_, v)| *v)
+                                        == value
+                                    {
+                                        continue;
+                                    }
+                                    if let Some(cell) = cv.cellForItemAtIndexPath(&ip)
+                                        && let Some(cell) = cell
+                                            .downcast_ref::<objc2_ui_kit::UICollectionViewListCell>(
+                                        )
+                                    {
+                                        crate::nav_progress::update(cell, value, self.mtm());
+                                    }
+                                }
+                            }
+                        });
+                    } else if let Some(NavMenuPatch::Selected(sel)) =
+                        patch.downcast_ref::<NavMenuPatch>()
+                        && let Some(cv) = h.downcast_ref::<objc2_ui_kit::UICollectionView>()
+                    {
+                        // Applied without re-emitting: `selectRowAtIndexPath` does not call the
+                        // delegate, so there is no echo to suppress here.
+                        select_nav_row(cv, *sel);
+                    }
+                }
+                kinds::COVER => {
+                    if let Some(p) = patch.downcast_ref::<CoverPatch>() {
+                        let state = COVER_STATE
+                            .with(|m| m.borrow().get(&ptr_of(h)).map(|s| (s.vc.clone(), s.node)));
+                        let Some((vc, node)) = state else { return };
+                        match p {
+                            CoverPatch::Present {
+                                background,
+                                dismiss_disabled,
+                            } => {
+                                if let (Some(c), Some(view)) = (background, vc.view()) {
+                                    unsafe { view.setBackgroundColor(Some(&uicolor(*c))) };
+                                }
+                                // Inert under .fullScreen, but honored if the presentation
+                                // style ever becomes a sheet.
+                                unsafe { vc.setModalInPresentation(*dismiss_disabled) };
+                                cover_present(vc);
+                            }
+                            CoverPatch::DismissDisabled(d) => unsafe {
+                                vc.setModalInPresentation(*d);
+                            },
+                            CoverPatch::Dismiss => cover_dismiss(vc, node),
+                        }
+                    }
+                }
+                // A PAGE's own items changed (docs/toolbars.md): store them and re-lower just
+                // this page's chrome. The window's half is untouched, and so is every other
+                // page — which is the point of contributions being per page.
+                kinds::NAV => {
+                    // Inline search: the app writing its query patches the live field, so the
+                    // sync never rebuilds it or takes the insertion point (docs/search.md). The
+                    // suppress flag stops UISearchResultsUpdating echoing our own write back.
+                    if let Some(sp) = patch.downcast_ref::<day_spec::props::SearchPatch>() {
+                        // Activating search can synchronously reenter navigation delegates.
+                        // Retain the controller/updater and release NAV_STATE before UIKit calls.
+                        let search = NAV_STATE
+                            .with(|m| m.borrow().get(&ptr_of(h)).and_then(|st| st.search.clone()));
+                        if let Some((sc, updater)) = search {
+                            if matches!(sp, day_spec::props::SearchPatch::Focus) {
+                                unsafe {
+                                    sc.setActive(true);
+                                    sc.searchBar().becomeFirstResponder();
+                                }
+                            }
+                            if let day_spec::props::SearchPatch::Text(t) = sp {
+                                updater.ivars().suppress.set(true);
+                                unsafe { sc.searchBar().setText(Some(&NSString::from_str(t))) };
+                                updater.ivars().suppress.set(false);
+                            }
+                            // Scope and suggestion patches have no UIKit surface yet.
+                        }
+                    }
+                    let document = DOCUMENT_HOSTS.with(|m| {
+                        let mut m = m.borrow_mut();
+                        let Some(state) = m.get_mut(&ptr_of(h)) else {
+                            return false;
+                        };
+                        match patch.downcast_ref::<NavPatch>() {
+                            Some(NavPatch::Select(i)) => state.selected = *i,
+                            Some(NavPatch::Reorder(order)) => {
+                                let old = state.pages.clone();
+                                state.pages =
+                                    order.iter().filter_map(|i| old.get(*i).cloned()).collect();
+                            }
+                            _ => {}
+                        }
+                        document_frames(h, state);
+                        true
+                    });
+                    if document {
+                        return;
+                    }
+                    if let Some(NavPatch::Reorder(order)) = patch.downcast_ref::<NavPatch>() {
+                        let host = ptr_of(h);
+                        NAV_TABS.with(|m| {
+                            if let Some(t) = m.borrow_mut().get_mut(&host) {
+                                let old = t.vcs.clone();
+                                t.vcs = order.iter().filter_map(|i| old.get(*i).cloned()).collect();
+                            }
+                        });
+                        nav_tabs_sync(host);
+                        return;
+                    }
+                    if let Some(NavPatch::Select(i)) = patch.downcast_ref::<NavPatch>() {
+                        // A `.tabSidebar` host has no `NavState` — it is not a navigation stack — so
+                        // this is handled before that lookup.
+                        if NAV_TABS.with(|m| m.borrow().contains_key(&ptr_of(h))) {
+                            tabs_select_when_settled(ptr_of(h), *i);
+                            return;
+                        }
+                    }
+                    if let Some(p) = patch.downcast_ref::<NavPatch>() {
+                        // Copy out of NAV_STATE before touching UIKit: push/pop can invoke
+                        // the delegate synchronously, which re-borrows NAV_STATE.
+                        enum Act {
+                            Title(Retained<UIViewController>, String),
+                            /// Show/hide the supplementary column (expanded triple only).
+                            Column,
+                            /// Collapsed triple only: the content list joins or leaves the
+                            /// merged stack through UIKit's own column APIs.
+                            TripleList {
+                                show: bool,
+                            },
+                            None,
+                        }
+                        let act = NAV_STATE.with(|m| {
+                            let mut m = m.borrow_mut();
+                            let Some(state) = m.get_mut(&ptr_of(h)) else {
+                                return Act::None;
+                            };
+                            let collapsed_triple = state.is_collapsed()
+                                && state
+                                    .split
+                                    .as_ref()
+                                    .is_some_and(|p| p.supplementary_nav.is_some());
+                            match p {
+                                // The page itself arrives through the insert duty and leaves
+                                // through the remove duty, which carry its identity; the stack
+                                // change is made there (`push_page`, `pop_page`).
+                                NavPatch::Pushed { .. } | NavPatch::Popped => Act::None,
+                                // Retitle the TOP page's controller — the navigation bar
+                                // mirrors the top item's title live.
+                                NavPatch::Title(t) => current_top(ptr_of(h), &state.active_nav())
+                                    .map(|vc| Act::Title(vc, t.clone()))
+                                    .unwrap_or(Act::None),
+                                // Arm the back guard: `shouldPopItem:` vetoes the button and
+                                // `gestureRecognizerShouldBegin:` the swipe, both asking Day
+                                // instead (docs/navigation.md). The gesture stays enabled.
+                                NavPatch::GuardTop(on) => {
+                                    state.active_nav().ivars().guarded.set(*on);
+                                    Act::None
+                                }
+                                // `Presentation` never reaches a toolkit whose container
+                                // re-presents (the pieces layer gates it on `Cap::NavRepresent`);
+                                // `Select` belongs to tab hosts; representable split hosts
+                                // already track presentation through UIKit (docs/navigation.md).
+                                NavPatch::Presentation(_)
+                                | NavPatch::Select(_)
+                                | NavPatch::Reorder(_) => Act::None,
+                                // Re-entering a list-backed destination after native back does
+                                // not change ListVisible. Explicitly restore its column to the
+                                // collapsed stack on the first tap instead of waiting for a
+                                // detail push to bring it along.
+                                NavPatch::ListInStack(show) if collapsed_triple => {
+                                    Act::TripleList { show: *show }
+                                }
+                                NavPatch::ListInStack(_) => Act::None,
+                                // Per-destination content list: a column while expanded, an
+                                // entry on the merged stack while collapsed.
+                                NavPatch::ListVisible(v) => {
+                                    if let Some(p) = state.split.as_ref() {
+                                        p.list_shown.set(*v);
+                                    }
+                                    if !state.is_collapsed() {
+                                        Act::Column
+                                    } else if collapsed_triple {
+                                        Act::TripleList { show: *v }
+                                    } else {
+                                        Act::None
+                                    }
+                                }
+                            }
+                        });
+                        // Defer past any in-flight modal transition: a stack change issued the
+                        // instant a (scripted) dialog dismissal starts races the dismissal
+                        // transition and wedges the navigation controller.
+                        match act {
+                            Act::Title(vc, t) => unsafe {
+                                vc.setTitle(Some(&NSString::from_str(&t)));
+                            },
+                            // The host the destination calls for (`SplitParts::list_shown`).
+                            Act::Column => rehost_split(ptr_of(h)),
+                            Act::TripleList { show } => {
+                                let host = ptr_of(h);
+                                modal_after_idle(move || request_compact_list(host, show));
+                            }
+                            Act::None => {}
+                        }
+                    }
+                }
+                kinds::LABEL => {
+                    if let (Some(p), Some(label)) = (
+                        patch.downcast_ref::<LabelPatch>(),
+                        (**h).downcast_ref::<UILabel>(),
+                    ) {
+                        match p {
+                            LabelPatch::Text(t) => unsafe {
+                                label.setText(Some(&NSString::from_str(t)))
+                            },
+                            LabelPatch::Font(f) => apply_font(label, *f),
+                            LabelPatch::Runs(text, runs) => {
+                                let base = unsafe { label.font() };
+                                if let Some(f) = base {
+                                    let s = attributed_label(text, &f, None, runs);
+                                    unsafe { label.setAttributedText(Some(&s)) };
+                                    reapply_text_alignment(label);
+                                }
+                            }
+                            // `None` restores the adaptive default (labelColor tracks dark mode).
+                            LabelPatch::Color(c) => unsafe {
+                                match c {
+                                    Some(c) => label.setTextColor(Some(&uicolor(*c))),
+                                    None => label.setTextColor(Some(&UIColor::labelColor())),
+                                }
+                            },
+                        }
+                    } else if let (Some(p), Some(tv)) = (
+                        patch.downcast_ref::<LabelPatch>(),
+                        (**h).downcast_ref::<UITextView>(),
+                    ) {
+                        // A `.selectable()` label rides a read-only UITextView (the
+                        // `set_selectable` swap); the same patches route there.
+                        match p {
+                            LabelPatch::Text(t) => unsafe {
+                                tv.setText(Some(&NSString::from_str(t)))
+                            },
+                            LabelPatch::Font(f) => {
+                                let font = resolve_font(*f);
+                                unsafe {
+                                    tv.setFont(Some(&font));
+                                    let _: () =
+                                        msg_send![tv, setAdjustsFontForContentSizeCategory: true];
+                                }
+                            }
+                            LabelPatch::Runs(text, runs) => {
+                                // A selectable label is a UITextView, which renders attributed
+                                // text the same way — and, unlike UILabel, could hit-test its
+                                // links (Phase 4).
+                                if let Some(f) = unsafe { tv.font() } {
+                                    let s = attributed_label(text, &f, None, runs);
+                                    unsafe { tv.setAttributedText(Some(&s)) };
+                                    reapply_text_alignment(tv);
+                                }
+                            }
+                            LabelPatch::Color(c) => unsafe {
+                                match c {
+                                    Some(c) => tv.setTextColor(Some(&uicolor(*c))),
+                                    None => tv.setTextColor(Some(&UIColor::labelColor())),
+                                }
+                            },
+                        }
+                    }
+                }
+                kinds::BUTTON => {
+                    if let (Some(p), Some(btn)) = (
+                        patch.downcast_ref::<ButtonPatch>(),
+                        (**h).downcast_ref::<UIButton>(),
+                    ) {
+                        match p {
+                            ButtonPatch::Content(c) => {
+                                apply_button_content(btn, &c.title, c.icon.as_ref(), c.icon_only)
+                            }
+                            ButtonPatch::Title(t) => unsafe {
+                                // A configured (bordered/prominent) button titles via its
+                                // configuration; a plain one via the state title.
+                                if let Some(config) = btn.configuration() {
+                                    config.setTitle(Some(&NSString::from_str(t)));
+                                    btn.setConfiguration(Some(&config));
+                                } else {
+                                    btn.setTitle_forState(
+                                        Some(&NSString::from_str(t)),
+                                        UIControlState::Normal,
+                                    )
+                                }
+                            },
+                            ButtonPatch::Enabled(e) => unsafe { btn.setEnabled(*e) },
+                            ButtonPatch::Selected(on) => set_button_selected(btn, *on, mtm()),
+                            ButtonPatch::Style(s) => {
+                                // Re-apply with the current title: a configured button carries
+                                // its title in the configuration, which this replaces.
+                                let title = unsafe {
+                                    btn.configuration()
+                                        .and_then(|c| c.title())
+                                        .or_else(|| btn.titleForState(UIControlState::Normal))
+                                        .map(|s| s.to_string())
+                                }
+                                .unwrap_or_default();
+                                apply_button_style(btn, &title, *s, mtm());
+                                if let Some(c) = BUTTON_CONTENT.with(|m| m.get(ptr_of(btn))) {
+                                    apply_button_content(
+                                        btn,
+                                        &c.title,
+                                        c.icon.as_ref(),
+                                        c.icon_only,
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+                kinds::TOGGLE => {
+                    if let (Some(p), Some(sw)) = (
+                        patch.downcast_ref::<TogglePatch>(),
+                        (**h).downcast_ref::<UISwitch>(),
+                    ) {
+                        match p {
+                            TogglePatch::On(on) => {
+                                if unsafe { sw.isOn() } != *on {
+                                    unsafe { sw.setOn(*on) };
+                                }
+                            }
+                            TogglePatch::Enabled(e) => unsafe { sw.setEnabled(*e) },
+                        }
+                    }
+                }
+                kinds::SLIDER => {
+                    if let (Some(p), Some(sl)) = (
+                        patch.downcast_ref::<SliderPatch>(),
+                        (**h).downcast_ref::<UISlider>(),
+                    ) {
+                        match p {
+                            SliderPatch::Value(v) => {
+                                if (unsafe { sl.value() } as f64 - v).abs() > 0.001 {
+                                    unsafe { sl.setValue(*v as f32) };
+                                }
+                            }
+                            SliderPatch::Enabled(e) => unsafe { sl.setEnabled(*e) },
+                        }
+                    }
+                }
+                kinds::PROGRESS => {
+                    if let Some(p @ ProgressPatch::Animating(_)) =
+                        patch.downcast_ref::<ProgressPatch>()
+                    {
+                        crate::controls::spinner::update(self, h, p);
+                        return;
+                    }
+
+                    if let Some(ProgressPatch::Value(Some(val))) =
+                        patch.downcast_ref::<ProgressPatch>()
+                        && let Some(pv) = (**h).downcast_ref::<UIProgressView>()
+                        && (unsafe { pv.progress() } as f64 - val).abs() > 0.0001
+                    {
+                        unsafe { pv.setProgress(*val as f32) };
+                    }
+                }
+                kinds::PICKER => crate::picker::update_any(self, h, patch),
+                kinds::TEXT_AREA => crate::textarea::update_any(self, h, patch),
+                kinds::TEXT_FIELD => {
+                    if let (Some(p), Some(tf)) = (
+                        patch.downcast_ref::<TextFieldPatch>(),
+                        (**h).downcast_ref::<UITextField>(),
+                    ) {
+                        match p {
+                            TextFieldPatch::Text { text, from_native } => {
+                                let cur = unsafe { tf.text() }
+                                    .map(|s| s.to_string())
+                                    .unwrap_or_default();
+                                if !*from_native && cur != *text {
+                                    unsafe { tf.setText(Some(&NSString::from_str(text))) };
+                                }
+                            }
+                            TextFieldPatch::Placeholder(t) => unsafe {
+                                tf.setPlaceholder(Some(&NSString::from_str(t)))
+                            },
+                            TextFieldPatch::Enabled(e) => unsafe { tf.setEnabled(*e) },
+                        }
+                    }
+                }
+                kinds::TREE => match patch.downcast_ref::<TreePatch>() {
+                    // Deferred to the main queue: these arrive inside a `with_tree` borrow,
+                    // and applying a snapshot binds cells synchronously.
+                    Some(TreePatch::Reload) => {
+                        let key = ptr_of(h);
+                        <Uikit as Platform>::post(Box::new(move || {
+                            if let Some(data) = tree_entry_u(key) {
+                                data.apply_snapshot(false);
+                            }
+                        }));
+                    }
+                    Some(TreePatch::Expand(token, on)) => {
+                        if let Some(data) = tree_entry_u(ptr_of(h)) {
+                            if *on {
+                                data.ivars().expanded.borrow_mut().insert(*token);
+                            } else {
+                                data.ivars().expanded.borrow_mut().remove(token);
+                            }
+                        }
+                        let key = ptr_of(h);
+                        <Uikit as Platform>::post(Box::new(move || {
+                            if let Some(data) = tree_entry_u(key) {
+                                // Re-derive from the recorded set — expand/collapse of one
+                                // row animates as a section-snapshot difference.
+                                data.apply_snapshot(true);
+                            }
+                        }));
+                    }
+                    Some(TreePatch::Selected(tokens)) => {
+                        let (key, tokens) = (ptr_of(h), tokens.clone());
+                        <Uikit as Platform>::post(Box::new(move || {
+                            let Some(data) = tree_entry_u(key) else {
+                                return;
+                            };
+                            let ds = data.ivars().ds.borrow().clone();
+                            let Some(ds) = ds else { return };
+                            let cv =
+                                unsafe { (key as *const objc2_ui_kit::UICollectionView).as_ref() };
+                            let Some(cv) = cv else { return };
+                            // Programmatic (de)selects never fire the delegate — no echo.
+                            if let Some(paths) = cv.indexPathsForSelectedItems() {
+                                for ip in paths.iter() {
+                                    cv.deselectItemAtIndexPath_animated(&ip, false);
+                                }
+                            }
+                            for t in &tokens {
+                                let item = unsafe {
+                                    Retained::cast_unchecked::<NSObject>(data.intern(*t))
+                                };
+                                if let Some(ip) = ds.indexPathForItemIdentifier(&item) {
+                                    unsafe {
+                                        cv.selectItemAtIndexPath_animated_scrollPosition(
+                                            Some(&ip),
+                                            false,
+                                            objc2_ui_kit::UICollectionViewScrollPosition::empty(),
+                                        )
+                                    };
+                                }
+                            }
+                        }));
+                    }
+                    Some(TreePatch::Reveal(token)) => {
+                        let (key, token) = (ptr_of(h), *token);
+                        <Uikit as Platform>::post(Box::new(move || {
+                            let Some(data) = tree_entry_u(key) else {
+                                return;
+                            };
+                            let ds = data.ivars().ds.borrow().clone();
+                            let Some(ds) = ds else { return };
+                            let cv =
+                                unsafe { (key as *const objc2_ui_kit::UICollectionView).as_ref() };
+                            let Some(cv) = cv else { return };
+                            let item =
+                                unsafe { Retained::cast_unchecked::<NSObject>(data.intern(token)) };
+                            if let Some(ip) = ds.indexPathForItemIdentifier(&item) {
+                                unsafe {
+                                    cv.scrollToItemAtIndexPath_atScrollPosition_animated(
+                                        &ip,
+                                        objc2_ui_kit::UICollectionViewScrollPosition::CenteredVertically,
+                                        false,
+                                    )
+                                };
+                            }
+                        }));
+                    }
+                    None => {}
+                },
+                kinds::LIST => match patch.downcast_ref::<ListPatch>() {
+                    Some(ListPatch::Splice(deltas)) => {
+                        let (key, deltas) = (ptr_of(h), deltas.clone());
+                        // Deferred like reload realization: row updates realize cells
+                        // synchronously, which must happen outside this tree borrow.
+                        <Uikit as Platform>::post(Box::new(move || {
+                            LIST_STATE.with(|m| {
+                                if let Some((table, _)) = m.borrow().get(&key) {
+                                    apply_row_deltas(table, &deltas);
+                                }
+                            });
+                        }));
+                    }
+
+                    Some(ListPatch::Reload) => {
+                        let key = ptr_of(h);
+                        // reloadData can synchronously retire cells. Their recycle callbacks
+                        // need the tree borrow to park ids, just as realization needs it to bind.
+                        <Uikit as Platform>::post(Box::new(move || {
+                            let entry = LIST_STATE.with(|m| m.borrow().get(&key).cloned());
+                            if let Some((table, _)) = entry {
+                                unsafe { table.reloadData() };
+                            }
+                        }));
+                    }
+                    Some(scroll @ (ListPatch::ScrollToEnd | ListPatch::ScrollToRow(_))) => {
+                        let key = ptr_of(h);
+                        let (row, position) = match scroll {
+                            ListPatch::ScrollToRow(row) => {
+                                (*row, objc2_ui_kit::UITableViewScrollPosition::Top)
+                            }
+                            _ => (usize::MAX, objc2_ui_kit::UITableViewScrollPosition::Bottom),
+                        };
+                        // Splices/reloads are deferred. Scroll after them, outside the tree
+                        // borrow: scrolling can synchronously realize and recycle cells too.
+                        <Uikit as Platform>::post(Box::new(move || {
+                            let entry = LIST_STATE.with(|m| m.borrow().get(&key).cloned());
+                            let Some((table, data)) = entry else { return };
+                            // UIKit's committed count is authoritative, even if another model
+                            // change has already advanced the source snapshot. Empty is a no-op.
+                            let count = data.table_len(&table);
+                            if count == 0 {
+                                return;
+                            }
+                            let Some(ip) = data.path_of(row.min(count - 1)) else {
+                                return;
+                            };
+                            unsafe {
+                                table.scrollToRowAtIndexPath_atScrollPosition_animated(
+                                    &ip, position, true,
+                                );
+                            }
+                        }));
+                    }
+                    Some(ListPatch::Editing(on)) => {
+                        let (key, on) = (ptr_of(h), *on);
+                        // Deferred: the animated change lays the cells out, and their
+                        // `layout_cell` re-lays rows, which needs the tree this patch holds.
+                        <Uikit as Platform>::post(Box::new(move || {
+                            let entry = LIST_STATE.with(|m| m.borrow().get(&key).cloned());
+                            if let Some((table, _)) = entry {
+                                unsafe { table.setEditing_animated(on, true) };
+                            }
+                        }));
+                    }
+                    Some(ListPatch::RowSizeInvalidated { .. }) => {
+                        DayListData::post_row_heights(ptr_of(h));
+                    }
+                    // Not implemented: Selected (no programmatic selection sync on UIKit yet).
+                    Some(ListPatch::Selected(_)) | None => {}
+                },
+                _ => {
+                    if let Some(update) = self.registry.get(kind).map(|r| r.update) {
+                        update(self, h, patch);
+                    }
+                }
+            }
+        }
+
+        /// Offer a satellite piece its teardown hook before `release` frees the handle (§15.2).
+        fn release_piece(&mut self, kind: day_spec::PieceKind, h: &Self::Handle) {
+            // Copy the fn pointer out first: the registry lookup borrows `self` immutably and
+            // the hook needs it mutably.
+            let f = self.registry.get(kind).and_then(|r| r.release);
+            if let Some(f) = f {
+                f(self, h);
+            }
+        }
+        fn release(&mut self, h: Handle) {
+            if let Some(state) = DOCUMENT_HOSTS.with(|m| m.borrow_mut().remove(&ptr_of(&h))) {
+                unsafe {
+                    state.controller.willMoveToParentViewController(None);
+                    state.controller.removeFromParentViewController();
+                }
+            }
+
+            // Backstop for a released window root whose scene never disconnected
+            // (docs/windows.md — disconnect normally prunes first).
+            SCENES.with(|s| s.borrow_mut().retain(|e| !std::ptr::eq(&*e.root_view, &*h)));
+            TARGETS.with(|m| {
+                m.borrow_mut().remove(&ptr_of(&h));
+            });
+            LIST_ITEMS.with(|m| m.borrow_mut().remove(&ptr_of(&h)));
+            if let Some((table, _)) = LIST_STATE.with(|m| m.borrow_mut().remove(&ptr_of(&h)))
+                && table.window().is_some()
+            {
+                // Diagnostic for the "dataSource is not set" class: the table may still lay
+                // out after this; its data source lives on as the table's associated object.
+                log::debug!(
+                    "day-toolkit-uikit: list released while still in a window ({} rows)",
+                    unsafe { table.numberOfRowsInSection(0) }
+                );
+            }
+            TREE_STATE.with(|m| {
+                m.borrow_mut().remove(&ptr_of(&h));
+            });
+            if let Some((old, _)) = CTX_MENU_FNS.with(|t| t.borrow_mut().remove(&ptr_of(&h))) {
+                unsafe { h.removeInteraction(ProtocolObject::from_ref(&*old)) };
+            }
+            NAV_STATE.with(|m| {
+                m.borrow_mut().remove(&ptr_of(&h));
+            });
+            NAV_OPS.with(|q| {
+                q.borrow_mut().remove(&ptr_of(&h));
+            });
+            NAV_PAGES.with(|set| {
+                set.borrow_mut().remove(&ptr_of(&h));
+            });
+            if let Some(vc) = PAGE_VCS.with(|m| m.borrow_mut().remove(&ptr_of(&h))) {
+                PAGE_TOOLBARS.with(|m| {
+                    m.borrow_mut().remove(&vc_key(&vc));
+                });
+                // The page's search field goes with it. Left on the navigation item, which the
+                // page releases: deactivating it here would start a dismissal under a pop that
+                // may still be animating.
+                let search = PAGE_SEARCH.with(|m| m.borrow_mut().remove(&vc_key(&vc)));
+                drop(search);
+            }
+            COVER_STATE.with(|m| {
+                m.borrow_mut().remove(&ptr_of(&h));
+            });
+            NAV_MENUS.with(|m| {
+                m.borrow_mut().remove(&ptr_of(&h));
+            });
+            GESTURES.with(|m| {
+                m.borrow_mut().remove(&ptr_of(&h));
+            });
+            // One sweep clears every `day_spec::sidetable::SideTable` on this thread —
+            // CTX_MENUS (whose teardown detaches the interaction from the view first),
+            // PAGE_PANE, canvas OPS, and the picker/textarea state tables — present and
+            // future, so a new table can never be forgotten here again. The RefCell maps
+            // above predate the mechanism and are still cleared by hand.
+            day_spec::sidetable::sweep(ptr_of(&h));
+            unsafe { h.removeFromSuperview() };
+        }
+
+        fn insert(&mut self, parent: &Handle, child: &Handle, index: usize) {
+            let document = DOCUMENT_HOSTS.with(|m| {
+                let mut m = m.borrow_mut();
+                let Some(state) = m.get_mut(&ptr_of(parent)) else {
+                    return false;
+                };
+                if PAGE_PANE.with(|t| t.get(ptr_of(child))) == Some(day_spec::props::Pane::Sidebar)
+                {
+                    unsafe {
+                        parent.addSubview(child);
+                        child.setHidden(true);
+                    }
+                    return true;
+                }
+                if let Some(vc) = PAGE_VCS.with(|p| p.borrow().get(&ptr_of(child)).cloned()) {
+                    unsafe {
+                        state.controller.addChildViewController(&vc);
+                        if let Some(view) = vc.view() {
+                            parent.addSubview(&view);
+                        }
+                        vc.didMoveToParentViewController(Some(&state.controller));
+                    }
+                    state.pages.push((ptr_of(child), vc));
+                    document_frames(parent, state);
+                }
+                true
+            });
+            if document {
+                return;
+            }
+
+            // What a page or the root holds decides whether it pads by the safe area
+            // (`DayNavPageView`/`DayHolderView::layoutSubviews`), so a child joining it re-asks.
+            reask_content_frame(parent);
+            // A NAV_MENU joining the tree: if it lands anywhere inside a `.tabSidebar` host, its
+            // rows are that host's tabs. This is the first moment the menu has a superview chain
+            // to find its host through.
+            if let Some((node, rows)) =
+                NAV_MENU_ROWS.with(|m| m.borrow_mut().remove(&ptr_of(child)))
+                && let Some(hp) = enclosing_tabs_host(parent)
+            {
+                NAV_TABS.with(|m| {
+                    if let Some(t) = m.borrow_mut().get_mut(&hp) {
+                        t.menu_node.set(node);
+                        t.menu_view.set(ptr_of(child));
+                        t.rows = rows;
+                    }
+                });
+                nav_tabs_sync(hp);
+            }
+            // Adaptive tabs host (`.tabSidebar`). Its DETAIL pages become tabs; its `Pane::Sidebar`
+            // page does not, because UIKit draws the sidebar itself from the same tabs — adding
+            // Day's rows as well would show the list twice, once in each chrome.
+            let is_tabs_host = NAV_TABS.with(|m| m.borrow().contains_key(&ptr_of(parent)));
+            if is_tabs_host {
+                TABS_PAGE_HOST.with(|m| m.borrow_mut().insert(ptr_of(child), ptr_of(parent)));
+                let pane = PAGE_PANE.with(|t| t.get(ptr_of(child)));
+                if pane == Some(day_spec::props::Pane::Sidebar) {
+                    // UIKit draws the sidebar from the tabs, so Day's rows page would show the
+                    // list twice — once in each chrome. It stays out of the controller.
+                    return;
+                }
+                if let Some(vc) = PAGE_VCS.with(|m| m.borrow().get(&ptr_of(child)).cloned()) {
+                    // A tab holds a NAVIGATION CONTROLLER wherever the page will not bring one of
+                    // its own — the shape every tabbed iOS app has, and the only thing that gives
+                    // a tab a bar for the commands its page declares (docs/toolbars.md).
+                    //
+                    // WHERE the page brings one is not a guess: a list-backed destination
+                    // composes a nested host for its two layers exactly when the window is too
+                    // narrow to show them side by side, which is the same question
+                    // `gated_detail_piece` asks. Both layers ask it, so they agree — and wrapping
+                    // on top of that host is what stacked two bars with the destination's title
+                    // on each.
+                    let mtm =
+                        MainThreadMarker::new().expect("uikit insert runs on the main thread");
+                    // Asked of UIKit, which is the authority on it and answers before Day has
+                    // reported a size class for this window.
+                    let wide = NAV_TABS.with(|m| {
+                        m.borrow().get(&ptr_of(parent)).is_some_and(|t| {
+                            let tc: Option<Retained<objc2_ui_kit::UITraitCollection>> =
+                                unsafe { objc2::msg_send![&*t.tabbar, traitCollection] };
+                            tc.is_some_and(|tc| unsafe {
+                                tc.horizontalSizeClass()
+                                    == objc2_ui_kit::UIUserInterfaceSizeClass::Regular
+                            })
+                        })
+                    });
+                    let entry: Retained<UIViewController> = if wide {
+                        let wrapper = unsafe {
+                            let n =
+                                objc2_ui_kit::UINavigationController::initWithRootViewController(
+                                    objc2_ui_kit::UINavigationController::alloc(mtm),
+                                    &vc,
+                                );
+                            // The strip above already names the destination; a large title over
+                            // every tab would say it twice.
+                            configure_navigation_bar(&n.navigationBar(), mtm);
+                            n.navigationBar().setPrefersLargeTitles(false);
+                            n
+                        };
+                        Retained::into_super(wrapper)
+                    } else {
+                        vc.clone()
+                    };
+                    NAV_TABS.with(|m| {
+                        if let Some(t) = m.borrow_mut().get_mut(&ptr_of(parent)) {
+                            let at = index.min(t.vcs.len());
+                            t.vcs.insert(at, entry);
+                        }
+                    });
+                    nav_tabs_sync(ptr_of(parent));
+                }
+                return;
+            }
+            // The SIDEBAR page is the split host's primary column, not a member of the stack
+            // (docs/size-classes.md). It goes in whatever the current presentation calls for:
+            // its own column while expanded, and the stack's root while collapsed — which is the
+            // shape the phone path has always had, so nothing below changes for it.
+            let page_pane = PAGE_PANE.with(|t| t.get(ptr_of(child)));
+            let is_sidebar = page_pane == Some(day_spec::props::Pane::Sidebar);
+            // This page's OWN toolbar items (docs/toolbars.md). Every page kind takes them —
+            // the sidebar column's, the content list's, and each detail — so a command sits on
+            // the chrome of the content it acts on. Applied before the placement branches below,
+            // and outside any `NAV_STATE` borrow, because building the items runs app code.
+            // The CONTENT-LIST page is the supplementary column's root, the same shape one
+            // column over (docs/navigation.md): never a member of the `vcs` mirror — while
+            // collapsed the pieces layer interposes it explicitly (`NavPatch::ListInStack`).
+            if page_pane == Some(day_spec::props::Pane::List) {
+                let placed = NAV_STATE.with(|m| {
+                    let mut m = m.borrow_mut();
+                    let state = m.get_mut(&ptr_of(parent))?;
+                    let vc = PAGE_VCS.with(|p| p.borrow().get(&ptr_of(child)).cloned())?;
+                    let parts = state.split.as_ref()?;
+                    // Kept whether or not the host has a column for it yet: a double-column
+                    // host gains one on the first list-backed destination (`rehost_split`).
+                    *parts.list_vc.borrow_mut() = Some(vc.clone());
+                    let snav = parts.supplementary_nav.clone()?;
+                    Some((snav, vc))
+                });
+                if let Some((snav, vc)) = placed {
+                    let arr = objc2_foundation::NSArray::from_retained_slice(&[vc]);
+                    unsafe { snav.setViewControllers(&arr) };
+                }
+                return;
+            }
+            // Nav host: pages join the VC stack; the first one becomes the root VC now, later
+            // pages are presented by the Pushed patch.
+            // Copy out of NAV_STATE before setViewControllers (same re-entrancy rule).
+            let placed = NAV_STATE.with(|m| {
+                let mut m = m.borrow_mut();
+                let state = m.get_mut(&ptr_of(parent))?;
+                let vc = PAGE_VCS.with(|p| p.borrow().get(&ptr_of(child)).cloned())?;
+                if is_sidebar && let Some((sc, _)) = state.search.as_ref() {
+                    let item = unsafe { vc.navigationItem() };
+                    unsafe {
+                        item.setSearchController(Some(sc));
+                        configure_sidebar_search(
+                            &item,
+                            &state.nav,
+                            state.search_hides_on_scroll,
+                            state.search_initially_hidden,
+                        );
+                        if let Some(parts) = state.split.as_ref() {
+                            configure_sidebar_search(
+                                &item,
+                                &parts.primary_nav,
+                                state.search_hides_on_scroll,
+                                state.search_initially_hidden,
+                            );
+                        }
+                        vc.setEdgesForExtendedLayout(objc2_ui_kit::UIRectEdge::All);
+                        vc.setExtendedLayoutIncludesOpaqueBars(true);
+                    }
+                } else if !is_sidebar {
+                    unsafe {
+                        vc.navigationItem().setLargeTitleDisplayMode(
+                            objc2_ui_kit::UINavigationItemLargeTitleDisplayMode::Never,
+                        )
+                    };
+                }
+                if is_sidebar && let Some(parts) = state.split.as_ref() {
+                    let arr = objc2_foundation::NSArray::from_retained_slice(&[vc]);
+                    unsafe { parts.primary_nav.setViewControllers(&arr) };
+                    return Some(None);
+                }
+                Some(Some(vc))
+            });
+            let set_root = placed.map(|detail| detail.map(|vc| (ptr_of(parent), vc)));
+            match set_root {
+                Some(Some((host, vc))) => push_page(host, vc),
+                Some(None) => {}
+                None => {
+                    // A cover's content view already lives inside its DayCoverVC's view —
+                    // reparenting it into the tree slot (addSubview MOVES a view) would
+                    // strand the presented cover empty (docs/cover.md).
+                    if COVER_STATE.with(|m| m.borrow().contains_key(&ptr_of(child))) {
+                        return;
+                    }
+                    // A controller-backed child (a nested nav host, or a tab bar) landing inside
+                    // a PAGE's content view has to move its UIViewController containment to that
+                    // page's controller. Every host parents itself to the WINDOW's root VC when
+                    // it is realized, because at that moment it does not know where it will be
+                    // inserted; leaving it there is what UIKit rejects the instant the view
+                    // enters a window:
+                    //
+                    //     UIViewControllerHierarchyInconsistency: child view controller
+                    //     <DayNavController> should have parent view controller <UIViewController>
+                    //     but actual parent is <DayRootVC>
+                    //
+                    // Two stacks under a tab bar is what surfaced it (one per tab, Day Trader's
+                    // phone shell). A single one hid: only the SELECTED tab's view reaches a
+                    // window at launch, and the check runs on the way in.
+                    let host_vc = host_controller(child);
+                    let page_vc = PAGE_VCS
+                        .with(|m| m.borrow().get(&ptr_of(parent)).cloned())
+                        .or_else(|| enclosing_view_controller(parent));
+                    match (host_vc, page_vc) {
+                        (Some(host_vc), Some(page_vc)) => {
+                            unsafe {
+                                // Order is UIKit's: leave the old parent, join the new one, THEN
+                                // the view move, then confirm. `didMove` last is what the
+                                // containment contract asks for.
+                                host_vc.willMoveToParentViewController(None);
+                                host_vc.removeFromParentViewController();
+                                page_vc.addChildViewController(&host_vc);
+                                parent.addSubview(child);
+                                host_vc.didMoveToParentViewController(Some(&page_vc));
+                            }
+                            // A navigation host brings its own bar; a tab bar does not.
+                            let tab_bar =
+                                NAV_TABS.with(|m| m.borrow().contains_key(&ptr_of(child)));
+                            if !tab_bar {
+                                unwrap_tab_page(&page_vc);
+                            }
+                        }
+                        _ => unsafe { parent.addSubview(child) },
+                    }
+                }
+            }
+        }
+
+        fn remove(&mut self, parent: &Handle, child: &Handle) {
+            // Conditional forms can disappear without a controller transition (e.g. login).
+            unsafe { child.endEditing(false) };
+            let document = DOCUMENT_HOSTS.with(|m| {
+                let mut m = m.borrow_mut();
+                let Some(state) = m.get_mut(&ptr_of(parent)) else {
+                    return false;
+                };
+                if let Some(at) = state
+                    .pages
+                    .iter()
+                    .position(|(key, _)| *key == ptr_of(child))
+                {
+                    let (_, vc) = state.pages.remove(at);
+                    unsafe {
+                        vc.willMoveToParentViewController(None);
+                        if let Some(view) = vc.view() {
+                            view.removeFromSuperview();
+                        }
+                        vc.removeFromParentViewController();
+                    }
+                    state.selected = state.selected.min(state.pages.len().saturating_sub(1));
+                    document_frames(parent, state);
+                } else {
+                    unsafe {
+                        child.removeFromSuperview();
+                    }
+                }
+                true
+            });
+            if document {
+                return;
+            }
+
+            let nav_child = NAV_STATE.with(|m| m.borrow().contains_key(&ptr_of(parent)));
+            if nav_child
+                && let Some(vc) = PAGE_VCS.with(|p| p.borrow().get(&ptr_of(child)).cloned())
+            {
+                pop_page(ptr_of(parent), vc);
+            }
+            if !nav_child {
+                unsafe { child.removeFromSuperview() };
+                reask_content_frame(parent);
+            }
+        }
+
+        fn move_child(&mut self, parent: &Handle, child: &Handle, _to: usize) {
+            unsafe { parent.addSubview(child) };
+        }
+
+        fn set_cursor(&mut self, h: &Handle, cursor: Cursor) {
+            let key = Retained::as_ptr(h) as usize;
+            if cursor == Cursor::Default {
+                if let Some((_, interaction)) = self.pointers.remove(&key) {
+                    unsafe { h.removeInteraction(ProtocolObject::from_ref(&*interaction)) };
+                }
+                return;
+            }
+            let Some(mtm) = MainThreadMarker::new() else {
+                return;
+            };
+            match self.pointers.get(&key) {
+                Some((delegate, interaction)) => {
+                    *delegate.ivars().cursor.borrow_mut() = cursor;
+                    // Re-request the style if the pointer is already over the view.
+                    unsafe { interaction.invalidate() };
+                }
+                None => {
+                    let delegate = DayPointerDelegate::new(mtm, cursor);
+                    let interaction = unsafe {
+                        UIPointerInteraction::initWithDelegate(
+                            UIPointerInteraction::alloc(mtm),
+                            Some(ProtocolObject::from_ref(&*delegate)),
+                        )
+                    };
+                    unsafe { h.addInteraction(ProtocolObject::from_ref(&*interaction)) };
+                    self.pointers.insert(key, (delegate, interaction));
+                }
+            }
+        }
+
+        fn set_input_traits(&mut self, h: &Handle, traits: &InputTraits) -> Option<Handle> {
+            // Every member is a property on UIKit, so the field is dressed in place. Only a
+            // `text_field` has a target here; an alert's or a search bar's field is not ours.
+            let tf = (**h).downcast_ref::<UITextField>()?;
+            let target = TARGETS.with(|m| m.borrow().get(&ptr_of(h)).cloned())?;
+            let prev = target.ivars().traits.replace(traits.clone());
+            if prev == *traits {
+                return None;
+            }
+            let editing = tf.isFirstResponder();
+            if prev.secure != traits.secure {
+                let text = tf.text().filter(|t| t.length() > 0);
+                let font = tf.font();
+                let selection = if editing {
+                    tf.selectedTextRange()
+                } else {
+                    None
+                };
+                tf.setSecureTextEntry(traits.secure);
+                // Flipping a field that is being edited leaves UIKit in two odd states. Going
+                // secure, the field treats its text as it would on a fresh focus: the next
+                // keystroke replaces all of it. Going plain, the text keeps the secure
+                // glyph metrics until it is set again, so the caret sits off the last
+                // character. Re-entering the text settles both: through the keyboard's own
+                // insertion path when going secure (which uses up the replace-on-first-key
+                // state), by assignment otherwise. The caret then goes back where it was.
+                if editing && let Some(text) = text {
+                    tf.setText(None);
+                    if traits.secure {
+                        target.ivars().muted.set(true);
+                        tf.insertText(&text);
+                        target.ivars().muted.set(false);
+                    } else {
+                        tf.setFont(font.as_deref());
+                        tf.setText(Some(&text));
+                    }
+                    if selection.is_some() {
+                        tf.setSelectedTextRange(selection.as_deref());
+                    }
+                }
+            }
+            if prev.read_only != traits.read_only {
+                // The delegate (reading the traits stored above) refuses the edits; an empty
+                // input view keeps the keyboard down, while the field still takes focus, a
+                // selection and Copy.
+                let blank = traits.read_only.then(|| UIView::new(mtm()));
+                tf.setInputView(blank.as_deref());
+            }
+            if prev.purpose != traits.purpose {
+                let (keyboard, content_type, caps, corrects) = purpose_traits(traits.purpose);
+                // UITextAutocorrectionType / UITextSpellCheckingType: 0 = Default, 1 = No.
+                let correction: isize = if corrects { 0 } else { 1 };
+                let content_type: *const NSString =
+                    content_type.map_or(std::ptr::null(), |s| s as *const NSString);
+                // SAFETY: the enum traits are `NSInteger` properties and the content type an
+                // `NSString *` (nil clears it), as `send_input_trait` requires.
+                unsafe {
+                    send_input_trait(tf, sel!(setKeyboardType:), keyboard.0);
+                    send_input_trait(tf, sel!(setTextContentType:), content_type);
+                    send_input_trait(tf, sel!(setAutocapitalizationType:), caps.0);
+                    send_input_trait(tf, sel!(setAutocorrectionType:), correction);
+                    send_input_trait(tf, sel!(setSpellCheckingType:), correction);
+                }
+            }
+            if prev.submit_label != traits.submit_label {
+                let key = match traits.submit_label {
+                    SubmitLabel::Return => UIReturnKeyType::Default,
+                    SubmitLabel::Done => UIReturnKeyType::Done,
+                    SubmitLabel::Go => UIReturnKeyType::Go,
+                    SubmitLabel::Next => UIReturnKeyType::Next,
+                    SubmitLabel::Search => UIReturnKeyType::Search,
+                    SubmitLabel::Send => UIReturnKeyType::Send,
+                };
+                // SAFETY: `returnKeyType` is an `NSInteger` property.
+                unsafe { send_input_trait(tf, sel!(setReturnKeyType:), key.0) };
+            }
+            // A keyboard that is already up keeps its layout, action key and input view
+            // until asked to reload them. No native length limit: day-pieces holds
+            // `max_length`.
+            if editing
+                && (prev.read_only != traits.read_only
+                    || prev.purpose != traits.purpose
+                    || prev.submit_label != traits.submit_label)
+            {
+                tf.reloadInputViews();
+            }
+            None
+        }
+
+        fn set_selectable(&mut self, h: &Handle, selectable: bool) -> Option<Handle> {
+            // A backing that already is a text view (an earlier swap): flip the flag in place.
+            if let Some(tv) = (**h).downcast_ref::<UITextView>() {
+                unsafe { tv.setSelectable(selectable) };
+                return None;
+            }
+            // UIKit reserves selection for UITextInput views, so a UILabel has no flag to flip
+            // (SwiftUI's selectable Text is its own renderer with the system selection UI
+            // attached — not a UILabel either). The standard emulation ships here instead: the
+            // label is rebuilt as a read-only, non-scrolling UITextView, geometry-matched to
+            // the label (zero inset and padding, so `sizeThatFits` measures the same), and
+            // day-core re-points the node's handle at the replacement (docs/text.md).
+            let label = (**h).downcast_ref::<UILabel>()?;
+            if !selectable {
+                return None; // a plain UILabel is already unselectable
+            }
+            let tv = UITextView::new(mtm());
+            unsafe {
+                tv.setFont(label.font().as_deref());
+                tv.setTextColor(label.textColor().as_deref());
+                // Styled runs live in the label's ATTRIBUTED text; copying `text()` alone would
+                // hand the text view the plain string and silently drop every run. Font and
+                // color go on first so they still stand as the view's defaults.
+                match label.attributedText() {
+                    Some(a) => tv.setAttributedText(Some(&a)),
+                    None => tv.setText(label.text().as_deref()),
+                }
+                let adj: bool = msg_send![label, adjustsFontForContentSizeCategory];
+                let _: () = msg_send![&*tv, setAdjustsFontForContentSizeCategory: adj];
+                let align: isize = msg_send![label, textAlignment];
+                let _: () = msg_send![&*tv, setTextAlignment: align];
+                tv.setEditable(false);
+                tv.setSelectable(true);
+                tv.setScrollEnabled(false);
+                tv.setBackgroundColor(None);
+                tv.setTextContainerInset(UIEdgeInsets {
+                    top: 0.0,
+                    left: 0.0,
+                    bottom: 0.0,
+                    right: 0.0,
+                });
+                // The container pads 5pt per side by default; raw sends spare day-toolkit-uikit the
+                // NSTextContainer binding for this one call.
+                let container: *mut AnyObject = msg_send![&*tv, textContainer];
+                let _: () = msg_send![container, setLineFragmentPadding: 0.0f64];
+                // `.id()` may have run before `.selectable()` — carry the identifier over.
+                let ident: Option<Retained<NSString>> = msg_send![&**h, accessibilityIdentifier];
+                if let Some(i) = ident {
+                    let _: () = msg_send![&*tv, setAccessibilityIdentifier: &*i];
+                }
+                // A swap on a LIVE node (a `.tweak` after mount): take the label's place in the
+                // view tree; the re-pointed handle routes later layout and patches here.
+                if let Some(sup) = label.superview() {
+                    tv.setFrame(label.frame());
+                    sup.insertSubview_aboveSubview(
+                        <UITextView as AsRef<UIView>>::as_ref(&tv),
+                        <UILabel as AsRef<UIView>>::as_ref(label),
+                    );
+                    label.removeFromSuperview();
+                }
+            }
+            Some(view_of(tv))
+        }
+
+        fn measure(&mut self, h: &Handle, kind: PieceKind, p: Proposal) -> Size {
+            let fit = |w: f64, hh: f64| {
+                let s = unsafe { h.sizeThatFits(CGSize::new(w, hh)) };
+                Size::new(s.width.ceil(), s.height.ceil())
+            };
+            match kind {
+                kinds::NAV_MENU => {
+                    // Headings take room too, so a sectioned sidebar measures taller than its rows
+                    // alone — the flat count under-reported it by a heading band per group.
+                    let (rows, headings) = NAV_MENUS.with(|m| {
+                        m.borrow()
+                            .get(&ptr_of(h))
+                            .map(|(data, n)| {
+                                let headings =
+                                    data.groups().iter().filter(|(t, _, _)| t.is_some()).count();
+                                (*n, headings)
+                            })
+                            .unwrap_or((0, 0))
+                    });
+                    Size::new(
+                        p.width.unwrap_or(320.0),
+                        p.height
+                            .unwrap_or(rows as f64 * 44.0 + headings as f64 * 30.0 + 40.0),
+                    )
+                }
+                kinds::LABEL => {
+                    let w = p.width.unwrap_or(1.0e6);
+                    let s = fit(w, 1.0e6);
+                    Size::new(s.width.min(w), s.height)
+                }
+                kinds::BUTTON | kinds::TOGGLE => fit(1.0e6, 1.0e6),
+                kinds::SLIDER => {
+                    Size::new(p.width.unwrap_or(180.0), fit(1.0e6, 1.0e6).height.max(31.0))
+                }
+                kinds::PICKER => crate::picker::measure_any(self, h, p),
+                kinds::TEXT_AREA => crate::textarea::measure_any(self, h, p),
+                kinds::TEXT_FIELD => {
+                    Size::new(p.width.unwrap_or(180.0), fit(1.0e6, 1.0e6).height.max(34.0))
+                }
+                kinds::DIVIDER => Size::new(p.width.unwrap_or(0.0), 1.0),
+                // UIKit sizes its own row content: the stack fitted at the row's width.
+                kinds::LIST_ITEM => {
+                    let width = p.width.unwrap_or(1.0e4);
+                    let s = unsafe {
+                        h.systemLayoutSizeFittingSize_withHorizontalFittingPriority_verticalFittingPriority(
+                            CGSize::new(width, 0.0),
+                            if p.width.is_some() { 1000.0 } else { 50.0 },
+                            50.0,
+                        )
+                    };
+                    Size::new(p.width.unwrap_or(s.width.ceil()), s.height.ceil())
+                }
+                kinds::PROGRESS => {
+                    if (**h).downcast_ref::<UIActivityIndicatorView>().is_some() {
+                        fit(1.0e6, 1.0e6)
+                    } else {
+                        Size::new(p.width.unwrap_or(180.0), 4.0)
+                    }
+                }
+                kinds::LIST | kinds::TREE => {
+                    Size::new(p.width.unwrap_or(0.0), p.height.unwrap_or(0.0))
+                }
+                _ => {
+                    if let Some(measure) = self.registry.get(kind).and_then(|r| r.measure) {
+                        measure(self, h, p)
+                    } else {
+                        let s = fit(1.0e6, 1.0e6);
+                        Size::new(p.width.unwrap_or(s.width), p.height.unwrap_or(s.height))
+                    }
+                }
+            }
+        }
+
+        /// UIKit exposes baselines only as layout ANCHORS (`firstBaselineAnchor`), which are
+        /// constraint endpoints with no readable number, so this derives the offset from the
+        /// view's own font instead (docs/baseline.md — `Cap::BaselineAlignment` is `Emulated`
+        /// here for exactly that reason).
+        ///
+        /// The model is the one UIKit itself uses for a single-line control: center the font's
+        /// line box in the view's height, and the baseline sits an ascender below the line's
+        /// top. For a label day has sized to its text that reduces to the ascender, and for a
+        /// bordered field it accounts for the inset the border adds.
+        fn first_baseline(&mut self, h: &Handle, kind: PieceKind, size: Size) -> Option<f64> {
+            if !day_spec::kind_has_baseline(kind) {
+                return None;
+            }
+            let font = unsafe {
+                if let Some(l) = (**h).downcast_ref::<UILabel>() {
+                    l.font()
+                } else if let Some(f) = (**h).downcast_ref::<UITextField>() {
+                    f.font()
+                } else if let Some(v) = (**h).downcast_ref::<UITextView>() {
+                    v.font()
+                } else if let Some(b) = (**h).downcast_ref::<UIButton>() {
+                    b.titleLabel().and_then(|l| l.font())
+                } else {
+                    None
+                }
+            }?;
+            let (ascender, line_height) = unsafe { (font.ascender(), font.lineHeight()) };
+            Some(((size.height - line_height) / 2.0).max(0.0) + ascender)
+        }
+
+        fn set_frame(&mut self, h: &Handle, frame: Rect, anim: Option<&AnimSpec>) {
+            // Nav page content: the page view pins it to the safe area (native-owned).
+            if NAV_PAGES.with(|set| set.borrow().contains(&ptr_of(h))) {
+                return;
+            }
+            let f = CGRect::new(
+                CGPoint::new(frame.origin.x, frame.origin.y),
+                CGSize::new(frame.size.width, frame.size.height),
+            );
+            let v = h.clone();
+            with_uikit_anim(anim, move || unsafe {
+                // `frame` is undefined under a transform (`set_transform`): setting it fits the
+                // transformed box into the rect, which cancels the scale and the offset. Size
+                // and center are independent of the transform, so a transformed view takes
+                // those. Others keep `setFrame`: a scroll view's bounds origin is its offset.
+                let t = v.transform();
+                let identity = t.a == 1.0
+                    && t.b == 0.0
+                    && t.c == 0.0
+                    && t.d == 1.0
+                    && t.tx == 0.0
+                    && t.ty == 0.0;
+                if identity {
+                    v.setFrame(f);
+                } else {
+                    let mut b = v.bounds();
+                    b.size = f.size;
+                    v.setBounds(b);
+                    v.setCenter(CGPoint::new(
+                        f.origin.x + f.size.width / 2.0,
+                        f.origin.y + f.size.height / 2.0,
+                    ));
+                }
+            });
+            DOCUMENT_HOSTS.with(|m| {
+                if let Some(state) = m.borrow().get(&ptr_of(h)) {
+                    document_frames(h, state);
+                }
+            });
+        }
+
+        fn set_opacity(&mut self, h: &Handle, opacity: f64, anim: Option<&AnimSpec>) {
+            let v = h.clone();
+            with_uikit_anim(anim, move || unsafe { v.setAlpha(opacity as CGFloat) });
+        }
+
+        fn set_transform(
+            &mut self,
+            h: &Handle,
+            t: Transform,
+            _size: Size,
+            anim: Option<&AnimSpec>,
+        ) {
+            let v = h.clone();
+            let tf = cgaffine(t);
+            with_uikit_anim(anim, move || unsafe { v.setTransform(tf) });
+        }
+
+        fn set_scroll_content(&mut self, h: &Handle, content: Size) {
+            if let Some(sv) = (**h).downcast_ref::<UIScrollView>() {
+                unsafe { sv.setContentSize(CGSize::new(content.width, content.height)) };
+            }
+        }
+
+        /// UIKit's own row: the table's layout margins at the sides (16 or 20pt, by width), and
+        /// the top/bottom margins and height of a stock cell showing one line of its default
+        /// content configuration, measured by UIKit itself.
+        fn list_row_metrics(&mut self, h: &Handle) -> day_spec::RowMetrics {
+            let Some(table) = (**h).downcast_ref::<objc2_ui_kit::UITableView>() else {
+                return day_spec::RowMetrics::default();
+            };
+            let sides = unsafe { table.layoutMargins() };
+            let (vertical, height) = NATIVE_ROW.with(|r| *r.get_or_init(native_row));
+            day_spec::RowMetrics {
+                insets: day_spec::Insets {
+                    top: vertical,
+                    leading: sides.left,
+                    bottom: vertical,
+                    trailing: sides.right,
+                },
+                min_height: height,
+            }
+        }
+
+        fn scroll_to(&mut self, h: &Handle, target: Rect, animated: bool) {
+            if let Some(sv) = (**h).downcast_ref::<UIScrollView>() {
+                unsafe {
+                    sv.scrollRectToVisible_animated(
+                        CGRect::new(
+                            CGPoint::new(target.origin.x, target.origin.y),
+                            CGSize::new(target.size.width, target.size.height),
+                        ),
+                        animated,
+                    )
+                };
+            }
+        }
+
+        fn set_focusable(&mut self, h: &Handle, node: NodeId, focusable: bool) {
+            if focusable {
+                KEY_NODES.with(|t| t.insert(ptr_of(h), node));
+            } else {
+                KEY_NODES.with(|t| t.remove(ptr_of(h)));
+            }
+        }
+
+        fn focus(&mut self, h: &Handle, _node: NodeId, focused: bool) {
+            // Focus IS the keyboard on iOS: becoming first responder raises it, resigning
+            // dismisses it. Resign only while this view still owns it, so a stale release
+            // can't drop a sibling's keyboard.
+            unsafe {
+                if !focused {
+                    if h.isFirstResponder() {
+                        h.resignFirstResponder();
+                    }
+                    return;
+                }
+                if h.becomeFirstResponder() {
+                    return;
+                }
+            }
+            // A refusal can be TRANSIENT — the outgoing responder is still tearing its keyboard
+            // down, and UIKit will not hand focus over mid-transition — so retry once on the
+            // next turn (GTK's un-mapped-widget retry, rule 4 in docs/focus.md).
+            //
+            // It can also be permanent, and correctly so: a view that is not in a WINDOW cannot
+            // hold the keyboard, and a full-screen modal takes the presenting view out of the
+            // window for as long as it covers it. A canvas behind a compact inspector sheet
+            // (docs/inspector.md) refuses focus until the sheet closes — the retry lapses and
+            // the binding's signal snaps back, which is rule 2.
+            let Some(mtm) = MainThreadMarker::new() else {
+                return;
+            };
+            let view = dispatch2::MainThreadBound::new(h.clone(), mtm);
+            dispatch2::DispatchQueue::main().exec_async(move || {
+                day_spec::ffi_guard::contain((), || {
+                    let Some(mtm) = MainThreadMarker::new() else {
+                        return;
+                    };
+                    let view = view.get(mtm);
+                    if !view.isFirstResponder() {
+                        let _ = unsafe { view.becomeFirstResponder() };
+                    }
+                });
+            });
+        }
+
+        fn set_event_sink(&mut self, sink: EventSink) {
+            SINK.with(|s| *s.borrow_mut() = Some(Rc::from(sink)));
+        }
+
+        fn enable_gesture(&mut self, h: &Handle, node: NodeId, kind: day_spec::GestureKind) {
+            let key = ptr_of(h);
+            let already = GESTURES.with(|m| {
+                m.borrow()
+                    .get(&key)
+                    .is_some_and(|v| v.iter().any(|t| t.ivars().kind == kind))
+            });
+            if already {
+                return;
+            }
+            let mtm = mtm();
+            let target = DayGesture::new(mtm, node, kind);
+            unsafe {
+                let recognizer: Retained<UIGestureRecognizer> = match kind {
+                    day_spec::GestureKind::Drag => {
+                        let pan = UIPanGestureRecognizer::initWithTarget_action(
+                            UIPanGestureRecognizer::alloc(mtm),
+                            Some(&target),
+                            Some(sel!(fire:)),
+                        );
+                        Retained::into_super(pan)
+                    }
+                    day_spec::GestureKind::Pinch => {
+                        let pinch = UIPinchGestureRecognizer::initWithTarget_action(
+                            UIPinchGestureRecognizer::alloc(mtm),
+                            Some(&target),
+                            Some(sel!(fire:)),
+                        );
+                        Retained::into_super(pinch)
+                    }
+                    day_spec::GestureKind::Pan => {
+                        // Two fingers, so single-finger drags still reach a Drag gesture on
+                        // the same view.
+                        let pan = UIPanGestureRecognizer::initWithTarget_action(
+                            UIPanGestureRecognizer::alloc(mtm),
+                            Some(&target),
+                            Some(sel!(fire:)),
+                        );
+                        pan.setMinimumNumberOfTouches(2);
+                        pan.setMaximumNumberOfTouches(2);
+                        Retained::into_super(pan)
+                    }
+                    day_spec::GestureKind::Hover => {
+                        // UIKit does have a hover recognizer, and it fires only with a pointer:
+                        // an iPad with a trackpad, a mouse, or an Apple Pencil hovering. A
+                        // finger-only device attaches it and never hears from it, which is the
+                        // contract (docs/canvas.md "Interaction").
+                        let hover = objc2_ui_kit::UIHoverGestureRecognizer::initWithTarget_action(
+                            objc2_ui_kit::UIHoverGestureRecognizer::alloc(mtm),
+                            Some(&target),
+                            Some(sel!(fire:)),
+                        );
+                        Retained::into_super(hover)
+                    }
+                    _ => {
+                        let tap = UITapGestureRecognizer::initWithTarget_action(
+                            UITapGestureRecognizer::alloc(mtm),
+                            Some(&target),
+                            Some(sel!(fire:)),
+                        );
+                        Retained::into_super(tap)
+                    }
+                };
+                h.setUserInteractionEnabled(true);
+                h.addGestureRecognizer(&recognizer);
+            }
+            GESTURES.with(|m| m.borrow_mut().entry(key).or_default().push(target));
+        }
+
+        fn set_context_menu_fn(&mut self, h: &Handle, _node: NodeId, f: day_spec::ContextMenuFn) {
+            let key = ptr_of(h);
+            if let Some((old, _)) = CTX_MENU_FNS.with(|t| t.borrow_mut().remove(&key)) {
+                unsafe { h.removeInteraction(ProtocolObject::from_ref(&*old)) };
+            }
+            let mtm = mtm();
+            let delegate = DayContextMenuFn::new(mtm, f);
+            let proto = ProtocolObject::from_ref(&*delegate);
+            let interaction = unsafe {
+                UIContextMenuInteraction::initWithDelegate(
+                    UIContextMenuInteraction::alloc(mtm),
+                    proto,
+                )
+            };
+            unsafe {
+                h.setUserInteractionEnabled(true);
+                h.addInteraction(ProtocolObject::from_ref(&*interaction));
+            }
+            CTX_MENU_FNS.with(|t| t.borrow_mut().insert(key, (interaction, delegate)));
+        }
+
+        fn set_context_menu(&mut self, h: &Handle, _node: NodeId, items: &[day_spec::MenuItem]) {
+            let key = ptr_of(h);
+            // Remove any prior interaction (replace-on-reconfigure): the table's teardown
+            // detaches it from the view before dropping the retains.
+            CTX_MENUS.with(|t| t.remove(key));
+            if items.is_empty() {
+                return;
+            }
+            let mtm = mtm();
+            let menu = build_ui_menu(mtm, "", items);
+            let delegate = DayContextMenu::new(mtm, menu);
+            let proto = ProtocolObject::from_ref(&*delegate);
+            let interaction = unsafe {
+                UIContextMenuInteraction::initWithDelegate(
+                    UIContextMenuInteraction::alloc(mtm),
+                    proto,
+                )
+            };
+            unsafe {
+                h.setUserInteractionEnabled(true);
+                h.addInteraction(ProtocolObject::from_ref(&*interaction));
+            }
+            CTX_MENUS.with(|t| t.insert(key, (interaction, delegate)));
+        }
+
+        fn set_app_menu(&mut self, _items: &[day_spec::MenuItem]) {
+            // iOS has no persistent global menu bar (that is a Mac Catalyst / iPad-with-keyboard
+            // concern handled via UIMenuBuilder in `buildMenuWithBuilder:`). On iPhone the native
+            // affordances are the per-view context menu (`set_context_menu`) and the system edit
+            // menu; a global bar is intentionally a no-op here. See docs/menus.md.
+        }
+
+        fn supports_lifecycle(&self, phase: day_spec::Lifecycle) -> bool {
+            lifecycle_supported(phase)
+        }
+
+        fn set_edit_state(&mut self, state: &day_spec::EditState) {
+            EDIT_STATE.with(|s| s.set(*state));
+        }
+
+        fn set_undo_state(&mut self, state: &day_spec::UndoState) {
+            let front = undo_front(self.mtm());
+            *front.ivars().state.borrow_mut() = state.clone();
+        }
+
+        fn attach_tree(&mut self, host: &Handle, source: TreeSource) {
+            let key = ptr_of(host);
+            if let Some(data) = tree_entry_u(key) {
+                data.ivars().source.replace(Some(source));
+            }
+            // Prime outside this borrow: the one flat snapshot that creates the section,
+            // then the first section snapshot from the (possibly still empty) hierarchy —
+            // the piece's own initial Reload re-applies once the data lands.
+            <Uikit as Platform>::post(Box::new(move || {
+                day_spec::ffi_guard::contain((), || {
+                    let Some(data) = tree_entry_u(key) else {
+                        return;
+                    };
+                    let ds = data.ivars().ds.borrow().clone();
+                    let Some(ds) = ds else { return };
+                    let flat: Retained<
+                        objc2_ui_kit::NSDiffableDataSourceSnapshot<NSObject, NSObject>,
+                    > = unsafe {
+                        msg_send![
+                            <objc2_ui_kit::NSDiffableDataSourceSnapshot<NSObject, NSObject> as objc2::AnyThread>::alloc(),
+                            init
+                        ]
+                    };
+                    let section =
+                        unsafe { Retained::cast_unchecked::<NSObject>(DayTreeData::section()) };
+                    flat.appendSectionsWithIdentifiers(
+                        &objc2_foundation::NSArray::from_retained_slice(&[section]),
+                    );
+                    ds.applySnapshot_animatingDifferences(&flat, false);
+                    data.apply_snapshot(false);
+                });
+            }));
+        }
+
+        fn attach_list(&mut self, host: &Handle, source: ListSource) {
+            LIST_STATE.with(|m| {
+                if let Some((table, data)) = m.borrow().get(&ptr_of(host)) {
+                    data.ivars().source.replace(Some(source));
+                    unsafe { table.reloadData() };
+                }
+            });
+        }
+
+        fn adopt(&mut self, raw: RawHandle) -> Handle {
+            // A recycling UITableViewCell's contentView — Day fills/rebinds its row content there.
+            let ptr = raw as *mut UIView;
+            unsafe { Retained::retain(ptr) }.expect("adopt: null list cell content")
+        }
+
+        fn set_a11y(&mut self, h: &Handle, a11y: &A11yProps) {
+            unsafe {
+                if let Some(id) = &a11y.identifier {
+                    let ns = NSString::from_str(id);
+                    let _: () = msg_send![&**h, setAccessibilityIdentifier: &*ns];
+                }
+                if let Some(label) = &a11y.label {
+                    APP_LABELED.with(|t| t.insert(ptr_of(h), ()));
+                    let ns = NSString::from_str(label);
+                    let _: () = msg_send![&**h, setAccessibilityLabel: &*ns];
+                }
+                if let Some(hint) = &a11y.hint {
+                    let ns = NSString::from_str(hint);
+                    let _: () = msg_send![&**h, setAccessibilityHint: &*ns];
+                }
+                if let Some(value) = &a11y.value {
+                    let ns = NSString::from_str(value);
+                    let _: () = msg_send![&**h, setAccessibilityValue: &*ns];
+                }
+                // Explicit role → traits (canvas/custom; native controls self-describe, §13).
+                if let Some(traits) = ui_traits(a11y.role) {
+                    let _: () = msg_send![&**h, setAccessibilityTraits: traits];
+                }
+                // The selected trait, added to or removed from whatever the element reports.
+                if let Some(on) = a11y.selected {
+                    let traits: objc2_ui_kit::UIAccessibilityTraits =
+                        msg_send![&**h, accessibilityTraits];
+                    let selected = objc2_ui_kit::UIAccessibilityTraitSelected;
+                    let traits = if on {
+                        traits | selected
+                    } else {
+                        traits & !selected
+                    };
+                    let _: () = msg_send![&**h, setAccessibilityTraits: traits];
+                }
+                // Decorative / hidden: `accessibilityElementsHidden` drops only the
+                // DESCENDANTS, so the view itself (a decorative image, a native control) is
+                // unmarked as an element too. Hidden never flips back, so neither is restored.
+                if a11y.hidden {
+                    let _: () = msg_send![&**h, setAccessibilityElementsHidden: true];
+                    let _: () = msg_send![&**h, setIsAccessibilityElement: false];
+                }
+            }
+        }
+
+        /// VoiceOver's announcement notification: an urgent sentence interrupts the current
+        /// one (the plain-string default); a polite one is wrapped in an attributed string
+        /// that asks to queue behind it. Without VoiceOver the post goes unobserved.
+        fn announce(&mut self, text: &str, urgent: bool) {
+            use objc2::AllocAnyThread as _;
+            use objc2_ui_kit::{
+                UIAccessibilityAnnouncementNotification, UIAccessibilityPostNotification,
+            };
+            let ns = NSString::from_str(text);
+            // SAFETY: the notification constant is UIKit's own, and the argument is the
+            // NSString or NSAttributedString the announcement notification documents.
+            unsafe {
+                if urgent {
+                    UIAccessibilityPostNotification(
+                        UIAccessibilityAnnouncementNotification,
+                        Some(&ns),
+                    );
+                } else {
+                    // The queue attribute is deprecated in favor of the iOS 17 priority
+                    // attribute, but the deployment floor is iOS 15, where only this one exists.
+                    #[allow(deprecated)]
+                    let key: &NSString =
+                        objc2_ui_kit::UIAccessibilitySpeechAttributeQueueAnnouncement;
+                    let queue = objc2_foundation::NSNumber::new_bool(true);
+                    let keys: [&NSString; 1] = [key];
+                    let objs: [&AnyObject; 1] = [queue.as_ref() as &AnyObject];
+                    let attrs =
+                        objc2_foundation::NSDictionary::from_slices::<NSString>(&keys, &objs);
+                    let queued = objc2_foundation::NSAttributedString::initWithString_attributes(
+                        objc2_foundation::NSAttributedString::alloc(),
+                        &ns,
+                        Some(&attrs),
+                    );
+                    UIAccessibilityPostNotification(
+                        UIAccessibilityAnnouncementNotification,
+                        Some(&queued),
+                    );
+                }
+            }
+        }
+
+        fn read_native(&self, h: &Handle) -> day_spec::NativeSnapshot {
+            unsafe {
+                let traits: objc2_ui_kit::UIAccessibilityTraits =
+                    msg_send![&**h, accessibilityTraits];
+                let label: Option<Retained<NSString>> = msg_send![&**h, accessibilityLabel];
+                let value: Option<Retained<NSString>> = msg_send![&**h, accessibilityValue];
+                let ident: Option<Retained<NSString>> = msg_send![&**h, accessibilityIdentifier];
+                // A picker answers its displayed selection and its enabled state itself: the
+                // inline style is a stack of row buttons, not one control.
+                let picker = crate::picker::read_native(h);
+                day_spec::NativeSnapshot {
+                    found: true,
+                    role: day_role_from_traits(traits),
+                    label: label.map(|s| s.to_string()),
+                    value: value.map(|s| s.to_string()),
+                    identifier: ident.map(|s| s.to_string()).filter(|s| !s.is_empty()),
+                    text: match &picker {
+                        Some((text, _)) => text.clone(),
+                        None => native_text(h),
+                    },
+                    number: native_number(h),
+                    // A toggle's state, or a button's selected state (`ButtonProps::selected`).
+                    checked: if let Some(sw) = (**h).downcast_ref::<UISwitch>() {
+                        Some(sw.isOn())
+                    } else {
+                        (**h).downcast_ref::<UIButton>().map(|b| b.isSelected())
+                    },
+                    // Only a UIControl takes input; a UILabel's `isEnabled` only dims it, and
+                    // a text view (a text area or a selectable label) has no enabled state.
+                    enabled: match &picker {
+                        Some((_, on)) => *on,
+                        None => (**h).downcast_ref::<UIControl>().map(|c| c.isEnabled()),
+                    },
+                    visible: Some(native_visible(h)),
+                    frame: native_frame(h),
+                }
+            }
+        }
+
+        fn request_frame(
+            &mut self,
+            host: &Handle,
+            cb: day_spec::FrameCallback,
+        ) -> day_spec::CancelFrame {
+            let key = ptr_of(host);
+            let token = day_core::frame::native::register(cb);
+            FRAMES.with(|s| {
+                let mut sources = s.borrow_mut();
+                let source = sources.entry(key).or_insert_with(|| {
+                    let this = DayFrameTarget::alloc(mtm()).set_ivars(FrameState {
+                        key,
+                        token: Cell::new(0),
+                    });
+                    let target: Retained<DayFrameTarget> = unsafe { msg_send![super(this), init] };
+                    // Bind to the window's screen, including external displays on iPad.
+                    let screen = unsafe { host.window().map(|w| w.screen()) };
+                    let link = if let Some(screen) = screen {
+                        unsafe { screen.displayLinkWithTarget_selector(&target, sel!(step:)) }
+                    } else {
+                        None
+                    }
+                    .unwrap_or_else(|| unsafe {
+                        CADisplayLink::displayLinkWithTarget_selector(&target, sel!(step:))
+                    });
+                    unsafe {
+                        link.addToRunLoop_forMode(
+                            &objc2_foundation::NSRunLoop::mainRunLoop(),
+                            objc2_foundation::NSRunLoopCommonModes,
+                        );
+                    }
+                    FrameSource { link, target }
+                });
+                source.target.ivars().token.set(token);
+                unsafe { source.link.setPaused(false) };
+            });
+            Box::new(move || {
+                day_core::frame::native::cancel(token);
+                FRAMES.with(|s| {
+                    let mut s = s.borrow_mut();
+                    if s.get(&key)
+                        .is_some_and(|s| s.target.ivars().token.get() == token)
+                    {
+                        s.remove(&key);
+                    }
+                });
+            })
+        }
+
+        fn replay(&mut self, h: &Handle, ops: &[DrawOp], _size: Size) {
+            OPS.with(|t| t.insert(ptr_of(h), ops.to_vec()));
+            unsafe { h.setNeedsDisplay() };
+        }
+
+        /// Decode bytes with `UIImage(data:)` (docs/images.md), which reads every container
+        /// ImageIO knows — PNG, JPEG, HEIF, GIF, TIFF, BMP and WebP on iOS 14+.
+        fn decode_image(&mut self, req: u64, id: day_spec::BitmapId, bytes: &[u8]) {
+            let data = objc2_foundation::NSData::with_bytes(bytes);
+            let event = match unsafe { objc2_ui_kit::UIImage::imageWithData(&data) } {
+                Some(image) => {
+                    // `size` is in POINTS; multiplying by the image's own scale is what turns it
+                    // into the pixel dimensions a caller asked for. Bytes decode at scale 1, so
+                    // the two agree here — but the multiplication is what keeps that true.
+                    let (size, scale) = unsafe { (image.size(), image.scale()) };
+                    let format = day_spec::ImageFormat::sniff(bytes);
+                    let info = day_spec::BitmapInfo {
+                        pixels: Size::new(size.width * scale, size.height * scale),
+                        // Decoded bytes carry no density — a PNG is simply its pixels.
+                        scale: 1.0,
+                        format,
+                        // Derived from the container, not measured: asking UIKit would mean
+                        // reaching through `CGImage` for an alpha info flag. Unknown counts as
+                        // "may have alpha", the harmless direction.
+                        has_alpha: !matches!(
+                            format,
+                            Some(day_spec::ImageFormat::Jpeg) | Some(day_spec::ImageFormat::Bmp)
+                        ),
+                    };
+                    BITMAPS.with(|m| m.borrow_mut().insert(id.0, UikitBitmap { image, info }));
+                    Event::ImageDecoded {
+                        req,
+                        result: Ok(info),
+                    }
+                }
+                None => Event::ImageDecoded {
+                    req,
+                    result: Err(day_spec::ImageError::Decode),
+                },
+            };
+            emit(day_spec::WINDOW_NODE, event);
+        }
+
+        /// Offscreen through `UIGraphicsImageRenderer` with the canvas's own painter
+        /// (docs/canvas.md "Exporting"), kept in the table `decode_image` fills.
+        fn render_bitmap(
+            &mut self,
+            req: u64,
+            id: day_spec::BitmapId,
+            ops: &[DrawOp],
+            size: Size,
+            scale: f64,
+        ) {
+            let result = render_bitmap_image(ops, size, scale).map(|(image, info)| {
+                BITMAPS.with(|m| m.borrow_mut().insert(id.0, UikitBitmap { image, info }));
+                info
+            });
+            emit(day_spec::WINDOW_NODE, Event::BitmapRendered { req, result });
+        }
+
+        /// One vector PDF through `UIGraphicsPDFRenderer`, a page per drawing.
+        fn render_pdf(&mut self, req: u64, pages: &[day_spec::PdfPage], info: &day_spec::PdfInfo) {
+            let result = render_pdf_data(pages, info);
+            emit(day_spec::WINDOW_NODE, Event::PdfRendered { req, result });
+        }
+
+        fn image_info(&mut self, id: day_spec::BitmapId) -> Option<day_spec::BitmapInfo> {
+            BITMAPS.with(|m| m.borrow().get(&id.0).map(|b| b.info))
+        }
+
+        fn encode_image(&mut self, req: u64, id: day_spec::BitmapId, spec: &day_spec::EncodeSpec) {
+            let result = encode_bitmap(id, spec);
+            emit(day_spec::WINDOW_NODE, Event::ImageEncoded { req, result });
+        }
+
+        /// What UIKit WRITES: `UIImagePNGRepresentation` and `UIImageJPEGRepresentation`, and
+        /// nothing else. It READS far more, and the asymmetry is the platform's own — which is
+        /// why this duty exists rather than letting `Cap::ImageEncode` imply symmetry.
+        fn encode_formats(&mut self) -> Vec<day_spec::ImageFormat> {
+            use day_spec::ImageFormat::{Jpeg, Png};
+            vec![Png, Jpeg]
+        }
+
+        fn release_image(&mut self, id: day_spec::BitmapId) {
+            BITMAPS.with(|m| {
+                m.borrow_mut().remove(&id.0);
+            });
+        }
+
+        // In-process capture uses drawViewHierarchy with afterScreenUpdates=true.
+        // External simctl captures retain their own synchronization; no acknowledgment
+        // of external freshness is fabricated from a main-thread/vsync callback.
+        fn snapshot_window(&mut self) -> Result<Vec<u8>, String> {
+            snapshot_uikit(false)
+        }
+
+        /// `UIFont.familyNames` + `fontNamesForFamilyName:`, each member described through its
+        /// `UIFontDescriptor`: the face name, the italic symbolic trait, and the weight trait
+        /// (docs/fonts.md). `.`-prefixed families are the system's private UI faces.
+        fn font_families(&mut self) -> Vec<day_spec::FontFamilyInfo> {
+            use objc2_ui_kit::*;
+            let mut out = Vec::new();
+            for family in unsafe { UIFont::familyNames() }.iter() {
+                let name = family.to_string();
+                if name.starts_with('.') {
+                    continue;
+                }
+                let mut faces = Vec::new();
+                for font_name in unsafe { UIFont::fontNamesForFamilyName(&family) }.iter() {
+                    let Some(font) = (unsafe { UIFont::fontWithName_size(&font_name, 12.0) })
+                    else {
+                        continue;
+                    };
+                    // SAFETY: a font UIKit handed back; the descriptor is its own.
+                    let desc = unsafe { font.fontDescriptor() };
+                    let traits = unsafe { desc.symbolicTraits() };
+                    let italic = traits.contains(UIFontDescriptorSymbolicTraits::TraitItalic);
+                    // SAFETY: the keys are UIKit's own descriptor-attribute constants.
+                    let face: Option<Retained<AnyObject>> =
+                        unsafe { msg_send![&desc, objectForKey: UIFontDescriptorFaceAttribute] };
+                    let trait_dict: Option<Retained<AnyObject>> =
+                        unsafe { msg_send![&desc, objectForKey: UIFontDescriptorTraitsAttribute] };
+                    let weight_trait = trait_dict.and_then(|d| {
+                        let d = d.downcast::<objc2_foundation::NSDictionary>().ok()?;
+                        let key: &NSString = unsafe { UIFontWeightTrait };
+                        let n = d.objectForKey(key as &AnyObject)?;
+                        n.downcast::<objc2_foundation::NSNumber>()
+                            .ok()
+                            .map(|n| n.doubleValue())
+                    });
+                    let weight = match weight_trait {
+                        Some(t) => weight_from_trait(t),
+                        None if traits.contains(UIFontDescriptorSymbolicTraits::TraitBold) => {
+                            day_spec::FontWeight::Bold
+                        }
+                        None => day_spec::FontWeight::Regular,
+                    };
+                    let face = face
+                        .and_then(|f| f.downcast::<NSString>().ok())
+                        .map(|s| s.to_string())
+                        .filter(|s| !s.is_empty())
+                        .unwrap_or_else(|| day_spec::FontFace::synthesized_name(weight, italic));
+                    faces.push(day_spec::FontFace {
+                        name: face,
+                        weight,
+                        italic,
+                    });
+                }
+                out.push(day_spec::FontFamilyInfo {
+                    family: name,
+                    faces,
+                });
+            }
+            out
+        }
+
+        /// `sizeWithAttributes:` with the attributes `replay` draws with; the ascent is the
+        /// font's own, so `at.y + ascent` is where the glyphs' baseline lands.
+        fn measure_text(
+            &mut self,
+            text: &str,
+            size: f64,
+            font: &day_spec::CanvasFont,
+        ) -> Option<day_spec::TextMetrics> {
+            let uifont = canvas_uifont(size, font);
+            let attrs = canvas_text_attrs(&uifont, day_spec::Color::BLACK);
+            let ns = NSString::from_str(text);
+            let sz: CGSize = unsafe { msg_send![&ns, sizeWithAttributes: &*attrs] };
+            // SAFETY: a font UIKit handed back; these are plain metric reads.
+            let (ascent, cap) = unsafe { (uifont.ascender(), uifont.capHeight()) };
+            // The INK box (see the AppKit twin): `usesDeviceMetrics` turns the layout box into
+            // the glyphs' own bounds, reported baseline-relative with y up.
+            let unbounded = CGSize::new(f64::MAX, f64::MAX);
+            let ink: CGRect = unsafe {
+                msg_send![
+                    &ns,
+                    boundingRectWithSize: unbounded,
+                    options: objc2_ui_kit::NSStringDrawingOptions::UsesDeviceMetrics,
+                    attributes: &*attrs,
+                    context: std::ptr::null::<objc2::runtime::AnyObject>(),
+                ]
+            };
+            Some(day_spec::TextMetrics::from_baseline(
+                sz.width,
+                ascent,
+                sz.height - ascent,
+                cap,
+                day_spec::Rect::new(
+                    ink.origin.x,
+                    -(ink.origin.y + ink.size.height),
+                    ink.size.width,
+                    ink.size.height,
+                ),
+            ))
+        }
+
+        /// The window rather than Day's content view. On iOS the "chrome" is the navigation bar,
+        /// which lives IN the window's own hierarchy — so this is a wider capture of the same
+        /// tree, not a different mechanism. The status bar is not in it: that belongs to the
+        /// system, not to this process, and no in-app API can draw it (docs/window-image.md).
+        fn snapshot_window_chrome(&mut self) -> Result<Vec<u8>, String> {
+            snapshot_uikit(true)
+        }
+
+        /// A secondary "window" on iOS is a fullscreen cover (`open_window` below answers
+        /// Unsupported for the Preferences kind), so `host` is the cover's content view —
+        /// capture IT, not the key scene's root, which the cover's presentation has
+        /// detached from the window (drawing a detached root raises, see `snapshot_view`).
+        fn snapshot_window_of(&mut self, host: &Handle) -> Result<Vec<u8>, String> {
+            snapshot_view(host)
+        }
+
+        fn native_document_tabs(&self) -> bool {
+            false
+        }
+
+        fn open_window(
+            &mut self,
+            id: NodeId,
+            options: &day_spec::WindowOptions,
+            kind: day_spec::WindowKind,
+        ) -> day_spec::WindowOpenReply<Handle> {
+            let m = mtm();
+            let app = UIApplication::sharedApplication(m);
+            // A scene the platform already handed us is waiting for exactly one window's
+            // content (the scene delegate calls day-core from inside willConnect). Take it
+            // rather than asking for another scene, and name the node it is now the window of.
+            if ADOPTING.with(|a| a.get()) {
+                ADOPTING.with(|a| a.set(false));
+                ADOPTING_SCENE.with(|n| n.set(Some(id)));
+                return day_spec::WindowOpenReply::Pending;
+            }
+            // iPhone (single visible scene) — and the Preferences kind everywhere on
+            // mobile, where settings are modal, not a detached window (docs/windows.md).
+            if !unsafe { app.supportsMultipleScenes() } || kind.is_panel() {
+                return day_spec::WindowOpenReply::Unsupported;
+            }
+            // Ask UIKit for a new scene; its willConnect completes the open through
+            // `finish_window_open` (the Pending path).
+            use objc2::AnyThread as _;
+            let activity = unsafe {
+                objc2_foundation::NSUserActivity::initWithActivityType(
+                    objc2_foundation::NSUserActivity::alloc(),
+                    &NSString::from_str(DAY_WINDOW_ACTIVITY),
+                )
+            };
+            let key = NSString::from_str("day.node");
+            let num = objc2_foundation::NSNumber::new_u64(id.0);
+            let obj: Retained<AnyObject> = num.into_super().into_super().into();
+            let dict: Retained<objc2_foundation::NSDictionary<NSString, AnyObject>> =
+                objc2_foundation::NSDictionary::from_retained_objects(&[&*key], &[obj]);
+            // The API takes the untyped dictionary; the typed one IS that object.
+            let untyped =
+                unsafe { &*(Retained::as_ptr(&dict) as *const objc2_foundation::NSDictionary) };
+            unsafe { activity.addUserInfoEntriesFromDictionary(untyped) };
+            // The non-deprecated activateSceneSessionForRequest: needs iOS 17; this form
+            // covers the whole deployment range.
+            #[allow(deprecated)]
+            unsafe {
+                app.requestSceneSessionActivation_userActivity_options_errorHandler(
+                    None,
+                    Some(&activity),
+                    None,
+                    None,
+                );
+            }
+            PENDING_WINDOWS.with(|p| p.borrow_mut().push((id, options.title.clone())));
+            day_spec::WindowOpenReply::Pending
+        }
+
+        fn close_window(&mut self, host: &Handle) {
+            let m = mtm();
+            let session = SCENES.with(|s| {
+                s.borrow()
+                    .iter()
+                    .find(|e| std::ptr::eq(&*e.root_view, &**host))
+                    .and_then(|e| e.window.windowScene())
+                    .map(|ws| unsafe { ws.session() })
+            });
+            if let Some(session) = session {
+                request_scene_destruction(m, &session);
+            }
+        }
+
+        fn focus_window(&mut self, host: &Handle) {
+            let m = mtm();
+            let app = UIApplication::sharedApplication(m);
+            let session = SCENES.with(|s| {
+                s.borrow()
+                    .iter()
+                    .find(|e| std::ptr::eq(&*e.root_view, &**host))
+                    .and_then(|e| e.window.windowScene())
+                    .map(|ws| unsafe { ws.session() })
+            });
+            if let Some(session) = session {
+                // See open_window: the deprecated form covers pre-iOS-17 deployment.
+                #[allow(deprecated)]
+                unsafe {
+                    app.requestSceneSessionActivation_userActivity_options_errorHandler(
+                        Some(&session),
+                        None,
+                        None,
+                        None,
+                    );
+                }
+            }
+        }
+
+        fn set_window_title(&mut self, host: &Handle, title: &str) {
+            // Shown in the iPad app switcher / multitasking UI.
+            SCENES.with(|s| {
+                if let Some(ws) = s
+                    .borrow()
+                    .iter()
+                    .find(|e| std::ptr::eq(&*e.root_view, &**host))
+                    .and_then(|e| e.window.windowScene())
+                {
+                    unsafe { ws.setTitle(Some(&NSString::from_str(title))) };
+                }
+            });
+        }
+
+        /// Window properties (docs/windows.md). `host` is a scene's Day root: a secondary
+        /// window's, or the primary's. Fullscreen and content protection are emulated (see
+        /// `refresh_window_chrome` and `refresh_capture_shields`); minimize and zoom do not
+        /// exist on iOS, so those requests report the state the window kept.
+        fn apply_window(&mut self, host: &Handle, change: &day_spec::WindowChange) {
+            use day_spec::{WindowChange as C, WindowState as S};
+            match change {
+                C::State(S::Minimized | S::Maximized) => {
+                    if let Some((node, ev)) =
+                        with_scene_of_host(host, |e| scene_state_report(e, true)).flatten()
+                    {
+                        emit(node, ev);
+                    }
+                }
+                C::State(state) => {
+                    let on = *state == S::Fullscreen;
+                    // The registry stays borrowed only to flip the flag; UIKit asks the VCs
+                    // back through `with_scene_of` while the chrome updates.
+                    let window = with_scene_of_host(host, |e| {
+                        (e.fullscreen.replace(on) != on).then(|| e.window.clone())
+                    })
+                    .flatten();
+                    if let Some(window) = window {
+                        refresh_window_chrome(&window);
+                    }
+                    if let Some((node, ev)) =
+                        with_scene_of_host(host, |e| scene_state_report(e, false)).flatten()
+                    {
+                        emit(node, ev);
+                    }
+                }
+                C::ContentProtected(on) => {
+                    with_scene_of_host(host, |e| e.protected.set(*on));
+                    refresh_capture_shields();
+                }
+                // The scene window's own `overrideUserInterfaceStyle`; `None` hands it back to
+                // the app-wide style.
+                C::Appearance(dark) => {
+                    with_scene_of_host(host, |e| e.appearance.set(*dark));
+                    refresh_scene_styles();
+                }
+                // Size, position, stacking and window controls belong to the system on iOS
+                // (Cap::WindowGeometry, WindowPosition, WindowLevel, WindowStates and
+                // RequestAttention are Unsupported).
+                _ => {}
+            }
+        }
+
+        /// The one screen the app runs on (`Cap::Monitors` Emulated): the primary scene's
+        /// screen, in points, with the work area inside the window's safe area (the status bar,
+        /// the home indicator and any cutout taken off).
+        fn monitors(&self) -> Vec<day_spec::Monitor> {
+            let primary = SCENES.with(|s| {
+                s.borrow()
+                    .iter()
+                    .find(|e| e.node.is_none())
+                    .map(|e| e.window.clone())
+            });
+            let Some(window) = primary else {
+                return Vec::new();
+            };
+            let Some(scene) = window.windowScene() else {
+                return Vec::new();
+            };
+            let screen = scene.screen();
+            let b = screen.bounds();
+            let insets = unsafe { window.safeAreaInsets() };
+            let frame = day_spec::Rect::new(0.0, 0.0, b.size.width, b.size.height);
+            let work_area = day_spec::Rect::new(
+                insets.left,
+                insets.top,
+                (b.size.width - insets.left - insets.right).max(0.0),
+                (b.size.height - insets.top - insets.bottom).max(0.0),
+            );
+            let name = objc2_ui_kit::UIDevice::currentDevice(mtm())
+                .model()
+                .to_string();
+            vec![day_spec::Monitor {
+                id: "0".into(),
+                name,
+                frame,
+                work_area,
+                scale: screen.scale(),
+                primary: true,
+            }]
+        }
+
+        /// Home Screen quick actions the app sets while it runs, shown after the Info.plist
+        /// ones. Each type string is the same saved deep link the static ones carry
+        /// (`<scheme>://<route>`, docs/deep-links.md), so a press arrives through
+        /// `performActionForShortcutItem` or the scene's connection options like theirs do.
+        fn set_launcher_shortcuts(&mut self, shortcuts: &[day_spec::LauncherShortcut]) {
+            use objc2::AllocAnyThread as _;
+            let scheme = bundle_url_scheme();
+            let items: Vec<Retained<objc2_ui_kit::UIApplicationShortcutItem>> = shortcuts
+                .iter()
+                .map(|sc| {
+                    let link = match &scheme {
+                        Some(scheme) => format!("{scheme}://{}", sc.route),
+                        None => sc.route.clone(),
+                    };
+                    let title = if sc.label.is_empty() {
+                        &sc.route
+                    } else {
+                        &sc.label
+                    };
+                    objc2_ui_kit::UIApplicationShortcutItem::initWithType_localizedTitle(
+                        objc2_ui_kit::UIApplicationShortcutItem::alloc(),
+                        &NSString::from_str(&link),
+                        &NSString::from_str(title),
+                    )
+                })
+                .collect();
+            let array = objc2_foundation::NSArray::from_retained_slice(&items);
+            let app = UIApplication::sharedApplication(mtm());
+            app.setShortcutItems(Some(&array));
+            if log::log_enabled!(log::Level::Debug) {
+                let set: Vec<String> = app
+                    .shortcutItems()
+                    .map(|items| items.iter().map(|i| i.r#type().to_string()).collect())
+                    .unwrap_or_default();
+                log::debug!("uikit: launcher shortcuts now {set:?}");
+            }
+        }
+
+        fn present(&mut self, req: u64, spec: &day_spec::present::PresentSpec) {
+            use day_spec::present::{ButtonRole, PresentResult, PresentSpec};
+            use objc2_ui_kit::{
+                UIAlertAction, UIAlertActionStyle, UIAlertController, UIAlertControllerStyle,
+            };
+            let m = mtm();
+            let (title, message) = (
+                NSString::from_str(spec.title()),
+                spec.message().map(NSString::from_str),
+            );
+            match spec {
+                PresentSpec::Dialog { buttons, sheet, .. } => {
+                    let style = if *sheet {
+                        UIAlertControllerStyle::ActionSheet
+                    } else {
+                        UIAlertControllerStyle::Alert
+                    };
+                    let ac = unsafe {
+                        UIAlertController::alertControllerWithTitle_message_preferredStyle(
+                            Some(&title),
+                            message.as_deref(),
+                            style,
+                            m,
+                        )
+                    };
+                    for (i, b) in buttons.iter().enumerate() {
+                        let astyle = match b.role {
+                            ButtonRole::Cancel => UIAlertActionStyle::Cancel,
+                            ButtonRole::Destructive => UIAlertActionStyle::Destructive,
+                            ButtonRole::Default => UIAlertActionStyle::Default,
+                        };
+                        let idx = i as i64;
+                        let handler = block2::RcBlock::new(move |_: NonNull<UIAlertAction>| {
+                            emit(
+                                WINDOW_NODE,
+                                Event::PresentResult {
+                                    req,
+                                    result: PresentResult::Button(idx),
+                                },
+                            );
+                            present_forget(req);
+                        });
+                        let action = unsafe {
+                            UIAlertAction::actionWithTitle_style_handler(
+                                Some(&NSString::from_str(&b.label)),
+                                astyle,
+                                Some(&handler),
+                                m,
+                            )
+                        };
+                        unsafe { ac.addAction(&action) };
+                    }
+                    // On iPad an action sheet presents as a POPOVER, and a popover without an
+                    // anchor is an NSGenericException at transition time — the app dies. The
+                    // dialog surface has no anchor concept (a sheet is logically modal,
+                    // docs/dialogs.md), so anchor it to the window's center, arrowless: the
+                    // pad convention for source-less sheets. On iPhone the popover controller
+                    // is unused and this is inert.
+                    if *sheet
+                        && let Some(pop) = unsafe { ac.popoverPresentationController() }
+                        && let Some(w) = WINDOW.with(|win| win.borrow().clone())
+                    {
+                        let b = w.bounds();
+                        unsafe {
+                            pop.setSourceView(Some(w.as_ref()));
+                            pop.setSourceRect(CGRect::new(
+                                CGPoint::new(b.size.width / 2.0, b.size.height / 2.0),
+                                CGSize::new(0.0, 0.0),
+                            ));
+                            pop.setPermittedArrowDirections(
+                                objc2_ui_kit::UIPopoverArrowDirection::empty(),
+                            );
+                        }
+                    }
+                    PRESENT_VCS.with(|p| p.borrow_mut().insert(req, ac.clone()));
+                    modal_enqueue(ModalOp::Present(req, ac.into_super()));
+                }
+                PresentSpec::Prompt {
+                    placeholder,
+                    initial,
+                    ok,
+                    cancel,
+                    ..
+                } => {
+                    let ac = unsafe {
+                        UIAlertController::alertControllerWithTitle_message_preferredStyle(
+                            Some(&title),
+                            message.as_deref(),
+                            UIAlertControllerStyle::Alert,
+                            m,
+                        )
+                    };
+                    let (ph, init) = (NSString::from_str(placeholder), NSString::from_str(initial));
+                    let cfg =
+                        block2::RcBlock::new(move |tf: NonNull<objc2_ui_kit::UITextField>| {
+                            let tf = unsafe { tf.as_ref() };
+                            unsafe {
+                                tf.setPlaceholder(Some(&ph));
+                                tf.setText(Some(&init));
+                            }
+                        });
+                    unsafe { ac.addTextFieldWithConfigurationHandler(Some(&cfg)) };
+                    let ac_ok = ac.clone();
+                    let ok_handler = block2::RcBlock::new(move |_: NonNull<UIAlertAction>| {
+                        let text = unsafe { ac_ok.textFields() }
+                            .and_then(|fs| fs.firstObject())
+                            .and_then(|f| unsafe { f.text() })
+                            .map(|s| s.to_string())
+                            .unwrap_or_default();
+                        emit(
+                            WINDOW_NODE,
+                            Event::PresentResult {
+                                req,
+                                result: PresentResult::Text(text),
+                            },
+                        );
+                        present_forget(req);
+                    });
+                    let cancel_handler = block2::RcBlock::new(move |_: NonNull<UIAlertAction>| {
+                        emit(
+                            WINDOW_NODE,
+                            Event::PresentResult {
+                                req,
+                                result: PresentResult::Dismissed,
+                            },
+                        );
+                        present_forget(req);
+                    });
+                    unsafe {
+                        ac.addAction(&UIAlertAction::actionWithTitle_style_handler(
+                            Some(&NSString::from_str(ok)),
+                            UIAlertActionStyle::Default,
+                            Some(&ok_handler),
+                            m,
+                        ));
+                        ac.addAction(&UIAlertAction::actionWithTitle_style_handler(
+                            Some(&NSString::from_str(cancel)),
+                            UIAlertActionStyle::Cancel,
+                            Some(&cancel_handler),
+                            m,
+                        ));
+                    }
+                    PRESENT_VCS.with(|p| p.borrow_mut().insert(req, ac.clone()));
+                    modal_enqueue(ModalOp::Present(req, ac.into_super()));
+                }
+                // Native file pickers: UIDocumentPickerViewController with a delegate. Open uses
+                // `.import` mode (the system hands back an app-local copy, readable via std::fs);
+                // save exports the Day-staged temp file to the chosen destination.
+                PresentSpec::OpenFile { multiple, .. } => {
+                    if dayscript_driven() {
+                        return; // pending request resolved by the scripted `respond`
+                    }
+                    let types =
+                        objc2_foundation::NSArray::from_retained_slice(&[NSString::from_str(
+                            "public.item",
+                        )]);
+                    #[allow(deprecated)]
+                    let picker = unsafe {
+                        UIDocumentPickerViewController::initWithDocumentTypes_inMode(
+                            UIDocumentPickerViewController::alloc(m),
+                            &types,
+                            UIDocumentPickerMode::Import,
+                        )
+                    };
+                    // Import mode copies every selection into the sandbox; the delegate's
+                    // `didPickDocumentsAtURLs` reports each copy (docs/files.md).
+                    picker.setAllowsMultipleSelection(*multiple);
+                    present_doc_picker(req, m, picker);
+                }
+                // No folder chooser on iOS (`Cap::FolderDialog` is Unsupported): a folder's
+                // security-scoped access is its own feature, so the request resolves at once.
+                PresentSpec::OpenFolder { .. } => {
+                    if dayscript_driven() {
+                        return; // a scripted `respond` may still answer it
+                    }
+                    emit(
+                        WINDOW_NODE,
+                        Event::PresentResult {
+                            req,
+                            result: PresentResult::Dismissed,
+                        },
+                    );
+                }
+                PresentSpec::SaveFile { src_path, .. } => {
+                    if dayscript_driven() {
+                        return; // pending request resolved by the scripted `respond`
+                    }
+                    let url = unsafe {
+                        objc2_foundation::NSURL::fileURLWithPath(&NSString::from_str(src_path))
+                    };
+                    #[allow(deprecated)]
+                    let picker = unsafe {
+                        UIDocumentPickerViewController::initWithURL_inMode(
+                            UIDocumentPickerViewController::alloc(m),
+                            &url,
+                            UIDocumentPickerMode::ExportToService,
+                        )
+                    };
+                    present_doc_picker(req, m, picker);
+                }
+            }
+        }
+
+        fn dismiss(&mut self, req: u64) {
+            modal_enqueue(ModalOp::Dismiss(req, 0));
+        }
+
+        fn share_support(&self) -> day_spec::Support {
+            day_spec::Support::Native
+        }
+        fn share_url(&mut self, url: &str, _title: &str) -> bool {
+            use objc2_ui_kit::UIActivityViewController;
+            let Some(url) =
+                (unsafe { objc2_foundation::NSURL::URLWithString(&NSString::from_str(url)) })
+            else {
+                return false;
+            };
+            let Some(mut parent) =
+                WINDOW.with(|w| w.borrow().as_ref().and_then(|w| w.rootViewController()))
+            else {
+                return false;
+            };
+            unsafe {
+                while let Some(next) = parent.presentedViewController() {
+                    parent = next;
+                }
+                let items = objc2_foundation::NSArray::<AnyObject>::from_slice(&[url.as_ref()]);
+                let sheet = UIActivityViewController::initWithActivityItems_applicationActivities(
+                    UIActivityViewController::alloc(mtm()),
+                    &items,
+                    None,
+                );
+                if let Some(popover) = sheet.popoverPresentationController() {
+                    let Some(view) = parent.view() else {
+                        return false;
+                    };
+                    popover.setSourceView(Some(&view));
+                    let bounds = view.bounds();
+                    popover.setSourceRect(CGRect::new(
+                        CGPoint::new(bounds.size.width - 30.0, 30.0),
+                        CGSize::new(1.0, 1.0),
+                    ));
+                }
+                parent.presentViewController_animated_completion(&sheet, true, None);
+            }
+            true
+        }
+
+        fn open_url(&mut self, url: &str) {
+            let Some(nsurl) =
+                (unsafe { objc2_foundation::NSURL::URLWithString(&NSString::from_str(url)) })
+            else {
+                return;
+            };
+            // `openURL:options:completionHandler:`, NOT the one-argument `openURL:`. The old form
+            // is deprecated, and on a current iOS it returns NO and opens nothing — a link that
+            // silently does nothing, with no exception and no log line to explain it. The options
+            // dictionary is empty (the defaults are what a plain link wants) and the completion
+            // block is nil, which this fire-and-forget call is allowed to pass.
+            unsafe {
+                UIApplication::sharedApplication(mtm()).openURL_options_completionHandler(
+                    &nsurl,
+                    &objc2_foundation::NSDictionary::new(),
+                    None,
+                );
+            }
+        }
+
+        fn defer_system_gestures(&mut self, edges: Edges) {
+            DEFER_EDGES.with(|e| e.set(edges.0));
+            // Re-query the override on the root VC and every cover VC (UIKit consults the
+            // topmost presented VC, which is the cover while one is up).
+            let root_vc = WINDOW
+                .with(|w| w.borrow().clone())
+                .and_then(|w| w.rootViewController());
+            if let Some(vc) = root_vc {
+                unsafe { vc.setNeedsUpdateOfScreenEdgesDeferringSystemGestures() };
+            }
+            let covers: Vec<Retained<DayCoverVC>> =
+                COVER_STATE.with(|m| m.borrow().values().map(|s| s.vc.clone()).collect());
+            for vc in covers {
+                unsafe { vc.setNeedsUpdateOfScreenEdgesDeferringSystemGestures() };
+            }
+        }
+
+        fn set_status_bar_hidden(&mut self, hidden: bool) {
+            if STATUS_BAR_HIDDEN.with(|h| h.replace(hidden)) == hidden {
+                return;
+            }
+            // As for gesture deferral: re-query the root and every cover VC, since UIKit asks
+            // the topmost fullscreen presentation, which is the cover while one is up. Inside
+            // an animation block, so `preferredStatusBarUpdateAnimation`'s fade applies.
+            let mut vcs: Vec<Retained<UIViewController>> = WINDOW
+                .with(|w| w.borrow().clone())
+                .and_then(|w| w.rootViewController())
+                .into_iter()
+                .collect();
+            vcs.extend(
+                COVER_STATE
+                    .with(|m| {
+                        m.borrow()
+                            .values()
+                            .map(|s| s.vc.clone())
+                            .collect::<Vec<_>>()
+                    })
+                    .into_iter()
+                    .map(|vc| vc.into_super()),
+            );
+            let update = block2::RcBlock::new(move || {
+                for vc in &vcs {
+                    vc.setNeedsStatusBarAppearanceUpdate();
+                }
+            });
+            unsafe { UIView::animateWithDuration_animations(0.25, &update, mtm()) };
+        }
+
+        /// The app-wide style, on every window without one of its own: UIKit has no app-level
+        /// switch, so each scene's window takes it (a secondary window included, and one that
+        /// opens later through `build_scene_window`).
+        fn set_appearance(&mut self, dark: Option<bool>) {
+            let style = interface_style(dark);
+            APP_STYLE.with(|a| a.set(Some(style)));
+            if SCENES.with(|s| s.borrow().is_empty()) {
+                WINDOW.with(|w| {
+                    if let Some(window) = w.borrow().as_ref() {
+                        unsafe { window.setOverrideUserInterfaceStyle(style) };
+                    }
+                });
+            }
+            refresh_scene_styles();
+        }
+
+        /// Settings › Accessibility › Motion › "Reduce Motion" (docs/accessibility.md). The
+        /// app delegate's `reduceMotionChanged:` observer re-reads it on a flip.
+        fn reduce_motion(&mut self) -> bool {
+            objc2_ui_kit::UIAccessibilityIsReduceMotionEnabled()
+        }
+
+        fn dark_mode(&mut self) -> bool {
+            // A DAY_THEME launch override wins (themed capture runs); else the current
+            // trait collection's interface style.
+            match std::env::var("DAY_THEME").ok().as_deref() {
+                Some("dark") => return true,
+                Some("light") => return false,
+                _ => {}
+            }
+            use objc2_ui_kit::UIUserInterfaceStyle as Style;
+            // The WINDOW's own style, not the AMBIENT `currentTraitCollection`. An override
+            // applied through `set_appearance` is on the window immediately, while the ambient
+            // trait collection only picks it up at the next layout pass — and
+            // `note_appearance_changed` reads this the instant the override is set. Reading the
+            // ambient one there answers with the old appearance, so `dark_mode()`'s signal never
+            // flips: every native view around it recolors and every canvas keeps its stale
+            // palette, which is dark text on a dark ground.
+            //
+            // The app-wide choice, not the primary window's own style: that window may carry a
+            // per-window override (`WindowChange::Appearance`), which is not the app's answer.
+            let override_style = APP_STYLE.with(|a| a.get()).unwrap_or(Style::Unspecified);
+            if override_style != Style::Unspecified {
+                return override_style == Style::Dark;
+            }
+            // Read a persistent trait environment, not currentTraitCollection: the latter
+            // is scoped to UIKit callbacks and can be stale/default on our deferred queue.
+            // A per-window override is not the app-wide answer, so use its screen instead.
+            let primary = SCENES
+                .with(|s| {
+                    s.borrow()
+                        .iter()
+                        .find(|e| e.node.is_none())
+                        .map(|e| (e.window.clone(), e.appearance.get().is_some()))
+                })
+                .or_else(|| WINDOW.with(|w| w.borrow().clone().map(|w| (w, false))));
+            if let Some((window, own_override)) = primary {
+                use objc2_ui_kit::UITraitEnvironment as _;
+                if own_override && let Some(scene) = window.windowScene() {
+                    return unsafe { scene.screen().traitCollection().userInterfaceStyle() }
+                        == Style::Dark;
+                }
+                return unsafe { window.traitCollection().userInterfaceStyle() } == Style::Dark;
+            }
+            unsafe {
+                objc2_ui_kit::UITraitCollection::currentTraitCollection().userInterfaceStyle()
+                    == Style::Dark
+            }
+        }
+
+        /// The back button, pressed: on the innermost navigation host that has a page to pop
+        /// — the one whose controller sits deepest in the view hierarchy, since a `nav_stack`
+        /// built inside a page nests its controller inside the outer host's — through
+        /// `DayNavController::press_back`, so a scripted back runs `shouldPopItem:`, the pop
+        /// override and the transition report, exactly as a tap does.
+        fn native_back(&mut self) -> bool {
+            let candidates: Vec<(usize, Retained<DayNavController>)> = NAV_STATE.with(|m| {
+                m.borrow()
+                    .iter()
+                    .filter_map(|(h, s)| {
+                        let nav = s.active_nav();
+                        let shown = nav
+                            .viewIfLoaded()
+                            .is_some_and(|v| unsafe { v.window() }.is_some());
+                        (shown && unsafe { nav.viewControllers() }.count() > 1).then_some((*h, nav))
+                    })
+                    .collect()
+            });
+            let depth = |nav: &DayNavController| {
+                let mut n = 0usize;
+                let mut v = nav.viewIfLoaded();
+                while let Some(cur) = v {
+                    n += 1;
+                    v = unsafe { cur.superview() };
+                }
+                n
+            };
+            if *DIAG_NAV {
+                let all: Vec<String> = NAV_STATE.with(|m| {
+                    m.borrow()
+                        .iter()
+                        .map(|(h, s)| {
+                            let nav = s.active_nav();
+                            format!(
+                                "host={h:x} collapsed={} count={} shown={} transitioning={}",
+                                s.is_collapsed(),
+                                unsafe { nav.viewControllers() }.count(),
+                                nav.viewIfLoaded()
+                                    .is_some_and(|v| unsafe { v.window() }.is_some()),
+                                unsafe { nav.transitionCoordinator() }.is_some(),
+                            )
+                        })
+                        .collect()
+                });
+                log::debug!(
+                    "DAYDIAG native_back candidates={} of {:?}",
+                    candidates.len(),
+                    all
+                );
+            }
+            let Some((_, nav)) = candidates.into_iter().max_by_key(|(_, nav)| depth(nav)) else {
+                return false;
+            };
+            let pressed = nav.press_back();
+            if *DIAG_NAV {
+                log::debug!("DAYDIAG native_back pressed={pressed}");
+            }
+            pressed
+        }
+
+        fn ui_idle(&mut self) -> bool {
+            let modal =
+                MODAL_BUSY.with(|c| c.get()) || MODAL_QUEUE.with(|q| !q.borrow().is_empty());
+            let top = topmost_vc().is_some_and(|top| top.transitionCoordinator().is_some());
+            // A nav push/pop animates on its UINavigationController, which topmost_vc()
+            // (presented modals only) never reaches — so without this a scripted screenshot
+            // taken right after `navigate` catches the outgoing page (or a mid-slide frame),
+            // the way the iOS gallery captures did. Only on-screen navigation hosts block
+            // capture: a hidden tab can retain an interrupted coordinator indefinitely.
+            let nav = NAV_STATE.with(|m| {
+                m.borrow().iter().find_map(|(h, s)| {
+                    let nav = s.active_nav();
+                    let shown = nav.viewIfLoaded().is_some_and(|v| v.window().is_some());
+                    (shown && nav.transitionCoordinator().is_some())
+                        .then(|| (*h, shown, nav.viewControllers().count()))
+                })
+            });
+            let selecting = NAV_TABS.with(|m| {
+                m.borrow()
+                    .values()
+                    .any(|t| t.pending_selection.get().is_some())
+            });
+            let active = modal || top || nav.is_some() || selecting;
+            if *DIAG_NAV && active {
+                log::debug!("DAYDIAG ui_idle busy modal={modal} top={top} nav={nav:x?}");
+            }
+            if active {
+                UI_LAST_ACTIVE.with(|t| t.set(Some(std::time::Instant::now())));
+                return false;
+            }
+            // One settle margin past the last observed transition: the coordinator clears a
+            // frame before the final composite, and a capture in that gap still shows a
+            // sliver of the outgoing page.
+            UI_LAST_ACTIVE
+                .with(|t| t.get())
+                .is_none_or(|t| t.elapsed() > std::time::Duration::from_millis(250))
+        }
+    }
+
+    /// One queued modal transition. UIKit view-controller presentation is transactional: a
+    /// present or dismiss issued while another transition is in flight is silently dropped (or
+    /// lands stacked on a half-presented alert, where a later `dismiss` hits the child instead
+    /// of the alert) — exactly how scripted respond → present bursts left dialogs stuck on
+    /// screen in CI. Every present/dismiss therefore goes through a FIFO pumped from each
+    /// transition's completion block, so transitions never overlap.
+    enum ModalOp {
+        Present(u64, Retained<UIViewController>),
+        /// Dismiss request + how many 50ms defer-retries it has already made.
+        Dismiss(u64, u32),
+        /// Present a cover (docs/cover.md) + how many 50ms defer-retries it has already made.
+        ///
+        /// Its OWN op rather than a `Run` closure, so it gets the same treatment a dialog does:
+        /// `Run` executes unconditionally, and a cover presented across an animating transition is
+        /// refused by UIKit with no completion — the same refusal `Present` below waits out. As a
+        /// closure it also had nowhere to put a retry and no way to report the drop, so the panel
+        /// just never appeared, with no watchdog (that is armed only after the closure's early
+        /// returns) and nothing in the log.
+        Cover(Retained<DayCoverVC>, u32),
+        /// A deferred UI mutation (nav push/pop) that must not overlap a modal transition.
+        Run(Box<dyn FnOnce()>),
+    }
+
+    /// Whether a dayscript engine is driving this app (docs/testing): scripted sessions
+    /// answer file pickers programmatically via `respond`, so the NATIVE picker UI is never
+    /// touched — and the document picker is a REMOTE view controller whose hosted view can
+    /// survive programmatic dismissal on the simulator, photobombing every later screenshot.
+    /// Skip presenting it; the pending request still resolves through the normal channel.
+    /// Alerts / prompts / sheets are in-process and still present natively.
+    fn dayscript_driven() -> bool {
+        std::env::var_os("DAYSCRIPT_PORT").is_some()
+    }
+
+    fn modal_enqueue(op: ModalOp) {
+        MODAL_QUEUE.with(|q| q.borrow_mut().push_back(op));
+        modal_pump();
+    }
+
+    /// Mark a transition in flight and arm a watchdog: if UIKit ever drops a transition's
+    /// completion (observed with remote view controllers under scripted bursts), the queue
+    /// would jam forever behind the stuck busy flag — after 2s the watchdog clears it and
+    /// pumps, so one lost completion can't freeze every later dialog and deferred nav op.
+    fn modal_begin_transition() {
+        MODAL_BUSY.with(|c| c.set(true));
+        let generation = MODAL_GEN.with(|c| c.get()).wrapping_add(1);
+        MODAL_GEN.with(|c| c.set(generation));
+        let when = dispatch2::DispatchTime::try_from(std::time::Duration::from_secs(4))
+            .unwrap_or(dispatch2::DispatchTime::NOW);
+        let _ = dispatch2::DispatchQueue::main().after(when, move || {
+            if MODAL_BUSY.with(|c| c.get()) && MODAL_GEN.with(|c| c.get()) == generation {
+                log::warn!("modal transition completion lost — unjamming the queue");
+                MODAL_BUSY.with(|c| c.set(false));
+                modal_pump();
+            }
+        });
+    }
+
+    /// Normal end of a transition: clear busy, invalidate the watchdog, run the next op.
+    fn modal_end_transition() {
+        MODAL_GEN.with(|c| c.set(MODAL_GEN.with(|c| c.get()).wrapping_add(1)));
+        MODAL_BUSY.with(|c| c.set(false));
+        modal_pump();
+    }
+
+    /// Put `op` back at the queue's head and retry shortly: some other UIKit transition (a
+    /// nav push/pop) is animating, and modal work issued across it is silently dropped.
+    fn modal_defer_retry(op: ModalOp) {
+        MODAL_QUEUE.with(|q| q.borrow_mut().push_front(op));
+        MODAL_BUSY.with(|c| c.set(true)); // hold the queue while we wait
+        MODAL_GEN.with(|c| c.set(MODAL_GEN.with(|c| c.get()).wrapping_add(1)));
+        let when = dispatch2::DispatchTime::try_from(std::time::Duration::from_millis(50))
+            .unwrap_or(dispatch2::DispatchTime::NOW);
+        let _ = dispatch2::DispatchQueue::main().after(when, || {
+            MODAL_BUSY.with(|c| c.set(false));
+            modal_pump();
+        });
+    }
+
+    /// Run `f` now if no modal transition is in flight or queued, else queue it behind them.
+    /// Mark the transition clock the instant a nav push/pop is REQUESTED. `pushViewController`
+    /// sets up its transition coordinator on a later run-loop turn, so `ui_idle`'s coordinator
+    /// check has a brief blind window right after the request; stamping here keeps `ui_idle` false
+    /// across it (the 250ms settle margin), so a screenshot issued immediately after `navigate`
+    /// never captures the outgoing page before the incoming one has begun to slide in.
+    fn note_ui_transition() {
+        UI_LAST_ACTIVE.with(|t| t.set(Some(std::time::Instant::now())));
+    }
+
+    /// How long a size-class transition is given before its flag is released anyway. The
+    /// coordinator's completion is what normally ends it; this is the floor under a
+    /// completion that never arrives (an interrupted resize), because a stuck flag would
+    /// swallow the user's next back.
+    const CLASS_TRANSITION_CEILING: std::time::Duration = std::time::Duration::from_secs(2);
+
+    /// Hold the size-class flag for the length of `coordinator`'s transition
+    /// (`CLASS_TRANSITIONS`, and `DayRootVC::willTransitionToTraitCollection:`).
+    fn begin_class_transition(
+        coordinator: &ProtocolObject<dyn objc2_ui_kit::UIViewControllerTransitionCoordinator>,
+    ) {
+        use objc2_ui_kit::{
+            UIViewControllerTransitionCoordinator, UIViewControllerTransitionCoordinatorContext,
+        };
+        CLASS_TRANSITIONS.with(|c| c.set(c.get() + 1));
+        let generation = CLASS_TRANSITION_GEN.with(|c| {
+            let g = c.get().wrapping_add(1);
+            c.set(g);
+            g
+        });
+        if *DIAG_NAV {
+            log::debug!(
+                "DAYDIAG size-class transition begins (depth {})",
+                CLASS_TRANSITIONS.with(|c| c.get())
+            );
+        }
+        let completion = block2::RcBlock::new(
+            move |_ctx: NonNull<
+                ProtocolObject<dyn UIViewControllerTransitionCoordinatorContext>,
+            >| {
+                day_spec::ffi_guard::contain((), || {
+                    CLASS_TRANSITIONS.with(|c| c.set(c.get().saturating_sub(1)));
+                    if *DIAG_NAV {
+                        log::debug!(
+                            "DAYDIAG size-class transition ends (depth {})",
+                            CLASS_TRANSITIONS.with(|c| c.get())
+                        );
+                    }
+                });
+            },
+        );
+        unsafe { coordinator.animateAlongsideTransition_completion(None, Some(&completion)) };
+        // The floor under a completion that never arrives (an interrupted resize): a flag left
+        // standing would swallow the user's next back. Generation-gated, so it only clears the
+        // transition it was scheduled for.
+        let when = dispatch2::DispatchTime::try_from(CLASS_TRANSITION_CEILING)
+            .unwrap_or(dispatch2::DispatchTime::NOW);
+        let _ = dispatch2::DispatchQueue::main().after(when, move || {
+            day_spec::ffi_guard::contain((), || {
+                if CLASS_TRANSITION_GEN.with(|c| c.get()) == generation
+                    && CLASS_TRANSITIONS.with(|c| c.get()) > 0
+                {
+                    log::warn!("size-class transition completion lost — releasing the flag");
+                    CLASS_TRANSITIONS.with(|c| c.set(0));
+                }
+            });
+        });
+    }
+
+    /// Switch a tabs host's selection once no ON-SCREEN navigation stack has a transition in
+    /// flight. Switching tabs hides the outgoing tab's stack, and a push or pop still
+    /// animating there never completes once its view has left the window: the transition
+    /// coordinator stays alive, the popped page stays on the stack, and `ui_idle` reports a
+    /// UI that never settles — a walkthrough's every later screenshot failed "still settling"
+    /// on one variant in eight (Day-Trader's back-then-switch on an iOS 27 iPhone). The
+    /// selection already moved in Day's tree; only the native switch waits, bounded so a
+    /// coordinator that never clears still gets its switch.
+    fn tabs_select_when_settled(hp: usize, i: usize) {
+        static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+        let ticket = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        NAV_TABS.with(|m| {
+            if let Some(t) = m.borrow().get(&hp) {
+                t.pending_selection.set(Some(ticket));
+            }
+        });
+        tabs_apply_when_settled(hp, i, 0, ticket);
+    }
+
+    fn tabs_apply_when_settled(hp: usize, i: usize, attempt: u32, ticket: u64) {
+        if !NAV_TABS.with(|m| {
+            m.borrow()
+                .get(&hp)
+                .is_some_and(|t| t.pending_selection.get() == Some(ticket))
+        }) {
+            return; // host disposed, or a newer programmatic/user selection superseded this one
+        }
+        let in_flight = NAV_STATE.with(|m| {
+            m.borrow().values().any(|s| {
+                let nav = s.active_nav();
+                unsafe { nav.transitionCoordinator() }.is_some()
+                    && unsafe { nav.viewIfLoaded() }.is_some_and(|v| v.window().is_some())
+            })
+        });
+        if in_flight && attempt < 120 {
+            if *DIAG_NAV && attempt == 0 {
+                log::debug!("DAYDIAG tabs select {i} waits for a stack transition");
+            }
+            // Plain data across the turn (a main-thread-only controller cannot).
+            let when = dispatch2::DispatchTime::try_from(std::time::Duration::from_millis(50))
+                .unwrap_or(dispatch2::DispatchTime::NOW);
+            let _ = dispatch2::DispatchQueue::main().after(when, move || {
+                day_spec::ffi_guard::contain((), || {
+                    tabs_apply_when_settled(hp, i, attempt + 1, ticket)
+                });
+            });
+            return;
+        }
+        let found = NAV_TABS.with(|m| {
+            let m = m.borrow();
+            let t = m.get(&hp)?;
+            Some((t.tabbar.clone(), t.tabs.get(i).cloned(), t.vcs.len()))
+        });
+        let Some((tabbar, tab, pages)) = found else {
+            return;
+        };
+        NAV_TABS.with(|m| {
+            if let Some(t) = m.borrow().get(&hp) {
+                t.pending_selection.set(None);
+                t.suppress.set(true);
+            }
+        });
+        note_ui_transition();
+        match tab {
+            // `setSelectedTab`, not `setSelectedIndex`: the tab is the identity now, and an
+            // index only ever meant "the nth ROOT tab".
+            Some(tab) => unsafe { tabbar.setSelectedTab(Some(&tab)) },
+            // No tabs means the pre-`UITab` shape (`nav_tabs_sync_classic`), where the index
+            // IS the address.
+            None if i < pages => unsafe { tabbar.setSelectedIndex(i) },
+            None => {}
+        }
+        NAV_TABS.with(|m| {
+            if let Some(t) = m.borrow().get(&hp) {
+                t.suppress.set(false);
+            }
+        });
+    }
+
+    fn modal_after_idle(f: impl FnOnce() + 'static) {
+        let idle = !MODAL_BUSY.with(|c| c.get()) && MODAL_QUEUE.with(|q| q.borrow().is_empty());
+        if idle {
+            f();
+        } else {
+            modal_enqueue(ModalOp::Run(Box::new(f)));
+        }
+    }
+
+    /// Run the next queued modal op if no transition is in flight. Each op's completion clears
+    /// the busy flag and pumps again.
+    fn modal_pump() {
+        if MODAL_BUSY.with(|c| c.get()) {
+            return;
+        }
+        let Some(op) = MODAL_QUEUE.with(|q| q.borrow_mut().pop_front()) else {
+            return;
+        };
+        match op {
+            ModalOp::Present(req, vc) => {
+                // Presenting while another transition animates (a nav push the script just
+                // triggered, an appearance change) is refused by UIKit without ever calling
+                // the completion — the original stuck-dialog bug. Wait it out.
+                if topmost_vc().is_some_and(|top| top.transitionCoordinator().is_some()) {
+                    modal_defer_retry(ModalOp::Present(req, vc));
+                    return;
+                }
+                let Some(top) = topmost_vc() else {
+                    // No window to present on: resolve as dismissed so the app future settles.
+                    present_forget(req);
+                    emit(
+                        WINDOW_NODE,
+                        Event::PresentResult {
+                            req,
+                            result: day_spec::present::PresentResult::Dismissed,
+                        },
+                    );
+                    modal_pump();
+                    return;
+                };
+                modal_begin_transition();
+                let completion = block2::RcBlock::new(modal_end_transition);
+                unsafe {
+                    top.presentViewController_animated_completion(
+                        &vc,
+                        !day_core::testing::fast_animations(),
+                        Some(&completion),
+                    )
+                };
+            }
+            ModalOp::Dismiss(req, tries) => {
+                // If this request's Present is still queued it never reached the screen — drop
+                // it (the result was already resolved; there is nothing to dismiss).
+                let dropped_queued = MODAL_QUEUE.with(|q| {
+                    let mut q = q.borrow_mut();
+                    let before = q.len();
+                    q.retain(|op| !matches!(op, ModalOp::Present(r, _) if *r == req));
+                    before != q.len()
+                });
+                if dropped_queued {
+                    present_forget(req);
+                    modal_pump();
+                    return;
+                }
+                let vc: Option<Retained<UIViewController>> = PRESENT_VCS
+                    .with(|p| p.borrow().get(&req).map(|ac| ac.clone().into_super()))
+                    .or_else(|| {
+                        PRESENT_PICKERS.with(|p| {
+                            p.borrow()
+                                .get(&req)
+                                .map(|(picker, _)| picker.clone().into_super())
+                        })
+                    });
+                let Some(vc) = vc else {
+                    // Already gone (the user answered natively, or a stale request).
+                    present_forget(req);
+                    modal_pump();
+                    return;
+                };
+                // Not attached yet (its presentation transition is still in flight — e.g. the
+                // watchdog unjammed the queue mid-present) or some other transition is still
+                // animating: retry shortly, bounded. Skipping here would strand the dialog on
+                // screen (the original CI bug); the bound keeps a never-presented controller
+                // from wedging the queue forever.
+                let attached = vc.presentingViewController().is_some();
+                let animating = vc
+                    .presentingViewController()
+                    .is_some_and(|p| p.transitionCoordinator().is_some());
+                if !attached || animating {
+                    if tries < 100 {
+                        modal_defer_retry(ModalOp::Dismiss(req, tries + 1));
+                    } else {
+                        present_forget(req);
+                        modal_pump();
+                    }
+                    return;
+                }
+                present_forget(req);
+                // Dismiss from the PRESENTING side: `dismiss` on the controller itself would
+                // target any child IT presents (remote document pickers host internal view
+                // controllers), reporting completion while the picker stays on screen. The
+                // presenter tears down its whole presented stack. Animated: an UNANIMATED
+                // dismissal of a remote view controller reports completion while the remote
+                // layer stays visible on the simulator — the animated handshake is the path
+                // that actually removes it (the queue serializes transitions either way).
+                let presenting = vc
+                    .presentingViewController()
+                    .expect("attached checked above");
+                modal_begin_transition();
+                let completion = block2::RcBlock::new(modal_end_transition);
+                unsafe {
+                    presenting.dismissViewControllerAnimated_completion(true, Some(&completion))
+                };
+            }
+            ModalOp::Cover(vc, tries) => {
+                if vc.presentingViewController().is_some() {
+                    modal_pump(); // already up (a re-present while closing was cancelled)
+                    return;
+                }
+                // The same wait `Present` above does, and for the same reason: presenting across
+                // an animating transition is refused with no completion, and a cover that loses
+                // its presentation this way is invisible — no dialog future to resolve, no
+                // watchdog, nothing in the log. 40 × 50ms is the two seconds a nav push and a
+                // dismissal together take, well past any single transition.
+                let animating = topmost_vc().is_some_and(|t| t.transitionCoordinator().is_some());
+                if animating || topmost_vc().is_none() {
+                    if tries < 40 {
+                        modal_defer_retry(ModalOp::Cover(vc, tries + 1));
+                        return;
+                    }
+                    // Out of retries: say so. Silence here is what made this cost a CI run to
+                    // find — the panel simply never appeared and every later step read as a
+                    // missing element.
+                    log::warn!(
+                        "a cover could not be presented after {tries} retries \
+                         (transition still animating, or no window to present on) — \
+                         the app continues without it"
+                    );
+                    modal_pump();
+                    return;
+                }
+                let Some(top) = topmost_vc() else {
+                    modal_pump();
+                    return;
+                };
+                modal_begin_transition();
+                // The sheet's dressing goes on the presentation controller UIKit makes for
+                // THIS presentation (`CoverVcIvars`).
+                if let Some(mtm) = MainThreadMarker::new() {
+                    vc.configure_sheet(mtm);
+                }
+                let completion = block2::RcBlock::new(modal_end_transition);
+                unsafe {
+                    top.presentViewController_animated_completion(
+                        &vc,
+                        !day_core::testing::fast_animations(),
+                        Some(&completion),
+                    );
+                }
+            }
+            ModalOp::Run(f) => {
+                f();
+                modal_pump();
+            }
+        }
+    }
+
+    /// Drop the retained controller for `req` — on programmatic dismissal, or from the action
+    /// handlers when the user answered natively (UIKit dismisses the alert itself on a tap).
+    fn present_forget(req: u64) {
+        PRESENT_VCS.with(|p| {
+            p.borrow_mut().remove(&req);
+        });
+        PRESENT_PICKERS.with(|p| {
+            p.borrow_mut().remove(&req);
+        });
+    }
+
+    /// Wire a document picker's delegate, retain both, and queue its presentation.
+    fn present_doc_picker(
+        req: u64,
+        m: MainThreadMarker,
+        picker: Retained<UIDocumentPickerViewController>,
+    ) {
+        unsafe { picker.setAllowsMultipleSelection(false) };
+        let delegate = DayDocPicker::new(m, req);
+        unsafe { picker.setDelegate(Some(ProtocolObject::from_ref(&*delegate))) };
+        PRESENT_PICKERS.with(|p| p.borrow_mut().insert(req, (picker.clone(), delegate)));
+        modal_enqueue(ModalOp::Present(req, picker.into_super()));
+    }
+
+    /// The frontmost view controller (walk past any already-presented modal, but stop short of
+    /// one that is mid-dismissal — presenting on it would be dropped by UIKit).
+    fn topmost_vc() -> Option<Retained<UIViewController>> {
+        let mut vc = WINDOW.with(|w| w.borrow().clone())?.rootViewController()?;
+        while let Some(p) = vc.presentedViewController() {
+            if p.isBeingDismissed() {
+                break;
+            }
+            vc = p;
+        }
+        Some(vc)
+    }
+
+    struct DocPickerIvars {
+        req: u64,
+    }
+
+    define_class!(
+        #[unsafe(super(NSObject))]
+        #[thread_kind = MainThreadOnly]
+        #[name = "DayUIKitDocPicker"]
+        #[ivars = DocPickerIvars]
+        struct DayDocPicker;
+
+        unsafe impl NSObjectProtocol for DayDocPicker {}
+
+        unsafe impl UIDocumentPickerDelegate for DayDocPicker {
+            #[unsafe(method(documentPicker:didPickDocumentsAtURLs:))]
+            fn did_pick(
+                &self,
+                _picker: &UIDocumentPickerViewController,
+                urls: &objc2_foundation::NSArray<objc2_foundation::NSURL>,
+            ) {
+                day_spec::ffi_guard::contain((), || {
+                    let req = self.ivars().req;
+                    let mut paths = Vec::new();
+                    for i in 0..urls.count() {
+                        let url = urls.objectAtIndex(i);
+                        if let Some(p) = unsafe { url.path() } {
+                            paths.push(p.to_string());
+                        }
+                    }
+                    let result = if paths.is_empty() {
+                        day_spec::present::PresentResult::Dismissed
+                    } else {
+                        day_spec::present::PresentResult::Files(paths)
+                    };
+                    emit(WINDOW_NODE, Event::PresentResult { req, result });
+                    PRESENT_PICKERS.with(|m| {
+                        m.borrow_mut().remove(&req);
+                    });
+                    present_forget(req);
+                });
+            }
+
+            #[unsafe(method(documentPickerWasCancelled:))]
+            fn was_cancelled(&self, _picker: &UIDocumentPickerViewController) {
+                day_spec::ffi_guard::contain((), || {
+                    let req = self.ivars().req;
+                    emit(
+                        WINDOW_NODE,
+                        Event::PresentResult {
+                            req,
+                            result: day_spec::present::PresentResult::Dismissed,
+                        },
+                    );
+                    PRESENT_PICKERS.with(|m| {
+                        m.borrow_mut().remove(&req);
+                    });
+                    present_forget(req);
+                });
+            }
+        }
+    );
+
+    impl DayDocPicker {
+        fn new(mtm: MainThreadMarker, req: u64) -> Retained<Self> {
+            let this = Self::alloc(mtm).set_ivars(DocPickerIvars { req });
+            unsafe { msg_send![super(this), init] }
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // App delegate + Platform (UIApplicationMain)
+    // -----------------------------------------------------------------------
+
+    define_class!(
+        // UIResponder, not NSObject: nil-target actions (`sendAction(cut:, nil)` from the
+        // menu, the system's edit commands) reach the app delegate only when it is a
+        // responder — the standard iOS template shape, and the same end-of-chain catch the
+        // macOS window delegate provides.
+        #[unsafe(super(objc2_ui_kit::UIResponder))]
+        #[thread_kind = MainThreadOnly]
+        #[name = "DayAppDelegate"]
+        struct AppDelegate;
+
+        unsafe impl NSObjectProtocol for AppDelegate {}
+
+        /// The end of the responder chain for the standard edit nav hosts: a focused text
+        /// field answered them long before the chain got here, so what arrives is the app's.
+        impl AppDelegate {
+            #[unsafe(method(cut:))]
+            fn edit_cut(&self, _sender: Option<&AnyObject>) {
+                day_spec::ffi_guard::contain((), || {
+                    emit(WINDOW_NODE, Event::Edit(day_spec::EditOp::Cut));
+                });
+            }
+
+            #[unsafe(method(copy:))]
+            fn edit_copy(&self, _sender: Option<&AnyObject>) {
+                day_spec::ffi_guard::contain((), || {
+                    emit(WINDOW_NODE, Event::Edit(day_spec::EditOp::Copy));
+                });
+            }
+
+            #[unsafe(method(paste:))]
+            fn edit_paste(&self, _sender: Option<&AnyObject>) {
+                day_spec::ffi_guard::contain((), || {
+                    emit(WINDOW_NODE, Event::Edit(day_spec::EditOp::Paste));
+                });
+            }
+
+            #[unsafe(method(selectAll:))]
+            fn edit_select_all(&self, _sender: Option<&AnyObject>) {
+                day_spec::ffi_guard::contain((), || {
+                    emit(WINDOW_NODE, Event::Edit(day_spec::EditOp::SelectAll));
+                });
+            }
+
+            /// UIKit's enablement question for the standard commands — the bridge state
+            /// answers for the edit trio; everything else falls to UIResponder's default.
+            #[unsafe(method(canPerformAction:withSender:))]
+            fn can_perform(&self, action: objc2::runtime::Sel, sender: *mut AnyObject) -> bool {
+                day_spec::ffi_guard::contain(false, || {
+                    let state = EDIT_STATE.with(|s| s.get());
+                    if action == sel!(selectAll:) {
+                        state.can_select_all
+                    } else if action == sel!(cut:) {
+                        state.can_cut
+                    } else if action == sel!(copy:) {
+                        state.can_copy
+                    } else if action == sel!(paste:) {
+                        state.can_paste
+                            && unsafe { let pb = objc2_ui_kit::UIPasteboard::generalPasteboard(); !pb.pasteboardTypes().is_empty() }
+                    } else {
+                        unsafe {
+                            msg_send![super(self), canPerformAction: action, withSender: sender]
+                        }
+                    }
+                })
+            }
+        }
+
+        unsafe impl UIApplicationDelegate for AppDelegate {
+            // The no-scene-manifest compat path reads `delegate.window` (pane's hard-won lesson).
+            #[unsafe(method(window))]
+            fn window(&self) -> *mut UIWindow {
+                WINDOW.with(|w| {
+                    w.borrow()
+                        .as_ref()
+                        .map(|r| &**r as *const UIWindow as *mut UIWindow)
+                        .unwrap_or(std::ptr::null_mut())
+                })
+            }
+            #[unsafe(method(setWindow:))]
+            fn set_window(&self, window: *mut UIWindow) {
+                let retained = unsafe { window.as_ref() }.map(Retained::from);
+                WINDOW.with(|w| *w.borrow_mut() = retained);
+            }
+
+            // Scene-based lifecycle (docs/windows.md): the window is built by
+            // DaySceneDelegate when the (primary) scene connects; launching only arms the
+            // app-level observers that stay app-scoped under scenes.
+            #[unsafe(method(application:didFinishLaunchingWithOptions:))]
+            fn did_finish_launching(&self, _app: &UIApplication, _opts: *mut AnyObject) -> bool {
+                // Keyboard avoidance (docs/focus.md): one app-level observer; the handler
+                // resolves the KEY window's scene, so it follows whichever Day window the
+                // field lives in. WillChangeFrame covers show, hide, and height changes.
+                unsafe {
+                    objc2_foundation::NSNotificationCenter::defaultCenter()
+                        .addObserver_selector_name_object(
+                            self,
+                            sel!(keyboardWillChange:),
+                            Some(objc2_ui_kit::UIKeyboardWillChangeFrameNotification),
+                            None,
+                        )
+                };
+                // The system reduce-motion switch (docs/accessibility.md): app-scoped like
+                // the setting itself; the handler re-reads it into day-core's gate.
+                unsafe {
+                    objc2_foundation::NSNotificationCenter::defaultCenter()
+                        .addObserver_selector_name_object(
+                            self,
+                            sel!(reduceMotionChanged:),
+                            Some(objc2_ui_kit::UIAccessibilityReduceMotionStatusDidChangeNotification),
+                            None,
+                        )
+                };
+                // The system text size (Dynamic Type) changing under a running app: labels
+                // take the new size by themselves, Day's measurements of them do not.
+                unsafe {
+                    objc2_foundation::NSNotificationCenter::defaultCenter()
+                        .addObserver_selector_name_object(
+                            self,
+                            sel!(textSizeChanged:),
+                            Some(objc2_ui_kit::UIContentSizeCategoryDidChangeNotification),
+                            None,
+                        )
+                };
+                // Screen recording and mirroring starting or stopping (docs/windows.md): the
+                // content-protection shields follow it. Any screen will do: the handler
+                // re-reads every scene's own capture state.
+                unsafe {
+                    objc2_foundation::NSNotificationCenter::defaultCenter()
+                        .addObserver_selector_name_object(
+                            self,
+                            sel!(screenCaptureChanged:),
+                            Some(objc2_ui_kit::UIScreenCapturedDidChangeNotification),
+                            None,
+                        )
+                };
+                true
+            }
+
+            // Every connecting scene — the primary at launch, each secondary day window
+            // (docs/windows.md), and any system-restored session — runs DaySceneDelegate.
+            #[unsafe(method_id(application:configurationForConnectingSceneSession:options:))]
+            fn configuration_for_scene(
+                &self,
+                _app: &UIApplication,
+                session: &objc2_ui_kit::UISceneSession,
+                _options: &objc2_ui_kit::UISceneConnectionOptions,
+            ) -> Retained<objc2_ui_kit::UISceneConfiguration> {
+                use objc2::ClassType as _;
+                let role = unsafe { session.role() };
+                let config = objc2_ui_kit::UISceneConfiguration::configurationWithName_sessionRole(
+                    None,
+                    &role,
+                    self.mtm(),
+                );
+                unsafe { config.setDelegateClass(Some(DaySceneDelegate::class())) };
+                config
+            }
+
+            // Custom-scheme deep link (docs/navigation.md): route = URL host + path,
+            // delivered to the active nav host as RouteRequested.
+            #[unsafe(method(application:openURL:options:))]
+            fn open_url(
+                &self,
+                _app: &UIApplication,
+                url: &objc2_foundation::NSURL,
+                _options: *mut AnyObject,
+            ) -> bool {
+                // The shared URL → route mapping (docs/deep-links.md): absoluteString keeps
+                // the query (route params ride it) and the original percent-encoding — the
+                // route parser decodes, not this layer.
+                day_spec::ffi_guard::contain(false, || {
+                    deliver_open_url(url);
+                    true
+                })
+            }
+
+            // Lifecycle (docs/lifecycle.md): under the scene lifecycle the activation and
+            // foreground phases are SCENE events — DaySceneDelegate derives the app-level
+            // day phases from all scenes (debounced, docs/windows.md). Memory warnings and
+            // termination stay app-scoped and keep arriving here.
+            #[unsafe(method(applicationDidReceiveMemoryWarning:))]
+            fn did_receive_memory_warning(&self, _app: &UIApplication) {
+                day_spec::ffi_guard::contain((), || {
+                    emit(
+                        WINDOW_NODE,
+                        Event::Lifecycle(day_spec::Lifecycle::DidReceiveMemoryWarning),
+                    );
+                });
+            }
+            #[unsafe(method(applicationWillTerminate:))]
+            fn will_terminate(&self, _app: &UIApplication) {
+                day_spec::ffi_guard::contain((), || {
+                    emit(
+                        WINDOW_NODE,
+                        Event::Lifecycle(day_spec::Lifecycle::WillTerminate),
+                    );
+                    // The process ends when this returns, so DidExit follows here
+                    // (docs/lifecycle.md).
+                    emit(WINDOW_NODE, Event::Lifecycle(day_spec::Lifecycle::DidExit));
+                });
+            }
+        }
+
+        // Inherent (non-protocol) nav hosts: NSNotificationCenter targets land here — objc2
+        // verifies protocol impl blocks against the protocol, and keyboardWillChange: is ours.
+        impl AppDelegate {
+            /// Keyboard show/hide/height change: clamp the root's bottom to the keyboard top
+            /// (screen coords), tell Day the root resized, then reveal the focused field.
+            #[unsafe(method(keyboardWillChange:))]
+            fn keyboard_will_change(&self, notification: &objc2_foundation::NSNotification) {
+                day_spec::ffi_guard::contain((), || {
+                    // The KEY window's scene (docs/windows.md): the keyboard belongs to
+                    // whichever Day window holds the focused field.
+                    let Some((root, base, target)) = with_key_scene(|e| {
+                        (e.root_view.clone(), e.base_frame.get(), key_scene_target(e))
+                    }) else {
+                        return;
+                    };
+                    let Some(info) = (unsafe { notification.userInfo() }) else {
+                        return;
+                    };
+                    let Some(val) = info
+                        .objectForKey(unsafe { objc2_ui_kit::UIKeyboardFrameEndUserInfoKey })
+                        .and_then(|o| o.downcast::<objc2_foundation::NSValue>().ok())
+                    else {
+                        return;
+                    };
+                    use objc2_ui_kit::NSValueUIGeometryExtensions;
+                    let kb = unsafe { val.CGRectValue() };
+                    // The holder fills the window, so the root's frame is in window == screen
+                    // coordinates; a hidden keyboard reports an off-screen frame (top >= bottom).
+                    let base_bottom = base.origin.y + base.size.height;
+                    let new_h = if kb.origin.y < base_bottom {
+                        (kb.origin.y - base.origin.y).max(0.0)
+                    } else {
+                        base.size.height
+                    };
+                    let f = CGRect::new(base.origin, CGSize::new(base.size.width, new_h));
+                    if unsafe { root.frame() }.size.height != new_h {
+                        unsafe { root.setFrame(f) };
+                        emit(
+                            target,
+                            Event::WindowResized(Size::new(f.size.width, f.size.height)),
+                        );
+                    }
+                    if new_h < base.size.height {
+                        reveal_focused_field();
+                    }
+                });
+            }
+
+            /// Reduce Motion flipped in Settings: UIKit posts the status change on the main
+            /// thread with `UIAccessibilityIsReduceMotionEnabled` already answering the new
+            /// value, so the re-read runs right here.
+            #[unsafe(method(reduceMotionChanged:))]
+            fn reduce_motion_changed(&self, _notification: &objc2_foundation::NSNotification) {
+                day_spec::ffi_guard::contain((), day_core::note_motion_changed);
+            }
+
+            /// The system text size changed. The notification arrives before the new size
+            /// has reached the views' trait collections, and a label adjusts its font from its
+            /// own trait change, so re-measure on the next turn of the main queue, once they
+            /// have.
+            #[unsafe(method(textSizeChanged:))]
+            fn text_size_changed(&self, _notification: &objc2_foundation::NSNotification) {
+                schedule_text_size_remeasure();
+            }
+
+            /// A recording or mirroring of some screen started or stopped. The scene trait the
+            /// shields read can settle a moment after the notification, so look again on the
+            /// next turn of the main queue as well.
+            #[unsafe(method(screenCaptureChanged:))]
+            fn screen_capture_changed(&self, _notification: &objc2_foundation::NSNotification) {
+                day_spec::ffi_guard::contain((), refresh_capture_shields);
+                dispatch2::DispatchQueue::main().exec_async(|| {
+                    day_spec::ffi_guard::contain((), refresh_capture_shields);
+                });
+            }
+        }
+    );
+
+    // -----------------------------------------------------------------------------------
+    // DaySceneDelegate — every scene's window lifecycle (docs/windows.md). The PRIMARY
+    // scene (the one consuming the parked `run` payload) mounts the day tree exactly as
+    // the pre-scene app delegate did; a SECONDARY scene completes a pending
+    // `day::open_window` through `finish_window_open`, or — when the record is gone or the
+    // session is a stale restoration — asks the system to destroy itself.
+    // -----------------------------------------------------------------------------------
+
+    use objc2_ui_kit::{UISceneDelegate, UIWindowSceneDelegate};
+
+    define_class!(
+        #[unsafe(super(NSObject))]
+        #[thread_kind = MainThreadOnly]
+        #[name = "DaySceneDelegate"]
+        #[ivars = ()]
+        struct DaySceneDelegate;
+
+        unsafe impl NSObjectProtocol for DaySceneDelegate {}
+
+        unsafe impl UISceneDelegate for DaySceneDelegate {
+            #[unsafe(method(scene:willConnectToSession:options:))]
+            fn scene_will_connect(
+                &self,
+                scene: &objc2_ui_kit::UIScene,
+                session: &objc2_ui_kit::UISceneSession,
+                options: &objc2_ui_kit::UISceneConnectionOptions,
+            ) {
+                // Contained (§8.5): `ready` mounts the whole day tree, and
+                // `finish_window_open` re-enters day-core.
+                day_spec::ffi_guard::contain((), || {
+                    let mtm = self.mtm();
+                    let Some(win_scene) = scene.downcast_ref::<objc2_ui_kit::UIWindowScene>()
+                    else {
+                        return;
+                    };
+                    // Secondary day window? The request's NSUserActivity names the root node.
+                    let node = scene_activity_node(options);
+                    if PENDING.with(|p| p.borrow().is_some()) && node.is_none() {
+                        // The primary scene: build the window and mount the day tree. The
+                        // parked launch options carry the app's own minimum window size;
+                        // read without taking, since the take below is what mounts the tree.
+                        let min =
+                            PENDING.with(|p| p.borrow().as_ref().and_then(|(_, o, _)| o.min_size));
+                        let (window, root_view, inner) = build_scene_window(mtm, win_scene, min);
+                        WINDOW.with(|w| *w.borrow_mut() = Some(window.clone()));
+                        ROOT_VIEW.with(|r| *r.borrow_mut() = Some(root_view.clone()));
+                        ROOT_BASE_FRAME.with(|f| f.set(inner));
+                        SCENES.with(|s| {
+                            s.borrow_mut().push(SceneEntry::new(
+                                window,
+                                root_view.clone(),
+                                inner,
+                                None,
+                            ))
+                        });
+                        // The take() cannot miss: the `is_some` gate above just read it, and
+                        // both run on the main thread.
+                        let Some((backend, _options, ready)) =
+                            PENDING.with(|p| p.borrow_mut().take())
+                        else {
+                            return;
+                        };
+                        let size = Size::new(inner.size.width, inner.size.height);
+                        ready(backend, view_of(root_view), size);
+                        // Cold launch via deep link or quick action (docs/deep-links.md): both
+                        // ride the connection options; `request_route` buffers until the mount
+                        // that `ready` just kicked off completes.
+                        scene_connection_routes(options);
+                        return;
+                    }
+                    let Some(node) = node else {
+                        // A window the platform opened by itself: iPadOS's Window ▸ New Window,
+                        // an app icon dragged into Split View, or a session restored from a
+                        // previous run. Nothing named a root node, so ask day-core for another
+                        // window of the app's own new-window content and adopt this scene for
+                        // it (`open_window` above takes the flag). An app that registered no
+                        // new-window builder has nothing to show, and the scene goes back.
+                        adopt_platform_scene(mtm, win_scene, session);
+                        return;
+                    };
+                    PENDING_WINDOWS.with(|p| p.borrow_mut().retain(|(n, _)| *n != node));
+                    // A secondary window is the same app at the same minimum; day-core hands
+                    // `open_new_window` the launch options, so `None` here falls back to the
+                    // Day.toml value the primary used (docs/size-classes.md).
+                    let (window, root_view, inner) = build_scene_window(mtm, win_scene, None);
+                    let size = Size::new(inner.size.width, inner.size.height);
+                    let raw = Retained::as_ptr(&root_view) as *mut std::ffi::c_void
+                        as day_spec::RawHandle;
+                    SCENES.with(|s| {
+                        s.borrow_mut().push(SceneEntry::new(
+                            window,
+                            root_view.clone(),
+                            inner,
+                            Some(node),
+                        ))
+                    });
+                    // Keep the adopted root alive for the entry's lifetime; the tree holds the
+                    // other retain through `Toolkit::adopt`.
+                    if !day_core::finish_window_open(node, raw, size) {
+                        // Closed before the scene connected — drop the scene again.
+                        SCENES.with(|s| s.borrow_mut().retain(|e| e.node != Some(node)));
+                        request_scene_destruction(mtm, session);
+                    }
+                });
+            }
+
+            #[unsafe(method(sceneDidDisconnect:))]
+            fn scene_did_disconnect(&self, scene: &objc2_ui_kit::UIScene) {
+                day_spec::ffi_guard::contain((), || {
+                    let mtm = self.mtm();
+                    if let Some(node) = scene_entry_node_for(scene) {
+                        SCENES.with(|s| s.borrow_mut().retain(|e| e.node != Some(node)));
+                        // The platform committed the close (app-switcher swipe or our
+                        // destruction request): day-core tears the subtree down on receipt.
+                        emit(node, Event::WindowClosed);
+                    }
+                    note_scene_lifecycle_changed(mtm);
+                });
+            }
+
+            #[unsafe(method(sceneDidBecomeActive:))]
+            fn scene_did_become_active(&self, scene: &objc2_ui_kit::UIScene) {
+                day_spec::ffi_guard::contain((), || {
+                    let mtm = self.mtm();
+                    if let Some(node) = scene_entry_node_for(scene) {
+                        emit(node, Event::WindowFocused(true));
+                    }
+                    note_scene_lifecycle_changed(mtm);
+                });
+            }
+
+            #[unsafe(method(sceneWillResignActive:))]
+            fn scene_will_resign_active(&self, scene: &objc2_ui_kit::UIScene) {
+                day_spec::ffi_guard::contain((), || {
+                    let mtm = self.mtm();
+                    if let Some(node) = scene_entry_node_for(scene) {
+                        emit(node, Event::WindowFocused(false));
+                    }
+                    note_scene_lifecycle_changed(mtm);
+                });
+            }
+
+            #[unsafe(method(sceneWillEnterForeground:))]
+            fn scene_will_enter_foreground(&self, _scene: &objc2_ui_kit::UIScene) {
+                day_spec::ffi_guard::contain((), || {
+                    note_scene_lifecycle_changed(self.mtm());
+                });
+            }
+
+            #[unsafe(method(sceneDidEnterBackground:))]
+            fn scene_did_enter_background(&self, _scene: &objc2_ui_kit::UIScene) {
+                day_spec::ffi_guard::contain((), || {
+                    note_scene_lifecycle_changed(self.mtm());
+                });
+            }
+
+            // Warm deep link under the scene lifecycle (docs/deep-links.md): once an app
+            // adopts scenes, URL opens arrive here, not at the app delegate's
+            // `application:openURL:options:` (kept for the pre-scene path).
+            #[unsafe(method(scene:openURLContexts:))]
+            fn scene_open_url_contexts(
+                &self,
+                _scene: &objc2_ui_kit::UIScene,
+                contexts: &objc2_foundation::NSSet<objc2_ui_kit::UIOpenURLContext>,
+            ) {
+                day_spec::ffi_guard::contain((), || {
+                    for ctx in contexts {
+                        deliver_open_url(&ctx.URL());
+                    }
+                });
+            }
+        }
+
+        unsafe impl UIWindowSceneDelegate for DaySceneDelegate {
+            // A home-screen quick action while the app runs (cold arrivals ride the
+            // connection options). Its type string IS the saved deep link
+            // (docs/deep-links.md "Shortcuts are saved deep links").
+            #[unsafe(method(windowScene:performActionForShortcutItem:completionHandler:))]
+            fn perform_shortcut(
+                &self,
+                _scene: &objc2_ui_kit::UIWindowScene,
+                item: &objc2_ui_kit::UIApplicationShortcutItem,
+                completion: &block2::DynBlock<dyn Fn(objc2::runtime::Bool)>,
+            ) {
+                day_spec::ffi_guard::contain((), || {
+                    day_core::request_route(&day_spec::route_of_url(&item.r#type().to_string()));
+                });
+                // Report handled even when the route dispatch was contained — the system's
+                // completion contract is unconditional.
+                completion.call((objc2::runtime::Bool::YES,));
+            }
+        }
+    );
+
+    /// Deep links riding a scene's connection options — the URL that launched the app, or a
+    /// quick action's type string. One rail either way: `day_core::request_route`, buffered
+    /// until the first mount (docs/deep-links.md).
+    fn deliver_open_url(url: &objc2_foundation::NSURL) {
+        if let Some(s) = unsafe { url.absoluteString() } {
+            if url.isFileURL() {
+                day_core::request_open_files(vec![s.to_string()]);
+            } else {
+                day_core::request_open_url(&s.to_string());
+            }
+        }
+    }
+
+    fn scene_connection_routes(options: &objc2_ui_kit::UISceneConnectionOptions) {
+        // Raw message send: the generated `URLContexts()` binding declares the return
+        // non-null, but a plain launch (no URL) hands back nil and the binding panics —
+        // caught by the dayscript walkthrough on first run.
+        let contexts: Option<Retained<objc2_foundation::NSSet<objc2_ui_kit::UIOpenURLContext>>> =
+            unsafe { objc2::msg_send![options, URLContexts] };
+        for ctx in contexts.into_iter().flatten() {
+            deliver_open_url(&ctx.URL());
+        }
+        if let Some(item) = options.shortcutItem() {
+            day_core::request_route(&day_spec::route_of_url(&item.r#type().to_string()));
+        }
+    }
+
+    /// The day root node a secondary-scene connection carries (`DAY_WINDOW_ACTIVITY`
+    /// userActivity, `day.node` userInfo), if any.
+    fn scene_activity_node(options: &objc2_ui_kit::UISceneConnectionOptions) -> Option<NodeId> {
+        for activity in unsafe { options.userActivities() } {
+            if unsafe { activity.activityType() }.to_string() == DAY_WINDOW_ACTIVITY
+                && let Some(info) = unsafe { activity.userInfo() }
+                && let Some(num) = info
+                    .objectForKey(&*objc2_foundation::NSString::from_str("day.node"))
+                    .and_then(|o| o.downcast::<objc2_foundation::NSNumber>().ok())
+            {
+                return Some(NodeId(num.as_u64()));
+            }
+        }
+        None
+    }
+
+    /// The registry node of the scene owning this window, if it is a secondary day window.
+    fn scene_entry_node_for(scene: &objc2_ui_kit::UIScene) -> Option<NodeId> {
+        let win_scene = scene.downcast_ref::<objc2_ui_kit::UIWindowScene>()?;
+        SCENES.with(|s| {
+            s.borrow()
+                .iter()
+                .find(|e| {
+                    e.window
+                        .windowScene()
+                        .is_some_and(|ws| std::ptr::eq(&*ws, win_scene))
+                })
+                .and_then(|e| e.node)
+        })
+    }
+
+    /// Fill a scene the platform opened on its own with another window of the app.
+    ///
+    /// iPadOS 26 offers Window ▸ New Window for any app that supports multiple scenes, and the
+    /// same connection arrives when an app icon is dragged into Split View or a session is
+    /// restored from a previous run. None of those name a day root node the way
+    /// `Toolkit::open_window` does, so the content comes from what the app registered with
+    /// `day::register_new_window` — the same builder behind File ▸ New Window on desktop.
+    ///
+    /// The window is built first so day-core has something to adopt, and `ADOPTING` makes the
+    /// `open_window` that `open_new_window` calls back into take this scene instead of asking
+    /// the system for another one. With no builder registered there is nothing to put in the
+    /// window, and the scene is handed back rather than left blank.
+    fn adopt_platform_scene(
+        mtm: MainThreadMarker,
+        win_scene: &objc2_ui_kit::UIWindowScene,
+        session: &objc2_ui_kit::UISceneSession,
+    ) {
+        let (window, root_view, inner) = build_scene_window(mtm, win_scene, None);
+        let size = Size::new(inner.size.width, inner.size.height);
+        let raw = Retained::as_ptr(&root_view) as *mut std::ffi::c_void as day_spec::RawHandle;
+        ADOPTING.with(|a| a.set(true));
+        ADOPTING_SCENE.with(|n| n.set(None));
+        let opened = day_core::open_new_window();
+        ADOPTING.with(|a| a.set(false));
+        let node = ADOPTING_SCENE.with(|n| n.take());
+        let (Some(_), Some(node)) = (opened, node) else {
+            log::info!("day-toolkit-uikit: no new-window content registered; returning the scene");
+            request_scene_destruction(mtm, session);
+            return;
+        };
+        SCENES.with(|s| {
+            s.borrow_mut()
+                .push(SceneEntry::new(window, root_view, inner, Some(node)))
+        });
+        if !day_core::finish_window_open(node, raw, size) {
+            SCENES.with(|s| s.borrow_mut().retain(|e| e.node != Some(node)));
+            request_scene_destruction(mtm, session);
+        }
+    }
+
+    /// Ask the system to drop a scene session (no undo UI, no animation preference).
+    fn request_scene_destruction(mtm: MainThreadMarker, session: &objc2_ui_kit::UISceneSession) {
+        let app = UIApplication::sharedApplication(mtm);
+        unsafe {
+            app.requestSceneSessionDestruction_options_errorHandler(session, None, None);
+        }
+    }
+
+    /// Mobile backends deliver the FULL lifecycle (docs/lifecycle.md), including the background,
+    /// foreground, and memory-warning phases desktops lack. `const` for `day::require_lifecycle!`.
+    pub const fn lifecycle_supported(_phase: day_spec::Lifecycle) -> bool {
+        true
+    }
+
+    /// Register bundled font files (§18.4) with CoreText so `Font::Custom` families resolve via
+    /// `UIFont(name:)`. The files ride the DayPieces SwiftPM bundle (`fonts/` copied by `day
+    /// build`, which also lists them in the app's `UIAppFonts` — this call covers dev builds and
+    /// doubles as the loud failure path). Duplicate registration (UIAppFonts already loaded the
+    /// file) fails harmlessly, so failures here are only logged when the family is then missing.
+    fn register_bundled_fonts() {
+        // CFURLRef is toll-free bridged with NSURL.
+        #[link(name = "CoreText", kind = "framework")]
+        unsafe extern "C" {
+            fn CTFontManagerRegisterFontsForURL(
+                font_url: *const std::ffi::c_void,
+                scope: u32, // kCTFontManagerScopeProcess = 1
+                error: *mut *const std::ffi::c_void,
+            ) -> bool;
+        }
+        let mut dirs: Vec<std::path::PathBuf> = Vec::new();
+        // The DayPieces bundle's fonts/ directory (SwiftPM `.copy` resource inside the app).
+        let main = unsafe { objc2_foundation::NSBundle::mainBundle() };
+        if let Some(res) = unsafe { main.resourcePath() } {
+            dirs.push(
+                std::path::PathBuf::from(res.to_string())
+                    .join("DayPieces_DayPieces.bundle")
+                    .join("fonts"),
+            );
+        }
+        if let Some(dev) = day_spec::fonts::font_dir() {
+            dirs.push(dev);
+        }
+        for dir in dirs {
+            for path in day_spec::fonts::font_files_in(&dir) {
+                let url = unsafe {
+                    objc2_foundation::NSURL::fileURLWithPath(&NSString::from_str(
+                        &path.to_string_lossy(),
+                    ))
+                };
+                unsafe {
+                    let _ = CTFontManagerRegisterFontsForURL(
+                        Retained::as_ptr(&url) as *const std::ffi::c_void,
+                        1,
+                        std::ptr::null_mut(),
+                    );
+                }
+            }
+        }
+    }
+
+    impl Platform for Uikit {
+        const TARGET: &'static str = "ios-uikit";
+        const TOOLKIT: &'static str = "uikit";
+
+        fn run(self, options: WindowOptions, ready: Box<dyn FnOnce(Self, Handle, Size)>) {
+            // Bundled custom fonts (§18.4) must be registered before the first label realizes.
+            register_bundled_fonts();
+            PENDING.with(|p| *p.borrow_mut() = Some((self, options, ready)));
+            // Force-register the delegate class: UIApplicationMain looks it up by name before
+            // any Rust code touches it (pane's exact fix).
+            let _ = <AppDelegate as objc2::ClassType>::class();
+            let arg0 = c"Day".as_ptr() as *mut c_char;
+            let mut argv = [arg0];
+            let argv_ptr = NonNull::new(argv.as_mut_ptr()).unwrap();
+            let delegate = NSString::from_str("DayAppDelegate");
+            #[allow(deprecated)]
+            unsafe {
+                UIApplicationMain(1 as c_int, argv_ptr, None, Some(&delegate));
+            }
+        }
+
+        fn post(f: Box<dyn FnOnce() + Send>) {
+            dispatch2::DispatchQueue::main().exec_async(f);
+        }
+
+        fn post_delayed(ms: u32, f: Box<dyn FnOnce() + Send>) {
+            // The timer door behind `day::sleep` (docs/async.md): `dispatch_after` on the main
+            // queue, no helper thread. The closure is app code inside dispatch's C frame, so it
+            // runs contained (§8.5).
+            let when =
+                dispatch2::DispatchTime::try_from(std::time::Duration::from_millis(u64::from(ms)))
+                    .unwrap_or(dispatch2::DispatchTime::FOREVER);
+            if let Err(e) = dispatch2::DispatchQueue::main().after(when, move || {
+                day_spec::ffi_guard::contain((), f);
+            }) {
+                log::error!("day-toolkit-uikit: dispatch_after refused a timer: {e:?}");
+            }
+        }
+
+        fn locale_hints(&self) -> Vec<String> {
+            // The user's ordered language preference from Settings ("fr-FR", "en-US", …), which is
+            // the ambient locale Day negotiates its catalogs against (§12.2, docs/localization.md).
+            objc2_foundation::NSLocale::preferredLanguages()
+                .iter()
+                .map(|s| s.to_string())
+                .collect()
+        }
+    }
+}

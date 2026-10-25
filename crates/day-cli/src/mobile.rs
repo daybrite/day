@@ -3,7 +3,7 @@
 
 //! Mobile pipelines (DESIGN.md §16.5, §17.4): ios-uikit via xcodebuild + simctl (the Xcode
 //! project's script phase calls back into `day xcode-backend build` for the Rust staticlib);
-//! android-mdc via gradle + adb (the gradle scaffold calls `day gradle-backend build`).
+//! android-material via gradle + adb (the gradle scaffold calls `day gradle-backend build`).
 
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
@@ -1302,7 +1302,7 @@ pub(crate) fn prepare_ios(project: &Project) -> Result<Option<String>, String> {
     let floor = crate::pieces::write_ios_pieces(project)?;
     sync_uiappfonts(project)?;
     sync_ios_usage_descriptions(project)?;
-    // Day.toml [window] → the minimum-size keys day-uikit reads back, and the iPad orientation
+    // Day.toml [window] → the minimum-size keys day-toolkit-uikit reads back, and the iPad orientation
     // set iPadOS 26 wants declared (docs/size-classes.md).
     sync_window_keys(project)?;
     // Day.toml [[shortcuts]] → UIApplicationShortcutItems, through the same plist editor as
@@ -2087,7 +2087,7 @@ fn stream_logs_labeled(
 }
 
 // ---------------------------------------------------------------------------
-// android-mdc (gradle + adb): scaffold lands next; see gradle_backend_build
+// android-material (gradle + adb): scaffold lands next; see gradle_backend_build
 // ---------------------------------------------------------------------------
 
 pub fn gradle_backend_build() -> Result<(), CliError> {
@@ -2523,7 +2523,7 @@ fn parse_abi_list(v: &str) -> Vec<String> {
 }
 
 /// The Android API level the `.so` links against: the scaffold's `minSdk`, which the shared
-/// Gradle plugin sets (`DayAndroidPlugin.MIN_SDK`, toolkits/day-mdc/gradle-plugin). cargo-ndk
+/// Gradle plugin sets (`DayAndroidPlugin.MIN_SDK`, crates/day-toolkit-material/gradle-plugin). cargo-ndk
 /// would otherwise link against its own default, API 21, three levels below the floor the APK
 /// declares, so symbols the floor guarantees would still go through the older stubs.
 pub(crate) const ANDROID_MIN_SDK: &str = "24";
@@ -2543,7 +2543,7 @@ fn build_android_so(
     let name = project.manifest.app.name.clone();
     let ndk_home = find_ndk()?;
     let target_dir = crate::ops::build_root(project)
-        .join("cargo/android-mdc")
+        .join("cargo/android-material")
         .join(profile.as_str());
     let mut cmd = Command::new(&cargo);
     crate::patch::apply_day_src(&mut cmd);
@@ -2559,8 +2559,8 @@ fn build_android_so(
         )
         .env("CARGO_TARGET_DIR", &target_dir)
         .env("ANDROID_NDK_HOME", &ndk_home);
-    crate::ops::apply_app_identity(&mut cmd, project, "android-mdc");
-    crate::bridge::apply_staged(&mut cmd, project, "android-mdc");
+    crate::ops::apply_app_identity(&mut cmd, project, "android-material");
+    crate::bridge::apply_staged(&mut cmd, project, "android-material");
     cmd.args(["ndk", "--platform", ANDROID_MIN_SDK]);
     for abi in abis {
         cmd.args(["-t", abi]);
@@ -2570,7 +2570,7 @@ fn build_android_so(
     cmd
         // `rustc --crate-type cdylib` so the app lib's manifest can stay rlib-only (see the
         // `[lib]` note in the app Cargo.toml); produces the same `lib<name>.so` this expects.
-        // `--features` = `mdc` + every standalone piece's `<pkg>/mdc` renderer feature (Tier
+        // `--features` = `material` + every standalone piece's `<pkg>/material` renderer feature (Tier
         // A.2), so the app needn't re-list per-piece features in its own Cargo.toml.
         .arg("rustc")
         .args([
@@ -2581,7 +2581,7 @@ fn build_android_so(
             "cdylib",
             "--no-default-features",
             "--features",
-            &crate::ops::feature_selection(project, "mdc"),
+            &crate::ops::feature_selection(project, "material"),
         ]);
     if profile == Profile::Release {
         cmd.arg("--release");
@@ -2967,7 +2967,10 @@ pub fn launch_android(
         }
         status(
             "Launching",
-            &format!("android-mdc ({app_id}) on {} ({})", dev.serial, dev.abi),
+            &format!(
+                "android-material ({app_id}) on {} ({})",
+                dev.serial, dev.abi
+            ),
         );
         run_quiet(
             &mut cmd,
@@ -2993,7 +2996,7 @@ pub fn launch_android(
                 ]
                 .to_vec(),
             );
-            // One-device runs keep the bare `[android-mdc]` prefix; multi-device runs append
+            // One-device runs keep the bare `[android-material]` prefix; multi-device runs append
             // the serial so the interleaved log streams read apart.
             let label = if devices.len() > 1 {
                 format!("{}:{}", outcome.target, dev.serial)
@@ -3156,12 +3159,12 @@ fn apk_install_command(serial: &str, apk: &Path, no_streaming: bool) -> Command 
     cmd
 }
 
-/// Stream one device's app logs (day-mdc's `redirect_stdio_to_logcat` routes the app's
+/// Stream one device's app logs (day-toolkit-material's `redirect_stdio_to_logcat` routes the app's
 /// stdout/stderr into logcat under tag `Day`). `-v tag` prefixes each line with `<prio>/Day:`;
 /// map the priority to a stream (I→stdout/blue, E/W/F→stderr/yellow) and re-prefix with `label`.
 ///
 /// Both spellings of the tag are allowed through because logcat tag filters are case-sensitive.
-/// day-mdc logged under `day` until it was renamed `Day` for branding, and this filter kept
+/// day-toolkit-material logged under `day` until it was renamed `Day` for branding, and this filter kept
 /// asking for `day`, which silenced every app line on Android while every other platform kept
 /// streaming. Accepting both means neither a stale installed app nor another rename can take the
 /// console away again.
@@ -3772,7 +3775,7 @@ mod android_cxx_tests {
 
     #[test]
     fn switching_flavors_replaces_a_newer_staged_library_with_the_selected_cached_one() {
-        let root = std::env::temp_dir().join(format!("day-mdc-flavor-{}", std::process::id()));
+        let root = std::env::temp_dir().join(format!("day-material-flavor-{}", std::process::id()));
         std::fs::create_dir_all(&root).unwrap();
         let selected = root.join("cached-servo.so");
         let staged = root.join("jni/libapp.so");
@@ -3800,7 +3803,7 @@ mod android_cxx_tests {
 
     #[test]
     fn stages_only_an_actual_dynamic_cxx_dependency_and_requires_the_runtime() {
-        let root = std::env::temp_dir().join(format!("day-mdc-cxx-{}", std::process::id()));
+        let root = std::env::temp_dir().join(format!("day-material-cxx-{}", std::process::id()));
         let ndk = root.join("ndk");
         let out = root.join("out");
         let lib = out.join("arm64-v8a/libfixture.so");

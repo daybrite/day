@@ -1,0 +1,30 @@
+[package]
+name = "day-tweak-tooltip"
+publish = false
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+license.workspace = true
+description = "Tweak: a native hover/long-press tooltip on any piece — AppKit, GTK, and Android, one modifier across three access tiers."
+
+[dependencies]
+day-core = { workspace = true }
+day-pieces = { workspace = true }
+day-toolkit-appkit = { workspace = true, optional = true }
+objc2-app-kit = { workspace = true, optional = true, features = ["NSView", "NSResponder"] }
+objc2-foundation = { workspace = true, optional = true, features = ["NSString"] }
+day-toolkit-gtk = { workspace = true, optional = true }
+gtk4 = { workspace = true, optional = true, features = ["v4_10"] }
+day-toolkit-material = { workspace = true, optional = true }
+day-platform-android = { workspace = true, optional = true }
+
+[features]
+appkit = ["dep:day-toolkit-appkit", "dep:objc2-app-kit", "dep:objc2-foundation"]
+gtk = ["dep:day-toolkit-gtk", "dep:gtk4"]
+material = ["dep:day-toolkit-material", "dep:day-platform-android"]
+
+# Tweak crates reuse the piece backends table so `day build` unions `<pkg>/<backend>`
+# features into the app automatically (Tier A.2 — crates/day-cli/src/pieces.rs).
+[package.metadata.day.piece]
+backends = ["appkit", "gtk", "material"]

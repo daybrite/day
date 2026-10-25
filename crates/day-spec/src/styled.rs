@@ -1,7 +1,7 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-//! Styled text: the document `label().runs(…)` renders and `day-piece-texteditor` edits
+//! Styled text: the document `label().runs(…)` renders and `day-piece-text-editor` edits
 //! (docs/texteditor.md).
 //!
 //! [`StyledText`] is plain text plus two range vectors over it: [`TextRun`]s for character

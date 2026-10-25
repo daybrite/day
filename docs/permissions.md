@@ -17,7 +17,7 @@ capabilities and explanations required by each operating system.
 
 ## Add to your app
 
-Defined in [`day-part-permissions`](https://github.com/daybrite/day/tree/main/parts/day-part-permissions). Add this to your app’s `Cargo.toml`
+Defined in [`day-part-permissions`](https://github.com/daybrite/day/tree/main/crates/day-part-permissions). Add this to your app’s `Cargo.toml`
 `[dependencies]` table, using the same Day Git source as the rest of your app:
 
 ```toml
@@ -110,7 +110,7 @@ if status(Permission::Camera) != Status::Granted {
 
 The crate has no cargo features: platform selection is purely `#[cfg(target_os)]`, since consent
 depends on the OS, not on which widget toolkit is in use.
-`parts/day-part-permissions/examples/permissions.rs` is a plain `main` that uses it with no Day
+`crates/day-part-permissions/examples/permissions.rs` is a plain `main` that uses it with no Day
 framework at all.
 
 ## Two questions, two vocabularies
@@ -162,9 +162,9 @@ Platform guidance: [Apple: privacy](https://developer.apple.com/design/human-int
 |---|---|---|---|
 | iOS | [`CLLocationManager`](https://developer.apple.com/documentation/corelocation/cllocationmanager), [`AVCaptureDevice`](https://developer.apple.com/documentation/avfoundation/avcapturedevice), [`PHPhotoLibrary`](https://developer.apple.com/documentation/photos/phphotolibrary), [`UNUserNotificationCenter`](https://developer.apple.com/documentation/usernotifications/unusernotificationcenter) (async-only), [`CMMotionActivityManager`](https://developer.apple.com/documentation/coremotion/cmmotionactivitymanager) | the matching block-based `request…` | `objc2` + `block2`, `[package.metadata.day.ios].frameworks` |
 | macOS | the same TCC APIs where they exist; no CoreMotion | same | shared `apple.rs` |
-| Android | [`Context.checkSelfPermission`](https://developer.android.com/reference/android/content/Context#checkSelfPermission(java.lang.String)) + `getPackageInfo(GET_PERMISSIONS)` | `requestPermissions` from a headless `Fragment` | `day-mdc` + the crate's own Java shim |
-| HarmonyOS | [`OH_AT_CheckSelfPermission`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-ability-kit/capi-ability-access-control-h.md); for notifications, `notificationManager.isNotificationEnabledSync` | `requestPermissionsFromUser`, through the host page's `registerPermissions` seam in `day-arkui` (found in the app's own library by `dlsym`, so the part links no toolkit); for notifications, `requestEnableNotification` | raw FFI; the notification switch through an ArkTS daybridge arm |
-| Web | [`navigator.permissions.query`](https://www.w3.org/TR/permissions/#dom-permissions-query) + a live `change` cache; `Notification.permission` is sync | the per-API call | the day-dom shim |
+| Android | [`Context.checkSelfPermission`](https://developer.android.com/reference/android/content/Context#checkSelfPermission(java.lang.String)) + `getPackageInfo(GET_PERMISSIONS)` | `requestPermissions` from a headless `Fragment` | `day-toolkit-material` + the crate's own Java shim |
+| HarmonyOS | [`OH_AT_CheckSelfPermission`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-ability-kit/capi-ability-access-control-h.md); for notifications, `notificationManager.isNotificationEnabledSync` | `requestPermissionsFromUser`, through the host page's `registerPermissions` seam in `day-toolkit-arkui` (found in the app's own library by `dlsym`, so the part links no toolkit); for notifications, `requestEnableNotification` | raw FFI; the notification switch through an ArkTS daybridge arm |
+| Web | [`navigator.permissions.query`](https://www.w3.org/TR/permissions/#dom-permissions-query) + a live `change` cache; `Notification.permission` is sync | the per-API call | the day-toolkit-dom shim |
 | Linux / Windows | constants | resolves immediately | — |
 
 Two platform facts apply everywhere:
@@ -289,7 +289,7 @@ out of its reach ([docs/testing](testing.md)), so a walkthrough that needs the c
 microphone stops at the first [`request`](https://daybrite.dev/api/day_part_permissions/fn.request.html). Rather than drive the prompt, avoid it:
 
 ```sh
-day launch -t android-mdc --grant camera --script dayscript/capture.yaml
+day launch -t android-material --grant camera --script dayscript/capture.yaml
 ```
 
 `--grant` takes a portable name (repeatable, or a comma-separated list) and marks it granted on
@@ -304,7 +304,7 @@ did not happen would surface minutes later as a failed assertion with nothing to
 
 | target | `--grant` |
 |---|---|
-| `android-mdc` | `pm grant`, every runtime permission in the table row |
+| `android-material` | `pm grant`, every runtime permission in the table row |
 | `ios-uikit` on the simulator | `simctl privacy grant`: `location-when-in-use`, `location-always`, `microphone`, `photos`, `motion`. The simulator has no camera, so no camera service, and no service for notifications |
 | `ios-uikit` on a device (`--ios-device`) | refused: the consent record is the device's own |
 | `harmony-arkui` | refused: HarmonyOS ships no tool that marks a `user_grant` permission from outside the app |
@@ -331,6 +331,6 @@ else.
 The crate registers nothing in any `RENDERERS` slice. Its Android half is bundled with it and folded
 into the app's Gradle build by `[package.metadata.day.android]`, with **no edits to any core Day
 crate**, including the permission-result callback, which lives in a headless `Fragment` the crate
-attaches itself rather than in `day-mdc`'s `DayActivity`. Its `permissions = []` entry is
+attaches itself rather than in `day-toolkit-material`'s `DayActivity`. Its `permissions = []` entry is
 empty and must stay that way, because a permissions crate must never force a permission into an
 app's manifest. See [extending](extending.md).

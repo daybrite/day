@@ -55,7 +55,7 @@ pub use day_core::{focus_search, request_route};
 pub use day_core::{testing, tween};
 /// Optional app-local storage, including asynchronous browser storage.
 #[cfg(feature = "fs")]
-pub use day_part_fs as fs;
+pub use day_part_filesystem as fs;
 /// Optional app-controlled runtime permission requests.
 #[cfg(feature = "permissions")]
 pub use day_part_permissions as permissions;
@@ -67,9 +67,9 @@ pub use day_piece_settings as settings;
 pub use day_piece_swiftui as swiftui;
 /// Optional native styled-text editor.
 #[cfg(feature = "text-editor")]
-pub use day_piece_texteditor as texteditor;
+pub use day_piece_text_editor as texteditor;
 #[cfg(feature = "text-editor")]
-pub use day_piece_texteditor::{TextEditor, TextEditorBuilder, text_editor};
+pub use day_piece_text_editor::{TextEditor, TextEditorBuilder, text_editor};
 pub use day_pieces::{AsyncImage, AsyncImageBuilder, async_image};
 /// Canvas export (docs/canvas.md "Exporting"): render a recorded `Drawing` to a bitmap or a PDF
 /// through the toolkit's own painter. `canvas_exports()` says which of the two this target
@@ -131,7 +131,7 @@ pub mod reactive {
 ///
 /// Promoted into the facade rather than left a satellite because it is what nearly every app
 /// reaches for first, and because it is the one part that lives in the reactive layer. It stays
-/// its own crate (`day-part-prefs`), so existing `day_part_prefs::…` paths keep working; this is
+/// its own crate (`day-part-preferences`), so existing `day_part_preferences::…` paths keep working; this is
 /// the same API under a shorter name. Opt out with `default-features = false`.
 /// The per-property observable store (docs/model.md): `Store`/`Keyed`/`Elem`/`Field`, the
 /// change log, and the `#[derive(Observable)]` accessors' machinery.
@@ -252,7 +252,7 @@ pub fn modifiers() -> day_spec::Modifiers {
 
 #[cfg(feature = "prefs")]
 pub mod prefs {
-    pub use day_part_prefs::*;
+    pub use day_part_preferences::*;
 
     /// Keep a keyed store in the preferences as one JSON array (docs/prefs.md): seed `store`
     /// from the rows saved under `key` now, then save every later change, an edited field as
@@ -353,7 +353,7 @@ pub mod cursor {
     }
 
     /// Android's own shapes (`PointerIcon.TYPE_*`), beyond the shared vocabulary.
-    #[cfg(feature = "mdc")]
+    #[cfg(feature = "material")]
     pub mod android {
         use day_spec::Cursor;
         /// Four-way scroll (`TYPE_ALL_SCROLL`).
@@ -366,7 +366,7 @@ pub mod cursor {
         pub const TOP_LEFT_DIAGONAL: Cursor = Cursor::native("top_left_diagonal_double_arrow");
     }
 }
-pub use day_fluent::{IntoFArg, IntoNumberFArg, LocalizedText, res, tr};
+pub use day_localization_ui::{IntoFArg, IntoNumberFArg, LocalizedText, res, tr};
 
 /// The `log` crate itself, for an app that needs more than the macros (a `LevelFilter`, a custom
 /// `log::Log`). Re-exported by name so `use day::prelude::*` is enough, the same rule the model
@@ -459,7 +459,7 @@ impl WindowImage {
 pub fn env(key: &str) -> Option<String> {
     #[cfg(all(target_arch = "wasm32", feature = "dom"))]
     {
-        day_dom::host_env(key)
+        day_toolkit_dom::host_env(key)
     }
     #[cfg(not(all(target_arch = "wasm32", feature = "dom")))]
     {
@@ -467,25 +467,27 @@ pub fn env(key: &str) -> Option<String> {
     }
 }
 // Same reason: the generated `res::locales::install()` names `day::install_locales` (§18.5).
-pub use day_fluent::install as install_locales;
-pub use day_fluent::{Catalog, FArg, format_catalog, register_catalog, tr_in};
+pub use day_localization_ui::install as install_locales;
+pub use day_localization_ui::{Catalog, FArg, format_catalog, register_catalog, tr_in};
 // Locale-aware comparison/sorting (docs/localization.md "Sorting"): icu4x collation, so e.g. a
 // Chinese list sorts by pinyin. `compare` and `sort_localized` track the locale signal.
-pub use day_fluent::{compare, compare_in, sort_localized};
+pub use day_localization_ui::{compare, compare_in, sort_localized};
 // Locale-aware number formatting (docs/localization.md "Numbers outside a message"): the same
 // icu4x formatter `NUMBER()` uses, for the values that have no message to hang on: an axis label,
 // a table column, a readout. `format_decimal` tracks the locale signal.
-pub use day_fluent::{format_decimal, format_decimal_in};
+pub use day_localization_ui::{format_decimal, format_decimal_in};
 // Percentages and dates the same way (docs/localization.md "Numbers outside a message", "Dates
 // outside a message"): `format_percent` puts the sign where the locale does (`50 %` in French),
 // `format_date` writes an instant's chosen fields in the locale's own form and hour cycle.
-pub use day_fluent::{DateFields, format_date, format_date_in, format_percent, format_percent_in};
+pub use day_localization_ui::{
+    DateFields, format_date, format_date_in, format_percent, format_percent_in,
+};
 // Search matching (docs/localization.md "Searching"): case-insensitive, at the start of any
 // word, with words found by the locale's own segmentation. `matches_search` tracks the locale.
-pub use day_fluent::{matches_search, matches_search_in};
+pub use day_localization_ui::{matches_search, matches_search_in};
 // The current-locale Signal itself, for apps that show or branch on it (`locale().get()` is a
 // tracked read; `set_locale` in the prelude writes it).
-pub use day_fluent::locale;
+pub use day_localization_ui::locale;
 // Tweaks (docs/tweaks.md): the realized-node id, the size-invalidation hook for native
 // mutations Day can't see, and the retained ref live in the prelude via day-pieces.
 pub use day_core::{RNode, invalidate_size};
@@ -546,7 +548,7 @@ pub fn play_script(yaml: &str) -> Result<(), String> {
 }
 
 /// The display name of the toolkit compiled into this binary: `"AppKit"`, `"GTK"`, `"Qt"`,
-/// `"UIKit"`, `"Android"`, `"XAML"`, `"WinUI"`, `"ArkUI"`, `"DOM"` (or `"Mock"`). Handy for a window
+/// `"UIKit"`, `"Material Components"`, `"XAML"`, `"WinUI"`, `"ArkUI"`, `"DOM"` (or `"Mock"`). Handy for a window
 /// title that names its backend.
 pub const fn toolkit_name() -> &'static str {
     #[cfg(feature = "appkit")]
@@ -565,9 +567,9 @@ pub const fn toolkit_name() -> &'static str {
     {
         return "UIKit";
     }
-    #[cfg(feature = "mdc")]
+    #[cfg(feature = "material")]
     {
-        return "Android";
+        return "Material Components";
     }
     // `winui` implies `xaml` (same backend), so it is asked first.
     #[cfg(feature = "winui")]
@@ -594,11 +596,11 @@ pub const fn toolkit_name() -> &'static str {
 
 pub mod prelude {
     pub use day_core::{ElementId, IntoElementKey, id};
-    pub use day_fluent::{
+    pub use day_localization_ui::{
         LocalizedText, install as install_locales, matches_search, set_locale, sort_localized, tr,
     };
     #[cfg(feature = "text-editor")]
-    pub use day_piece_texteditor::{TextEditor, TextEditorBuilder, text_editor};
+    pub use day_piece_text_editor::{TextEditor, TextEditorBuilder, text_editor};
     pub use day_pieces::prelude::*;
     pub use day_spec::{Lifecycle, Size, WindowOptions};
     // Canvas drawing vocabulary (docs/canvas.md): arbitrary paths and their fill rule, the
@@ -663,31 +665,31 @@ pub mod lifecycle {
     pub const fn supported(phase: Lifecycle) -> bool {
         #[cfg(feature = "appkit")]
         {
-            return day_appkit::lifecycle_supported(phase);
+            return day_toolkit_appkit::lifecycle_supported(phase);
         }
         #[cfg(feature = "gtk")]
         {
-            return day_gtk::lifecycle_supported(phase);
+            return day_toolkit_gtk::lifecycle_supported(phase);
         }
         #[cfg(feature = "qt")]
         {
-            return day_qt::lifecycle_supported(phase);
+            return day_toolkit_qt::lifecycle_supported(phase);
         }
         #[cfg(all(feature = "uikit", target_os = "ios"))]
         {
-            return day_uikit::lifecycle_supported(phase);
+            return day_toolkit_uikit::lifecycle_supported(phase);
         }
-        #[cfg(all(feature = "mdc", target_os = "android"))]
+        #[cfg(all(feature = "material", target_os = "android"))]
         {
-            return day_mdc::lifecycle_supported(phase);
+            return day_toolkit_material::lifecycle_supported(phase);
         }
         #[cfg(all(feature = "xaml", windows))]
         {
-            return day_winui::lifecycle_supported(phase);
+            return day_toolkit_winui::lifecycle_supported(phase);
         }
         #[cfg(all(feature = "arkui", target_env = "ohos"))]
         {
-            return day_arkui::lifecycle_supported(phase);
+            return day_toolkit_arkui::lifecycle_supported(phase);
         }
         // No concrete backend (mock, or a mobile backend compiled for the host to check): the
         // universal phases are always deliverable.
@@ -732,7 +734,7 @@ pub fn launch_external<P: day_spec::Platform, R: Piece>(
 
 /// Start `backend`, seeding the ambient locale first.
 ///
-/// The order matters: the OS's language preference has to reach day-l10n before the app's
+/// The order matters: the OS's language preference has to reach day-localization before the app's
 /// `res::locales::install()` runs, and that call lives inside the root builder, so the hints
 /// are read from the live backend here, one step before it is handed the root. Without this
 /// step `Toolkit::locale_hints` is a trait method nobody calls, and every native app opens in its
@@ -747,18 +749,18 @@ fn start<P: day_spec::Platform, R: Piece>(
     mut options: WindowOptions,
     root: impl FnOnce() -> R + 'static,
 ) {
-    day_fluent::add_launch_locales(&backend.locale_hints());
+    day_localization_ui::add_launch_locales(&backend.locale_hints());
     // `.restore(key)` surfaces persist through the preferences unless the app installed a
     // store of its own (docs/navigation.md).
     #[cfg(feature = "prefs")]
     if !day_core::has_nav_store() {
-        day_part_prefs::install_nav_store();
+        day_part_preferences::install_nav_store();
     }
     // The app's catalog, now that the hints are in: registering it here rather than inside the
     // root builder is what lets a title, drawn before any piece exists, come out of the
     // catalog too (docs/localization.md).
     if let Some((default, catalog)) = options.locales {
-        day_fluent::install(default, catalog);
+        day_localization_ui::install(default, catalog);
     }
     if let Some(f) = options.title_fn {
         options.title = f();
@@ -770,38 +772,38 @@ fn start<P: day_spec::Platform, R: Piece>(
 #[cfg(feature = "appkit")]
 pub fn launch<P: Piece>(options: WindowOptions, root: impl FnOnce() -> P + 'static) {
     day_script::init();
-    start(day_appkit::AppKit::new(), options, root);
+    start(day_toolkit_appkit::AppKit::new(), options, root);
 }
 
 #[cfg(feature = "gtk")]
 pub fn launch<P: Piece>(options: WindowOptions, root: impl FnOnce() -> P + 'static) {
     day_script::init();
-    start(day_gtk::Gtk::new(), options, root);
+    start(day_toolkit_gtk::Gtk::new(), options, root);
 }
 
 #[cfg(feature = "qt")]
 pub fn launch<P: Piece>(options: WindowOptions, root: impl FnOnce() -> P + 'static) {
     day_script::init();
-    start(day_qt::Qt::new(), options, root);
+    start(day_toolkit_qt::Qt::new(), options, root);
 }
 
 #[cfg(all(feature = "uikit", target_os = "ios"))]
 pub fn launch<P: Piece>(options: WindowOptions, root: impl FnOnce() -> P + 'static) {
     day_script::init();
-    start(day_uikit::Uikit::new(), options, root);
+    start(day_toolkit_uikit::Uikit::new(), options, root);
 }
 
 #[cfg(all(feature = "xaml", windows))]
 pub fn launch<P: Piece>(options: WindowOptions, root: impl FnOnce() -> P + 'static) {
     day_script::init();
-    start(day_winui::Xaml::new(), options, root);
+    start(day_toolkit_winui::Xaml::new(), options, root);
 }
 
 #[cfg(all(feature = "dom", target_arch = "wasm32"))]
 pub fn launch<P: Piece>(options: WindowOptions, root: impl FnOnce() -> P + 'static) {
     // No day_script::init(): dayscript's TCP transport has no wasm equivalent yet
     // (a WebSocket transport is planned; see docs/web.md).
-    start(day_dom::Dom::new(), options, root);
+    start(day_toolkit_dom::Dom::new(), options, root);
 }
 
 #[cfg(feature = "mock")]
@@ -963,7 +965,7 @@ macro_rules! day_start_macos {
 /// Expands to the two JNI exports that start the app, `DayBridge.nativeStart` (the primary
 /// window) and `DayBridge.nativeStartWindow` (a secondary one), wired to the given root piece.
 /// They live in the app cdylib because they name the app's root; every other native the bridge
-/// declares is registered by day-mdc's `DayBridge` binding (docs/android-jni.md).
+/// declares is registered by day-toolkit-material's `DayBridge` binding (docs/android-jni.md).
 ///
 /// ```ignore
 /// day::day_start_android!(root);
@@ -1028,10 +1030,10 @@ macro_rules! day_start_android {
 }
 
 /// Android glue (§17.4): the app cdylib's JNI exports forward here.
-#[cfg(all(feature = "mdc", target_os = "android"))]
+#[cfg(all(feature = "material", target_os = "android"))]
 pub mod android {
-    pub use day_mdc::jni;
-    pub use day_mdc::{mount_settled, read_jstring, window_started};
+    pub use day_toolkit_material::jni;
+    pub use day_toolkit_material::{mount_settled, read_jstring, window_started};
 
     #[allow(clippy::too_many_arguments)]
     pub fn start<R: crate::Piece>(
@@ -1047,7 +1049,7 @@ pub mod android {
         root_piece: impl FnOnce() -> R + 'static,
     ) {
         // Before any println!: send stdout/stderr to logcat (Android drops them otherwise).
-        day_mdc::redirect_stdio_to_logcat();
+        day_toolkit_material::redirect_stdio_to_logcat();
         // A second launch in one process: the activity was recreated (docs/settings.md
         // "Appearance on Android"). Two paths do it: a light/dark or language switch calls
         // `recreate()` itself, and any configuration change the manifest does not claim
@@ -1069,7 +1071,7 @@ pub mod android {
             // appends the backend's hints to it. A re-mount for a new system language would
             // append ["fr-FR", "en-US"] behind the ["en-US"] of the first launch, and English
             // would still win. Start the list over; the fresh hints are the whole answer.
-            day_fluent::set_launch_locales(&[]);
+            day_localization_ui::set_launch_locales(&[]);
         }
         if let Some(a) = autodrive {
             unsafe { std::env::set_var("DAY_AUTODRIVE", a) };
@@ -1084,7 +1086,7 @@ pub mod android {
                 }
             }
         }
-        day_mdc::init(env, root, density, w, h);
+        day_toolkit_material::init(env, root, density, w, h);
         // The dayscript engine belongs to the process, not the activity: its listener survives a
         // recreation and keeps serving against whatever tree is mounted. Re-running `init` only
         // tried to bind the same port again ("Address already in use"), so the re-mount skips it.
@@ -1100,10 +1102,10 @@ pub mod android {
         // because the app stopped calling `res::locales::install()` itself when the catalog
         // moved into `WindowOptions` (docs/localization.md). The window fields are inert on
         // Android, where the Activity owns the surface and the label comes from the manifest.
-        crate::start(day_mdc::Android::new(), options, root_piece);
+        crate::start(day_toolkit_material::Material::new(), options, root_piece);
         // The tree is up: on a re-mount, bring the app back to the route the previous mount
         // saved, then let the activity take its crossfade down.
-        day_mdc::mount_settled(remount);
+        day_toolkit_material::mount_settled(remount);
     }
 }
 
@@ -1132,7 +1134,7 @@ macro_rules! day_start_arkui {
             $crate::arkui::start(content, w, h, density, $crate::with_app_version!($options), $root);
         }
 
-        /// Deep-link intake (docs/deep-links.md): day-arkui's NAPI `deepLink(uri)` calls this
+        /// Deep-link intake (docs/deep-links.md): day-toolkit-arkui's NAPI `deepLink(uri)` calls this
         /// from the app cdylib for cold and warm links alike; `request_route` buffers before
         /// launch and navigates on the UI thread after.
         ///
@@ -1178,11 +1180,11 @@ macro_rules! day_start_web {
 #[cfg(all(feature = "dom", target_arch = "wasm32"))]
 pub mod web {
     /// One dayscript request line from the page's WebSocket (docs/web.md). Lives here, not in
-    /// day-dom, because backends depend only on day-spec; the umbrella is where the backend
+    /// day-toolkit-dom, because backends depend only on day-spec; the umbrella is where the backend
     /// and the engine meet.
     #[unsafe(no_mangle)]
     pub extern "C" fn day_dom_script_line(ptr: *mut u8, len: usize) {
-        let line = day_dom::take_alloc_string(ptr, len);
+        let line = day_toolkit_dom::take_alloc_string(ptr, len);
         day_script::web_line(&line);
     }
 
@@ -1195,30 +1197,30 @@ pub mod web {
         options: crate::WindowOptions,
         root: impl FnOnce() -> P + 'static,
     ) {
-        day_dom::install_panic_hook();
+        day_toolkit_dom::install_panic_hook();
         // Point the logger at the browser console before anything can log (docs/logging.md).
-        // Installed here rather than inside day-dom because a backend depends only on day-spec;
+        // Installed here rather than inside day-toolkit-dom because a backend depends only on day-spec;
         // the facade is where the toolkit and the core are allowed to meet. Without this every
         // line would be silently dropped: std's stdio on wasm32-unknown-unknown takes the bytes
         // and discards them.
-        day_core::set_log_sink(day_dom::console_sink);
+        day_core::set_log_sink(day_toolkit_dom::console_sink);
         // `DAY_LOG` has no process environment to live in here; the launch server forwards it as
         // a query parameter. `init_logging` (from `launch_with`) sets the default level, so this
         // only has to override when the page actually asked.
-        if let Some(level) = day_dom::launch_log_level() {
+        if let Some(level) = day_toolkit_dom::launch_log_level() {
             day_core::set_log_level(level);
         }
-        if let Some(locale) = day_dom::launch_locale() {
-            day_fluent::set_launch_locale(&locale);
+        if let Some(locale) = day_toolkit_dom::launch_locale() {
+            day_localization_ui::set_launch_locale(&locale);
         }
-        if let Some(url) = day_dom::launch_open_url() {
+        if let Some(url) = day_toolkit_dom::launch_open_url() {
             day_core::request_open_url(&url);
         }
-        if let Some(route) = day_dom::launch_route() {
+        if let Some(route) = day_toolkit_dom::launch_route() {
             day_core::set_launch_deeplink(&route);
         }
-        if let Some(token) = day_dom::dayscript_token() {
-            day_script::web_init(token, day_dom::script_send);
+        if let Some(token) = day_toolkit_dom::dayscript_token() {
+            day_script::web_init(token, day_toolkit_dom::script_send);
         }
         crate::launch(options, root);
     }
@@ -1239,18 +1241,18 @@ pub mod arkui {
         options: crate::WindowOptions,
         root: impl FnOnce() -> R + 'static,
     ) {
-        day_arkui::init(content, w_vp, h_vp, density);
+        day_toolkit_arkui::init(content, w_vp, h_vp, density);
         // Point the logger at hilog before anything can log (docs/logging.md): std's stdio
         // goes nowhere in an OHOS ability, so without this every `log::` line is dropped.
         // The same facade-installed sink rule as web.
-        day_core::set_log_sink(day_arkui::hilog_sink);
+        day_core::set_log_sink(day_toolkit_arkui::hilog_sink);
         day_script::init();
         // `crate::start` seeds the device's language preference before the root builds
-        // (docs/localization.md); ArkUI's own hint list arrives once day-arkui implements
+        // (docs/localization.md); ArkUI's own hint list arrives once day-toolkit-arkui implements
         // `locale_hints`.
         // The app's own description, for the same reason as Android above: the locale catalog
         // travels in it, and nothing else installs one.
-        crate::start(day_arkui::ArkUi::new(), options, root);
+        crate::start(day_toolkit_arkui::ArkUi::new(), options, root);
     }
 
     /// A deep link from the ArkTS host (docs/deep-links.md): a cold `want.uri` (delivered

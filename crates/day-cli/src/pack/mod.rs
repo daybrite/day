@@ -7,7 +7,7 @@
 //! loudly (never silently) when release signing material is absent (§20).
 //!
 //! Per-target default formats:
-//!   macos-appkit → dmg (pkg on request) · ios-uikit → ipa (sim-app without ASC creds) · android-mdc → apk+aab
+//!   macos-appkit → dmg (pkg on request) · ios-uikit → ipa (sim-app without ASC creds) · android-material → apk+aab
 //!   linux-gtk/linux-qt → flatpak+appimage · windows-xaml → msix+nsis · harmony-arkui → hap
 //! GTK/Qt on macOS/Windows is DP-7 (deferred) and refuses with a pointer.
 
@@ -91,7 +91,7 @@ pub(crate) fn default_formats(target: &Target) -> Result<Vec<&'static str>, Stri
     Ok(match target.name {
         "macos-appkit" => vec!["dmg"],
         "ios-uikit" => vec!["ipa"], // falls back to sim-app without ASC signing config
-        "android-mdc" => vec!["apk", "aab"],
+        "android-material" => vec!["apk", "aab"],
         // Both, and in this order: the flatpak is the desktop-integrated install, the AppImage
         // is the one a `curl … && ./app` line can run with nothing installed (§16.5).
         "linux-gtk" | "linux-qt" => vec!["flatpak", "appimage"],
@@ -183,7 +183,7 @@ pub fn run(
         "ios-uikit" => {
             artifacts.push(ios::pack(project, target, opts, &dist)?);
         }
-        "android-mdc" => {
+        "android-material" => {
             artifacts.extend(android::pack(project, target, opts, &dist, &formats)?);
         }
         "linux-gtk" | "linux-qt" => {
@@ -740,7 +740,7 @@ mod repro_tests {
 /// explain (§20.3).
 fn build_inputs(target: &'static Target) -> Vec<(String, String)> {
     match target.toolkit {
-        "mdc" => vec![(
+        "material" => vec![(
             "DAY_ANDROID_ABI".to_string(),
             crate::mobile::android_build_abis().join(","),
         )],
@@ -810,7 +810,7 @@ mod input_tests {
                 .map(|(k, _)| k)
                 .collect::<Vec<_>>()
         };
-        assert_eq!(keys("android-mdc"), ["DAY_ANDROID_ABI"]);
+        assert_eq!(keys("android-material"), ["DAY_ANDROID_ABI"]);
         assert_eq!(keys("harmony-arkui"), ["DAY_OHOS_ARCH"]);
         assert!(keys("macos-appkit").is_empty());
         assert!(keys("linux-gtk").is_empty());

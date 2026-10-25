@@ -112,12 +112,12 @@ looking at. It has the opposite limitation: it has no image for a window that is
 screen, so the offscreen render remains the fallback.
 
 **ArkUI encodes natively.** The obvious route is the ArkTS host (that is how
-day-arkui reaches the file picker and the browser), but `@ohos.multimedia.image` has no
+day-toolkit-arkui reaches the file picker and the browser), but `@ohos.multimedia.image` has no
 synchronous packer at all (`packToData` and `packing` are Promise/callback only), so bridging
 through the host would have forced [`window_image()`](https://daybrite.dev/api/day/fn.window_image.html) to be async on **every** toolkit to satisfy
 this one. [`OH_ArkUI_GetNodeSnapshot`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-arkui/capi-arkui-nativemodule.md) and `OH_ImagePackerNative_PackToDataFromPixelmap` do the same
 work synchronously in-process, so the API stays sync everywhere. It costs two extra linked
-libraries (`libpixelmap.so`, `libimage_packer.so`), linked by the image kit's `ohos-sys` bindings (day-arkui's `images` module).
+libraries (`libpixelmap.so`, `libimage_packer.so`), linked by the image kit's `ohos-sys` bindings (day-toolkit-arkui's `images` module).
 
 ## Relationship to dayscript screenshots
 
@@ -165,7 +165,7 @@ step; they do not authorize a stale capture.
 |---|---|
 | ArkUI / HarmonyOS | Every ArkTS piece module's `settle` ([docs/extending](extending.md); the web view waits for four animation frames and any CSS transition in its page, capped), then an ArkTS component snapshot with `waitUntilRenderFinished: true`; a tiny disposable PixelMap confirms rendering before the full device capture |
 | GTK / Linux, macOS, Windows | Selected window's frame clock `after-paint`, following a requested draw |
-| Android / MDC | `registerFrameCommitCallback`; after-draw fallback for software rendering and Android before API 29 |
+| Android / Material Components | `registerFrameCommitCallback`; after-draw fallback for software rendering and Android before API 29 |
 | DOM / web | Two animation-frame turns; the browser screenshot operation performs final capture synchronization |
 | Qt / Linux, macOS, Windows | Synchronous [`QWidget::render`](https://doc.qt.io/qt-6/qwidget.html) / `grab` in the capture itself |
 | AppKit / macOS | Layout, display and Core Animation flush in the window capture |

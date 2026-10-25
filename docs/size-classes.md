@@ -127,7 +127,7 @@ back.
 | linux-gtk / windows-gtk | ✅ | — | see below |
 | windows-winui | ✅ | — | a [`NavigationView`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.navigationview) owns its own `PaneDisplayMode`; re-presenting means driving that rather than re-homing pages |
 | ios-uikit | ✅ | **observed** | [`UISplitViewController`](https://developer.apple.com/documentation/uikit/uisplitviewcontroller), both columns navigation controllers |
-| android-mdc | ✅ | **observed** | `SlidingPaneLayout`, list pane beside a detail pane |
+| android-material | ✅ | **observed** | `SlidingPaneLayout`, list pane beside a detail pane |
 | harmony-arkui | ✅ | **observed** | ArkUI `Navigation` in `NavigationMode.Auto`: the nav bar (the rows) tiles beside the content where `navBarWidth` + `minContentWidth` fit, stacks otherwise; `onNavigationModeChange` reports which, through `navModeChanged`. A literal `Stack` host (a nested [`nav_stack`](https://daybrite.dev/api/day_pieces/fn.nav_stack.html)) runs `NavigationMode.Stack` |
 
 GTK is the odd one out among the desktops. Everywhere else both presentations are the same
@@ -232,7 +232,7 @@ opens into a **635×1376pt window on a 1032×1376pt screen**. Sizing the window 
 the first size class wrong by 397 points, so a nav host resolved a three-column split for a window
 that had room for two and then corrected itself once the first layout pass ran.
 
-day-uikit takes its launch geometry from the scene's own coordinate space
+day-toolkit-uikit takes its launch geometry from the scene's own coordinate space
 (`effectiveGeometry.coordinateSpace` on iOS 26+, the direct property below it; the same value either
 way). `DayHolderView` reports every later change against **its own scene**, which matters as soon as
 there are two windows: reporting a secondary's geometry against the primary re-framed the wrong
@@ -251,7 +251,7 @@ min_width = 320
 min_height = 400
 ```
 
-`day build` writes the `<layout>` element's attributes and the iOS `Info.plist` keys day-uikit
+`day build` writes the `<layout>` element's attributes and the iOS `Info.plist` keys day-toolkit-uikit
 reads back for [`UIWindowScene.sizeRestrictions`](https://developer.apple.com/documentation/uikit/uiwindowscene). An app that sets `WindowOptions.min_size` in Rust
 still wins over both. On iOS the minimum is a **preference the system satisfies on a best-effort
 basis**; laying out sensibly at whatever size arrives is still the app's job.
@@ -371,7 +371,7 @@ secondary column, so a detail beside it reports about 700 wide on an iPad Pro), 
 width is what every re-presentation decision reads anyway. Aim for mid-bucket sizes; a width within a few
 points of a breakpoint can fall the other side of it once insets are taken out.
 
-Only android-mdc has a host-side lever today (`adb shell wm size`, which is also what delivers the
+Only android-material has a host-side lever today (`adb shell wm size`, which is also what delivers the
 configuration change the manifest has to survive). Everywhere else the step **fails** rather than
 passing one that moved nothing. iOS coverage for a width crossing therefore comes from running the
 same walkthrough on an iPhone *and* an iPad, which is worth doing regardless: on iPadOS 26 an iPad

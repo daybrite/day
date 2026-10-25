@@ -405,13 +405,13 @@ fn uikit_group() -> Group {
     }
 }
 
-/// The GTK stack day-gtk compiles against. `toolkits/day-gtk/Cargo.toml` enables the `gtk4`
+/// The GTK stack day-toolkit-gtk compiles against. `crates/day-toolkit-gtk/Cargo.toml` enables the `gtk4`
 /// crate's `v4_10` feature and libadwaita's `v1_5`, and those features are exactly what the `-sys`
 /// crates hand to pkg-config as a minimum. Kept in step with that manifest by
 /// `gtk_minimums_match_day_gtk` below.
 const GTK4_MIN: (u32, u32) = (4, 10);
 const LIBADWAITA_MIN: (u32, u32) = (1, 5);
-// The direct librsvg probe in toolkits/day-gtk/build.rs enforces this minimum.
+// The direct librsvg probe in crates/day-toolkit-gtk/build.rs enforces this minimum.
 const LIBRSVG_MIN: (u32, u32) = (2, 52);
 
 /// Is `found` (a pkg-config `--modversion` string like `4.8.3`) at least `min`?
@@ -1180,12 +1180,12 @@ fn all_groups() -> Vec<Group> {
 // --- structured readiness (what `day doctor verify` asks) ------------------------
 
 /// The doctor group id for a target's toolkit. Two mobile toolkits are spelled differently in the
-/// two vocabularies (the target table names the backend feature (`mdc`, `arkui`), doctor groups
+/// two vocabularies (the target table names the backend feature (`material`, `arkui`), doctor groups
 /// by OS toolchain (`android`, `harmonyos`)), and every caller that bridges them (`day new`'s
 /// next-steps hint, `day doctor verify`'s selection) must bridge them the same way.
 pub fn group_id(toolkit: &str) -> &str {
-    match toolkit {
-        "mdc" => "android",
+    match crate::targets::canonical(toolkit) {
+        "material" => "android",
         "arkui" => "harmonyos",
         other => other,
     }
@@ -1305,6 +1305,7 @@ pub fn run(
 ) -> Result<i32, crate::cli::CliError> {
     let host = host_os();
     let groups = all_groups();
+    let focus: Vec<String> = focus.iter().map(|id| group_id(id).to_owned()).collect();
 
     // Validate any requested ids up front so a typo is a clear error, not a silent no-op.
     let mut known: Vec<&str> = groups.iter().map(|g| g.id).collect();
@@ -1312,7 +1313,7 @@ pub fn run(
         known.push(e.target.name);
         known.push(e.target.toolkit);
     }
-    for f in focus {
+    for f in &focus {
         if !known.contains(&f.as_str()) {
             return Err(crate::cli::CliError::usage(format!(
                 "unknown toolkit {f:?} — choose from {}",
@@ -1424,6 +1425,13 @@ pub fn run(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn material_selectors_use_the_android_toolchain_checks() {
+        assert_eq!(super::group_id("mdc"), "android");
+        assert_eq!(super::group_id("material"), "android");
+        assert_eq!(super::group_id("arkui"), "harmonyos");
+    }
+
     use super::*;
     use crate::targets::TARGETS;
 
@@ -1625,7 +1633,7 @@ mod tests {
 
     #[test]
     fn versions_compare_by_feature_level() {
-        // The case that started this: Debian 12's GTK against what day-gtk compiles for.
+        // The case that started this: Debian 12's GTK against what day-toolkit-gtk compiles for.
         assert!(!version_at_least("4.8.3", (4, 10)));
         assert!(version_at_least("4.10.0", (4, 10)));
         assert!(version_at_least("4.22.4", (4, 10)));
@@ -1644,12 +1652,12 @@ mod tests {
     }
 
     /// The minimums doctor reports are the ones the build will enforce, so they have to track
-    /// `toolkits/day-gtk/Cargo.toml`. Bumping the crate feature without this constant would leave
+    /// `crates/day-toolkit-gtk/Cargo.toml`. Bumping the crate feature without this constant would leave
     /// doctor calling a machine ready for a build that then fails in `gdk4-sys`.
     #[test]
     fn gtk_minimums_match_day_gtk() {
         let manifest = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../toolkits/day-gtk/Cargo.toml");
+            .join("../../crates/day-toolkit-gtk/Cargo.toml");
         let text = std::fs::read_to_string(&manifest)
             .unwrap_or_else(|e| panic!("{}: {e}", manifest.display()));
         let feature = |crate_name: &str| -> String {
@@ -1669,12 +1677,12 @@ mod tests {
         assert_eq!(
             feature("gtk4"),
             format!("{}_{}", GTK4_MIN.0, GTK4_MIN.1),
-            "GTK4_MIN and day-gtk's gtk4 feature disagree",
+            "GTK4_MIN and day-toolkit-gtk's gtk4 feature disagree",
         );
         assert_eq!(
             feature("libadwaita"),
             format!("{}_{}", LIBADWAITA_MIN.0, LIBADWAITA_MIN.1),
-            "LIBADWAITA_MIN and day-gtk's libadwaita feature disagree",
+            "LIBADWAITA_MIN and day-toolkit-gtk's libadwaita feature disagree",
         );
         let build = std::fs::read_to_string(manifest.with_file_name("build.rs")).unwrap();
         assert!(
@@ -1682,7 +1690,7 @@ mod tests {
                 ".atleast_version(\"{}.{}\")",
                 LIBRSVG_MIN.0, LIBRSVG_MIN.1
             )),
-            "LIBRSVG_MIN and day-gtk's native library probe disagree",
+            "LIBRSVG_MIN and day-toolkit-gtk's native library probe disagree",
         );
     }
 }

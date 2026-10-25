@@ -12,7 +12,7 @@ pub enum TargetKind {
     /// into a NodeContent, packaged into a `.hap` (see daybrite/Day-Showcase's platform/harmony). Cross-compiled
     /// with cargo-ohos against the OpenHarmony SDK it resolves; packaged/signed/run via DevEco Studio or hvigor.
     HarmonyOs,
-    /// web-dom (DESIGN.md §9, docs/web.md): a wasm32 cdylib plus the day-dom host page,
+    /// web-dom (DESIGN.md §9, docs/web.md): a wasm32 cdylib plus the day-toolkit-dom host page,
     /// assembled into a servable `dist/`; `day launch` serves it over loopback and opens
     /// the default browser.
     Web,
@@ -56,8 +56,8 @@ pub const TARGETS: &[Target] = &[
         deprecated: None,
     },
     Target {
-        name: "android-mdc",
-        toolkit: "mdc",
+        name: "android-material",
+        toolkit: "material",
         kind: TargetKind::Android,
         os: "android",
         host: "any",
@@ -182,7 +182,26 @@ pub const TARGETS: &[Target] = &[
     },
 ];
 
+/// Temporary input compatibility for the Material naming migration. Never use these
+/// spellings in generated output or as Cargo features. Remove after the announced
+/// breaking tooling release following the migration release.
+pub fn canonical(name: &str) -> &str {
+    let replacement = match name {
+        "mdc" => "material",
+        "android-mdc" => "android-material",
+        _ => return name,
+    };
+    static WARN: std::sync::Once = std::sync::Once::new();
+    WARN.call_once(|| {
+        eprintln!(
+            "warning: `mdc` and `android-mdc` are deprecated; use `material` and `android-material`"
+        );
+    });
+    replacement
+}
+
 pub fn find(name: &str) -> Option<&'static Target> {
+    let name = canonical(name);
     TARGETS.iter().find(|t| t.name == name)
 }
 
@@ -198,6 +217,7 @@ pub fn expand(name: &str) -> Result<String, String> {
 
 /// [`expand`] against an explicit host, so the mapping is testable off the host it runs on.
 pub fn expand_on(name: &str, host: &str) -> Result<String, String> {
+    let name = canonical(name);
     if name.is_empty() || name.contains('-') {
         return Ok(name.to_string());
     }
@@ -222,8 +242,14 @@ pub fn expand_on(name: &str, host: &str) -> Result<String, String> {
 /// The `-t`/`--target` value parser: every comma-separated entry goes through [`expand`], so a
 /// list (`day doctor verify -t gtk,dom`) expands the way single values do.
 pub fn parse_arg(value: &str) -> Result<String, String> {
-    let parts: Result<Vec<String>, String> = value.split(',').map(expand).collect();
-    Ok(parts?.join(","))
+    let mut parts = Vec::new();
+    for name in value.split(',') {
+        let name = expand(name.trim())?;
+        if !parts.contains(&name) {
+            parts.push(name);
+        }
+    }
+    Ok(parts.join(","))
 }
 
 pub fn host_os() -> &'static str {
@@ -325,7 +351,7 @@ mod tests {
         for (toolkit, target) in [
             ("dom", "web-dom"),
             ("uikit", "ios-uikit"),
-            ("mdc", "android-mdc"),
+            ("material", "android-material"),
             ("arkui", "harmony-arkui"),
             ("appkit", "macos-appkit"),
             ("winui", "windows-winui"),
@@ -347,7 +373,7 @@ mod tests {
         );
         // A comma list expands entry by entry.
         let list = parse_arg("dom,uikit,web-dom").unwrap();
-        assert_eq!(list, "web-dom,ios-uikit,web-dom");
+        assert_eq!(list, "web-dom,ios-uikit");
     }
 
     /// Every default names a real target; a typo here would only surface as a launch failure on
@@ -389,7 +415,7 @@ mod tests {
         // bug this exists to prevent.
         let scaffold = list(&[
             "ios-uikit",
-            "android-mdc",
+            "android-material",
             "macos-appkit",
             "macos-gtk",
             "linux-gtk",
@@ -440,5 +466,25 @@ mod tests {
             assert!(find(name).is_some(), "{name} is not in the target table");
         }
         assert!(find(host_default()).is_some());
+    }
+}
+
+#[cfg(test)]
+mod material_alias_tests {
+    use super::*;
+
+    #[test]
+    fn aliases_expand_before_lookup_and_deduplicate() {
+        assert_eq!(expand_on("mdc", "linux").unwrap(), "android-material");
+        assert_eq!(
+            expand_on("android-mdc", "macos").unwrap(),
+            "android-material"
+        );
+        assert_eq!(find("android-mdc").unwrap().toolkit, "material");
+        assert_eq!(
+            parse_arg("mdc,android-material,android-mdc").unwrap(),
+            "android-material"
+        );
+        assert_eq!(TARGETS.iter().filter(|t| t.os == "android").count(), 1);
     }
 }

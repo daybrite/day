@@ -19,7 +19,7 @@
       "reason": "Android/JNI API; the portable Rustdoc bundle does not publish this target-specific crate."
     },
     {
-      "code": "day_android_runtime::init",
+      "code": "day_platform_android::init",
       "reason": "Android/JNI API; the portable Rustdoc bundle does not publish this target-specific crate."
     }
   ],
@@ -167,7 +167,7 @@
       "reason": "Generated foreign bridge/example function or target-specific runtime API; no portable public Rustdoc item."
     },
     {
-      "code": "day_android_runtime::init",
+      "code": "day_platform_android::init",
       "reason": "Generated foreign bridge/example function or target-specific runtime API; no portable public Rustdoc item."
     },
     {
@@ -263,7 +263,7 @@
   ],
   "docs/extending.md": [
     {
-      "code": "day_mdc::realize",
+      "code": "day_toolkit_material::realize",
       "reason": "Generated bridge, target-specific renderer, or external Objective-C/Java API; not a portable Day item."
     },
     {
@@ -319,7 +319,7 @@
   ],
   "docs/harmonyos.md": [
     {
-      "code": "day_arkui::node",
+      "code": "day_toolkit_arkui::node",
       "reason": "Module name, not a function."
     },
     {

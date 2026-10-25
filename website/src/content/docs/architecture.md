@@ -24,9 +24,9 @@ corresponding runtime path, from creating a widget to handling its events.
               ┌────────────┘       └──────────────┐
               ▼                                   ▼
       ┌──────────────┐                   ┌──────────────────┐
-      │  day-pieces  │  built-in pieces  │ toolkit backend   │  day-appkit / day-uikit /
-      │              │  + Decorate API   │ (one per binary)  │  day-gtk / day-qt / day-mdc /
-      └──────┬───────┘                   └────────┬─────────┘  day-winui / day-arkui / day-dom /
+      │  day-pieces  │  built-in pieces  │ toolkit backend   │  day-toolkit-appkit / day-toolkit-uikit /
+      │              │  + Decorate API   │ (one per binary)  │  day-toolkit-gtk / day-toolkit-qt / day-toolkit-material /
+      └──────┬───────┘                   └────────┬─────────┘  day-toolkit-winui / day-toolkit-arkui / day-toolkit-dom /
              │                                    │            day-mock
              ▼                                    │ implements
       ┌──────────────┐   realized tree,           ▼
@@ -35,8 +35,8 @@ corresponding runtime path, from creating a widget to handling its events.
       └──────┬───────┘ ◄──────────────────│              │  events, resources, window options
              ▼                            └──────────────┘
       ┌──────────────┐    ┌──────────────┐    ┌──────────────┐
-      │ day-reactive │    │ day-geometry │    │  day-l10n /  │
-      │ signals etc. │    │ Point/Size/… │    │  day-fluent  │
+      │ day-reactive │    │ day-geometry │    │  day-localization /  │
+      │ signals etc. │    │ Point/Size/… │    │  day-localization-ui  │
       └──────────────┘    └──────────────┘    └──────────────┘
 
    day-cli (the `day` binary)   day-script (dayscript engine, compiled into apps)
@@ -45,7 +45,7 @@ corresponding runtime path, from creating a widget to handling its events.
 
 Support crates omitted from the diagram: `day-fonts` and `day-vector` (shared resource rules the
 CLI and runtime agree on), `day-toolchain` (SDK discovery). Crash reporting lives in the external
-[`day-piece-break`](https://github.com/daybrite/day-piece-break) repository.
+[`day-piece-crash-reporter`](https://github.com/daybrite/day-piece-break) repository.
 JS/TS miniapps run on [`day-lite`](https://github.com/daybrite/day-lite), which lives in its own
 repository.
 
@@ -54,8 +54,8 @@ the descriptor types (`LabelProps`, `ButtonPatch`, events, …) that flow across
 portable APIs can still have unsupported target operations; a dependency boundary alone does
 not establish complete runtime support.
 
-Around the core sit the extension surfaces: [`pieces/day-piece-*`](https://github.com/daybrite/day/tree/main/pieces) crates add widgets
-([extension model](/contributing/extending)), [`parts/day-part-*`](https://github.com/daybrite/day/tree/main/parts) add headless capabilities
+Around the core sit the extension surfaces: [`crates/day-piece-*`](https://github.com/daybrite/day/tree/main/crates) crates add widgets
+([extension model](/contributing/extending)), [`crates/day-part-*`](https://github.com/daybrite/day/tree/main/crates) add headless capabilities
 ([parts](/docs/reference/parts)), and `day-mock` is a full Toolkit implementation with no display, used by
 tests.
 
@@ -73,7 +73,7 @@ backend, and dead-code elimination works on whole [toolkits](/docs/reference/glo
 The same idea extends to [piece](/docs/reference/glossary#piece) renderers: backends expose a link-time registry (a `linkme`
 distributed slice), and each piece crate's renderer registers into it during linking. Startup
 iterates the slice once to build the [kind](/docs/reference/glossary#kind) → renderer table. A missing or discarded registration can instead produce a runtime placeholder. Link success
-alone does not prove that every renderer was retained; exercise the extension on the target. The one exception is `day-dom`: `linkme` has no wasm32
+alone does not prove that every renderer was retained; exercise the extension on the target. The one exception is `day-toolkit-dom`: `linkme` has no wasm32
 implementation, so the web backend keeps a runtime registry that pieces register into from
 their constructors.
 
@@ -89,7 +89,7 @@ part, so building from Xcode/Android Studio and building from the CLI produce id
 and neither goes stale.
 
 ```text
- day build -t ios-uikit                    day build -t android-mdc
+ day build -t ios-uikit                    day build -t android-material
 ──────────────────────────                ─────────────────────────────
  day CLI                                   day CLI
    │  generates DayPieces SwiftPM pkg        │  cargo-ndk → libapp.so per ABI
@@ -120,8 +120,8 @@ Each backend crosses into its toolkit using the narrowest viable mechanism:
 |---|---|
 | AppKit / UIKit | `objc2` bindings: Rust calls the Objective-C runtime directly, no shim |
 | GTK | `gtk4-rs` (gobject bindings) |
-| Qt | a small hand-written C++ shim (`day-qt-sys`) compiled by `cc` at build time; Rust calls its C API |
-| WinUI | same pattern with C++/WinRT (`day-xaml-sys`) |
+| Qt | a small hand-written C++ shim (`day-toolkit-qt-sys`) compiled by `cc` at build time; Rust calls its C API |
+| WinUI | same pattern with C++/WinRT (`day-toolkit-xaml-sys`) |
 | Android | JNI plus a small Java bridge class shipped with the framework; Rust holds `GlobalRef`s to widgets |
 | ArkUI | the ArkUI NDK C API through openharmony-rs's `ohos-sys` bindings; the ArkTS-facing module through ohos-rs's `napi-ohos` (no C++) |
 | DOM | a wasm32 `extern "C"` boundary implemented by a small JS shim the CLI embeds in the page |

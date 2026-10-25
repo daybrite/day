@@ -16,7 +16,7 @@ authentication, caching, redirects, and timeouts.
 
 ## Add to your app
 
-Defined in [`day-part-http`](https://github.com/daybrite/day/tree/main/parts/day-part-http). Add this to your app’s `Cargo.toml`
+Defined in [`day-part-http`](https://github.com/daybrite/day/tree/main/crates/day-part-http). Add this to your app’s `Cargo.toml`
 `[dependencies]` table, using the same Day Git source as the rest of your app:
 
 ```toml
@@ -625,7 +625,7 @@ the same portable client state machine as native responses. Its manual clock dri
 network events and HTTP timeout tests. Use the existing loopback server when testing the platform
 stack itself: interception bypasses native TLS, DNS and OS network policy.
 
-See [the part README](../parts/day-part-http/README.md#sessions-and-runtime-providers) for runnable
+See [the part README](../crates/day-part-http/README.md#sessions-and-runtime-providers) for runnable
 API examples, provider capabilities, request matching, fault schedules, and statistics contracts.
 [`Session::statistics()`](https://daybrite.dev/api/day_part_http/struct.Session.html#method.statistics) / [`transfers()`](https://daybrite.dev/api/day_part_http/struct.Session.html#method.transfers) describe a session; [`Statistics::global()`](https://daybrite.dev/api/day_part_http/struct.Statistics.html#method.global) aggregates all
 sessions. Counts represent HTTP exchanges and WebSocket lifetimes, not physical TCP connections.

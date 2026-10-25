@@ -57,7 +57,7 @@ its setup page before adding it with `day project add-target <target>`.
 | Target | Cargo feature | Setup |
 | --- | --- | --- |
 | `ios-uikit` | `uikit = ["day/uikit"]` | [iOS](/docs/reference/platforms/ios-uikit) |
-| `android-mdc` | `android = ["day/android"]` | [Android](/docs/reference/platforms/android-mdc) |
+| `android-material` | `android = ["day/android"]` | [Android](/docs/reference/platforms/android-material) |
 | `linux-gtk` | `gtk = ["day/gtk"]` | [Linux GTK](/docs/reference/platforms/linux-gtk) |
 | `linux-qt` | `qt = ["day/qt"]` | [Linux Qt](/docs/reference/platforms/linux-qt) |
 | `windows-winui` | `winui = ["day/winui"]` | [Windows](/docs/reference/platforms/windows-winui) |

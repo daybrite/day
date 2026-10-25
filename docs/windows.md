@@ -230,11 +230,11 @@ lists them.
 
 > [!NOTE]
 > A live retitle reaches AppKit, GTK, Qt, WinUI, UIKit and Android, primary window included.
-> `day-arkui` takes the trait's default, so an OpenHarmony window keeps the title it was opened
+> `day-toolkit-arkui` takes the trait's default, so an OpenHarmony window keeps the title it was opened
 > with; the inherited launch title makes that correct rather than blank, but it does not follow
 > content yet.
 
-On macOS, day-appkit also auto-installs the standard **Window menu** (Minimize ⌘M, Zoom,
+On macOS, day-toolkit-appkit also auto-installs the standard **Window menu** (Minimize ⌘M, Zoom,
 Bring All to Front) registered as [`NSApp.windowsMenu`](https://developer.apple.com/documentation/appkit/nsapplication/windowsmenu), so AppKit appends the open-window
 list and, while automatic tabbing is live, the tab commands (Show Next/Previous Tab,
 Merge All Windows). `Normal` Day windows share the `day.normal` tabbing identifier and
@@ -372,7 +372,7 @@ tabbing` puts a window in a tab group of its own:
 
 [`register_new_window_for(group, build)`](https://daybrite.dev/api/day_core/windows/fn.register_new_window_for.html) is the builder behind the tab bar's "+" in that group's
 windows. A group without one falls back to the app's [`register_new_window`](https://daybrite.dev/api/day_core/windows/fn.register_new_window.html) builder. AppKit and
-Qt on macOS (through `toolkits/day-macos-tabs`) answer `Cap::WindowTabbing`; every other
+Qt on macOS (through `crates/day-platform-macos`) answer `Cap::WindowTabbing`; every other
 platform has no system window tabs and ignores the option.
 
 ## Keeping the app running
@@ -432,7 +432,7 @@ content container handle, the same contract as `ready`'s root.
 
 **`WindowResized` must carry `id`, not the primary's node.** It is what re-buckets that window's
 size class ([docs/size-classes](size-classes.md)), so a toolkit that reports every window's
-geometry against the primary re-lays-out the wrong window, which is what day-uikit's holder view
+geometry against the primary re-lays-out the wrong window, which is what day-toolkit-uikit's holder view
 did, invisibly, until iPadOS made two windows at two sizes an ordinary thing. day-core relayouts
 *and* re-buckets on receipt, so a secondary window dragged from narrow to wide re-presents its
 navigation exactly as the primary does. Toolkits whose window
@@ -443,7 +443,7 @@ completion cancels it ([`finish_window_open`](https://daybrite.dev/api/day_core/
 **A window the platform opens by itself takes the same path in reverse.** iPadOS 26 offers
 Window ▸ New Window for any app that supports multiple scenes, an app icon dragged into Split
 View connects a scene, and a relaunch reconnects the sessions from the previous run — none of
-them carry the node id a [`Toolkit::open_window`](https://daybrite.dev/api/day_spec/trait.Toolkit.html#method.open_window) request does. day-uikit builds the window and
+them carry the node id a [`Toolkit::open_window`](https://daybrite.dev/api/day_spec/trait.Toolkit.html#method.open_window) request does. day-toolkit-uikit builds the window and
 then calls [`day_core::open_new_window()`](https://daybrite.dev/api/day_core/windows/fn.open_new_window.html), so the content is whatever the app registered with
 [`register_new_window`](#new-window--the-macos-window-menu), the same builder behind File ▸ New Window on
 desktop; an app that registered none has nothing to put in the window, and the toolkit hands the
@@ -518,7 +518,7 @@ Explicit [`WindowHandle::focus()`](https://daybrite.dev/api/day_core/windows/str
 application may accept activation without emitting a key-window notification. Native focus
 notifications still reconcile the registry when the user changes windows.
 
-Qt's macOS bridge is in `toolkits/day-macos-tabs`. Its delegate proxy forwards toolkit-owned
+Qt's macOS bridge is in `crates/day-platform-macos`. Its delegate proxy forwards toolkit-owned
 methods, retains the original delegate, and restores it at unregister. When necessary it supplies
 an NSWindowController for the native add-tab action. day-core stays platform-independent.
 

@@ -138,7 +138,7 @@ label = "play_label"
                 "{app:{bundleName:'dev.test.old'}}",
             );
             fixture.write("platform/harmony/entry/src/main/module.json5", "{module:{name:'entry',requestPermissions:[],abilities:[{name:'EntryAbility',skills:[{uris:[{scheme:'old'}]}]}]}}");
-            // A hand-written host needs no day-arkui dependency, keeping the fixture offline.
+            // A hand-written host needs no day-toolkit-arkui dependency, keeping the fixture offline.
             fixture.write(
                 "platform/harmony/entry/src/main/ets/pages/Index.ets",
                 "// Custom host\n",

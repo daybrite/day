@@ -35,10 +35,19 @@ fn file(root: &Path) -> PathBuf {
 }
 
 pub fn list(root: &Path) -> Vec<Session> {
-    std::fs::read_to_string(file(root))
+    let mut sessions: Vec<Session> = std::fs::read_to_string(file(root))
         .ok()
         .and_then(|s| serde_json::from_str(&s).ok())
-        .unwrap_or_default()
+        .unwrap_or_default();
+    for session in &mut sessions {
+        session.target = crate::targets::canonical(&session.target).to_string();
+    }
+    // An old spelling and a new spelling can refer to the same live target. Keep
+    // the newest launch, matching record's one-session-per-target contract.
+    sessions.sort_by_key(|s| std::cmp::Reverse(s.started_at));
+    let mut seen = std::collections::BTreeSet::new();
+    sessions.retain(|s| seen.insert(s.target.clone()));
+    sessions
 }
 
 fn write(root: &Path, sessions: &[Session]) {
@@ -60,7 +69,8 @@ fn write(root: &Path, sessions: &[Session]) {
 }
 
 /// Upsert the entry for `session.target` (one live session per target).
-pub fn record(root: &Path, session: Session) {
+pub fn record(root: &Path, mut session: Session) {
+    session.target = crate::targets::canonical(&session.target).to_string();
     let mut all = list(root);
     all.retain(|s| s.target != session.target);
     all.push(session);
@@ -68,12 +78,14 @@ pub fn record(root: &Path, session: Session) {
 }
 
 pub fn remove(root: &Path, target: &str) {
+    let target = crate::targets::canonical(target);
     let mut all = list(root);
     all.retain(|s| s.target != target);
     write(root, &all);
 }
 
 pub fn find(root: &Path, target: &str) -> Option<Session> {
+    let target = crate::targets::canonical(target);
     list(root).into_iter().find(|s| s.target == target)
 }
 
@@ -97,4 +109,45 @@ pub fn now_millis() -> u64 {
         .elapsed()
         .map(|d| d.as_millis() as u64)
         .unwrap_or(0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn legacy_sessions_find_the_latest_launch_and_write_only_canonical_keys() {
+        let root = std::env::temp_dir().join(format!(
+            "day-session-alias-{}-{}",
+            std::process::id(),
+            now_millis()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let session = |target: &str, started_at| Session {
+            target: target.to_owned(),
+            app_id: "dev.example.fixture".into(),
+            profile: "debug".into(),
+            engine_port: 1234,
+            engine_token: "synthetic-test-token".into(),
+            started_at,
+        };
+        write(
+            &root,
+            &[
+                session("android-mdc", 2),
+                session("android-material", 1),
+                session("web-dom", 3),
+            ],
+        );
+        let found = find(&root, "android-mdc").unwrap();
+        assert_eq!(found.started_at, 2);
+        assert_eq!(found.target, "android-material");
+        record(&root, session("android-mdc", 4));
+        let saved = std::fs::read_to_string(file(&root)).unwrap();
+        assert!(!saved.contains("android-mdc"));
+        assert_eq!(list(&root).len(), 2);
+        remove(&root, "android-mdc");
+        assert_eq!(list(&root)[0].target, "web-dom");
+        std::fs::remove_dir_all(root).unwrap();
+    }
 }

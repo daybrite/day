@@ -22,7 +22,7 @@ See [Localization](/docs/how-to/localization) for the complete setup.
 > but app-owned labels, hints, errors, and units should come from the Fluent catalog.
 > Pass `Signal<i64>`, `Signal<f64>`, or `Signal<String>` directly to an accessor.
 > For a memo, a projected field, or another numeric type, read and convert inside a reactive
-> label closure: [`label`](https://daybrite.dev/api/day_pieces/fn.label.html)`(move || res::str::rating_value(stars`[`.get`](https://daybrite.dev/api/day_reactive/struct.Signal.html#method.get)`() as i64)`[`.format`](https://daybrite.dev/api/day_fluent/struct.LocalizedText.html#method.format)`())`.
+> label closure: [`label`](https://daybrite.dev/api/day_pieces/fn.label.html)`(move || res::str::rating_value(stars`[`.get`](https://daybrite.dev/api/day_reactive/struct.Signal.html#method.get)`() as i64)`[`.format`](https://daybrite.dev/api/day_localization_ui/struct.LocalizedText.html#method.format)`())`.
 > Multi-argument messages use generated named-field structs.
 
 `id!(save_button)` declares a stable `ElementId` independently of the catalog. It names a
@@ -288,10 +288,10 @@ name = "dayapp"
 
 [dependencies]
 day = { path = "../../crates/day", features = ["mock"] }
-day-part-http = { path = "../../parts/day-part-http" }
-day-part-fs = { path = "../../parts/day-part-fs" }
-day-part-permissions = { path = "../../parts/day-part-permissions" }
-day-part-local-notify = { path = "../../parts/day-part-local-notify" }
+day-part-http = { path = "../../crates/day-part-http" }
+day-part-filesystem = { path = "../../crates/day-part-filesystem" }
+day-part-permissions = { path = "../../crates/day-part-permissions" }
+day-part-local-notify = { path = "../../crates/day-part-local-notify" }
 
 [build-dependencies]
 day-build = { path = "../../crates/day-build" }

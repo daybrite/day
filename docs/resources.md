@@ -147,7 +147,7 @@ Per platform:
 - **iOS (UIKit):** fonts ride the DayPieces SwiftPM bundle as a `.copy("fonts")` resource
   (`DayPieces_DayPieces.bundle/fonts/…`): `.copy`, not `.process`, so the bytes land verbatim.
   `day build` also syncs a [`UIAppFonts`](https://developer.apple.com/documentation/bundleresources/information-property-list/uiappfonts) array into `platform/ios/Runner/Info.plist` (managed key,
-  rewritten each build), and day-uikit registers the bundle dir with CoreText at launch; the
+  rewritten each build), and day-toolkit-uikit registers the bundle dir with CoreText at launch; the
   registration covers dev loops and any path iOS declines to load from the plist.
 - **Android:** staged as `res/font/<ident>.<ext>`; aapt2 assigns `R.font.<ident>`.
   `DayBridge.setLabelFont` takes the family string, re-derives `<ident>` with the same
@@ -167,7 +167,7 @@ Per platform:
 - **ArkUI:** staged into rawfile `day/fonts/` plus a `day/fonts.json` manifest
   (`[{family, file}]`); the platform/harmony scaffold's EntryAbility feeds it to ArkTS
   `font.registerFont` (building the rawfile `Resource` object by hand; `$rawfile()` only takes
-  literals) before the native UI loads, and day-arkui sets `NODE_FONT_FAMILY`.
+  literals) before the native UI loads, and day-toolkit-arkui sets `NODE_FONT_FAMILY`.
 
 Validation (`crates/day-cli/src/resources/mod.rs::scan_fonts`) is hard-error at build time: only
 `.ttf`/`.otf` (Android's `res/font` accepts nothing else; the strictest platform sets the rule),

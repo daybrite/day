@@ -47,7 +47,7 @@ const PRIMARY_PLATFORMS = [
   'windows-winui',
   'linux-gtk',
   'linux-qt',
-  'android-mdc',
+  'android-material',
   'ios-uikit',
   'web-dom',
 ];
