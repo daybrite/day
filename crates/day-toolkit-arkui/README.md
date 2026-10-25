@@ -1,38 +1,30 @@
 <!--
 Copyright © The Daybrite Project
-SPDX-License-Identifier: CC-BY-SA-4.0
+SPDX-License-Identifier: MPL-2.0
 -->
 
 # day-toolkit-arkui
 
-Day's HarmonyOS / OpenHarmony backend, built on ArkUI's native C API.
+The ArkUI implementation of Day’s UI on HarmonyOS.
 
-Pieces become real ArkUI nodes — text, buttons, sliders, swipers — created from native
-code and mounted into a slot provided by a small ArkTS host, which owns the window while
-Rust owns the widget tree. The shape mirrors Day's Android backend. This is the backend
-behind the `harmony-arkui` target; `day devices boot -t harmony-arkui` helps with emulators, and the details live in
-Day's HarmonyOS guide.
+[Day](https://daybrite.dev/docs/) is a Rust framework for building apps with native desktop and
+mobile controls, plus HTML controls on the web.
 
-The whole backend is Rust. The NDK is bound by openharmony-rs's
-[`ohos-sys`](https://crates.io/crates/ohos-sys) (ArkUI's node, gesture, animate and drag APIs,
-OH_Drawing, the image kit, rawfile, VSync, UDMF and hilog), and the module the ArkTS host
-imports from `libentry.so` is registered and marshaled by ohos-rs's
-[`napi-ohos`](https://crates.io/crates/napi-ohos). A standalone piece that needs a node kind
-this crate does not wrap drives it through `day_toolkit_arkui::node` and the raw `day_toolkit_arkui::arkui_sys`
-bindings, with no C++ of its own.
+> [!NOTE]
+> **Usually an indirect dependency.** You are unlikely to import this crate directly in an app.
+> [`day`](https://github.com/daybrite/day/tree/main/crates/day) uses it as part of its
+> implementation.
 
-You don't add this crate to a project yourself. Backends are chosen by a cargo feature on
-[`day`](https://crates.io/crates/day) — each app binary contains exactly one — and the
-`day` CLI selects the right one for the target you're building.
+It creates native ArkUI nodes and mounts them in the generated HarmonyOS host. The platform guide
+covers the SDK, build tools, signing, and component limitations.
 
-## Part of Day
+## Documentation
 
-This crate is one piece of [Day](https://daybrite.dev), a Rust framework for building apps
-out of each platform's own widgets — AppKit, UIKit, Android's Material widgets, GTK 4, Qt 6,
-WinUI, and ArkUI — from one codebase. When you write `button("Save")`, macOS shows an
-`NSButton` and Android shows a Material button. The framework also ships the tooling around
-the app: the `day` CLI, a VS Code extension, GitHub CI workflows, localization,
-accessibility, and dayscript automation.
+- [Platform setup and limits](https://daybrite.dev/docs/reference/platforms/harmony-arkui/)
+- [Choose a target](https://daybrite.dev/docs/reference/platforms/)
+- [Writing Day extensions](https://daybrite.dev/contributing/extending/)
+- [Rust API source](https://github.com/daybrite/day/blob/main/crates/day-toolkit-arkui/src/lib.rs)
 
-New to Day? Start at [daybrite.dev](https://daybrite.dev), or browse the
-[source repository](https://github.com/daybrite/day).
+[Source](https://github.com/daybrite/day/tree/main/crates/day-toolkit-arkui) ·
+[Contributing](https://daybrite.dev/contributing/setup/) · [MPL-2.0
+license](https://github.com/daybrite/day/blob/main/LICENSE)

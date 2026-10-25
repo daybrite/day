@@ -1,29 +1,32 @@
 <!--
 Copyright © The Daybrite Project
-SPDX-License-Identifier: CC-BY-SA-4.0
+SPDX-License-Identifier: MPL-2.0
 -->
 
 # day-toolkit-material
 
-Day's Android backend: real Android views over JNI, with a small Java bridge.
+The Material Components implementation of Day’s UI on Android.
 
-Pieces become Material 3 widgets — text views, buttons, switches, sliders, recycling lists
-— created and updated through `DayBridge`, a compact Java class that plays the role Day's
-C++ shims play on other platforms. Day owns layout; Android owns rendering, the keyboard,
-and accessibility. This is the backend behind the `android-material` target.
+[Day](https://daybrite.dev/docs/) is a Rust framework for building apps with native desktop and
+mobile controls, plus HTML controls on the web.
 
-You don't add this crate to a project yourself. Backends are chosen by a cargo feature on
-[`day`](https://crates.io/crates/day) — each app binary contains exactly one — and the
-`day` CLI selects the right one for the target you're building.
+> [!NOTE]
+> **Usually an indirect dependency.** You are unlikely to import this crate directly in an app.
+> [`day`](https://github.com/daybrite/day/tree/main/crates/day) uses it as part of its
+> implementation.
 
-## Part of Day
+It creates Android View-based Material controls and connects their events to Day through JNI and
+Java support code. Shared JVM and context services come from
+[`day-platform-android`](https://github.com/daybrite/day/tree/main/crates/day-platform-android). The
+CLI accepts `android-mdc` only as a temporary deprecated target alias.
 
-This crate is one piece of [Day](https://daybrite.dev), a Rust framework for building apps
-out of each platform's own widgets — AppKit, UIKit, Android's Material widgets, GTK 4, Qt 6,
-WinUI, and ArkUI — from one codebase. When you write `button("Save")`, macOS shows an
-`NSButton` and Android shows a Material button. The framework also ships the tooling around
-the app: the `day` CLI, a VS Code extension, GitHub CI workflows, localization,
-accessibility, and dayscript automation.
+## Documentation
 
-New to Day? Start at [daybrite.dev](https://daybrite.dev), or browse the
-[source repository](https://github.com/daybrite/day).
+- [Platform setup and limits](https://daybrite.dev/docs/reference/platforms/android-material/)
+- [Choose a target](https://daybrite.dev/docs/reference/platforms/)
+- [Writing Day extensions](https://daybrite.dev/contributing/extending/)
+- [Rust API source](https://github.com/daybrite/day/blob/main/crates/day-toolkit-material/src/lib.rs)
+
+[Source](https://github.com/daybrite/day/tree/main/crates/day-toolkit-material) ·
+[Contributing](https://daybrite.dev/contributing/setup/) · [MPL-2.0
+license](https://github.com/daybrite/day/blob/main/LICENSE)

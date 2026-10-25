@@ -1292,9 +1292,13 @@ jobs:
           echo "DAY_BIN=$BIN" >> "$GITHUB_ENV"
           echo "day CLI: $BIN"
       - name: Clippy (winui backend)
-        run: cargo clippy --locked -p day-toolkit-winui -p day-platform-windows --features winui --all-targets
+        run: cargo clippy --locked -p day-toolkit-winui -p day-platform-windows -p day-toolkit-xaml-sys --features winui --all-targets
       - name: Windows backend and runtime tests
         run: cargo test --locked -p day-toolkit-winui -p day-platform-windows --features winui --lib
+      # A real TreeView needs the App Runtime installed by setup-day-deps above.
+      - name: Native WinUI selected tree reloads
+        timeout-minutes: 10
+        run: cargo test --locked -p day-toolkit-xaml-sys --features winui --test native_tree_reload
       - name: Scaffold check (new + lint + build + pack + rebuild + launch)
         run: scripts/ci/scaffold-check.sh "$DAY_BIN" windows-winui
   # The host-portable tests (scripts/ci/host-test.sh) under the windows-gnu toolchain, which the

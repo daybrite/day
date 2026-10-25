@@ -24,3 +24,8 @@ cc = { workspace = true }
 # the `windows-winui` target (docs/winui.md). Same source, same C ABI; the
 # build script defines DAY_WINUI and puts the generated Windows App SDK projection on the path.
 winui = []
+
+[[test]]
+name = "native_tree_reload"
+harness = false
+required-features = ["winui"]

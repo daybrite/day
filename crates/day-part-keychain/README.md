@@ -1,30 +1,35 @@
 <!--
 Copyright © The Daybrite Project
-SPDX-License-Identifier: CC-BY-SA-4.0
+SPDX-License-Identifier: MPL-2.0
 -->
 
 # day-part-keychain
 
-Small secrets in the platform's own secure store, by key.
+Store small secrets in the operating system’s secure storage.
 
-A session token, a password, an API key: store it under a name and read it back, and the
-platform keeps it the way it keeps its own. The keychain on iOS and macOS, the Android
-Keystore, DPAPI on Windows, the Secret Service on Linux, the Universal Keystore on HarmonyOS.
-An item can be readable while the device is unlocked, from the first unlock after boot, or
-only after the person passes the device's own verification dialog, each time.
+[Day](https://daybrite.dev/docs/) is a Rust framework for building apps with native desktop and
+mobile controls, plus HTML controls on the web.
 
-Parts are Day's small capability crates: no UI, just a plain Rust API over something the
-platform already provides. This one works in any Rust program — you don't need a Day app
-around it.
+Use it for tokens, passwords, and keys that should not live in ordinary preferences. Protection
+levels and authentication requirements vary by platform; handle unsupported policies and
+authentication failures explicitly.
 
-## Part of Day
+## Use
 
-This crate is one piece of [Day](https://daybrite.dev), a Rust framework for building apps
-out of each platform's own widgets — AppKit, UIKit, Android's Material widgets, GTK 4, Qt 6,
-WinUI, and ArkUI — from one codebase. When you write `button("Save")`, macOS shows an
-`NSButton` and Android shows a Material button. The framework also ships the tooling around
-the app: the `day` CLI, a VS Code extension, GitHub CI workflows, localization,
-accessibility, and dayscript automation.
+Add this entry to your app’s `Cargo.toml`, using the same Day source as the rest of the app:
 
-New to Day? Start at [daybrite.dev](https://daybrite.dev), or browse the
-[source repository](https://github.com/daybrite/day).
+```toml
+[dependencies]
+day-part-keychain = { git = "https://github.com/daybrite/day.git" }
+```
+
+## Documentation
+
+- [Usage and platform limits](https://daybrite.dev/docs/reference/keychain/)
+- [Local authentication](https://daybrite.dev/docs/reference/biometrics/)
+- [Using platform services](https://daybrite.dev/docs/reference/parts/)
+- [Rust API](https://daybrite.dev/api/day_part_keychain/index.html)
+
+[Source](https://github.com/daybrite/day/tree/main/crates/day-part-keychain) ·
+[Contributing](https://daybrite.dev/contributing/setup/) · [MPL-2.0
+license](https://github.com/daybrite/day/blob/main/LICENSE)

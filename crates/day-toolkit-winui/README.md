@@ -1,39 +1,33 @@
 <!--
 Copyright © The Daybrite Project
-SPDX-License-Identifier: CC-BY-SA-4.0
+SPDX-License-Identifier: MPL-2.0
 -->
 
 # day-toolkit-winui
 
-Day's Windows backend: the interface is built from WinUI 3's own XAML controls.
+The WinUI 3 implementation of Day’s UI on Windows.
 
-Pieces become real `TextBlock`, `Button`, `ToggleSwitch`, and `Slider` controls, hosted in
-a normal Win32 window through the Windows App SDK's `DesktopWindowXamlSource` and driven
-through [`day-toolkit-xaml-sys`](https://crates.io/crates/day-toolkit-xaml-sys), a C++/WinRT shim. A packed
-app is self-contained: the Windows App SDK runtime travels inside the `.msix` or installer, so
-users install nothing extra. This is the backend behind the `windows-winui` target (the
-`winui` feature).
+[Day](https://daybrite.dev/docs/) is a Rust framework for building apps with native desktop and
+mobile controls, plus HTML controls on the web.
 
-The same code, with the shim built against the system XAML in Windows (`Windows.UI.Xaml` in
-XAML Islands) instead of WinUI 3 (`Microsoft.UI.Xaml`), is the deprecated `windows-xaml`
-target (the `xaml` feature), kept for projects that have not moved to `windows-winui` yet.
+> [!NOTE]
+> **Usually an indirect dependency.** You are unlikely to import this crate directly in an app.
+> [`day`](https://github.com/daybrite/day/tree/main/crates/day) uses it as part of its
+> implementation.
 
-Windows services shared with other toolkits live in `day-platform-windows`. The Windows
-share UI uses that runtime from WinUI, GTK, and Qt. Headless services can depend on the
-runtime without pulling in XAML controls or the Day rendering tree.
+It hosts WinUI controls through the C++/WinRT bridge in
+[`day-toolkit-xaml-sys`](https://github.com/daybrite/day/tree/main/crates/day-toolkit-xaml-sys).
+Shared operating-system services come from
+[`day-platform-windows`](https://github.com/daybrite/day/tree/main/crates/day-platform-windows). Use
+the `windows-winui` target and its Windows App SDK requirements.
 
-You don't add this crate to a project yourself. Backends are chosen by a cargo feature on
-[`day`](https://crates.io/crates/day) — each app binary contains exactly one — and the
-`day` CLI selects the right one for the target you're building.
+## Documentation
 
-## Part of Day
+- [Platform setup and limits](https://daybrite.dev/docs/reference/platforms/windows-winui/)
+- [Choose a target](https://daybrite.dev/docs/reference/platforms/)
+- [Writing Day extensions](https://daybrite.dev/contributing/extending/)
+- [Rust API source](https://github.com/daybrite/day/blob/main/crates/day-toolkit-winui/src/lib.rs)
 
-This crate is one piece of [Day](https://daybrite.dev), a Rust framework for building apps
-out of each platform's own widgets — AppKit, UIKit, Android's Material widgets, GTK 4, Qt 6,
-WinUI, and ArkUI — from one codebase. When you write `button("Save")`, macOS shows an
-`NSButton` and Android shows a Material button. The framework also ships the tooling around
-the app: the `day` CLI, a VS Code extension, GitHub CI workflows, localization,
-accessibility, and dayscript automation.
-
-New to Day? Start at [daybrite.dev](https://daybrite.dev), or browse the
-[source repository](https://github.com/daybrite/day).
+[Source](https://github.com/daybrite/day/tree/main/crates/day-toolkit-winui) ·
+[Contributing](https://daybrite.dev/contributing/setup/) · [MPL-2.0
+license](https://github.com/daybrite/day/blob/main/LICENSE)

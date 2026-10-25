@@ -1,38 +1,33 @@
 <!--
 Copyright © The Daybrite Project
-SPDX-License-Identifier: CC-BY-SA-4.0
+SPDX-License-Identifier: MPL-2.0
 -->
 
 # day-pieces
 
-Day's built-in widget library — the functions Day apps are written in.
+Day’s built-in UI components and their builder APIs.
 
-Labels, buttons, text fields, toggles, sliders, images, layout containers, scrolling,
-lists, tabs, navigation, dialogs, menus, and a drawing canvas: each is a plain Rust
-function that returns a value, configured with builder methods. Pass a string and you get
-fixed text; pass a signal or a closure and the widget updates live.
+[Day](https://daybrite.dev/docs/) is a Rust framework for building apps with native desktop and
+mobile controls, plus HTML controls on the web.
 
-```rust
-column((
-    label(move || format!("Hello, {}!", name.get())),
-    text_field(name).placeholder("Your name"),
-))
-```
+> [!NOTE]
+> **Usually an indirect dependency.** You are unlikely to import this crate directly in an app.
+> [`day`](https://github.com/daybrite/day/tree/main/crates/day) and
+> [`day-piece-settings`](https://github.com/daybrite/day/tree/main/crates/day-piece-settings) use it
+> as part of their implementation.
 
-Every piece becomes a real native control on every backend: the button you write once is
-an `NSButton` on macOS and a Material button on Android.
+It provides controls and containers for interfaces such as forms, lists, navigation, and dialogs. A
+piece is a description of UI that Day mounts through the selected toolkit. App code normally imports
+these components through [`day`](https://github.com/daybrite/day/tree/main/crates/day); reusable
+components may depend on this crate directly.
 
-Depend on [`day`](https://crates.io/crates/day) rather than on this crate — the umbrella
-re-exports everything here through its prelude.
+## Documentation
 
-## Part of Day
+- [Compose an interface](https://daybrite.dev/docs/explanation/pieces/)
+- [Component reference](https://daybrite.dev/docs/reference/)
+- [Writing Day extensions](https://daybrite.dev/contributing/extending/)
+- [Rust API](https://daybrite.dev/api/day_pieces/index.html)
 
-This crate is one piece of [Day](https://daybrite.dev), a Rust framework for building apps
-out of each platform's own widgets — AppKit, UIKit, Android's Material widgets, GTK 4, Qt 6,
-WinUI, and ArkUI — from one codebase. When you write `button("Save")`, macOS shows an
-`NSButton` and Android shows a Material button. The framework also ships the tooling around
-the app: the `day` CLI, a VS Code extension, GitHub CI workflows, localization,
-accessibility, and dayscript automation.
-
-New to Day? Start at [daybrite.dev](https://daybrite.dev), or browse the
-[source repository](https://github.com/daybrite/day).
+[Source](https://github.com/daybrite/day/tree/main/crates/day-pieces) ·
+[Contributing](https://daybrite.dev/contributing/setup/) · [MPL-2.0
+license](https://github.com/daybrite/day/blob/main/LICENSE)

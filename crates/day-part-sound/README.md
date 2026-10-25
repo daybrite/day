@@ -1,37 +1,35 @@
-# day-part-sound
-
 <!--
 Copyright © The Daybrite Project
-SPDX-License-Identifier: CC-BY-SA-4.0
+SPDX-License-Identifier: MPL-2.0
 -->
 
-Short sound clips for Day apps, played through each platform's low-latency engine: a tap, a
-chime, a card sliding onto a pile, or an engine hum that repeats until it is stopped.
+# day-part-sound
 
-```rust
-use day_part_sound::{Play, AssetName};
+Play short bundled sound effects, once or in a loop.
 
-day_part_sound::preload(&[res::assets::sounds::tap_wav]);
-day_part_sound::play(&res::assets::sounds::tap_wav);
-day_part_sound::play_with(&res::assets::sounds::tap_wav, Play::at(0.5));
+[Day](https://daybrite.dev/docs/) is a Rust framework for building apps with native desktop and
+mobile controls, plus HTML controls on the web.
 
-// A loop sounds for as long as its handle lives.
-let hum = day_part_sound::play_loop(&res::assets::sounds::hum_wav, Play::at(0.4));
-hum.set_volume(0.2);
-drop(hum);
+It uses platform audio facilities and supports volume control and preloading. Refer to bundled clips
+through generated asset constants. Unsupported playback stays silent; this crate is intended for
+sound effects rather than a media-player interface.
+
+## Use
+
+Add this entry to your app’s `Cargo.toml`, using the same Day source as the rest of the app:
+
+```toml
+[dependencies]
+day-part-sound = { git = "https://github.com/daybrite/day.git" }
 ```
 
-Clips are ordinary data assets under the app's `resource/assets/`. WAV is the format: 16-bit PCM,
-mono, 44.1 kHz plays everywhere without conversion.
+## Documentation
 
-| Platform | Engine | Loops |
-|---|---|---|
-| iOS, macOS | AVAudioEngine with a pool of player nodes; iOS uses the `.ambient` session | native |
-| Android | SoundPool with game audio attributes | native |
-| web | Web Audio | native |
-| Windows | XAudio2 | native |
-| Linux | libpulse (PulseAudio, PipeWire), loaded at run time, with the part's own mixer | the mixer wraps the clip |
-| HarmonyOS | SoundPool with the game stream usage | native |
+- [Usage and platform limits](https://daybrite.dev/docs/reference/sound/)
+- [Bundle audio assets](https://daybrite.dev/docs/how-to/resources/)
+- [Using platform services](https://daybrite.dev/docs/reference/parts/)
+- [Rust API](https://daybrite.dev/api/day_part_sound/index.html)
 
-Every call is fire-and-forget: none returns an error or panics, and a platform without an engine
-stays silent. See [docs/sound.md](../../docs/sound.md).
+[Source](https://github.com/daybrite/day/tree/main/crates/day-part-sound) ·
+[Contributing](https://daybrite.dev/contributing/setup/) · [MPL-2.0
+license](https://github.com/daybrite/day/blob/main/LICENSE)

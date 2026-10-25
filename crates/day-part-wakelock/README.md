@@ -1,29 +1,35 @@
-# day-part-wakelock
-
 <!--
 Copyright © The Daybrite Project
-SPDX-License-Identifier: CC-BY-SA-4.0
+SPDX-License-Identifier: MPL-2.0
 -->
 
-Keep the screen on while something is showing: a timer, a recipe, a game round played with the
-phone held up.
+# day-part-wakelock
 
-```rust
-let lock = day_part_wakelock::keep_screen_on();
-// The screen stays on until the lock is dropped.
-drop(lock);
+Keep the display awake while your app presents an activity that needs it.
+
+[Day](https://daybrite.dev/docs/) is a Rust framework for building apps with native desktop and
+mobile controls, plus HTML controls on the web.
+
+Locks are scoped handles: releasing the last handle allows normal display sleep again. Acquire and
+release them on the UI thread. Linux currently has no implementation; browser support depends on the
+Screen Wake Lock API and page visibility.
+
+## Use
+
+Add this entry to your app’s `Cargo.toml`, using the same Day source as the rest of the app:
+
+```toml
+[dependencies]
+day-part-wakelock = { git = "https://github.com/daybrite/day.git" }
 ```
 
-Locks nest, and the screen may sleep again once the last one is dropped.
+## Documentation
 
-| Platform | Mechanism |
-|---|---|
-| iOS | `UIApplication.isIdleTimerDisabled` |
-| macOS | an IOKit power assertion |
-| Windows | `SetThreadExecutionState` |
-| Android | `FLAG_KEEP_SCREEN_ON` on the activity's window |
-| HarmonyOS | `Window.setWindowKeepScreenOn` |
-| web | the Screen Wake Lock API |
-| Linux | not yet |
+- [Usage and platform limits](https://daybrite.dev/docs/reference/wakelock/)
+- [Platform capabilities](https://daybrite.dev/docs/reference/platforms/)
+- [Using platform services](https://daybrite.dev/docs/reference/parts/)
+- [Rust API](https://daybrite.dev/api/day_part_wakelock/index.html)
 
-See [docs/wakelock.md](../../docs/wakelock.md).
+[Source](https://github.com/daybrite/day/tree/main/crates/day-part-wakelock) ·
+[Contributing](https://daybrite.dev/contributing/setup/) · [MPL-2.0
+license](https://github.com/daybrite/day/blob/main/LICENSE)

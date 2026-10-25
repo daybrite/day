@@ -1,39 +1,32 @@
 <!--
 Copyright © The Daybrite Project
-SPDX-License-Identifier: CC-BY-SA-4.0
+SPDX-License-Identifier: MPL-2.0
 -->
 
 # day-piece-swiftui
 
-Host your own SwiftUI views inside a Day app, on macOS and iOS.
+Embed custom SwiftUI views in a Day interface on macOS and iOS.
 
-Write ordinary SwiftUI in an ordinary SwiftPM package — with its own transitive
-dependencies and its own `swift test` — and point your `Cargo.toml`'s
-`[package.metadata.day.ios/macos]` at it. `day build` compiles the package into the app
-and wraps each public view in a hosting view, and the build script generates a typed
-Rust constructor per view, so the call-site is just:
+[Day](https://daybrite.dev/docs/) is a Rust framework for building apps with native desktop and
+mobile controls, plus HTML controls on the web.
 
-```rust
-crate::swiftui::MyView("hello", 42)
-```
+It hosts a SwiftUI view inside AppKit or UIKit and connects its inputs and events to Rust. Add the
+Swift package and generated bindings described in the guide. This component is available only with
+the AppKit and UIKit toolkits.
 
-Arguments accept constants, signals, or closures; reactive values re-invoke the view's
-initializer live, and SwiftUI keeps its `@State` across updates. For views that need
-wiring the generated path can't express, subclass `DaySwiftUIProvider` and call
-`swiftui("name")` directly. [docs/swiftui.md](../../docs/swiftui.md) has the full story.
+## Use
 
-Pieces are Day's reusable UI components, shipped as ordinary crates: one Rust API in
-front, a real native control per platform behind it. Enable the backends you build for
-with cargo features, and `day build` wires up the native side automatically.
+Enable `swiftui` on your existing [`day`](https://github.com/daybrite/day/tree/main/crates/day)
+dependency. Day forwards the selected toolkit feature to this component. The setup guide also covers
+direct use by extension crates.
 
-## Part of Day
+## Documentation
 
-This crate is one piece of [Day](https://daybrite.dev), a Rust framework for building apps
-out of each platform's own widgets — AppKit, UIKit, Android's Material widgets, GTK 4, Qt 6,
-WinUI, and ArkUI — from one codebase. When you write `button("Save")`, macOS shows an
-`NSButton` and Android shows a Material button. The framework also ships the tooling around
-the app: the `day` CLI, a VS Code extension, GitHub CI workflows, localization,
-accessibility, and dayscript automation.
+- [Setup and component reference](https://daybrite.dev/docs/reference/swiftui/)
+- [SwiftUI integration guide](https://daybrite.dev/docs/how-to/guide-swiftui/)
+- [Compose an interface](https://daybrite.dev/docs/explanation/pieces/)
+- [Rust API](https://daybrite.dev/api/day_piece_swiftui/index.html)
 
-New to Day? Start at [daybrite.dev](https://daybrite.dev), or browse the
-[source repository](https://github.com/daybrite/day).
+[Source](https://github.com/daybrite/day/tree/main/crates/day-piece-swiftui) ·
+[Contributing](https://daybrite.dev/contributing/setup/) · [MPL-2.0
+license](https://github.com/daybrite/day/blob/main/LICENSE)

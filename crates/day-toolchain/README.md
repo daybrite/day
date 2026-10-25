@@ -1,27 +1,32 @@
 <!--
 Copyright © The Daybrite Project
-SPDX-License-Identifier: CC-BY-SA-4.0
+SPDX-License-Identifier: MPL-2.0
 -->
 
 # day-toolchain
 
-One crate that knows where developer toolchains and SDKs live on your machine.
+SDK and host-tool discovery shared by Day’s CLI and native build scripts.
 
-The Android SDK, NDK, and a usable JDK; Windows kits and C++/WinRT; the OpenHarmony NDK;
-NSIS; rustup homes — every lookup checks the conventional environment variables first
-(`ANDROID_HOME`, `JAVA_HOME`, and so on) and only then probes the places installers put
-things. The `day` CLI, the backend build scripts, and generated projects all ask this
-crate instead of hard-coding paths, so when a vendor moves something, there is one place
-to fix it.
+[Day](https://daybrite.dev/docs/) is a Rust framework for building apps with native desktop and
+mobile controls, plus HTML controls on the web.
 
-## Part of Day
+> [!NOTE]
+> **Usually an indirect dependency.** You are unlikely to import this crate directly in an app.
+> [`day-cli`](https://github.com/daybrite/day/tree/main/crates/day-cli) and
+> [`day-toolkit-xaml-sys`](https://github.com/daybrite/day/tree/main/crates/day-toolkit-xaml-sys)
+> use it as part of their implementation.
 
-This crate is one piece of [Day](https://daybrite.dev), a Rust framework for building apps
-out of each platform's own widgets — AppKit, UIKit, Android's Material widgets, GTK 4, Qt 6,
-WinUI, and ArkUI — from one codebase. When you write `button("Save")`, macOS shows an
-`NSButton` and Android shows a Material button. The framework also ships the tooling around
-the app: the `day` CLI, a VS Code extension, GitHub CI workflows, localization,
-accessibility, and dayscript automation.
+It locates compilers, platform SDKs, and related tools, with environment overrides for installations
+outside the default locations. Application developers normally let the CLI configure their builds;
+extension authors use this crate when compiling native code.
 
-New to Day? Start at [daybrite.dev](https://daybrite.dev), or browse the
-[source repository](https://github.com/daybrite/day).
+## Documentation
+
+- [Build requirements](https://daybrite.dev/docs/reference/system-requirements/)
+- [Environment configuration](https://daybrite.dev/docs/reference/environment/)
+- [Writing Day extensions](https://daybrite.dev/contributing/extending/)
+- [Rust API](https://daybrite.dev/api/day_toolchain/index.html)
+
+[Source](https://github.com/daybrite/day/tree/main/crates/day-toolchain) ·
+[Contributing](https://daybrite.dev/contributing/setup/) · [MPL-2.0
+license](https://github.com/daybrite/day/blob/main/LICENSE)

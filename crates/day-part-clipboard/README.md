@@ -1,28 +1,35 @@
 <!--
 Copyright © The Daybrite Project
-SPDX-License-Identifier: CC-BY-SA-4.0
+SPDX-License-Identifier: MPL-2.0
 -->
 
 # day-part-clipboard
 
-Read and write the system clipboard's plain text.
+Copy and paste text and encoded data through the system clipboard.
 
-`set_text`, `get_text`, and `has_text`, backed by whichever clipboard is native to the
-running platform: `NSPasteboard` on macOS, `UIPasteboard` on iOS, the GTK and Qt
-clipboards on Linux, `ClipboardManager` on Android, and the Win32 clipboard on Windows.
+[Day](https://daybrite.dev/docs/) is a Rust framework for building apps with native desktop and
+mobile controls, plus HTML controls on the web.
 
-Parts are Day's small capability crates: no UI, just a plain Rust API over something the
-platform already provides. This one works in any Rust program — you don't need a Day app
-around it.
+It supports multiple representations of an item, such as text and image bytes. Clipboard access
+follows platform privacy and focus rules; check the result of a read rather than assuming another
+app’s data is available.
 
-## Part of Day
+## Use
 
-This crate is one piece of [Day](https://daybrite.dev), a Rust framework for building apps
-out of each platform's own widgets — AppKit, UIKit, Android's Material widgets, GTK 4, Qt 6,
-WinUI, and ArkUI — from one codebase. When you write `button("Save")`, macOS shows an
-`NSButton` and Android shows a Material button. The framework also ships the tooling around
-the app: the `day` CLI, a VS Code extension, GitHub CI workflows, localization,
-accessibility, and dayscript automation.
+Add this entry to your app’s `Cargo.toml`, using the same Day source as the rest of the app:
 
-New to Day? Start at [daybrite.dev](https://daybrite.dev), or browse the
-[source repository](https://github.com/daybrite/day).
+```toml
+[dependencies]
+day-part-clipboard = { git = "https://github.com/daybrite/day.git" }
+```
+
+## Documentation
+
+- [Usage and platform limits](https://daybrite.dev/docs/reference/clipboard/)
+- [Platform capabilities](https://daybrite.dev/docs/reference/platforms/)
+- [Using platform services](https://daybrite.dev/docs/reference/parts/)
+- [Rust API](https://daybrite.dev/api/day_part_clipboard/index.html)
+
+[Source](https://github.com/daybrite/day/tree/main/crates/day-part-clipboard) ·
+[Contributing](https://daybrite.dev/contributing/setup/) · [MPL-2.0
+license](https://github.com/daybrite/day/blob/main/LICENSE)

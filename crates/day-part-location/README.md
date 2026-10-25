@@ -1,28 +1,35 @@
 <!--
 Copyright © The Daybrite Project
-SPDX-License-Identifier: CC-BY-SA-4.0
+SPDX-License-Identifier: MPL-2.0
 -->
 
 # day-part-location
 
-Where the device is — once, or as a live stream — through the platform's own location service.
+Read the device’s position once or subscribe to location updates.
 
-Ask for a single fix or subscribe to updates and stop them by dropping the handle. Every field
-the platform declined to measure comes back as `None` rather than a plausible-looking zero, so
-"we don't know the altitude" never reads as "sea level".
+[Day](https://daybrite.dev/docs/) is a Rust framework for building apps with native desktop and
+mobile controls, plus HTML controls on the web.
 
-Parts are Day's small capability crates: no UI, just a plain Rust API over something the
-platform already provides. This one works in any Rust program — you don't need a Day app
-around it.
+Accuracy choices let an app balance precision and power use. Request location permission before
+starting, handle unavailable fixes, and release subscriptions when the information is no longer
+needed.
 
-## Part of Day
+## Use
 
-This crate is one piece of [Day](https://daybrite.dev), a Rust framework for building apps
-out of each platform's own widgets — AppKit, UIKit, Android's Material widgets, GTK 4, Qt 6,
-WinUI, and ArkUI — from one codebase. When you write `button("Save")`, macOS shows an
-`NSButton` and Android shows a Material button. The framework also ships the tooling around
-the app: the `day` CLI, a VS Code extension, GitHub CI workflows, localization,
-accessibility, and dayscript automation.
+Add this entry to your app’s `Cargo.toml`, using the same Day source as the rest of the app:
 
-New to Day? Start at [daybrite.dev](https://daybrite.dev), or browse the
-[source repository](https://github.com/daybrite/day).
+```toml
+[dependencies]
+day-part-location = { git = "https://github.com/daybrite/day.git" }
+```
+
+## Documentation
+
+- [Usage and platform limits](https://daybrite.dev/docs/reference/location/)
+- [Request permissions](https://daybrite.dev/docs/reference/permissions/)
+- [Using platform services](https://daybrite.dev/docs/reference/parts/)
+- [Rust API](https://daybrite.dev/api/day_part_location/index.html)
+
+[Source](https://github.com/daybrite/day/tree/main/crates/day-part-location) ·
+[Contributing](https://daybrite.dev/contributing/setup/) · [MPL-2.0
+license](https://github.com/daybrite/day/blob/main/LICENSE)

@@ -145,6 +145,11 @@ void *day_xaml_tree_new(uint64_t id, double height, double indent, int selectabl
 void day_xaml_tree_forget(void *w) { day_native_trees.erase(w); }
 void day_xaml_tree_begin(void *w) { guard([&] {
     auto s=day_native_trees.at(w); s->suppress=true;
+    // WinUI selection tracks subscriptions on the old TreeViewNodes. Release those
+    // while the nodes are still attached; clearing selection after RootNodes can
+    // free stale tracker handles (native heap corruption during a selected reload).
+    // Day restores the saved token selection after the replacement nodes are added.
+    s->view.SelectedNodes().Clear();
     for(auto const& p:s->nodes) p.second.Content(nullptr);
     s->view.RootNodes().Clear(); s->nodes.clear(); s->headers.clear();
 }); }

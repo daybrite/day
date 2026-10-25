@@ -1,29 +1,31 @@
 <!--
 Copyright © The Daybrite Project
-SPDX-License-Identifier: CC-BY-SA-4.0
+SPDX-License-Identifier: MPL-2.0
 -->
 
 # day-fonts
 
-A small library for reading a font file's names — the family name and PostScript name —
-straight from `.ttf` or `.otf` bytes.
+Font metadata and bundled-font lookup shared by Day’s build tools and runtime.
 
-Day uses it to make bundled fonts work by family name on every platform: the build tool
-reads each font's real family name and stores the file under a predictable identifier, and
-the runtime derives the same identifier back. This crate is that shared vocabulary, in one
-place, used by both sides.
+[Day](https://daybrite.dev/docs/) is a Rust framework for building apps with native desktop and
+mobile controls, plus HTML controls on the web.
 
-It has no dependencies and no text-shaping machinery, so it's also handy in any program
-that just needs to know what a font file calls itself.
+> [!NOTE]
+> **Usually an indirect dependency.** You are unlikely to import this crate directly in an app.
+> [`day-build`](https://github.com/daybrite/day/tree/main/crates/day-build) and
+> [`day-spec`](https://github.com/daybrite/day/tree/main/crates/day-spec) use it as part of their
+> implementation.
 
-## Part of Day
+It reads family and PostScript names from font files and supplies consistent identifiers for staging
+and loading them. In an app, bundle fonts through the resource system and use the generated font
+accessors.
 
-This crate is one piece of [Day](https://daybrite.dev), a Rust framework for building apps
-out of each platform's own widgets — AppKit, UIKit, Android's Material widgets, GTK 4, Qt 6,
-WinUI, and ArkUI — from one codebase. When you write `button("Save")`, macOS shows an
-`NSButton` and Android shows a Material button. The framework also ships the tooling around
-the app: the `day` CLI, a VS Code extension, GitHub CI workflows, localization,
-accessibility, and dayscript automation.
+## Documentation
 
-New to Day? Start at [daybrite.dev](https://daybrite.dev), or browse the
-[source repository](https://github.com/daybrite/day).
+- [Custom fonts](https://daybrite.dev/docs/reference/fonts/)
+- [Bundled resources](https://daybrite.dev/docs/how-to/resources/)
+- [Rust API](https://daybrite.dev/api/day_fonts/index.html)
+
+[Source](https://github.com/daybrite/day/tree/main/crates/day-fonts) ·
+[Contributing](https://daybrite.dev/contributing/setup/) · [MPL-2.0
+license](https://github.com/daybrite/day/blob/main/LICENSE)

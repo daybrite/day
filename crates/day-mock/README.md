@@ -1,31 +1,30 @@
 <!--
 Copyright © The Daybrite Project
-SPDX-License-Identifier: CC-BY-SA-4.0
+SPDX-License-Identifier: MPL-2.0
 -->
 
 # day-mock
 
-A pretend backend for testing Day code: instead of creating widgets, it writes down every
-call the engine makes.
+Test Day components with a headless toolkit that records UI operations.
 
-Tests run a real Day app against it — no window, no platform SDK, the same engine — and
-then inspect the recording: which widgets exist, what their frames are, and exactly which
-native mutations a state change produced. That last part is how Day's central promise
-("one state change, one native update") is checked in CI rather than just claimed. Text
-measurement uses fixed per-character metrics, so layout comes out identical on every
-machine.
+[Day](https://daybrite.dev/docs/) is a Rust framework for building apps with native desktop and
+mobile controls, plus HTML controls on the web.
 
-If you're writing a piece of your own or testing app logic, enable the `mock` backend
-feature on [`day`](https://crates.io/crates/day) and assert against the log.
+It uses deterministic measurements and an operation log so tests can inspect layout and state
+updates without opening a native window. Component and toolkit authors can use it directly;
+applications can select the `mock` feature of
+[`day`](https://github.com/daybrite/day/tree/main/crates/day).
 
-## Part of Day
+Mock tests check Day behavior, not the appearance or input behavior of a native toolkit. Use
+dayscript tests on the intended target for those checks.
 
-This crate is one piece of [Day](https://daybrite.dev), a Rust framework for building apps
-out of each platform's own widgets — AppKit, UIKit, Android's Material widgets, GTK 4, Qt 6,
-WinUI, and ArkUI — from one codebase. When you write `button("Save")`, macOS shows an
-`NSButton` and Android shows a Material button. The framework also ships the tooling around
-the app: the `day` CLI, a VS Code extension, GitHub CI workflows, localization,
-accessibility, and dayscript automation.
+## Documentation
 
-New to Day? Start at [daybrite.dev](https://daybrite.dev), or browse the
-[source repository](https://github.com/daybrite/day).
+- [Component testing contracts](https://daybrite.dev/contributing/backend-contracts/testing/)
+- [Test a running app](https://daybrite.dev/docs/how-to/dayscript/)
+- [Writing Day extensions](https://daybrite.dev/contributing/extending/)
+- [Rust API](https://daybrite.dev/api/day_mock/index.html)
+
+[Source](https://github.com/daybrite/day/tree/main/crates/day-mock) ·
+[Contributing](https://daybrite.dev/contributing/setup/) · [MPL-2.0
+license](https://github.com/daybrite/day/blob/main/LICENSE)

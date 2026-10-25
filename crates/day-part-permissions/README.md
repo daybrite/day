@@ -1,30 +1,38 @@
 <!--
 Copyright © The Daybrite Project
-SPDX-License-Identifier: CC-BY-SA-4.0
+SPDX-License-Identifier: MPL-2.0
 -->
 
 # day-part-permissions
 
-Ask the OS for the camera, the microphone, location, notifications, photos, or motion — the
-way each OS wants to be asked.
+Check and request permission to use protected platform capabilities.
 
-Six portable permissions cover what most apps need, and a per-platform escape hatch reaches
-anything else. Before you ask, you can find out what asking would even do: whether the
-platform gates this capability at all, whether a prompt would appear, and whether the answer
-is already final so you should send the user to Settings instead.
+[Day](https://daybrite.dev/docs/) is a Rust framework for building apps with native desktop and
+mobile controls, plus HTML controls on the web.
 
-Parts are Day's small capability crates: no UI, just a plain Rust API over something the
-platform already provides. This one works in any Rust program — you don't need a Day app
-around it.
+Runtime requests work alongside the capability declarations and localized explanations in
+`Day.toml`. A declaration alone does not grant access; handle denied and unavailable results in the
+app.
 
-## Part of Day
+## Use
 
-This crate is one piece of [Day](https://daybrite.dev), a Rust framework for building apps
-out of each platform's own widgets — AppKit, UIKit, Android's Material widgets, GTK 4, Qt 6,
-WinUI, and ArkUI — from one codebase. When you write `button("Save")`, macOS shows an
-`NSButton` and Android shows a Material button. The framework also ships the tooling around
-the app: the `day` CLI, a VS Code extension, GitHub CI workflows, localization,
-accessibility, and dayscript automation.
+Add this entry to your app’s `Cargo.toml`, using the same Day source as the rest of the app:
 
-New to Day? Start at [daybrite.dev](https://daybrite.dev), or browse the
-[source repository](https://github.com/daybrite/day).
+```toml
+[dependencies]
+day-part-permissions = { git = "https://github.com/daybrite/day.git" }
+```
+
+Day apps can also enable the `permissions` feature of
+[`day`](https://github.com/daybrite/day/tree/main/crates/day) and use its re-export.
+
+## Documentation
+
+- [Usage and platform limits](https://daybrite.dev/docs/reference/permissions/)
+- [Configure permissions](https://daybrite.dev/docs/how-to/guide-permissions/)
+- [Using platform services](https://daybrite.dev/docs/reference/parts/)
+- [Rust API](https://daybrite.dev/api/day_part_permissions/index.html)
+
+[Source](https://github.com/daybrite/day/tree/main/crates/day-part-permissions) ·
+[Contributing](https://daybrite.dev/contributing/setup/) · [MPL-2.0
+license](https://github.com/daybrite/day/blob/main/LICENSE)

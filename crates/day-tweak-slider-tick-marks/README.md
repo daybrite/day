@@ -1,30 +1,36 @@
 <!--
 Copyright © The Daybrite Project
-SPDX-License-Identifier: CC-BY-SA-4.0
+SPDX-License-Identifier: MPL-2.0
 -->
 
 # day-tweak-slider-tick-marks
 
-Native tick marks for Day's slider, with snap-to-tick where the platform supports it:
-`.tickmarks(Tickmarks { count, snap, position })`.
+Add native tick marks and optional snapping to Day sliders.
 
-Six toolkits are covered, and the implementations span every way a tweak can reach native
-code — typed Rust bindings on AppKit and GTK, JNI on Android, and bring-your-own C++
-against raw Qt and WinUI handles — which makes this crate the full reference example of the
-pattern. UIKit has no native tick API, and this crate says so rather than imitating one.
+[Day](https://daybrite.dev/docs/) is a Rust framework for building apps with native desktop and
+mobile controls, plus HTML controls on the web.
 
-Tweaks are Day's smallest kind of extension: a little crate that adjusts the native widget
-behind a built-in piece. On platforms a tweak doesn't cover, it quietly does nothing, so
-your app code stays free of platform checks.
+Count, position, and snapping behavior vary by toolkit. AppKit, GTK, Material, Qt, WinUI, and ArkUI
+provide different subsets; UIKit and Web leave the component unchanged. Consult the compatibility
+table before relying on a particular treatment.
 
-## Part of Day
+## Use
 
-This crate is one piece of [Day](https://daybrite.dev), a Rust framework for building apps
-out of each platform's own widgets — AppKit, UIKit, Android's Material widgets, GTK 4, Qt 6,
-WinUI, and ArkUI — from one codebase. When you write `button("Save")`, macOS shows an
-`NSButton` and Android shows a Material button. The framework also ships the tooling around
-the app: the `day` CLI, a VS Code extension, GitHub CI workflows, localization,
-accessibility, and dayscript automation.
+Add this crate to the app’s dependencies and forward the matching toolkit feature as described in
+the tweak guide:
 
-New to Day? Start at [daybrite.dev](https://daybrite.dev), or browse the
-[source repository](https://github.com/daybrite/day).
+```toml
+[dependencies]
+day-tweak-slider-tick-marks = { git = "https://github.com/daybrite/day.git" }
+```
+
+## Documentation
+
+- [Use and configure tweaks](https://daybrite.dev/docs/how-to/tweaks/)
+- [Tweak contracts and examples](https://daybrite.dev/docs/reference/tweaks/)
+- [Control examples](https://daybrite.dev/docs/reference/api-tour/)
+- [Rust API source](https://github.com/daybrite/day/blob/main/crates/day-tweak-slider-tick-marks/src/lib.rs)
+
+[Source](https://github.com/daybrite/day/tree/main/crates/day-tweak-slider-tick-marks) ·
+[Contributing](https://daybrite.dev/contributing/setup/) · [MPL-2.0
+license](https://github.com/daybrite/day/blob/main/LICENSE)

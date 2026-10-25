@@ -1,30 +1,30 @@
 <!--
 Copyright © The Daybrite Project
-SPDX-License-Identifier: CC-BY-SA-4.0
+SPDX-License-Identifier: MPL-2.0
 -->
 
 # day-toolkit-appkit
 
-Day's macOS backend: your interface, built from real AppKit views.
+The AppKit implementation of Day’s UI on macOS.
 
-With this backend, `label(...)` is an `NSTextField`, `button(...)` is an `NSButton`, and
-scrolling is an `NSScrollView` — created and driven directly from Rust through `objc2`,
-with no C or Objective-C glue layer in between. Day decides where everything goes; AppKit
-does the drawing, the text editing, the focus rings, and the accessibility. This is the
-backend behind the `macos-appkit` target.
+[Day](https://daybrite.dev/docs/) is a Rust framework for building apps with native desktop and
+mobile controls, plus HTML controls on the web.
 
-You don't add this crate to a project yourself. Backends are chosen by a cargo feature on
-[`day`](https://crates.io/crates/day) — each app binary contains exactly one — and the
-`day` CLI selects the right one for the target you're building.
+> [!NOTE]
+> **Usually an indirect dependency.** You are unlikely to import this crate directly in an app.
+> [`day`](https://github.com/daybrite/day/tree/main/crates/day) uses it as part of its
+> implementation.
 
-## Part of Day
+It creates AppKit controls and connects native events, layout, and window behavior to Day. Build on
+macOS with the Apple tools described in the platform guide.
 
-This crate is one piece of [Day](https://daybrite.dev), a Rust framework for building apps
-out of each platform's own widgets — AppKit, UIKit, Android's Material widgets, GTK 4, Qt 6,
-WinUI, and ArkUI — from one codebase. When you write `button("Save")`, macOS shows an
-`NSButton` and Android shows a Material button. The framework also ships the tooling around
-the app: the `day` CLI, a VS Code extension, GitHub CI workflows, localization,
-accessibility, and dayscript automation.
+## Documentation
 
-New to Day? Start at [daybrite.dev](https://daybrite.dev), or browse the
-[source repository](https://github.com/daybrite/day).
+- [Platform setup and limits](https://daybrite.dev/docs/reference/platforms/macos-appkit/)
+- [Choose a target](https://daybrite.dev/docs/reference/platforms/)
+- [Writing Day extensions](https://daybrite.dev/contributing/extending/)
+- [Rust API source](https://github.com/daybrite/day/blob/main/crates/day-toolkit-appkit/src/lib.rs)
+
+[Source](https://github.com/daybrite/day/tree/main/crates/day-toolkit-appkit) ·
+[Contributing](https://daybrite.dev/contributing/setup/) · [MPL-2.0
+license](https://github.com/daybrite/day/blob/main/LICENSE)

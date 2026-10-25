@@ -1,26 +1,30 @@
 <!--
 Copyright © The Daybrite Project
-SPDX-License-Identifier: CC-BY-SA-4.0
+SPDX-License-Identifier: MPL-2.0
 -->
 
 # day-toolkit-qt-sys
 
-The C++ side of Day's Qt backend.
+Low-level Rust bindings and a C++ bridge for Day’s Qt 6 Widgets implementation.
 
-This crate holds one C++ file and the raw `extern "C"` declarations for it. The build
-script compiles the file against your Qt installation, and Qt objects cross into Rust as
-opaque pointers. There is deliberately no safe API here: the safe layer is
-[`day-toolkit-qt`](https://crates.io/crates/day-toolkit-qt), and apps depend on neither crate directly —
-the backend arrives through a cargo feature on [`day`](https://crates.io/crates/day).
+[Day](https://daybrite.dev/docs/) is a Rust framework for building apps with native desktop and
+mobile controls, plus HTML controls on the web.
 
-## Part of Day
+> [!NOTE]
+> **Usually an indirect dependency.** You are unlikely to import this crate directly in an app.
+> [`day-toolkit-qt`](https://github.com/daybrite/day/tree/main/crates/day-toolkit-qt) uses it as
+> part of its implementation.
 
-This crate is one piece of [Day](https://daybrite.dev), a Rust framework for building apps
-out of each platform's own widgets — AppKit, UIKit, Android's Material widgets, GTK 4, Qt 6,
-WinUI, and ArkUI — from one codebase. When you write `button("Save")`, macOS shows an
-`NSButton` and Android shows a Material button. The framework also ships the tooling around
-the app: the `day` CLI, a VS Code extension, GitHub CI workflows, localization,
-accessibility, and dayscript automation.
+It compiles the native bridge and exposes C-compatible operations over Qt widget handles. Native
+ownership and callback rules are part of the toolkit implementation. Build it with the Qt SDK and
+C++ toolchain required by the selected Day target.
 
-New to Day? Start at [daybrite.dev](https://daybrite.dev), or browse the
-[source repository](https://github.com/daybrite/day).
+## Documentation
+
+- [Qt build requirements](https://daybrite.dev/docs/reference/platforms/linux-qt/)
+- [Framework architecture](https://daybrite.dev/contributing/architecture/)
+- [Rust API source](https://github.com/daybrite/day/blob/main/crates/day-toolkit-qt-sys/src/lib.rs)
+
+[Source](https://github.com/daybrite/day/tree/main/crates/day-toolkit-qt-sys) ·
+[Contributing](https://daybrite.dev/contributing/setup/) · [MPL-2.0
+license](https://github.com/daybrite/day/blob/main/LICENSE)

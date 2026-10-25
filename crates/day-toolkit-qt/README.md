@@ -1,30 +1,32 @@
 <!--
 Copyright © The Daybrite Project
-SPDX-License-Identifier: CC-BY-SA-4.0
+SPDX-License-Identifier: MPL-2.0
 -->
 
 # day-toolkit-qt
 
-Day's Qt 6 Widgets backend.
+The Qt 6 Widgets implementation of Day’s UI on desktop systems.
 
-Pieces become real `QWidget`s — `QLabel`, `QPushButton`, `QSlider`, `QScrollArea`, and so
-on — created through [`day-toolkit-qt-sys`](https://crates.io/crates/day-toolkit-qt-sys), a small C++ shim
-this crate drives. Day owns the geometry; Qt draws the widgets and feeds events back
-through the shim's callbacks. It is the backend behind the `linux-qt`, `macos-qt`, and
-`windows-qt` targets.
+[Day](https://daybrite.dev/docs/) is a Rust framework for building apps with native desktop and
+mobile controls, plus HTML controls on the web.
 
-You don't add this crate to a project yourself. Backends are chosen by a cargo feature on
-[`day`](https://crates.io/crates/day) — each app binary contains exactly one — and the
-`day` CLI selects the right one for the target you're building.
+> [!NOTE]
+> **Usually an indirect dependency.** You are unlikely to import this crate directly in an app.
+> [`day`](https://github.com/daybrite/day/tree/main/crates/day) uses it as part of its
+> implementation.
 
-## Part of Day
+It creates Qt Widgets through the C++ bridge in
+[`day-toolkit-qt-sys`](https://github.com/daybrite/day/tree/main/crates/day-toolkit-qt-sys). Qt
+development libraries and a compatible C++ compiler are required. The platform guide covers setup
+and control differences.
 
-This crate is one piece of [Day](https://daybrite.dev), a Rust framework for building apps
-out of each platform's own widgets — AppKit, UIKit, Android's Material widgets, GTK 4, Qt 6,
-WinUI, and ArkUI — from one codebase. When you write `button("Save")`, macOS shows an
-`NSButton` and Android shows a Material button. The framework also ships the tooling around
-the app: the `day` CLI, a VS Code extension, GitHub CI workflows, localization,
-accessibility, and dayscript automation.
+## Documentation
 
-New to Day? Start at [daybrite.dev](https://daybrite.dev), or browse the
-[source repository](https://github.com/daybrite/day).
+- [Platform setup and limits](https://daybrite.dev/docs/reference/platforms/linux-qt/)
+- [Choose a target](https://daybrite.dev/docs/reference/platforms/)
+- [Writing Day extensions](https://daybrite.dev/contributing/extending/)
+- [Rust API source](https://github.com/daybrite/day/blob/main/crates/day-toolkit-qt/src/lib.rs)
+
+[Source](https://github.com/daybrite/day/tree/main/crates/day-toolkit-qt) ·
+[Contributing](https://daybrite.dev/contributing/setup/) · [MPL-2.0
+license](https://github.com/daybrite/day/blob/main/LICENSE)

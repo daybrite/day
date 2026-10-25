@@ -1,29 +1,36 @@
 <!--
 Copyright © The Daybrite Project
-SPDX-License-Identifier: CC-BY-SA-4.0
+SPDX-License-Identifier: MPL-2.0
 -->
 
 # day-part-preferences
 
-A small persistent settings store: strings that survive relaunches.
+Keep small string values between app launches.
 
-`set`, `get`, `remove`, and `contains`, kept in each platform's native preferences home —
-`NSUserDefaults` on macOS and iOS, `SharedPreferences` on Android, and a plain,
-documented file under the user's config directory on Linux, Windows, and OpenHarmony.
-Right-sized for window positions, chosen units, and the other small things apps remember.
+[Day](https://daybrite.dev/docs/) is a Rust framework for building apps with native desktop and
+mobile controls, plus HTML controls on the web.
 
-Parts are Day's small capability crates: no UI, just a plain Rust API over something the
-platform already provides. This one works in any Rust program — you don't need a Day app
-around it.
+It stores settings such as a selected theme or recent choice. Use secure storage for secrets and
+file storage for larger data. The `memory` feature selects a nonpersistent store for tests.
 
-## Part of Day
+## Use
 
-This crate is one piece of [Day](https://daybrite.dev), a Rust framework for building apps
-out of each platform's own widgets — AppKit, UIKit, Android's Material widgets, GTK 4, Qt 6,
-WinUI, and ArkUI — from one codebase. When you write `button("Save")`, macOS shows an
-`NSButton` and Android shows a Material button. The framework also ships the tooling around
-the app: the `day` CLI, a VS Code extension, GitHub CI workflows, localization,
-accessibility, and dayscript automation.
+Day apps normally use the default-enabled `prefs` feature of
+[`day`](https://github.com/daybrite/day/tree/main/crates/day); a separate dependency is optional.
+For direct use:
 
-New to Day? Start at [daybrite.dev](https://daybrite.dev), or browse the
-[source repository](https://github.com/daybrite/day).
+```toml
+[dependencies]
+day-part-preferences = { git = "https://github.com/daybrite/day.git" }
+```
+
+## Documentation
+
+- [Usage and platform limits](https://daybrite.dev/docs/reference/prefs/)
+- [Choose app storage](https://daybrite.dev/docs/how-to/guide-storage/)
+- [Using platform services](https://daybrite.dev/docs/reference/parts/)
+- [Rust API](https://daybrite.dev/api/day_part_preferences/index.html)
+
+[Source](https://github.com/daybrite/day/tree/main/crates/day-part-preferences) ·
+[Contributing](https://daybrite.dev/contributing/setup/) · [MPL-2.0
+license](https://github.com/daybrite/day/blob/main/LICENSE)

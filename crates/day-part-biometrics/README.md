@@ -1,29 +1,35 @@
 <!--
 Copyright © The Daybrite Project
-SPDX-License-Identifier: CC-BY-SA-4.0
+SPDX-License-Identifier: MPL-2.0
 -->
 
 # day-part-biometrics
 
-The platform's own "prove it is you" prompt, as one Rust API.
+Ask the operating system to verify the person using your app.
 
-Touch ID and Face ID, Android's biometric prompt, Windows Hello, and HarmonyOS's user
-authentication dialog, with the device passcode as the way in when a finger is wet. Ask what
-the device can do first, show the prompt with a reason in the person's language, and get one
-answer: verified, or why not.
+[Day](https://daybrite.dev/docs/) is a Rust framework for building apps with native desktop and
+mobile controls, plus HTML controls on the web.
 
-Parts are Day's small capability crates: no UI, just a plain Rust API over something the
-platform already provides. This one works in any Rust program — you don't need a Day app
-around it.
+It presents the system authentication prompt and reports the outcome. Availability depends on device
+hardware, enrollment, policy, and permissions. Local device authentication does not sign a user in
+to an account service.
 
-## Part of Day
+## Use
 
-This crate is one piece of [Day](https://daybrite.dev), a Rust framework for building apps
-out of each platform's own widgets — AppKit, UIKit, Android's Material widgets, GTK 4, Qt 6,
-WinUI, and ArkUI — from one codebase. When you write `button("Save")`, macOS shows an
-`NSButton` and Android shows a Material button. The framework also ships the tooling around
-the app: the `day` CLI, a VS Code extension, GitHub CI workflows, localization,
-accessibility, and dayscript automation.
+Add this entry to your app’s `Cargo.toml`, using the same Day source as the rest of the app:
 
-New to Day? Start at [daybrite.dev](https://daybrite.dev), or browse the
-[source repository](https://github.com/daybrite/day).
+```toml
+[dependencies]
+day-part-biometrics = { git = "https://github.com/daybrite/day.git" }
+```
+
+## Documentation
+
+- [Usage and platform limits](https://daybrite.dev/docs/reference/biometrics/)
+- [Permission setup](https://daybrite.dev/docs/reference/permissions/)
+- [Using platform services](https://daybrite.dev/docs/reference/parts/)
+- [Rust API](https://daybrite.dev/api/day_part_biometrics/index.html)
+
+[Source](https://github.com/daybrite/day/tree/main/crates/day-part-biometrics) ·
+[Contributing](https://daybrite.dev/contributing/setup/) · [MPL-2.0
+license](https://github.com/daybrite/day/blob/main/LICENSE)

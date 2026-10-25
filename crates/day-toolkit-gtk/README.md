@@ -1,29 +1,31 @@
 <!--
 Copyright © The Daybrite Project
-SPDX-License-Identifier: CC-BY-SA-4.0
+SPDX-License-Identifier: MPL-2.0
 -->
 
 # day-toolkit-gtk
 
-Day's GTK 4 backend, written in pure Rust over gtk4-rs.
+The GTK 4 implementation of Day’s UI on desktop systems.
 
-Pieces become real GTK widgets with libadwaita styling; Day places them, measures text
-through Pango, and turns GTK signals back into app events. It is the backend behind the
-`linux-gtk` target — and behind `macos-gtk`, because GTK itself is portable, which makes
-this a comfortable way to develop for Linux from a Mac.
+[Day](https://daybrite.dev/docs/) is a Rust framework for building apps with native desktop and
+mobile controls, plus HTML controls on the web.
 
-You don't add this crate to a project yourself. Backends are chosen by a cargo feature on
-[`day`](https://crates.io/crates/day) — each app binary contains exactly one — and the
-`day` CLI selects the right one for the target you're building.
+> [!NOTE]
+> **Usually an indirect dependency.** You are unlikely to import this crate directly in an app.
+> [`day`](https://github.com/daybrite/day/tree/main/crates/day) uses it as part of its
+> implementation.
 
-## Part of Day
+It creates GTK 4 widgets and connects their signals and measurements to Day. Install the GTK
+development libraries for the selected host; the Linux platform guide covers the standard
+`linux-gtk` target.
 
-This crate is one piece of [Day](https://daybrite.dev), a Rust framework for building apps
-out of each platform's own widgets — AppKit, UIKit, Android's Material widgets, GTK 4, Qt 6,
-WinUI, and ArkUI — from one codebase. When you write `button("Save")`, macOS shows an
-`NSButton` and Android shows a Material button. The framework also ships the tooling around
-the app: the `day` CLI, a VS Code extension, GitHub CI workflows, localization,
-accessibility, and dayscript automation.
+## Documentation
 
-New to Day? Start at [daybrite.dev](https://daybrite.dev), or browse the
-[source repository](https://github.com/daybrite/day).
+- [Platform setup and limits](https://daybrite.dev/docs/reference/platforms/linux-gtk/)
+- [Choose a target](https://daybrite.dev/docs/reference/platforms/)
+- [Writing Day extensions](https://daybrite.dev/contributing/extending/)
+- [Rust API source](https://github.com/daybrite/day/blob/main/crates/day-toolkit-gtk/src/lib.rs)
+
+[Source](https://github.com/daybrite/day/tree/main/crates/day-toolkit-gtk) ·
+[Contributing](https://daybrite.dev/contributing/setup/) · [MPL-2.0
+license](https://github.com/daybrite/day/blob/main/LICENSE)

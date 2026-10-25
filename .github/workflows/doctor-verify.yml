@@ -140,4 +140,11 @@ jobs:
       # actually download, and release is where the full format set exists (`day pack` builds the
       # Play .aab only for release, so a debug run would leave that pipeline unchecked).
       - name: day doctor verify -t ${{ matrix.combo }} (day ${{ matrix.day-version }})
-        run: day doctor verify -t ${{ matrix.combo }} --day-version ${{ matrix.day-version }} --profile release --strict --dir "${{ runner.temp }}/Day Project Root"
+        run: |
+          target="${{ matrix.combo }}"
+          # The published driver validates targets BEFORE installing the requested CLI.
+          # It predates android-material; use the temporary tooling alias at this boundary
+          # until the published driver knows the canonical name. The current CLI accepts
+          # this alias when the driver delegates scaffold/build/pack to main.
+          if [ "$target" = android-material ]; then target=android-mdc; fi
+          day doctor verify -t "$target" --day-version ${{ matrix.day-version }} --profile release --strict --dir "${{ runner.temp }}/Day Project Root"

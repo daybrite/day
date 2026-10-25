@@ -1,52 +1,28 @@
 <!--
 Copyright © The Daybrite Project
-SPDX-License-Identifier: CC-BY-SA-4.0
+SPDX-License-Identifier: MPL-2.0
 -->
 
 # day
 
-Write your app once, in Rust, and run it as a real native app on macOS, iOS, Android,
-Linux, Windows, and HarmonyOS.
+Build apps in Rust with native controls on desktop and mobile, and HTML controls on the web.
 
-`day` is the crate a Day app depends on. It gathers the whole framework — the widget
-library, the reactive state system, layout, and localization — and, through one cargo
-feature per build, exactly one native backend. Your code describes the interface; the
-backend builds it from the platform's own widgets.
+This is the main application crate for [Day](https://daybrite.dev/docs/). It brings together UI
+components, reactive state, layout, and localization. Your Rust code describes the interface; the
+selected toolkit creates its controls and applies state changes.
 
-Here is a complete counter:
+Start with [`day-cli`](https://github.com/daybrite/day/tree/main/crates/day-cli) to create a project
+with its platform hosts and generated resources. Build for one toolkit at a time. Optional Cargo
+features add facilities such as file storage, permissions, settings, and rich-text editing; the
+guides explain their setup.
 
-```rust
-use day::prelude::*;
+## Documentation
 
-fn counter() -> impl Piece {
-    let count = Signal::new(0i64);
-    column((
-        label(move || format!("{} clicks", count.get())),
-        button("+1").action(move || count.update(|c| *c += 1)),
-    ))
-    .spacing(12.0)
-    .padding(16.0)
-}
-```
+- [Start with a Day app](https://daybrite.dev/docs/tutorials/first-app/)
+- [UI components and composition](https://daybrite.dev/docs/explanation/pieces/)
+- [Supported targets](https://daybrite.dev/docs/reference/platforms/)
+- [Rust API](https://daybrite.dev/api/day/index.html)
 
-On macOS, that function produces real AppKit views. On Android it produces Material
-widgets, on Linux GTK, and so on across seven toolkits. The interface is built once; when
-a signal changes, Day updates just the native widget that depends on it. There is no
-virtual tree and no diffing pass.
-
-Most people start with the command-line tool rather than this crate:
-[`day-cli`](https://crates.io/crates/day-cli) creates a project, builds and runs it on any
-target, tests it with scripted walkthroughs, and packages signed installers. Run
-`cargo install --locked day-cli`, then `day new`.
-
-## Part of Day
-
-This crate is one piece of [Day](https://daybrite.dev), a Rust framework for building apps
-out of each platform's own widgets — AppKit, UIKit, Android's Material widgets, GTK 4, Qt 6,
-WinUI, and ArkUI — from one codebase. When you write `button("Save")`, macOS shows an
-`NSButton` and Android shows a Material button. The framework also ships the tooling around
-the app: the `day` CLI, a VS Code extension, GitHub CI workflows, localization,
-accessibility, and dayscript automation.
-
-New to Day? Start at [daybrite.dev](https://daybrite.dev), or browse the
-[source repository](https://github.com/daybrite/day).
+[Source](https://github.com/daybrite/day/tree/main/crates/day) ·
+[Contributing](https://daybrite.dev/contributing/setup/) · [MPL-2.0
+license](https://github.com/daybrite/day/blob/main/LICENSE)

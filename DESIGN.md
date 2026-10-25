@@ -380,6 +380,11 @@ Day runtime dependencies), and `day-cli` (the `day` binary).
 
 ### §3.2 Crates
 
+Every workspace crate under `crates/` has a package-local `README.md` for Cargo and crates.io.
+These short introductions explain the crate's role, link to the public guides and API reference
+or source, and identify consumers when a crate is normally an indirect dependency. Detailed setup
+and platform contracts remain in the linked documentation.
+
 > [!IMPORTANT]
 > **Status: shipped differently.** This table reflects the crates as they exist. Relative to the
 > original design: `day-canvas` was folded into `day-pieces`/`day-spec` (the `DrawOp` types live
@@ -5283,6 +5288,10 @@ invoked, so the doctor probes and the target catalog are ITS — a combo or a pr
 the day under test knows about is not part of the selection. What the day under test supplies is
 the scaffold, the build, and the pack. For the scheduled `main` cells that means a brand-new target
 is checked once the driver (the published release) knows it too.
+The scheduled Android cells keep `android-material` as their matrix and SDK target, but
+pass the temporary `android-mdc` tooling alias to the published driver until its target
+catalog supports the new name. The driver validates that name before installing `main`;
+the current CLI accepts the alias for the delegated scaffold, build, and pack commands.
 
 `--strict` fails on the skips this machine could have prevented — a missing build prerequisite, a
 missing packaging tool — and reports the combo ones before building rather than after, since no
@@ -8329,7 +8338,15 @@ that takes a drop (the pure `regroup_gap`, unit-tested in day-toolkit-appkit) an
 `Prompt::ok_label` and `cancel_label` let an application supply localized command labels for
 native URL/input sheets while retaining the existing awaitable cancel/dismiss contract.
 
-### GTK list selection synchronization
+### Native tree and list selection synchronization
+
+WinUI native tree reloads clear `SelectedNodes` while the old nodes are still attached,
+before clearing their content or `RootNodes`. WinUI owns reference-tracker subscriptions on
+selected nodes; detaching them first can corrupt its native heap when selection is cleared
+later. Reload notifications remain suppressed, and the Rust adapter restores the saved token
+selection after adding replacement nodes. The `day-toolkit-xaml-sys` `native_tree_reload`
+test exercises repeated selected hierarchical reloads through the real Windows message loop;
+the Windows backend CI job runs it with the `winui` feature.
 
 GTK recycling lists retain a native `GtkSingleSelection`, the last requested row index, and
 a suppression flag in their host-lifetime list state. `ListPatch::Selected` defers application

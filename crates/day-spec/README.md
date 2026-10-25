@@ -1,33 +1,32 @@
 <!--
 Copyright © The Daybrite Project
-SPDX-License-Identifier: CC-BY-SA-4.0
+SPDX-License-Identifier: MPL-2.0
 -->
 
 # day-spec
 
-The contract between Day's engine and its native backends.
+Shared contracts between Day’s runtime and its toolkit implementations.
 
-Day runs on seven native toolkits, and every backend implements the same Rust trait:
-`Toolkit`, defined here. This crate holds that trait and everything both sides must agree
-on — the vocabulary of built-in pieces, the typed properties that describe them, the
-events that flow back from native widgets, and the registry that lets other crates plug in
-renderers of their own.
+[Day](https://daybrite.dev/docs/) is a Rust framework for building apps with native desktop and
+mobile controls, plus HTML controls on the web.
 
-The split is deliberate. Backends depend on `day-spec` and nothing else of Day, which
-keeps each one small and makes the headless test backend a true stand-in for the real
-ones.
+> [!NOTE]
+> **Usually an indirect dependency.** You are unlikely to import this crate directly in an app.
+> [`day-core`](https://github.com/daybrite/day/tree/main/crates/day-core) and
+> [`day-toolkit-appkit`](https://github.com/daybrite/day/tree/main/crates/day-toolkit-appkit) use it
+> as part of their implementation.
 
-App code never uses this crate directly; its types arrive re-exported through
-[`day`](https://crates.io/crates/day).
+It defines toolkit operations, native events, capability reporting, and the value types passed
+between the runtime and controls. Direct use is intended for toolkit and extension authors;
+applications use the APIs exposed by [`day`](https://github.com/daybrite/day/tree/main/crates/day).
 
-## Part of Day
+## Documentation
 
-This crate is one piece of [Day](https://daybrite.dev), a Rust framework for building apps
-out of each platform's own widgets — AppKit, UIKit, Android's Material widgets, GTK 4, Qt 6,
-WinUI, and ArkUI — from one codebase. When you write `button("Save")`, macOS shows an
-`NSButton` and Android shows a Material button. The framework also ships the tooling around
-the app: the `day` CLI, a VS Code extension, GitHub CI workflows, localization,
-accessibility, and dayscript automation.
+- [Platform capabilities](https://daybrite.dev/docs/reference/platforms/)
+- [Framework architecture](https://daybrite.dev/contributing/architecture/)
+- [Writing Day extensions](https://daybrite.dev/contributing/extending/)
+- [Rust API](https://daybrite.dev/api/day_spec/index.html)
 
-New to Day? Start at [daybrite.dev](https://daybrite.dev), or browse the
-[source repository](https://github.com/daybrite/day).
+[Source](https://github.com/daybrite/day/tree/main/crates/day-spec) ·
+[Contributing](https://daybrite.dev/contributing/setup/) · [MPL-2.0
+license](https://github.com/daybrite/day/blob/main/LICENSE)

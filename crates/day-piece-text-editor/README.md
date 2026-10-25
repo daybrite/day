@@ -1,74 +1,31 @@
 <!--
 Copyright © The Daybrite Project
-SPDX-License-Identifier: CC-BY-SA-4.0
+SPDX-License-Identifier: MPL-2.0
 -->
 
 # day-piece-text-editor
 
-A styled-text editor — bold, italic, underline, strikethrough, size, text and highlight
-color, plus paragraph alignment, indent, spacing and list markers — bound two-way to a
-`Signal<StyledText>`.
+Edit styled text with the platform’s native editor inside a Day app.
 
-`text_editor(doc)` is the platform's own rich-text view: `NSTextView` on macOS,
-`UITextView` on iOS, `GtkTextView` over a tag table, `QTextEdit`, an Android `EditText`
-over its live `SpannableStringBuilder`, a WinUI `RichEditBox` driven through its Text
-Object Model, the ArkTS `RichEditor` on HarmonyOS, and a `contenteditable` element on the
-web. There is no drawn fallback and there must not be one: IME composition, bidirectional
-cursor movement, the platform's undo stack, dictation, autocorrect, touch selection
-handles and the accessibility tree all come from the real control, and all of them break
-invisibly in a canvas — for the users least able to work around it.
+[Day](https://daybrite.dev/docs/) is a Rust framework for building apps with native desktop and
+mobile controls, plus HTML controls on the web.
 
-The document is `StyledText`, the same type Day's labels render and `.markdown()`
-produces, so a toolbar is ordinary Rust over the bound signal:
+It binds the document and selection to reactive state. Formatting support differs by toolkit; the
+reference lists those differences. Use Day’s text-area component for plain text.
 
-```rust
-let doc = Signal::new(StyledText::markdown("**Hello**, _world_.", Font::Body));
-let sel = Signal::new(0..0);
+## Use
 
-column((
-    button("B").action(move || doc.update(|d| {
-        let on = !d.style_of(sel.get_untracked(), Font::Body).bold();
-        d.apply(sel.get_untracked(), Font::Body, move |s| s.set_bold(on));
-    })),
-    text_editor(doc).selection(sel).min_lines(8),
-))
-```
+Enable `text-editor` on your existing [`day`](https://github.com/daybrite/day/tree/main/crates/day)
+dependency. Day forwards the selected toolkit feature to this component. The setup guide also covers
+direct use by extension crates.
 
-Querying the selection's style, applying one, splitting runs at the boundaries and reading
-a mixed state back for an indeterminate toolbar button are all pure functions on the
-document — no controller, no round trip into the toolkit, identical on every target, and
-testable on the headless one. `StyledText` also imports and exports Markdown, HTML and
-RTF, so "open", "save" and "paste as Markdown" are one call each.
+## Documentation
 
-For code, the piece carries its own tokenizers (JSON, XML, GraphQL, Rust, and `${[ … ]}`
-template tags) as runs a live highlighter pushes back on every keystroke without moving the
-caret, a `.single_line()` mode that is a styled text field (Enter submits), and a `.code()`
-mode where Tab indents, Enter keeps the indentation and brackets close themselves — each
-insertion going through the platform's own editing path, so undo sees it as typing:
+- [Setup and component reference](https://daybrite.dev/docs/reference/texteditor/)
+- [Plain-text editing](https://daybrite.dev/docs/reference/textarea/)
+- [Compose an interface](https://daybrite.dev/docs/explanation/pieces/)
+- [Rust API](https://daybrite.dev/api/day_piece_text_editor/index.html)
 
-```rust
-use day_piece_text_editor::highlight::{Language, Palette, highlighter};
-
-text_editor_text(body)      // over a `Signal<String>` or a day-model field
-    .code()
-    .highlight(highlighter(Language::Json, Palette::default(), true))
-```
-
-See `docs/texteditor.md` in the Day repository for the per-toolkit table, the attribute
-ownership rule the piece is built on, and what each platform cannot represent.
-
-Pieces are Day's reusable UI components, shipped as ordinary crates: one Rust API in
-front, a real native control per platform behind it. Enable the backends you build for
-with cargo features, and `day build` wires up the native side automatically.
-
-## Part of Day
-
-This crate is one piece of [Day](https://daybrite.dev), a Rust framework for building apps
-out of each platform's own widgets — AppKit, UIKit, Android's Material widgets, GTK 4, Qt 6,
-WinUI, and ArkUI — from one codebase. When you write `button("Save")`, macOS shows an
-`NSButton` and Android shows a Material button. The framework also ships the tooling around
-the app: the `day` CLI, a VS Code extension, GitHub CI workflows, localization,
-accessibility, and dayscript automation.
-
-New to Day? Start at [daybrite.dev](https://daybrite.dev), or browse the
-[source repository](https://github.com/daybrite/day).
+[Source](https://github.com/daybrite/day/tree/main/crates/day-piece-text-editor) ·
+[Contributing](https://daybrite.dev/contributing/setup/) · [MPL-2.0
+license](https://github.com/daybrite/day/blob/main/LICENSE)

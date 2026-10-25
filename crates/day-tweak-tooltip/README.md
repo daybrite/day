@@ -1,30 +1,36 @@
 <!--
 Copyright © The Daybrite Project
-SPDX-License-Identifier: CC-BY-SA-4.0
+SPDX-License-Identifier: MPL-2.0
 -->
 
 # day-tweak-tooltip
 
-Give any Day piece a native help tooltip: `.tooltip("Save your changes (⌘S)")` on any
-`button(...)`, `label(...)`, or other piece. It shows on hover on macOS and GTK, and on
-long-press on Android.
+Attach native help text to Day components.
 
-The interesting part is the three access tiers behind one modifier: objc2 (`NSView.setToolTip:`),
-gtk4-rs (`GtkWidget.set_tooltip_text`), and JNI (`View.setTooltipText`). On every other toolkit
-`.tooltip(...)` quietly does nothing, so your app code stays free of platform checks.
+[Day](https://daybrite.dev/docs/) is a Rust framework for building apps with native desktop and
+mobile controls, plus HTML controls on the web.
 
-Tweaks are Day's smallest kind of extension: a little crate that adjusts the native widget
-behind a built-in piece. This one is a good mid-size example — one modifier, three native APIs,
-no companion C++ shim.
+The modifier uses AppKit and GTK hover tooltips and Material long-press tooltips. Other toolkits
+leave the component unchanged. Supply generated localized text, and keep essential instructions
+visible without relying on a tooltip.
 
-## Part of Day
+## Use
 
-This crate is one piece of [Day](https://daybrite.dev), a Rust framework for building apps
-out of each platform's own widgets — AppKit, UIKit, Android's Material widgets, GTK 4, Qt 6,
-WinUI, and ArkUI — from one codebase. When you write `button("Save")`, macOS shows an
-`NSButton` and Android shows a Material button. The framework also ships the tooling around
-the app: the `day` CLI, a VS Code extension, GitHub CI workflows, localization,
-accessibility, and dayscript automation.
+Add this crate to the app’s dependencies and forward the matching toolkit feature as described in
+the tweak guide:
 
-New to Day? Start at [daybrite.dev](https://daybrite.dev), or browse the
-[source repository](https://github.com/daybrite/day).
+```toml
+[dependencies]
+day-tweak-tooltip = { git = "https://github.com/daybrite/day.git" }
+```
+
+## Documentation
+
+- [Use and configure tweaks](https://daybrite.dev/docs/how-to/tweaks/)
+- [Tweak contracts and examples](https://daybrite.dev/docs/reference/tweaks/)
+- [Accessibility](https://daybrite.dev/docs/reference/accessibility/)
+- [Rust API source](https://github.com/daybrite/day/blob/main/crates/day-tweak-tooltip/src/lib.rs)
+
+[Source](https://github.com/daybrite/day/tree/main/crates/day-tweak-tooltip) ·
+[Contributing](https://daybrite.dev/contributing/setup/) · [MPL-2.0
+license](https://github.com/daybrite/day/blob/main/LICENSE)

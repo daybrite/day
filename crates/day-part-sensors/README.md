@@ -1,30 +1,36 @@
 <!--
 Copyright © The Daybrite Project
-SPDX-License-Identifier: CC-BY-SA-4.0
+SPDX-License-Identifier: MPL-2.0
 -->
 
 # day-part-sensors
 
-Subscribe to accelerometer, gyroscope, and magnetometer events with `watch(kind, callback)`.
-Dropping the last watch releases the native source. Native callbacks use a background dispatcher;
-web callbacks run on the browser thread. Slow consumers receive the newest pending reading.
-Pass `kind.with_calibration(Calibration::Uncalibrated)` to select an uncalibrated source, and
-query `is_available` for that mode before offering it. Kind-only calls use the normal platform
-source; calibrated and uncalibrated subscriptions have independent lifetimes.
+Subscribe to motion and magnetic-field measurements.
 
-Supported sources are CoreMotion on iOS, SensorManager on Android, SensorServiceKit on HarmonyOS,
-WinRT on Windows, and DeviceMotionEvent on the web. Desktop Linux and macOS report unavailable.
-Android needs Day's JVM host and web needs the day-toolkit-dom host shim; the other implementations are
-independent of Day UI toolkits. See the [sensor API](../../docs/sensors.md) for units and permissions.
+[Day](https://daybrite.dev/docs/) is a Rust framework for building apps with native desktop and
+mobile controls, plus HTML controls on the web.
 
-## Part of Day
+Readings arrive through callbacks until the subscription ends. Native callbacks run on a background
+dispatcher, so send UI updates through a reactive setter. Slow consumers may receive coalesced
+readings; this API is for live state rather than lossless recording. macOS and Linux currently
+report unavailable.
 
-This crate is one piece of [Day](https://daybrite.dev), a Rust framework for building apps
-out of each platform's own widgets — AppKit, UIKit, Android's Material widgets, GTK 4, Qt 6,
-WinUI, and ArkUI — from one codebase. When you write `button("Save")`, macOS shows an
-`NSButton` and Android shows a Material button. The framework also ships the tooling around
-the app: the `day` CLI, a VS Code extension, GitHub CI workflows, localization,
-accessibility, and dayscript automation.
+## Use
 
-New to Day? Start at [daybrite.dev](https://daybrite.dev), or browse the
-[source repository](https://github.com/daybrite/day).
+Add this entry to your app’s `Cargo.toml`, using the same Day source as the rest of the app:
+
+```toml
+[dependencies]
+day-part-sensors = { git = "https://github.com/daybrite/day.git" }
+```
+
+## Documentation
+
+- [Usage and platform limits](https://daybrite.dev/docs/reference/sensors/)
+- [Background work and UI state](https://daybrite.dev/docs/explanation/async/)
+- [Using platform services](https://daybrite.dev/docs/reference/parts/)
+- [Rust API](https://daybrite.dev/api/day_part_sensors/index.html)
+
+[Source](https://github.com/daybrite/day/tree/main/crates/day-part-sensors) ·
+[Contributing](https://daybrite.dev/contributing/setup/) · [MPL-2.0
+license](https://github.com/daybrite/day/blob/main/LICENSE)

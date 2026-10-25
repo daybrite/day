@@ -1,35 +1,31 @@
 <!--
 Copyright © The Daybrite Project
-SPDX-License-Identifier: CC-BY-SA-4.0
+SPDX-License-Identifier: MPL-2.0
 -->
 
 # day-macros
 
-The procedural macros behind Day, re-exported by the `day` crate. You depend on `day`, not
-on this crate.
+Compile-time macros used by Day’s framework and extension crates.
 
-- `build_path!("M 12,21 C …")` turns SVG path data into a `PathBuilder` method chain at
-  compile time. The whole SVG 1.1 path grammar is accepted, arcs become cubics once rather
-  than on every draw, and malformed data is a compile error naming the offending character.
-- `#[derive(Observable)]` gives a struct typed per-field accessors on every store that
-  holds it, so a view can observe `store.name()` instead of the whole record.
-- `observable_impls!` emits the same accessors for a struct that is described rather than
-  derived. A derive layered on `Observable` expands to it, which is how `#[derive(Model)]`
-  in `day-persistence` gets its observable half.
-- `#[day::test]` marks a function that builds a conformance `Case` as a Day test, so
-  `day test` and the mock harness find it.
+[Day](https://daybrite.dev/docs/) is a Rust framework for building apps with native desktop and
+mobile controls, plus HTML controls on the web.
 
-The crate has no dependencies. Each macro reads a literal or a struct definition and emits
-Rust as text, so there is no parser framework to compile.
+> [!NOTE]
+> **Usually an indirect dependency.** You are unlikely to import this crate directly in an app.
+> [`day`](https://github.com/daybrite/day/tree/main/crates/day) and
+> [`day-core`](https://github.com/daybrite/day/tree/main/crates/day-core) use it as part of their
+> implementation.
 
-## Part of Day
+They generate builder forwarding, observable-model accessors, SVG path construction, and
+native-language bindings. Use re-exports from the application or extension API when available;
+depend on this crate directly when implementing an extension that needs its macros.
 
-This crate is one piece of [Day](https://daybrite.dev), a Rust framework for building apps
-out of each platform's own widgets — AppKit, UIKit, Android's Material widgets, GTK 4, Qt 6,
-WinUI, and ArkUI — from one codebase. When you write `button("Save")`, macOS shows an
-`NSButton` and Android shows a Material button. The framework also ships the tooling around
-the app: the `day` CLI, a VS Code extension, GitHub CI workflows, localization,
-accessibility, and dayscript automation.
+## Documentation
 
-New to Day? Start at [daybrite.dev](https://daybrite.dev), or browse the
-[source repository](https://github.com/daybrite/day).
+- [Observable models](https://daybrite.dev/docs/explanation/model/)
+- [Writing Day extensions](https://daybrite.dev/contributing/extending/)
+- [Rust API source](https://github.com/daybrite/day/blob/main/crates/day-macros/src/lib.rs)
+
+[Source](https://github.com/daybrite/day/tree/main/crates/day-macros) ·
+[Contributing](https://daybrite.dev/contributing/setup/) · [MPL-2.0
+license](https://github.com/daybrite/day/blob/main/LICENSE)

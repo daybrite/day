@@ -1,34 +1,31 @@
 <!--
 Copyright © The Daybrite Project
-SPDX-License-Identifier: CC-BY-SA-4.0
+SPDX-License-Identifier: MPL-2.0
 -->
 
 # day-script
 
-The engine that lets a script drive a running Day app: tap buttons, type text, navigate,
-check what's on screen, and take screenshots.
+The embedded automation engine for Day’s scripted UI tests.
 
-Scripts are plain YAML. `day launch --script walkthrough.yaml` starts the app with the
-engine listening, runs the steps in order, and fails loudly when an assertion doesn't hold
-— which is how Day's own demo app is tested on every platform in CI. The same engine
-answers `day drive`, which runs steps one at a time so a person or a coding agent can work
-against a live app.
+[Day](https://daybrite.dev/docs/) is a Rust framework for building apps with native desktop and
+mobile controls, plus HTML controls on the web.
 
-The engine listens only when invited: it starts its local server only if the launcher put
-a port and a one-time token in the environment. An ordinary run of your app carries no
-server at all.
+> [!NOTE]
+> **Usually an indirect dependency.** You are unlikely to import this crate directly in an app.
+> [`day`](https://github.com/daybrite/day/tree/main/crates/day) uses it as part of its
+> implementation.
 
-It is embedded automatically by [`day`](https://crates.io/crates/day) and driven by
-[`day-cli`](https://crates.io/crates/day-cli).
+It executes dayscript steps against a running app, including input, assertions, and screenshots. The
+[`day-cli`](https://github.com/daybrite/day/tree/main/crates/day-cli) tool starts test sessions and
+communicates with the engine. For application tests, write dayscript files and use the CLI rather
+than integrating this engine yourself.
 
-## Part of Day
+## Documentation
 
-This crate is one piece of [Day](https://daybrite.dev), a Rust framework for building apps
-out of each platform's own widgets — AppKit, UIKit, Android's Material widgets, GTK 4, Qt 6,
-WinUI, and ArkUI — from one codebase. When you write `button("Save")`, macOS shows an
-`NSButton` and Android shows a Material button. The framework also ships the tooling around
-the app: the `day` CLI, a VS Code extension, GitHub CI workflows, localization,
-accessibility, and dayscript automation.
+- [Test an app with dayscript](https://daybrite.dev/docs/how-to/dayscript/)
+- [Automation and agent tools](https://daybrite.dev/docs/reference/for-agents/)
+- [Rust API](https://daybrite.dev/api/day_script/index.html)
 
-New to Day? Start at [daybrite.dev](https://daybrite.dev), or browse the
-[source repository](https://github.com/daybrite/day).
+[Source](https://github.com/daybrite/day/tree/main/crates/day-script) ·
+[Contributing](https://daybrite.dev/contributing/setup/) · [MPL-2.0
+license](https://github.com/daybrite/day/blob/main/LICENSE)

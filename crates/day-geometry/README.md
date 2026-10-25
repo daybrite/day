@@ -1,28 +1,31 @@
 <!--
 Copyright © The Daybrite Project
-SPDX-License-Identifier: CC-BY-SA-4.0
+SPDX-License-Identifier: MPL-2.0
 -->
 
 # day-geometry
 
-The small geometry types the rest of Day shares: `Point`, `Size`, `Rect`, `Insets`,
-`Color`, and friends.
+Geometry value types shared by Day’s layout, drawing, and toolkit APIs.
 
-All of them are plain `Copy` values measured in points (density-independent pixels); each
-native backend converts to device pixels at its own edge. The crate sits at the very
-bottom of Day's stack and depends on nothing.
+[Day](https://daybrite.dev/docs/) is a Rust framework for building apps with native desktop and
+mobile controls, plus HTML controls on the web.
 
-You'll rarely add it to a project yourself — it comes re-exported wherever you need it,
-most visibly through [`day`](https://crates.io/crates/day).
+> [!NOTE]
+> **Usually an indirect dependency.** You are unlikely to import this crate directly in an app.
+> [`day-core`](https://github.com/daybrite/day/tree/main/crates/day-core) and
+> [`day-spec`](https://github.com/daybrite/day/tree/main/crates/day-spec) use it as part of their
+> implementation.
 
-## Part of Day
+Points, sizes, rectangles, and related values use density-independent coordinates. Toolkits convert
+these values to device pixels. App code normally obtains the shared types through
+[`day`](https://github.com/daybrite/day/tree/main/crates/day).
 
-This crate is one piece of [Day](https://daybrite.dev), a Rust framework for building apps
-out of each platform's own widgets — AppKit, UIKit, Android's Material widgets, GTK 4, Qt 6,
-WinUI, and ArkUI — from one codebase. When you write `button("Save")`, macOS shows an
-`NSButton` and Android shows a Material button. The framework also ships the tooling around
-the app: the `day` CLI, a VS Code extension, GitHub CI workflows, localization,
-accessibility, and dayscript automation.
+## Documentation
 
-New to Day? Start at [daybrite.dev](https://daybrite.dev), or browse the
-[source repository](https://github.com/daybrite/day).
+- [Layout and sizing](https://daybrite.dev/docs/explanation/layout/)
+- [Canvas drawing](https://daybrite.dev/docs/reference/canvas/)
+- [Rust API](https://daybrite.dev/api/day_geometry/index.html)
+
+[Source](https://github.com/daybrite/day/tree/main/crates/day-geometry) ·
+[Contributing](https://daybrite.dev/contributing/setup/) · [MPL-2.0
+license](https://github.com/daybrite/day/blob/main/LICENSE)

@@ -1,29 +1,35 @@
 <!--
 Copyright © The Daybrite Project
-SPDX-License-Identifier: CC-BY-SA-4.0
+SPDX-License-Identifier: MPL-2.0
 -->
 
 # day-tweak-button-bezel
 
-Choose an AppKit bezel style for a stock Day button: `.bezel(Bezel::Textured)` and
-friends on any `button(...)`.
+Apply native AppKit bezel styles to Day buttons.
 
-It is macOS-only and amounts to a single native call — which is the point. This crate
-exists mainly as the smallest possible example of the tweak pattern, worth a read if you
-plan to write one.
+[Day](https://daybrite.dev/docs/) is a Rust framework for building apps with native desktop and
+mobile controls, plus HTML controls on the web.
 
-Tweaks are Day's smallest kind of extension: a little crate that adjusts the native widget
-behind a built-in piece. On platforms a tweak doesn't cover, it quietly does nothing, so
-your app code stays free of platform checks.
+This modifier works with AppKit. On other toolkits it leaves the component unchanged. Use it when a
+macOS-specific button treatment is needed.
 
-## Part of Day
+## Use
 
-This crate is one piece of [Day](https://daybrite.dev), a Rust framework for building apps
-out of each platform's own widgets — AppKit, UIKit, Android's Material widgets, GTK 4, Qt 6,
-WinUI, and ArkUI — from one codebase. When you write `button("Save")`, macOS shows an
-`NSButton` and Android shows a Material button. The framework also ships the tooling around
-the app: the `day` CLI, a VS Code extension, GitHub CI workflows, localization,
-accessibility, and dayscript automation.
+Add this crate to the app’s dependencies and forward the matching toolkit feature as described in
+the tweak guide:
 
-New to Day? Start at [daybrite.dev](https://daybrite.dev), or browse the
-[source repository](https://github.com/daybrite/day).
+```toml
+[dependencies]
+day-tweak-button-bezel = { git = "https://github.com/daybrite/day.git" }
+```
+
+## Documentation
+
+- [Use and configure tweaks](https://daybrite.dev/docs/how-to/tweaks/)
+- [Tweak contracts and examples](https://daybrite.dev/docs/reference/tweaks/)
+- [Buttons](https://daybrite.dev/docs/reference/buttons/)
+- [Rust API source](https://github.com/daybrite/day/blob/main/crates/day-tweak-button-bezel/src/lib.rs)
+
+[Source](https://github.com/daybrite/day/tree/main/crates/day-tweak-button-bezel) ·
+[Contributing](https://daybrite.dev/contributing/setup/) · [MPL-2.0
+license](https://github.com/daybrite/day/blob/main/LICENSE)

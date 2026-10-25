@@ -1,49 +1,41 @@
 <!--
 Copyright © The Daybrite Project
-SPDX-License-Identifier: CC-BY-SA-4.0
+SPDX-License-Identifier: MPL-2.0
 -->
 
 # day-cli
 
-The `day` command line: create, build, run, test, and package Day apps.
+Create, build, run, test, and package Day apps from the command line.
 
-```text
-day new app hello         # a working project: Day.toml, src/, a starter UI
-day launch -t macos-appkit -t android-material
-day launch --git https://github.com/daybrite/Day-Rise.git   # clone a repo and run its app
-day doctor                # what's installed, what's missing, how to fix it
-day doctor verify        # doctor, then scaffold + build + pack a test app for every target
-day pack -t macos-appkit  # a signed .dmg; .ipa, .apk, .flatpak, .msix, .hap per target
+[Day](https://daybrite.dev/docs/) is a Rust framework for building apps with native desktop and
+mobile controls, plus HTML controls on the web.
+
+The executable is named `day`. It coordinates Cargo and the selected platform’s build tools,
+prepares resources and translations, and runs scripted UI tests. Install the SDKs for your target
+before building.
+
+Use `android-material` for Android builds. The tooling still accepts `android-mdc` as a temporary
+deprecated alias.
+
+## Use
+
+Install the CLI from the current source, then create a project:
+
+```bash
+cargo install --locked --git https://github.com/daybrite/day.git day-cli
+day new app hello
+cd hello
+day doctor
 ```
 
-Building for seven toolkits normally means juggling seven build systems — cargo,
-xcodebuild, Gradle, hvigor, resource compilers, code signing. `day` drives all of them,
-in parallel when you ask for several targets at once, so a Day project keeps no platform
-build files of its own beyond the small checked-in scaffolds.
+Follow the first-app guide to build and launch on your target.
 
-It is also built for automation. Every command has a JSON output mode, `day drive` steps
-through a running app one action at a time (the tool coding agents use), and
-`day mcp-server` offers the same tools over the Model Context Protocol.
+## Documentation
 
-Install it with `cargo install --locked day-cli`, then run `day new`.
+- [Start with a Day app](https://daybrite.dev/docs/tutorials/first-app/)
+- [CLI commands](https://daybrite.dev/docs/reference/cli/)
+- [Build requirements](https://daybrite.dev/docs/reference/system-requirements/)
 
-## Part of Day
-
-This crate is one piece of [Day](https://daybrite.dev), a Rust framework for building apps
-out of each platform's own widgets — AppKit, UIKit, Android's Material widgets, GTK 4, Qt 6,
-WinUI, and ArkUI — from one codebase. When you write `button("Save")`, macOS shows an
-`NSButton` and Android shows a Material button. The framework also ships the tooling around
-the app: the `day` CLI, a VS Code extension, GitHub CI workflows, localization,
-accessibility, and dayscript automation.
-
-New to Day? Start at [daybrite.dev](https://daybrite.dev), or browse the
-[source repository](https://github.com/daybrite/day).
-
-## Android target naming
-
-Use `android-material` for the Android target and `material` for its toolkit and Cargo
-feature. The tooling temporarily accepts `android-mdc` and `mdc`, warns that they are
-deprecated, and writes canonical target names. Mixed spellings in target lists select one
-target; conflicting override keys are rejected. These aliases do not apply to Rust package
-names, imports, or Cargo features. They will be removed in the next announced breaking
-tooling release after one release of overlap.
+[Source](https://github.com/daybrite/day/tree/main/crates/day-cli) ·
+[Contributing](https://daybrite.dev/contributing/setup/) · [MPL-2.0
+license](https://github.com/daybrite/day/blob/main/LICENSE)

@@ -1,34 +1,31 @@
 <!--
 Copyright © The Daybrite Project
-SPDX-License-Identifier: CC-BY-SA-4.0
+SPDX-License-Identifier: MPL-2.0
 -->
 
 # day-script-protocol
 
-The types a dayscript is made of: the YAML document format and the JSON request and reply
-exchanged between the `day` CLI and a running app.
+Shared request, response, and YAML document types for Day’s UI automation.
 
-A `Step` is one operation (`tap`, `input`, `assert_text`, `screenshot`, `navigate`, and the
-rest), a `Request` carries one step plus the session token, and a `Reply` reports success,
-a retryable or final error, and any screenshot bytes. `Script::from_yaml` parses and
-validates a whole `flow:` document before anything runs, so a typo in step twelve is
-reported up front rather than after eleven steps have already run.
+[Day](https://daybrite.dev/docs/) is a Rust framework for building apps with native desktop and
+mobile controls, plus HTML controls on the web.
 
-The crate depends only on serde, JSON, and YAML. It links no UI, no localization, and no
-transport, which is what lets the CLI, the in-app engine, and any other tool that reads or
-writes dayscripts share one definition of every step. If you are building tooling that
-generates or inspects dayscripts, this is the crate to use. To run them, use
-[`day-script`](https://crates.io/crates/day-script) through
-[`day-cli`](https://crates.io/crates/day-cli).
+> [!NOTE]
+> **Usually an indirect dependency.** You are unlikely to import this crate directly in an app.
+> [`day-cli`](https://github.com/daybrite/day/tree/main/crates/day-cli) and
+> [`day-script`](https://github.com/daybrite/day/tree/main/crates/day-script) use it as part of
+> their implementation.
 
-## Part of Day
+The CLI and embedded engine use these types to exchange dayscript steps and results. Direct use is
+intended for tools that read, validate, or communicate using that protocol. For application testing,
+start with the dayscript guide.
 
-This crate is one piece of [Day](https://daybrite.dev), a Rust framework for building apps
-out of each platform's own widgets — AppKit, UIKit, Android's Material widgets, GTK 4, Qt 6,
-WinUI, and ArkUI — from one codebase. When you write `button("Save")`, macOS shows an
-`NSButton` and Android shows a Material button. The framework also ships the tooling around
-the app: the `day` CLI, a VS Code extension, GitHub CI workflows, localization,
-accessibility, and dayscript automation.
+## Documentation
 
-New to Day? Start at [daybrite.dev](https://daybrite.dev), or browse the
-[source repository](https://github.com/daybrite/day).
+- [Dayscript testing](https://daybrite.dev/docs/how-to/dayscript/)
+- [Automation tools](https://daybrite.dev/docs/reference/for-agents/)
+- [Rust API](https://daybrite.dev/api/day_script_protocol/index.html)
+
+[Source](https://github.com/daybrite/day/tree/main/crates/day-script-protocol) ·
+[Contributing](https://daybrite.dev/contributing/setup/) · [MPL-2.0
+license](https://github.com/daybrite/day/blob/main/LICENSE)

@@ -1,36 +1,30 @@
 <!--
 Copyright © The Daybrite Project
-SPDX-License-Identifier: CC-BY-SA-4.0
+SPDX-License-Identifier: MPL-2.0
 -->
 
 # day-vector
 
-Day's vector-graphics engine: parse an SVG, rasterize it to PNG, and write it out in the
-icon formats each platform wants.
+SVG processing and platform icon generation used by Day’s tooling.
 
-The parser and rasterizer are [resvg](https://crates.io/crates/resvg) with text shaping
-turned off, so sources must carry outlined text. Everything around it is written here
-because the formats are small: `.ico` and `.icns` are PNG containers, an Android
-VectorDrawable is a constrained XML form of the SVG tree, a XAML `Geometry` is the same
-path data in another spelling, and an SF Symbol template is cut apart and reassembled as
-text. The crate also classifies a source as plain SVG, an SF Symbol template, or a
-`.symbolset` bundle, and extracts one weight-and-scale variant from a template as a
-standalone glyph.
+[Day](https://daybrite.dev/docs/) is a Rust framework for building apps with native desktop and
+mobile controls, plus HTML controls on the web.
 
-The `day` CLI uses it at build time: `day icon build` renders an app-icon master into
-every platform's icon set, and resource staging converts `resource/vectors/` into the form
-each toolkit loads natively. Nothing in the crate touches the filesystem or a toolkit, so
-the same byte-in, byte-out functions compile on wasm and can rasterize a downloaded SVG
-inside an app.
+> [!NOTE]
+> **Usually an indirect dependency.** You are unlikely to import this crate directly in an app.
+> [`day-cli`](https://github.com/daybrite/day/tree/main/crates/day-cli) uses it as part of its
+> implementation.
 
-## Part of Day
+It parses and rasterizes vector artwork and writes formats such as Android VectorDrawable, Windows
+icons, and macOS icons. App developers normally bundle vector assets and generate app icons through
+the CLI. Direct use is useful for tools that need the underlying conversion functions.
 
-This crate is one piece of [Day](https://daybrite.dev), a Rust framework for building apps
-out of each platform's own widgets — AppKit, UIKit, Android's Material widgets, GTK 4, Qt 6,
-WinUI, and ArkUI — from one codebase. When you write `button("Save")`, macOS shows an
-`NSButton` and Android shows a Material button. The framework also ships the tooling around
-the app: the `day` CLI, a VS Code extension, GitHub CI workflows, localization,
-accessibility, and dayscript automation.
+## Documentation
 
-New to Day? Start at [daybrite.dev](https://daybrite.dev), or browse the
-[source repository](https://github.com/daybrite/day).
+- [Vector resources](https://daybrite.dev/docs/reference/vectors/)
+- [Create app icons](https://daybrite.dev/docs/how-to/icons/)
+- [Rust API](https://daybrite.dev/api/day_vector/index.html)
+
+[Source](https://github.com/daybrite/day/tree/main/crates/day-vector) ·
+[Contributing](https://daybrite.dev/contributing/setup/) · [MPL-2.0
+license](https://github.com/daybrite/day/blob/main/LICENSE)

@@ -1,33 +1,35 @@
 <!--
 Copyright © The Daybrite Project
-SPDX-License-Identifier: CC-BY-SA-4.0
+SPDX-License-Identifier: MPL-2.0
 -->
 
 # day-part-downloads
 
-A download manager for large files, over day-part-http's client.
+Manage file downloads with progress, pause, resume, and integrity checks.
 
-Downloads wait in a queue, and each one writes to a partial file beside a journal. A pause, a
-dropped connection or a relaunch continues from the partial file with a validated `Range`
-request. A finished file is checked against its expected length and SHA-256 before it moves to
-its destination. Transient failures retry with backoff that honors `Retry-After`, and a watch
-reports progress about ten times a second.
+[Day](https://daybrite.dev/docs/) is a Rust framework for building apps with native desktop and
+mobile controls, plus HTML controls on the web.
 
-A download can also be handed to the OS: a background `URLSession` on macOS and iOS,
-`DownloadManager` on Android, the request agent on HarmonyOS, and the Background Intelligent
-Transfer Service on Windows. The OS then keeps transferring while the app is suspended or closed.
+It builds on [`day-part-http`](https://github.com/daybrite/day/tree/main/crates/day-part-http) for
+transfers and offers platform download-service integration where available. Resume behavior depends
+on the server, and background transfer support depends on the operating system.
 
-Parts are Day's small capability crates: a plain Rust API over something the platform already
-provides. This one works in any Rust program, with or without a Day app around it. The
-[reference](https://github.com/daybrite/day/blob/main/docs/downloads.md) covers every option.
+## Use
 
-## Part of Day
+Add this entry to your app’s `Cargo.toml`, using the same Day source as the rest of the app:
 
-This crate is one piece of [Day](https://daybrite.dev), a Rust framework for building apps out of
-each platform's own widgets (AppKit, UIKit, Android's Material widgets, GTK 4, Qt 6, WinUI, and
-ArkUI) from one codebase. When you write `button("Save")`, macOS shows an `NSButton` and Android
-shows a Material button. The framework also ships the tooling around the app: the `day` CLI, a VS
-Code extension, GitHub CI workflows, localization, accessibility, and dayscript automation.
+```toml
+[dependencies]
+day-part-downloads = { git = "https://github.com/daybrite/day.git" }
+```
 
-New to Day? Start at [daybrite.dev](https://daybrite.dev), or browse the
-[source repository](https://github.com/daybrite/day).
+## Documentation
+
+- [Usage and platform limits](https://daybrite.dev/docs/reference/downloads/)
+- [HTTP networking](https://daybrite.dev/docs/reference/http/)
+- [Using platform services](https://daybrite.dev/docs/reference/parts/)
+- [Rust API](https://daybrite.dev/api/day_part_downloads/index.html)
+
+[Source](https://github.com/daybrite/day/tree/main/crates/day-part-downloads) ·
+[Contributing](https://daybrite.dev/contributing/setup/) · [MPL-2.0
+license](https://github.com/daybrite/day/blob/main/LICENSE)

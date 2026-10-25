@@ -1,34 +1,45 @@
 <!--
 Copyright © The Daybrite Project
-SPDX-License-Identifier: CC-BY-SA-4.0
+SPDX-License-Identifier: MPL-2.0
 -->
 
 # day-build
 
-Build-script codegen for Day apps: every bundled resource becomes a typed Rust constant.
+Generate typed resource and localization accessors for a Day app’s build script.
 
-An app's `build.rs` calls `day_build::prebuild_project()`, which performs the resource pass —
-scanning the project's
-`resource/` folder and generates a `res` module: a constant per image
-(`res::images::logo`), per data file, and per bundled font, plus one function per
-localized string — `res::str::greeting(name)` instead of a bare string key. Rename a file
-or forget a translation argument and the app stops compiling, which is exactly when you
-want to hear about it.
+[Day](https://daybrite.dev/docs/) is a Rust framework for building apps with native desktop and
+mobile controls, plus HTML controls on the web.
 
-The crate also owns the naming rules the `day` CLI follows when it stages resources into
-each platform's native format, so the constant in your code and the file on the device
-can never disagree.
+It scans the app’s resource catalogs and produces symbolic accessors for strings, images, vectors,
+fonts, and assets. It also generates native-language bindings used by Day extensions. Projects
+created by [`day-cli`](https://github.com/daybrite/day/tree/main/crates/day-cli) already include the
+build-script setup.
 
-It is a normal `[build-dependencies]` entry, generated for you by `day new`.
+## Use
 
-## Part of Day
+Use it as a build dependency in `Cargo.toml`:
 
-This crate is one piece of [Day](https://daybrite.dev), a Rust framework for building apps
-out of each platform's own widgets — AppKit, UIKit, Android's Material widgets, GTK 4, Qt 6,
-WinUI, and ArkUI — from one codebase. When you write `button("Save")`, macOS shows an
-`NSButton` and Android shows a Material button. The framework also ships the tooling around
-the app: the `day` CLI, a VS Code extension, GitHub CI workflows, localization,
-accessibility, and dayscript automation.
+```toml
+[build-dependencies]
+day-build = { git = "https://github.com/daybrite/day.git" }
+```
 
-New to Day? Start at [daybrite.dev](https://daybrite.dev), or browse the
-[source repository](https://github.com/daybrite/day).
+A `build.rs` entry point:
+
+```rust
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    day_build::prebuild_project()?;
+    Ok(())
+}
+```
+
+## Documentation
+
+- [Bundled resources](https://daybrite.dev/docs/how-to/resources/)
+- [Localization](https://daybrite.dev/docs/how-to/localization/)
+- [Project structure](https://daybrite.dev/docs/reference/project-structure/)
+- [Rust API](https://daybrite.dev/api/day_build/index.html)
+
+[Source](https://github.com/daybrite/day/tree/main/crates/day-build) ·
+[Contributing](https://daybrite.dev/contributing/setup/) · [MPL-2.0
+license](https://github.com/daybrite/day/blob/main/LICENSE)
