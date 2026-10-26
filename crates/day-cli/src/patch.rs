@@ -784,7 +784,14 @@ fn settle(
         );
         return Ok(written);
     }
-    let unused = unused_entries(root);
+    // `cargo metadata --all-features` turns on the project's own features only. A piece's
+    // backend feature that `day build` adds (`<piece>/<toolkit>`) can bring in an optional crate
+    // that resolution never saw, so a crate the manifests name stays in the table.
+    let named = registry_deps(root);
+    let unused: BTreeSet<String> = unused_entries(root)
+        .into_iter()
+        .filter(|n| !named.contains(n))
+        .collect();
     if unused.is_empty() {
         return Ok(written);
     }
@@ -1323,15 +1330,10 @@ fn crates_io_repository(name: &str) -> Result<Option<String>, String> {
 }
 
 /// The `day-*` crates a checkout's manifests ask crates.io for: plain versions, in every
-/// dependency table, of the root package, its workspace, and every package [`checkout_crates`]
-/// counts as the checkout's.
+/// dependency table of each package [`manifest_dirs`] reads.
 fn registry_deps(root: &Path) -> BTreeSet<String> {
-    let mut dirs = vec![root.to_path_buf()];
-    if let Ok(crates) = checkout_crates(root) {
-        dirs.extend(crates.into_values());
-    }
     let mut out = BTreeSet::new();
-    for dir in dirs {
+    for dir in manifest_dirs(root) {
         let Some(doc) = patch_doc(&dir.join("Cargo.toml")) else {
             continue;
         };
@@ -1353,6 +1355,36 @@ fn registry_deps(root: &Path) -> BTreeSet<String> {
                 }
             }
         }
+    }
+    out
+}
+
+/// The packages whose manifests say what a checkout takes from crates.io: the root package, its
+/// workspace, every package [`checkout_crates`] counts as the checkout's, and every package any
+/// of those reaches through a `path` dependency. A piece's demo reaches the piece itself that way
+/// (`path = ".."`), and the piece's own requirements are part of the demo's graph.
+fn manifest_dirs(root: &Path) -> Vec<PathBuf> {
+    let mut queue = vec![root.to_path_buf()];
+    if let Ok(crates) = checkout_crates(root) {
+        queue.extend(crates.into_values());
+    }
+    let mut seen = BTreeSet::new();
+    let mut out = Vec::new();
+    while let Some(dir) = queue.pop() {
+        if !seen.insert(dir.canonicalize().unwrap_or_else(|_| dir.clone())) {
+            continue;
+        }
+        let Some(doc) = patch_doc(&dir.join("Cargo.toml")) else {
+            continue;
+        };
+        for table in dependency_tables(&doc) {
+            for (_, spec) in table.as_table().into_iter().flatten() {
+                if let Some(path) = spec.get("path").and_then(|p| p.as_str()) {
+                    queue.push(dir.join(path));
+                }
+            }
+        }
+        out.push(dir);
     }
     out
 }
@@ -2920,6 +2952,45 @@ day-build = "0.6"
         assert_eq!(
             deps,
             ["day-app", "day-build", "day-model", "day-part-device"],
+            "{deps:?}"
+        );
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    /// A piece's demo reaches the piece through `path = ".."` and its gallery through a sibling
+    /// path, so the piece's own requirements (an optional web view behind a backend feature)
+    /// count as the demo's.
+    #[test]
+    fn registry_deps_follow_path_dependencies() {
+        let tmp = std::env::temp_dir().join(format!("day-patch-pathdeps-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        for dir in ["demo", "gallery"] {
+            std::fs::create_dir_all(tmp.join(dir)).unwrap();
+        }
+        std::fs::write(
+            tmp.join("Cargo.toml"),
+            "[package]\nname = \"day-piece-lottie\"\nversion = \"0.4.3\"\n\n[features]\n\
+             gtk = [\"dep:day-piece-webview\"]\n\n[dependencies]\n\
+             day-core = \"0.6\"\nday-piece-webview = { version = \"0.4\", optional = true }\n",
+        )
+        .unwrap();
+        std::fs::write(
+            tmp.join("gallery/Cargo.toml"),
+            "[package]\nname = \"gallery\"\nversion = \"0.1.0\"\n\n[dependencies]\n\
+             day-piece-lottie = { path = \"..\" }\n",
+        )
+        .unwrap();
+        std::fs::write(
+            tmp.join("demo/Cargo.toml"),
+            "[package]\nname = \"demo\"\nversion = \"0.1.0\"\n\n[dependencies]\n\
+             day = { package = \"day-app\", version = \"0.6\" }\n\
+             gallery = { path = \"../gallery\" }\n\n[workspace]\n",
+        )
+        .unwrap();
+        let deps: Vec<String> = registry_deps(&tmp.join("demo")).into_iter().collect();
+        assert_eq!(
+            deps,
+            ["day-app", "day-core", "day-piece-webview"],
             "{deps:?}"
         );
         let _ = std::fs::remove_dir_all(&tmp);

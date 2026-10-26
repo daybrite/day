@@ -3287,16 +3287,20 @@ mod error_tests {
                 _ => unreachable!("parsed a build command"),
             }
         }
-        let cli = Cli::try_parse_from(["day", "launch", "-t", "dom", "--target=uikit", "-tgtk"])
+        let cli = Cli::try_parse_from(["day", "launch", "-t", "dom", "--target=uikit"])
             .expect("shorthand parses");
         match cli.command {
-            Cmd::Launch { platforms, .. } => {
-                assert_eq!(&platforms[..2], ["web-dom", "ios-uikit"]);
-                if crate::targets::host_os() != "other" {
-                    assert_eq!(platforms[2], format!("{}-gtk", crate::targets::host_os()));
-                }
-            }
+            Cmd::Launch { platforms, .. } => assert_eq!(platforms, ["web-dom", "ios-uikit"]),
             _ => unreachable!("parsed a launch command"),
+        }
+        // GTK has a target on macOS and Linux only; elsewhere `-t gtk` asks for the full name.
+        let gtk = Cli::try_parse_from(["day", "launch", "-tgtk"]);
+        match crate::targets::host_os() {
+            host @ ("macos" | "linux") => match gtk.expect("gtk parses").command {
+                Cmd::Launch { platforms, .. } => assert_eq!(platforms, [format!("{host}-gtk")]),
+                _ => unreachable!("parsed a launch command"),
+            },
+            _ => assert!(gtk.is_err(), "no GTK target on this host"),
         }
         let cli =
             Cli::try_parse_from(["day", "devices", "list", "-t", "material"]).expect("list parses");

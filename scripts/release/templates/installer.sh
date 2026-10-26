@@ -76,9 +76,9 @@ fi
 
 # --- verify -------------------------------------------------------------------
 if command -v sha256sum >/dev/null 2>&1; then
-  actual="$(sha256sum "$tmp/$artifact" | cut -d' ' -f1)"
+  actual="$(sha256sum < "$tmp/$artifact" | cut -d' ' -f1)"
 elif command -v shasum >/dev/null 2>&1; then
-  actual="$(shasum -a 256 "$tmp/$artifact" | cut -d' ' -f1)"
+  actual="$(shasum -a 256 < "$tmp/$artifact" | cut -d' ' -f1)"
 else
   err "need sha256sum or shasum to verify the download"
 fi
