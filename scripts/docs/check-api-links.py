@@ -105,7 +105,8 @@ def main():
                 failures.append({'page': str(source.relative_to(DIST)), 'href': href, 'reason': reason})
 
     manifest = json.loads((ROOT / 'website/src/data/api-crates.json').read_text())
-    crates = [crate['pkg'].replace('-', '_') for group in manifest['groups'] for crate in group['crates']]
+    crates = [crate.get('lib') or crate['pkg'].replace('-', '_')
+              for group in manifest['groups'] for crate in group['crates']]
     bridge_path = DIST / 'docs/reference/api/index.html'
     bridge = Page(bridge_path)
     bridge_targets = {destination(bridge_path, href)[0] for href in bridge.links}

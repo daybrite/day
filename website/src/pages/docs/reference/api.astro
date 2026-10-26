@@ -10,7 +10,8 @@ import api from '../../../data/api-crates.json';
 // itself is produced by `cargo doc` into dist/api in CI and normal local production builds.
 // `npm run api:dev` also makes it available to the development server.
 const groups = api.groups;
-const docDir = (pkg: string) => pkg.replace(/-/g, '_');
+// The rustdoc directory is the library name: `lib` where a package renames it (`day-app` → `day`).
+const docDir = (c: { pkg: string; lib?: string }) => c.lib ?? c.pkg.replace(/-/g, '_');
 ---
 <DocsLayout title="API reference" description="Generated Rust API documentation (rustdoc) for the public Day crates.">
   <h1>API reference</h1>
@@ -27,7 +28,7 @@ const docDir = (pkg: string) => pkg.replace(/-/g, '_');
       <p class="group-blurb">{g.blurb}</p>
       <div class="api-cards">
         {g.crates.map((c) => (
-          <a class="api-card" href={`https://daybrite.dev/api/${docDir(c.pkg)}/index.html`}>
+          <a class="api-card" href={`https://daybrite.dev/api/${docDir(c)}/index.html`}>
             <code>{c.pkg}</code>
             <span>{c.blurb}</span>
           </a>

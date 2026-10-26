@@ -1,9 +1,10 @@
 {
   "//": "Single source of truth for the generated Rust API reference. Consumed by BOTH the CI doc",
   "//2": "generator (scripts/build-api-docs.sh, via jq) and the /docs/reference/api bridge page.",
-  "//3": "`pkg` is the crate name; its rustdoc directory is pkg with '-' replaced by '_'. `features`",
+  "//3": "`pkg` is the package name; its rustdoc directory is `lib` when given (the library name, for a",
+  "//3b": "package that renames it, as `day-app` does to `day`), else pkg with '-' replaced by '_'. `features`",
   "//4": "(optional) is passed to `cargo doc --features` for crates that need one backend to compile",
-  "//5": "(the `day` umbrella uses headless `mock`; `model` exposes optional model integrations).",
+  "//5": "(the `day-app` umbrella uses headless `mock`; `model` exposes optional model integrations).",
   "//6": "`repo`/`branch` point rustdoc's Source links at GitHub (see scripts/rustdoc-github-source.py).",
   "outDir": "api",
   "repo": "https://github.com/daybrite/day",
@@ -14,7 +15,8 @@
       "blurb": "The framework your app is built on.",
       "crates": [
         {
-          "pkg": "day",
+          "pkg": "day-app",
+          "lib": "day",
           "features": "mock,model,settings,text-editor,swiftui,http-image,fs,permissions",
           "blurb": "The umbrella crate your app depends on \u2014 re-exports the core API plus one native backend."
         },

@@ -31,7 +31,7 @@ class GuideApiLinks(unittest.TestCase):
             nav = ''.join(f'<a href="{href}">Guide</a>' for href in
                           ['/', '/docs/reference/api', '/docs/explanation/overview'])
             manifest = json.loads((module.ROOT / 'website/src/data/api-crates.json').read_text())
-            crates = [c['pkg'].replace('-', '_') for g in manifest['groups'] for c in g['crates']]
+            crates = [c.get('lib') or c['pkg'].replace('-', '_') for g in manifest['groups'] for c in g['crates']]
             for crate in crates:
                 put(f'api/{crate}/index.html', nav)
             put('index.html', '<h1>Synthetic home</h1>')

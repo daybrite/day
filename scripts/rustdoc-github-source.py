@@ -49,7 +49,8 @@ def crate_src_dirs():
         for target in pkg["targets"]:
             if lib_kinds.intersection(target["kind"]):
                 rel = os.path.relpath(os.path.dirname(target["src_path"]), root)
-                out[pkg["name"].replace("-", "_")] = rel.replace(os.sep, "/")
+                # The library's name, which is the rustdoc directory: `day-app` documents as `day`.
+                out[target["name"].replace("-", "_")] = rel.replace(os.sep, "/")
                 break
     return out
 

@@ -13,7 +13,7 @@ const entries = ['index.html', 'gallery/index.html', 'showcase/index.html', 'CNA
   'pagefind/pagefind.js', 'pagefind/pagefind-entry.json',
   'docs/reference/api/index.html', `${manifest.outDir}/index.html`,
   'styles/rustdoc.css', 'scripts/theme.js',
-  ...crates.map(crate => `${manifest.outDir}/${crate.pkg.replaceAll('-', '_')}/index.html`)];
+  ...crates.map(crate => `${manifest.outDir}/${crate.lib ?? crate.pkg.replaceAll('-', '_')}/index.html`)];
 const missing = entries.filter(entry => {
   try { const file = statSync(resolve(dist, entry)); return !file.isFile() || file.size === 0; }
   catch { return true; }

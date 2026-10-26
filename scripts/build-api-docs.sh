@@ -8,7 +8,7 @@
 #
 # The crate list lives in website/src/data/api-crates.json (the same file the /docs/reference/api bridge page
 # reads), so the reference and the page never drift. Every crate documents portably, with no native
-# toolkit and no cross-compiler: optional `model` integrations are included and the `day` umbrella
+# toolkit and no cross-compiler: optional `model` integrations are included and the `day-app` umbrella
 # uses its headless `mock` backend, so this runs on a stock Linux CI runner. Build the Astro site
 # first: its footer, theme script, and exact stylesheets are reused through Rustdoc HTML hooks.
 set -euo pipefail
@@ -46,7 +46,7 @@ rm -rf target/doc
 # bundle and item-link checks still require the actual pages and anchors.
 while IFS= read -r crate_dir; do
   mkdir -p "target/doc/$crate_dir"
-done < <(jq -r '.groups[].crates[].pkg | gsub("-"; "_")' "$manifest")
+done < <(jq -r '.groups[].crates[] | .lib // (.pkg | gsub("-"; "_"))' "$manifest")
 
 # Crates with no `features` doc together in one pass; each feature-enabled crate docs on its own
 # so cargo resolves the right single-backend feature set.
