@@ -89,6 +89,11 @@ dialog buttons with their own roles ([docs/dialogs](dialogs.md)), and a second, 
 of the same idea would leave two right answers for one question.
 
 On UIKit, a [`toolbar_label`](https://daybrite.dev/api/day_pieces/fn.toolbar_label.html) with `Principal` placement uses a native single-line title label.
+The `Bottom` bar is laid out the way Mail and Notes lay out theirs: the items before the first
+label sit at the leading edge, the label is centered as the bar's status, and the items after
+it sit at the trailing edge. Each line of the label's text is a line of the status, the first in
+the primary text color and the rest in the secondary, in the footnote text style. A bottom bar
+with no label spreads its items across the width.
 Removing that contribution restores the navigation item’s ordinary title. Only the first
 principal item is shown.
 

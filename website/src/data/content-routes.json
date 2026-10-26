@@ -37,13 +37,15 @@
     "route": "/contributing/backend-contracts/android-jni",
     "source": "docs/android-jni.md",
     "type": "reference",
-    "audience": "contributor"
+    "audience": "contributor",
+    "published": false
   },
   "internal/api-style": {
     "route": "/contributing/backend-contracts/api-style",
     "source": "docs/api-style.md",
     "type": "reference",
-    "audience": "contributor"
+    "audience": "contributor",
+    "published": false
   },
   "internal/applications": {
     "route": "/docs/reference/applications",
@@ -97,7 +99,8 @@
     "route": "/contributing/backend-contracts/bridge",
     "source": "docs/bridge.md",
     "type": "reference",
-    "audience": "contributor"
+    "audience": "contributor",
+    "published": false
   },
   "internal/buttons": {
     "route": "/docs/reference/buttons",
@@ -151,7 +154,8 @@
     "route": "/contributing/backend-contracts/coverage-matrix",
     "source": "docs/coverage-matrix.md",
     "type": "reference",
-    "audience": "contributor"
+    "audience": "contributor",
+    "published": false
   },
   "internal/cursor": {
     "route": "/docs/reference/cursor",
@@ -213,13 +217,14 @@
     "route": "/contributing/backend-contracts/duty-matrix",
     "source": "docs/duty-matrix.md",
     "type": "reference",
-    "audience": "contributor"
+    "audience": "contributor",
+    "published": false
   },
   "internal/element-ids": {
-    "route": "/contributing/backend-contracts/element-ids",
+    "route": "/docs/reference/element-ids",
     "source": "docs/element-ids.md",
     "type": "reference",
-    "audience": "contributor"
+    "audience": "app developer"
   },
   "internal/environment": {
     "route": "/docs/reference/environment",
@@ -231,7 +236,8 @@
     "route": "/contributing/backend-contracts/extending",
     "source": "docs/extending.md",
     "type": "reference",
-    "audience": "contributor"
+    "audience": "contributor",
+    "published": false
   },
   "internal/files": {
     "route": "/docs/reference/files",
@@ -396,10 +402,10 @@
     "audience": "app developer"
   },
   "internal/native-project-migration": {
-    "route": "/contributing/backend-contracts/native-project-migration",
+    "route": "/docs/how-to/native-projects",
     "source": "docs/native-project-migration.md",
-    "type": "reference",
-    "audience": "contributor"
+    "type": "how-to",
+    "audience": "app developer"
   },
   "internal/navigation": {
     "route": "/docs/reference/navigation",
@@ -459,7 +465,8 @@
     "route": "/contributing/backend-contracts/recorder-matrix",
     "source": "docs/recorder-matrix.md",
     "type": "reference",
-    "audience": "contributor"
+    "audience": "contributor",
+    "published": false
   },
   "internal/resources": {
     "route": "/docs/reference/resources",
@@ -576,10 +583,10 @@
     "audience": "app developer"
   },
   "internal/testing": {
-    "route": "/contributing/backend-contracts/testing",
+    "route": "/docs/how-to/testing",
     "source": "docs/testing.md",
-    "type": "reference",
-    "audience": "contributor"
+    "type": "how-to",
+    "audience": "app developer"
   },
   "internal/text-runs": {
     "route": "/docs/reference/text-runs",
@@ -1077,7 +1084,8 @@
     "source": "docs/backend-contracts/focus.md",
     "type": "reference",
     "audience": "contributor",
-    "status": "implementation notes; runtime claims not reverified"
+    "status": "implementation notes; runtime claims not reverified",
+    "published": false
   },
   "internal/design/grid": {
     "route": "/contributing/design/grid",
@@ -1092,7 +1100,8 @@
     "source": "docs/backend-contracts/grid.md",
     "type": "reference",
     "audience": "contributor",
-    "status": "normative implementation contract"
+    "status": "normative implementation contract",
+    "published": false
   },
   "internal/design/deep-links": {
     "route": "/contributing/design/deep-links",
@@ -1181,5 +1190,19 @@
     "source": "docs/pager.md",
     "type": "reference",
     "audience": "app developer"
+  },
+  "internal/backend-contracts/element-id-registration": {
+    "route": "/contributing/backend-contracts/element-id-registration",
+    "source": "docs/backend-contracts/element-id-registration.md",
+    "type": "reference",
+    "audience": "contributor",
+    "published": false
+  },
+  "internal/backend-contracts/test-infrastructure": {
+    "route": "/contributing/backend-contracts/test-infrastructure",
+    "source": "docs/backend-contracts/test-infrastructure.md",
+    "type": "reference",
+    "audience": "contributor",
+    "published": false
   }
 }

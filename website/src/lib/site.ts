@@ -51,7 +51,7 @@ export function internalExcerpt(body: string, max = 155): string {
   };
   // These docs carry HTML comments — the CC-BY-SA-4.0 header, and a "generated, do not edit" line
   // on the matrices. Without skipping them the "first prose paragraph" below is the license, which
-  // is what every card on /contributing/backend-contracts used to show. Three shapes appear in the tree: `<!--`
+  // can appear in cards instead of a description. Three shapes appear in the tree: `<!--`
   // alone on its line, an opener with text after it, and a whole comment on one line — so skip to
   // whichever line closes it, and loop for a doc that leads with two.
   const skipComments = () => {

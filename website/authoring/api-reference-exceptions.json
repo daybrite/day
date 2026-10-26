@@ -5,38 +5,6 @@
       "reason": "Module name, not a function."
     }
   ],
-  "docs/android-jni.md": [
-    {
-      "code": "default()",
-      "reason": "Android/JNI API; the portable Rustdoc bundle does not publish this target-specific crate."
-    },
-    {
-      "code": "JString::default()",
-      "reason": "Android/JNI API; the portable Rustdoc bundle does not publish this target-specific crate."
-    },
-    {
-      "code": "JByteArray::default()",
-      "reason": "Android/JNI API; the portable Rustdoc bundle does not publish this target-specific crate."
-    },
-    {
-      "code": "day_platform_android::init",
-      "reason": "Android/JNI API; the portable Rustdoc bundle does not publish this target-specific crate."
-    }
-  ],
-  "docs/api-style.md": [
-    {
-      "code": ".into()",
-      "reason": "Rust standard-library function or trait method, outside the published Day API."
-    },
-    {
-      "code": "Box::new",
-      "reason": "Rust standard-library function or trait method, outside the published Day API."
-    },
-    {
-      "code": ".tooltip(…)",
-      "reason": "Rust standard conversion/allocation or an illustrative extension method, not a published Day method."
-    }
-  ],
   "docs/async.md": [
     {
       "code": "pump()",
@@ -137,46 +105,10 @@
       "reason": "day-part-auth is outside this checkout and has no published Day Rustdoc bundle; this guide links its repository."
     }
   ],
-  "docs/backend-contracts/focus.md": [
-    {
-      "code": "Entry::activate",
-      "reason": "GTK Entry activation signal, not a Day function."
-    }
-  ],
   "docs/biometrics.md": [
     {
       "code": "start()",
       "reason": "Android bridge entry point, not a portable Day callable."
-    }
-  ],
-  "docs/bridge.md": [
-    {
-      "code": "fn ready() -> bool",
-      "reason": "Generated foreign bridge/example function or target-specific runtime API; no portable public Rustdoc item."
-    },
-    {
-      "code": "fn ready() -> Result<bool, day_bridge::Error>",
-      "reason": "Generated foreign bridge/example function or target-specific runtime API; no portable public Rustdoc item."
-    },
-    {
-      "code": "register(rt)",
-      "reason": "Generated foreign bridge/example function or target-specific runtime API; no portable public Rustdoc item."
-    },
-    {
-      "code": "day_bridge::arkts::invoke",
-      "reason": "Generated foreign bridge/example function or target-specific runtime API; no portable public Rustdoc item."
-    },
-    {
-      "code": "day_platform_android::init",
-      "reason": "Generated foreign bridge/example function or target-specific runtime API; no portable public Rustdoc item."
-    },
-    {
-      "code": "available()",
-      "reason": "Generated foreign bridge/example function or target-specific runtime API; no portable public Rustdoc item."
-    },
-    {
-      "code": "std::fs::write",
-      "reason": "Rust standard-library function or trait method, outside the published Day API."
     }
   ],
   "docs/canvas.md": [
@@ -259,32 +191,6 @@
     {
       "code": "Progress::tier",
       "reason": "Progress struct field, not a method."
-    }
-  ],
-  "docs/extending.md": [
-    {
-      "code": "day_toolkit_material::realize",
-      "reason": "Generated bridge, target-specific renderer, or external Objective-C/Java API; not a portable Day item."
-    },
-    {
-      "code": "start()",
-      "reason": "Generated bridge, target-specific renderer, or external Objective-C/Java API; not a portable Day item."
-    },
-    {
-      "code": "Retained::from_raw",
-      "reason": "Generated bridge, target-specific renderer, or external Objective-C/Java API; not a portable Day item."
-    },
-    {
-      "code": "register(rt)",
-      "reason": "Generated bridge, target-specific renderer, or external Objective-C/Java API; not a portable Day item."
-    },
-    {
-      "code": "start(rt, module)",
-      "reason": "Generated bridge, target-specific renderer, or external Objective-C/Java API; not a portable Day item."
-    },
-    {
-      "code": "DayBridge.main.post(...)",
-      "reason": "Generated bridge, target-specific renderer, or external Objective-C/Java API; not a portable Day item."
     }
   ],
   "docs/files.md": [
@@ -637,7 +543,7 @@
   ],
   "website/src/content/docs/guide-crash-reporting.md": [
     {
-      "code": "send(&meta, |result| …)",
+      "code": "send(&meta, |result| \u2026)",
       "reason": "External day-part-break reporting API has no published Day Rustdoc bundle; the guide links its repository."
     },
     {

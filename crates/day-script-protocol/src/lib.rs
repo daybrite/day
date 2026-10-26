@@ -73,6 +73,7 @@ pub enum Step {
     /// Programmatic scroll (docs/scroll.md §dayscript). With `edge`/`x`+`y`, `id` must name a
     /// `scroll` piece; with neither, `id` names any element and its nearest enclosing scroll
     /// reveals it. Unanimated, so the next step sees the settled position.
+    /// Native navigation menus also accept `top`/`bottom` on UIKit and Material.
     ScrollTo {
         id: String,
         /// `"top"` | `"bottom"` | `"leading"` | `"trailing"`.

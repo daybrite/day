@@ -72,7 +72,7 @@ consult the [clipboard reference](/docs/reference/clipboard) for its asynchronou
 
 A part can contribute native source, dependencies, and permissions through Cargo metadata.
 Follow the [part tutorial](/contributing/tutorials/part),
-[extension model](/contributing/extending), and [bridge contract](/contributing/backend-contracts/bridge)
+[extension model](/contributing/extending), and [bridge contract](https://github.com/daybrite/day/blob/main/docs/bridge.md)
 for implementation details. Inline bridge language arms are contributor material, not an
 additional app-facing Part interface.
 

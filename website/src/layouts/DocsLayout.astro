@@ -17,14 +17,20 @@ const sequence = currentSection?.sections.find((group) => group.pages.some((p) =
 const idx = sequence.findIndex((p) => p.route === route);
 const prev = idx > 0 ? { href: url(sequence[idx - 1].route), title: sequence[idx - 1].title } : null;
 const next = idx >= 0 && idx < sequence.length - 1 ? { href: url(sequence[idx + 1].route), title: sequence[idx + 1].title } : null;
+const menuTitle = audience === 'contributor' ? 'Browse contributor docs' : 'Browse documentation';
 const home = audience === 'contributor' ? '/contributing' : '/docs';
 
 ---
 <BaseLayout title={title} description={description} active={active}>
   <div class="docs container">
     <aside class="sidebar" data-pagefind-ignore>
+      {audience === 'contributor' && <div class="sidebar-context">
+        <a class="side-link" href={url('docs')}><span aria-hidden="true">←</span><span>All documentation</span></a>
+        <p class="sidebar-scope">Contributor docs</p>
+        <p class="sidebar-description">Framework development and extensions</p>
+      </div>}
       <details class="docs-menu" open>
-        <summary class="docs-menu-toggle"><SidebarIcon item="control:browse" /><span class="side-label" title="Browse documentation">Browse documentation</span></summary>
+        <summary class="docs-menu-toggle"><SidebarIcon item="control:browse" /><span class="side-label" title={menuTitle}>{menuTitle}</span></summary>
       <nav aria-label={audience === 'contributor' ? 'Contributor documentation' : 'Documentation'}>
         {audience === 'evaluator' ? <>
           <a class="side-link" href={url()}><SidebarIcon item="/" /><span class="side-label" title="Home">Home</span></a>
@@ -55,7 +61,7 @@ const home = audience === 'contributor' ? '/contributing' : '/docs';
                 title={page.title}><SidebarIcon item={page.route} /><span class="side-label">{page.navTitle ?? page.title}</span></a>)}
             </details>
           ))}
-          <a class="side-link" href={url(audience === 'contributor' ? 'docs' : 'contributing')}><SidebarIcon item={audience === 'contributor' ? '/docs' : '/contributing'} /><span class="side-label" title={audience === 'contributor' ? 'App documentation' : 'Contributing'}>{audience === 'contributor' ? 'App documentation' : 'Contributing'}</span></a>
+          {audience !== 'contributor' && <a class="side-link" href={url('contributing')}><SidebarIcon item="/contributing" /><span class="side-label" title="Contributing">Contributing</span></a>}
         </>}
 
       </nav>
@@ -105,6 +111,10 @@ const home = audience === 'contributor' ? '/contributing' : '/docs';
     scrollbar-width: thin;
     padding-right: 6px;
   }
+  .sidebar-context { padding-bottom: 16px; margin-bottom: 16px; border-bottom: 1px solid var(--border-soft); }
+  .sidebar-context .side-link { padding-inline: 0; }
+  .sidebar-scope { margin: 14px 0 4px; font-weight: 700; color: var(--text); }
+  .sidebar-description { margin: 0; font-size: 0.85rem; color: var(--muted); }
   .sidebar summary { list-style: none; align-items: center; }
   .sidebar summary::-webkit-details-marker { display: none; }
   .sidebar summary::before {

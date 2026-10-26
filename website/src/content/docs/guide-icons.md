@@ -86,7 +86,7 @@ A version mismatch requests regeneration rather than comparing outputs from diff
 
 Keep master artwork under `resource/icons/` and remove obsolete generated copies and their
 references from customized native projects before running `day prepare`. Generated native
-projects use the current paths automatically. See [native project migration](/contributing/backend-contracts/native-project-migration).
+projects use the current paths automatically. See [native project migration](/docs/how-to/native-projects).
 
 <span id="4-draw-in-app-glyphs-from-resourcevectors"></span>
 

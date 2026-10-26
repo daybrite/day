@@ -150,7 +150,8 @@ installs the toolkit, scheduler, and executor hooks before building the app tree
 mobile/web host setup is not necessarily app exit. [Lifecycle](/docs/explanation/lifecycle)
 and [async shutdown](/docs/explanation/async) document cleanup and the limits of OS callbacks.
 
-Use [backend contracts](/contributing/backend-contracts) for implementation obligations.
+Framework contributors can find implementation requirements in the
+[repository documentation](https://github.com/daybrite/day/tree/main/docs).
 The [extension model](/contributing/extending)
 covers optional native contributions. See the
 [platform reference](/docs/reference/platforms) for target requirements and limitations.

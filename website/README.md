@@ -34,11 +34,11 @@ route metadata, primary type, and audience. Source paths are independent of publ
   and `/community`. The header is Gallery, Showcase, Docs, and Explore, followed by search and
   theme controls. Contributing and GitHub are in Explore.
 - App documentation: `/docs`, with tutorials, how-to guides, reference, and explanation.
-- Contributors: `/contributing`, with setup, architecture, backend contracts, documentation
+- Contributors: `/contributing`, with setup, architecture, extension tutorials, documentation
   standards, and history.
 
 The existing Markdown/MDX guides remain in `src/content/docs/`. Repository documents stay in
-`docs/` and use matching symlinks in `src/content/internal/`. Design records remain unpublished;
+`docs/` and use matching symlinks in `src/content/internal/`. Design records and backend implementation contracts remain unpublished;
 their source files and symlinks stay in place. Contributor standards publish through `src/content/repository/`.
 Edit the canonical source, never a copied website version. Keep titles and descriptions in
 front matter; the route catalog owns publication. Reference groups live in
@@ -56,6 +56,21 @@ their canonical source path. [`route-migrations.json`](src/data/route-migrations
 source-era site links; it does not publish old routes or redirects. Update authored links to the
 new routes. The catalog also drives `sitemap.xml`; the normal build indexes new routes with Pagefind.
 The reference index is rendered from content metadata and no longer rewritten during builds.
+Retired `/contributing/backend-contracts` URLs return 404; do not add redirects or aliases.
+App testing, element IDs, and native-project configuration belong in the app documentation.
+
+## Executable tutorials
+
+The Session counter lessons share `tutorials/session-counter.yaml` with the scheduled CI runner.
+Markdown references ordered recipe steps; the build expands each step into its platform-specific
+instructions. The segmented picker chooses macOS, Windows, or Linux, using an explicit URL choice,
+a saved preference, or a browser platform guess. Without JavaScript, all variants remain readable.
+
+`npm run tutorials:check` verifies schema, source placement, rendered code, platform selection,
+and runner failure behavior without loading a browser. The `doctor-verify` workflow runs
+release instructions from the published recipe and a separate checkout compatibility check.
+See the [authoring workflow](authoring/authoring.md#validate-app-examples) for local commands
+and the scope of each check.
 
 ## Local development
 

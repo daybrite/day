@@ -56,7 +56,7 @@ resource-overlays = ["platform/android/res"]
 ```
 
 Release builds shrink and rename with R8. It keeps the Java classes and methods your Rust calls,
-because every binding declares them (`java_class!`, [internal reference](/contributing/backend-contracts/android-jni)).
+because every binding declares them (`java_class!`, [internal reference](https://github.com/daybrite/day/blob/main/docs/android-jni.md)).
 `optimize = true` also turns on R8's optimizations, such as inlining and class merging. They are off
 by default because some libraries look up their own classes in ways their published rules miss.
 Turn them on once your release build passes its walkthrough with them.
@@ -146,7 +146,7 @@ project. A custom host that does not apply Day's plugin must configure merging i
 
 ## What each piece becomes
 
-The generated [coverage matrix](/contributing/backend-contracts/coverage-matrix), checked in CI, covers every toolkit;
+The generated [coverage matrix](https://github.com/daybrite/day/blob/main/docs/coverage-matrix.md), checked in CI, covers every toolkit;
 this table adds links and notes.
 
 Pieces map to both Material Components and framework `android.widget` classes; the table names which

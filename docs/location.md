@@ -92,7 +92,7 @@ Platform guidance: [Apple: Core Location](https://developer.apple.com/documentat
 | iOS / macOS | [`CLLocationManager`](https://developer.apple.com/documentation/corelocation/cllocationmanager) + a delegate defined with `objc2::define_class!` | `objc2`, `objc2-foundation`, `[package.metadata.day.ios].frameworks = ["CoreLocation"]` |
 | Android | [`LocationManager.requestLocationUpdates`](https://developer.android.com/reference/android/location/LocationManager) via the crate's own Java shim | `day-toolkit-material` + `[package.metadata.day.android]` |
 | Web | [`navigator.geolocation.watchPosition`](https://www.w3.org/TR/geolocation/#watchposition-method) through the day-toolkit-dom shim | `web.rs` (wasm32; needs the day-toolkit-dom host page) |
-| HarmonyOS | [`geoLocationManager.on('locationChange')`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-location-kit/js-apis-geoLocationManager.md) (Location Kit) via an ArkTS arm; see below | [`day-bridge`](/contributing/backend-contracts/bridge) (`src/ohos.rs`) |
+| HarmonyOS | [`geoLocationManager.on('locationChange')`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-location-kit/js-apis-geoLocationManager.md) (Location Kit) via an ArkTS arm; see below | [`day-bridge`](https://github.com/daybrite/day/blob/main/docs/bridge.md) (`src/ohos.rs`) |
 | Linux | none; GeoClue2 would need a D-Bus dependency this tree does not have | — |
 | Windows | none yet; [`Windows.Devices.Geolocation`](https://learn.microsoft.com/en-us/uwp/api/windows.devices.geolocation) is the future impl | — |
 

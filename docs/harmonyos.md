@@ -350,13 +350,13 @@ on the Oniro emulator:
 - **Inline links** — native clickable `SPAN` children route their original targets through
   `Event::LinkActivated`. Markdown, `TextBuilder` and standalone [`link(...)`](https://daybrite.dev/api/day_pieces/fn.link.html) use the same
   path, including wrapped text and reactive updates. `Cap::TextLinks` reports `Native`.
-  See [text-runs](text-runs.md) and the [native tap tests](testing.md#native-arkui-link-tests).
+  See [text-runs](text-runs.md) and the [native tap tests](https://github.com/daybrite/day/blob/main/docs/backend-contracts/test-infrastructure.md#native-arkui-link-tests).
 - **Text areas** — native `TextArea` with live read-only and selection policies. Day vetoes edits
   and restores text for input paths that bypass the veto; selection-disabled editors collapse
   native ranges and suppress selection menus/clipboard shortcuts. Both capabilities report
   `Emulated` because the API 18 C editor lacks equivalent persistent properties. Read-only
   text can still be copied, and app writes still replace its contents. Spell-check remains
-  unsupported. See [textarea](textarea.md) and the [native-input tests](testing.md#native-arkui-text-area-tests).
+  unsupported. See [textarea](textarea.md) and the [native-input tests](https://github.com/daybrite/day/blob/main/docs/backend-contracts/test-infrastructure.md#native-arkui-text-area-tests).
   [`.on_submit(...)`](https://daybrite.dev/api/day_pieces/trait.TextAreaBuilder.html#tymethod.on_submit) uses the native Send action and submit event. Shift+Enter dispatches the
   native newline action through the ArkTS host, retaining selection and undo/redo; plain
   text areas keep multiline Enter behavior.
@@ -385,7 +385,7 @@ on the Oniro emulator:
   Requests are queued and closed by request ID, with Back/outside cancellation and cleanup
   after disappearance. Content is a themed ArkUI builder, rather than Day-rendered overlay
   controls. See [dialogs](dialogs.md#arkui-presentation-and-lifetime) for lifecycle and
-  primary-window ownership, and [testing](testing.md#native-arkui-dialog-tests) for real-input tests.
+  primary-window ownership, and [testing](https://github.com/daybrite/day/blob/main/docs/backend-contracts/test-infrastructure.md#native-arkui-dialog-tests) for real-input tests.
 - **Gestures** — [`.on_tap`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.on_tap) (NODE_ON_CLICK) and [`.on_drag`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.on_drag) (a native pan recognizer via the
   NDK gesture API, reported on the shared kind-11 wire in px). The existing toolkit hook
   `GestureKind::LongPress` uses ArkUI's one-finger, non-repeating, 500 ms recognizer and emits
@@ -398,7 +398,7 @@ on the Oniro emulator:
   detaches and releases the recognizer. This is low-level hook support: Day does not yet expose
   a public `.on_long_press` modifier, and this does not add native context menus. UIKit and
   Android likewise use long presses internally for menus/dragging without implementing this
-  generic hook. See [native-input regression tests](testing.md#native-arkui-long-press-tests).
+  generic hook. See [native-input regression tests](https://github.com/daybrite/day/blob/main/docs/backend-contracts/test-infrastructure.md#native-arkui-long-press-tests).
 - **Scrolling** — [`scroll()`](https://daybrite.dev/api/day_pieces/fn.scroll.html) is a real `ARKUI_NODE_SCROLL` whose day children live in a
   shim-owned container sized by `set_scroll_content`; without it the Scroll measures a content
   extent of 0 (day's content nodes are layout-only) and neither touch nor [`scroll_to`](https://daybrite.dev/api/day_core/fn.scroll_to.html) moves.

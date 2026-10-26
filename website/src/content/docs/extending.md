@@ -124,7 +124,7 @@ ets = ["platform/harmony/ets"]          # ArkTS components (HarmonyOS)
 uses = ["camera"]           # portable permission names, mapped per platform
 ```
 
-The [extending reference](/contributing/backend-contracts/extending) documents every key.
+The [extending reference](https://github.com/daybrite/day/blob/main/docs/extending.md) documents every key.
 
 At build time, `day build` resolves every piece in your app's dependency graph via
 `cargo metadata` and regenerates the glue the platform projects reference: a local SwiftPM

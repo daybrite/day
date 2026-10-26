@@ -684,7 +684,7 @@ above) and `com.airbnb.android:lottie` (Gradle). Its Swift and Java shims each w
 `LottieAnimationView` behind a flat C ABI / static method. It is also the reference for an external
 repository: crates.io version requirements on day (`day-core = "0.6"`, so the consuming app's
 `Cargo.lock` picks one day version for the whole graph), its own crates published to crates.io on a
-version tag (`publish-crates: true` in its CI), a
+version tag (its CI is the shared `daylib.yml` workflow of daybrite/actions), a
 `[package.metadata.day] compat = "0.5"` line naming the day minor it was tested against, a `demo/`
 app whose dayscript is the on-device test, and a headless `model` module tested on the host. In
 this tree, `scripts/ci/scaffold-check.sh` keeps `swift-packages` exercised on the ios-uikit leg
@@ -732,58 +732,8 @@ operation. The core registry does not interpret that name or its payload.
 
 ## Flatpak dependencies
 
-A dependency can declare what it needs of an app's Flatpak: a base its native library requires,
-and sandbox permissions it uses at run time. Both live in `[package.metadata.day.flatpak]`, and
-either may be given alone.
-
-### Bases
-
-```toml
-[[package.metadata.day.flatpak.bases]]
-toolkit = "qt"
-library-prefix = "libExampleEngine"
-id = "org.example.Engine.BaseApp"
-# version = "1"  # Omit to follow the target runtime version.
-```
-
-`day pack` reads declarations from the app's resolved dependency graph, including the app
-itself, with the toolkit and discovered piece features enabled. It selects declarations for
-the target toolkit whose `library-prefix` matches a direct ELF `DT_NEEDED` entry. The prefix
-is literal, not a glob. A known non-match omits the base; an unreadable or unsupported binary
-retains the declared requirement so a failed probe cannot silently drop a runtime dependency.
-
-Flatpak supports one base. Identical base IDs and resolved versions coalesce; conflicting
-requirements stop packaging with an error. Malformed declarations also fail packaging.
-If `version` is omitted, it follows the selected runtime version, including `DAY_KDE_RUNTIME`
-or `DAY_GNOME_RUNTIME` overrides. Engine IDs, prefixes, and version pins belong to the declaring
-crate; Day only resolves and renders the declarations.
-
-### Sandbox permissions
-
-Every Day app's Flatpak has a display, the GPU and the network: `--share=ipc`,
-`--socket=fallback-x11`, `--socket=wayland`, `--device=dri` and `--share=network`. A dependency
-that reaches further declares the `finish-args` it needs:
-
-```toml
-[package.metadata.day.flatpak]
-finish-args = ["--socket=pulseaudio"]
-```
-
-That is [`day-part-sound`](/docs/reference/sound)'s declaration: its Linux engine reaches the sound server through
-libpulse, and a sandbox has no route to that server without the socket
-([sound](sound.md#linux)).
-
-`day pack` collects the entries from the same dependency graph as the bases and adds them to the
-manifest after the defaults, sorted and without repeats, so the manifest is the same on every
-build. An app that does not depend on the crate does not get the permission. Each entry is one
-`--option[=value]` word as `flatpak build-finish` spells it; anything else stops packaging with an
-error. A permission widens what the app can touch for every user who installs it, so declare the
-narrowest one that works.
-
-When running Day's full lint script against an external crate under development, set
-`DAY_LINT_LOCAL_CHECKOUTS` to its checkout path. Multiple paths are separated by newlines.
-The script adds them to Showcase's local patch table alongside Day, so its Clippy checks use
-the same sources as your local app builds.
+For Cargo metadata that declares Flatpak bases and sandbox permissions, see the
+[packaging guide](/docs/how-to/packaging#flatpak-dependencies).
 
 ## AppImage environment
 

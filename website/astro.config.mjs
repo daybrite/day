@@ -12,6 +12,7 @@ import tierBadge from './plugins/tier-badge.mjs';
 import admonitions from './plugins/admonitions.mjs';
 import glossaryLinks from './plugins/glossary-links.mjs';
 import apiLinks from './plugins/api-links.mjs';
+import tutorialSteps from './plugins/tutorial-steps.mjs';
 
 // Deployed to GitHub Pages on the custom domain https://daybrite.dev. A custom apex domain serves
 // the repo at the root, so there is no base path (public/CNAME pins the domain). The `gallery`
@@ -48,6 +49,7 @@ export default defineConfig({
     // same processing, declared through the factory that now owns the plugin lists. `shikiConfig`
     // stays at this level — it configures the highlighter, not the unified pipeline.
     processor: unified({
+      remarkPlugins: [tutorialSteps],
       rehypePlugins: [contentLinks, accentTargetCode, tierBadge, glossaryLinks, admonitions, apiLinks],
     }),
   },

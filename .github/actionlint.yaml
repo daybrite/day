@@ -1,0 +1,4 @@
+# The existing Apple silicon runner supplies the Xcode version required by Day's native host.
+self-hosted-runner:
+  labels:
+    - xcode-27

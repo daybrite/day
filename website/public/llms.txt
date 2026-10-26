@@ -37,7 +37,7 @@ Canonical app documentation is grouped by purpose:
 - [How-to guides](https://daybrite.dev/docs/how-to): specific tasks.
 - [Reference](https://daybrite.dev/docs/reference): app contracts, commands, configuration, and compatibility.
 - [Explanation](https://daybrite.dev/docs/explanation): framework concepts for app developers.
-- [Contributing](https://daybrite.dev/contributing): framework setup, architecture, backend contracts, documentation standards, and history.
+- [Contributing](https://daybrite.dev/contributing): framework setup, architecture, extension tutorials, documentation standards, and history.
 
 Repository documents remain canonical in `docs/`; public routes are recorded in
 `website/src/data/content-routes.json`. Source paths do not determine the public route.

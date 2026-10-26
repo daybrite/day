@@ -7081,6 +7081,11 @@ pub trait Toolkit: Sized + 'static {
         RowMetrics::default()
     }
     fn scroll_to(&mut self, _h: &Self::Handle, _target: Rect, _animated: bool) {}
+    /// Scroll a native navigation menu to its top or bottom without changing selection.
+    /// The widget owns its content extent. Return false when the handle is unsupported.
+    fn nav_scroll_to_edge(&mut self, _h: &Self::Handle, _bottom: bool) -> bool {
+        false
+    }
     fn scroll_offset(&mut self, _h: &Self::Handle) -> Point {
         Point::ZERO
     }

@@ -78,7 +78,7 @@ flatpak install ./my-app-1.0-linux-gtk-x86_64.flatpak
 
 The filename includes the toolkit so GTK and Qt bundles can coexist. The webview crate declares a Qt WebEngine BaseApp requirement, which Day includes when the
 binary links that engine. Other dependencies can declare their own
-[Flatpak base requirements](/contributing/backend-contracts/extending#flatpak-dependencies).
+[Flatpak base requirements](/docs/how-to/packaging#flatpak-dependencies).
 
 An AppImage bundles the toolkit libraries with the executable. Mark it executable before running it:
 
@@ -370,3 +370,53 @@ Source: [pack dispatch](https://github.com/daybrite/day/blob/main/crates/day-cli
 and [packaging implementations](https://github.com/daybrite/day/tree/main/crates/day-cli/src/pack).
 Keep credentials out of examples and logs. No signing, publishing, or store submission command
 was executed during this documentation work.
+
+## Flatpak dependencies
+
+A dependency can declare what it needs of an app's Flatpak: a base its native library requires,
+and sandbox permissions it uses at run time. Both live in `[package.metadata.day.flatpak]`, and
+either may be given alone.
+
+### Bases
+
+```toml
+[[package.metadata.day.flatpak.bases]]
+toolkit = "qt"
+library-prefix = "libExampleEngine"
+id = "org.example.Engine.BaseApp"
+# version = "1"  # Omit to follow the target runtime version.
+```
+
+`day pack` reads declarations from the app's resolved dependency graph, including the app
+itself, with the toolkit and discovered piece features enabled. It selects declarations for
+the target toolkit whose `library-prefix` matches a direct ELF `DT_NEEDED` entry. The prefix
+is literal, not a glob. A known non-match omits the base; an unreadable or unsupported binary
+retains the declared requirement so a failed probe cannot silently drop a runtime dependency.
+
+Flatpak supports one base. Identical base IDs and resolved versions coalesce; conflicting
+requirements stop packaging with an error. Malformed declarations also fail packaging.
+If `version` is omitted, it follows the selected runtime version, including `DAY_KDE_RUNTIME`
+or `DAY_GNOME_RUNTIME` overrides. Engine IDs, prefixes, and version pins belong to the declaring
+crate; Day only resolves and renders the declarations.
+
+### Sandbox permissions
+
+Every Day app's Flatpak has a display, the GPU and the network: `--share=ipc`,
+`--socket=fallback-x11`, `--socket=wayland`, `--device=dri` and `--share=network`. A dependency
+that reaches further declares the `finish-args` it needs:
+
+```toml
+[package.metadata.day.flatpak]
+finish-args = ["--socket=pulseaudio"]
+```
+
+That is [`day-part-sound`](/docs/reference/sound)'s declaration: its Linux engine reaches the sound server through
+libpulse, and a sandbox has no route to that server without the socket
+([sound](/docs/reference/sound#linux)).
+
+`day pack` collects the entries from the same dependency graph as the bases and adds them to the
+manifest after the defaults, sorted and without repeats, so the manifest is the same on every
+build. An app that does not depend on the crate does not get the permission. Each entry is one
+`--option[=value]` word as `flatpak build-finish` spells it; anything else stops packaging with an
+error. A permission widens what the app can touch for every user who installs it, so declare the
+narrowest one that works.

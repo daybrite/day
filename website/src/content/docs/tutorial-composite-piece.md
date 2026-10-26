@@ -183,7 +183,7 @@ The example's `.star_id(|n| id!(rating_star, n))` method names each star. It ass
 tappable star a typed ID using its 1-based position; [`.id(id!(rating_row))`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.id) separately names
 the whole piece. A dayscript can then `tap: { id: 'rating_star:3' }`.
 The old [`.id(prefix)`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.id) string-prefix setter is no longer supported. See
-[element IDs](/contributing/backend-contracts/element-ids) for keyed families and canonical spellings.
+[element IDs](/docs/reference/element-ids) for keyed families and canonical spellings.
 
 ## 4. Compose the body
 

@@ -1,22 +1,17 @@
+---
+navTitle: "Native projects"
+title: "Configure native projects"
+description: "Choose generated or persistent native projects and preserve app configuration, resources, and signing."
+---
+
 <!-- Copyright © The Daybrite Project; SPDX-License-Identifier: CC-BY-SA-4.0 -->
-# Native project migration
+# Configure native projects
 
 Day can generate native build projects while preserving app-owned sources and configuration.
 Keep a persistent host when its custom targets, build phases, plugins, or resource setup are
 not represented by the generator.
 
-## Release ordering
-
-Land the Day generator and manifest support before removing app host projects or adding
-new `[android]` and `[harmony]` fields. Older CLIs reject unknown manifest fields. A matching
-minor-version compatibility label alone does not prove that a CLI contains these changes.
-
-Validate dependent pieces against the updated Day Git revision, then distribute a CLI release
-containing the support before rolling out downstream app migrations. CI jobs resolving Day
-from Git main need the framework changes on that branch first. Keep host-project removal
-separate from unrelated engine changes so each can be reviewed and validated independently.
-
-## Supported native layouts
+## Choose a generated or persistent host
 
 Persistent Apple projects must contain Xcode 27's `project.xcproj`. Day no longer reads
 PBX projects, migrates inline build settings, injects PBX resources or phases, or creates
@@ -83,6 +78,3 @@ resources and icons with the preserved originals. Check signing and release pack
 `day open -t <target>` opens the selected generated project. Restoring a persistent project
 under `platform/` makes that project take precedence again. Keep backups until the migration
 has passed the app's required validation and release process.
-
-The historical workspace audit and retained exceptions are recorded in
-[the October 2026 audit](https://github.com/daybrite/day/blob/main/docs/history/native-project-migration-2026-10.md).

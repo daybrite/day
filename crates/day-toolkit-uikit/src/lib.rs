@@ -1913,7 +1913,7 @@ mod imp {
             .cloned()
             .collect();
         let mut targets = Vec::new();
-        let bot = build_toolbar_items(mtm, root, &bottom, &mut targets);
+        let bot = bottom_bar_items(mtm, root, &bottom, &mut targets);
         unsafe {
             vc.setToolbarItems(
                 (!bot.is_empty())
@@ -1924,6 +1924,72 @@ mod imp {
         PAGE_TOOLBARS.with(|m| {
             m.borrow_mut().entry(vc_key(vc)).or_default().targets = targets;
         });
+    }
+
+    /// A page's bottom bar, laid out the way Mail and Notes lay out theirs (docs/toolbars.md):
+    /// the items before the first label at the leading edge, the label centered as the bar's
+    /// status, the items after it at the trailing edge. A bar with no label spreads its items
+    /// across the width with flexible spaces, as a stock `UIToolbar` of commands does.
+    fn bottom_bar_items(
+        mtm: MainThreadMarker,
+        root: usize,
+        items: &[day_spec::ToolbarItem],
+        targets: &mut Vec<Retained<DayToolbarTarget>>,
+    ) -> Vec<Retained<UIBarButtonItem>> {
+        let flexible = || unsafe { UIBarButtonItem::flexibleSpaceItem(mtm) };
+        let status = items
+            .iter()
+            .position(|i| matches!(i.kind, day_spec::ToolbarItemKind::Label));
+        let mut out = Vec::new();
+        for (index, item) in items.iter().enumerate() {
+            if status == Some(index) {
+                out.push(flexible());
+                out.push(bottom_status_item(mtm, &item.label));
+                out.push(flexible());
+                continue;
+            }
+            let built = build_toolbar_items(mtm, root, std::slice::from_ref(item), targets);
+            if status.is_none() && !out.is_empty() && !built.is_empty() {
+                out.push(flexible());
+            }
+            out.extend(built);
+        }
+        out
+    }
+
+    /// The bottom bar's status: Mail's "Updated Just Now" over its unread count. Each line of
+    /// `text` is one line of the status, the first in the primary label color and the rest in
+    /// the secondary, all in the footnote style so they follow the reader's text size.
+    fn bottom_status_item(mtm: MainThreadMarker, text: &str) -> Retained<UIBarButtonItem> {
+        let stack = unsafe { objc2_ui_kit::UIStackView::new(mtm) };
+        unsafe {
+            stack.setAxis(objc2_ui_kit::UILayoutConstraintAxis::Vertical);
+            stack.setAlignment(objc2_ui_kit::UIStackViewAlignment::Center);
+        }
+        let font = unsafe {
+            objc2_ui_kit::UIFont::preferredFontForTextStyle(objc2_ui_kit::UIFontTextStyleFootnote)
+        };
+        for (index, line) in text.lines().enumerate() {
+            let label = UILabel::new(mtm);
+            label.setText(Some(&NSString::from_str(line)));
+            unsafe {
+                label.setFont(Some(&font));
+                let _: () = msg_send![&*label, setAdjustsFontForContentSizeCategory: true];
+            }
+            let color = if index == 0 {
+                UIColor::labelColor()
+            } else {
+                UIColor::secondaryLabelColor()
+            };
+            unsafe {
+                label.setTextColor(Some(&color));
+                stack.addArrangedSubview(&label);
+            }
+        }
+        // One element for VoiceOver, read as the whole status rather than line by line.
+        stack.setIsAccessibilityElement(true, mtm);
+        stack.setAccessibilityLabel(Some(&NSString::from_str(&text.replace('\n', ", "))), mtm);
+        unsafe { UIBarButtonItem::initWithCustomView(UIBarButtonItem::alloc(mtm), &stack) }
     }
 
     /// Lower `all` onto one navigation item, split by placement across its leading, title and
@@ -2191,9 +2257,19 @@ mod imp {
         // A dynamic system color follows both system appearance and a window theme override.
         appearance.setBackgroundColor(Some(&UIColor::systemBackgroundColor()));
         bar.setStandardAppearance(&appearance);
-        bar.setScrollEdgeAppearance(Some(&appearance));
         bar.setCompactAppearance(Some(&appearance));
-        bar.setCompactScrollEdgeAppearance(Some(&appearance));
+        // From iOS 26 UIKit draws the large title inside the scroll view, behind the bar, so an
+        // opaque bar at the scroll edge paints over it and the list's top shows an empty band.
+        // A transparent scroll-edge bar is the system's own look there.
+        let edge = if os_at_least(26) {
+            let edge = UINavigationBarAppearance::new(mtm);
+            edge.configureWithTransparentBackground();
+            edge
+        } else {
+            appearance.clone()
+        };
+        bar.setScrollEdgeAppearance(Some(&edge));
+        bar.setCompactScrollEdgeAppearance(Some(&edge));
         unsafe { bar.setTranslucent(false) };
     }
 
@@ -12783,6 +12859,18 @@ mod imp {
                     Some((snav, vc))
                 });
                 if let Some((snav, vc)) = placed {
+                    // Like a detail page, the content list never takes a large title. Left at
+                    // Automatic it inherits the sidebar's Always once a collapsed split pushes it
+                    // over the sidebar, and the bar keeps an empty large-title band over a list
+                    // whose insets never counted it (the list's top and its pinned section header
+                    // sat under the opaque bar).
+                    unsafe {
+                        vc.navigationItem().setLargeTitleDisplayMode(
+                            objc2_ui_kit::UINavigationItemLargeTitleDisplayMode::Never,
+                        );
+                        vc.setExtendedLayoutIncludesOpaqueBars(true);
+                        snav.setExtendedLayoutIncludesOpaqueBars(true);
+                    }
                     let arr = objc2_foundation::NSArray::from_retained_slice(&[vc]);
                     unsafe { snav.setViewControllers(&arr) };
                 }
@@ -13303,6 +13391,44 @@ mod imp {
                 },
                 min_height: height,
             }
+        }
+
+        fn nav_scroll_to_edge(&mut self, h: &Handle, bottom: bool) -> bool {
+            let Some(cv) = h.downcast_ref::<objc2_ui_kit::UICollectionView>() else {
+                return false;
+            };
+            let path = NAV_MENUS.with(|menus| {
+                let menus = menus.borrow();
+                let (data, count) = menus.get(&ptr_of(h))?;
+                data.path_of(if bottom { count.checked_sub(1)? } else { 0 })
+            });
+            let Some((section, item)) = path else {
+                return true; // An empty menu already fits.
+            };
+            unsafe {
+                cv.layoutIfNeeded();
+                let path = objc2_foundation::NSIndexPath::indexPathForItem_inSection(
+                    item as isize,
+                    section as isize,
+                );
+                cv.scrollToItemAtIndexPath_atScrollPosition_animated(
+                    &path,
+                    if bottom {
+                        objc2_ui_kit::UICollectionViewScrollPosition::Bottom
+                    } else {
+                        objc2_ui_kit::UICollectionViewScrollPosition::Top
+                    },
+                    false,
+                );
+                if !bottom {
+                    // Include the first section heading, above its first row.
+                    cv.setContentOffset_animated(
+                        CGPoint::new(cv.contentOffset().x, -cv.adjustedContentInset().top),
+                        false,
+                    );
+                }
+            }
+            true
         }
 
         fn scroll_to(&mut self, h: &Handle, target: Rect, animated: bool) {

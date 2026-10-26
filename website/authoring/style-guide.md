@@ -51,7 +51,7 @@ public guide link when readers need context. Maintainer citations may remain in 
 
 Use descriptive link labels. Identify a linked API or task instead of `click here`.
 For internal documentation links, omit `.md` and `.mdx` from the visible label: write
-`[docs/bridge](/contributing/backend-contracts/bridge)` or “the daybridge guide.” The file
+`[element IDs](/docs/reference/element-ids)` or “the element-ID reference.” The file
 extension belongs only in an actual source-file reference, not in the name of a website page.
 Keep repository-relative Markdown destinations when needed for GitHub rendering; only the label
 loses its extension. Keep heading

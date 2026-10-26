@@ -17,11 +17,7 @@ first. Work in the same app directory and keep the project files and catalog fro
 
 Append to `resource/locales/en/app.ftl`:
 
-<!-- tutorial-append: resource/locales/en/app.ftl -->
-```ftl
-counter_value = Count: { $count }
-add_one = Add one
-```
+<!-- tutorial-step: state/messages -->
 
 `$count` is a Fluent argument. The generated `counter_value` accessor accepts that argument
 and checks its name at compile time.
@@ -30,26 +26,7 @@ and checks its name at compile time.
 
 Replace all of `src/lib.rs`:
 
-<!-- tutorial-file: src/lib.rs -->
-```rust
-use day::prelude::*;
-
-day::resources!();
-day::day_start!(options: res::window_options(), root);
-
-pub fn root() -> impl Piece {
-    let count = Signal::new(0i64);
-
-    column((
-        label(res::str::counter_value(count)).id(id!(counter_label)),
-        button(res::str::add_one())
-            .action(move || count.update(|n| *n = n.saturating_add(1)))
-            .id(id!(increment_button)),
-    ))
-    .spacing(Space::M)
-    .padding(Space::L)
-}
-```
+<!-- tutorial-step: state/ui -->
 
 A **signal** is a reactive value: reading it through a binding connects the UI to future changes.
 [`Signal::new(0i64)`](https://daybrite.dev/api/day_reactive/struct.Signal.html#method.new) starts the count at zero in the root's current scope. Pass `count` to the
@@ -63,9 +40,9 @@ thread; do not send a `Signal` to a worker thread.
 
 ## 3. Observe the state
 
-```sh
-day launch -t macos-appkit
-```
+<!-- tutorial-step: state/launch -->
+
+<!-- tutorial-step: state/quit -->
 
 The label starts at **Count: 0**. Press **Add one** twice; it should read **Count: 2**.
 Quit and relaunch: the count returns to zero. This app stores the count in memory only.

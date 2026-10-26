@@ -56,7 +56,7 @@ an OS concern rather than a toolkit one. `crates/day-part-device/examples/batter
 | Windows | [`GetSystemPowerStatus`](https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-getsystempowerstatus) | raw FFI (kernel32) |
 | Linux | [`/sys/class/power_supply`](https://docs.kernel.org/power/power_supply_class.html) | std only |
 | HarmonyOS | native [`OH_BatteryInfo_GetCapacity`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-basic-services-kit/capi-oh-batteryinfo.md) / [`GetPluggedType`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-basic-services-kit/capi-oh-batteryinfo.md) (`libohbattery_info.so`) | raw FFI (BasicServicesKit) |
-| Android | [`BatteryManager`](https://developer.android.com/reference/android/os/BatteryManager) via the inline Java arm in `src/android.rs` | `day-toolkit-material` + [`day-bridge`](/contributing/backend-contracts/bridge) ([bridge](bridge.md)) |
+| Android | [`BatteryManager`](https://developer.android.com/reference/android/os/BatteryManager) via the inline Java arm in `src/android.rs` | `day-toolkit-material` + [`day-bridge`](https://github.com/daybrite/day/blob/main/docs/bridge.md) ([bridge](bridge.md)) |
 
 iOS reads on the main thread ([`UIDevice`](https://developer.apple.com/documentation/uikit/uidevice) is `MainThreadOnly`); off it, [`status()`](https://daybrite.dev/api/day_part_device/battery/fn.status.html) returns `None`. The
 simulator has no battery, so you get `level: None, state: Unknown` (the API path still runs).

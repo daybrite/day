@@ -154,7 +154,7 @@ turning the label's trailing whitespace into a link. Links receive a default blu
 underline; explicit run colors remain intact. Replacing runs, returning to plain text, or
 disposing a label unregisters its old span callbacks before releasing the nodes.
 
-The [native link suite](testing.md#native-arkui-link-tests) exercises OS taps, selection-enabled
+The [native link suite](https://github.com/daybrite/day/blob/main/docs/backend-contracts/test-infrastructure.md#native-arkui-link-tests) exercises OS taps, selection-enabled
 labels, reactive targets, removal from a handler and default route navigation. The portable
 `label-link-runs-reactive` case checks native text through linked/plain/relinked transitions;
 injected taps alone do not prove span hit testing. Per-link keyboard traversal and screen-reader

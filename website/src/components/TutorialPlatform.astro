@@ -1,0 +1,77 @@
+---
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: CC-BY-SA-4.0
+import { tutorialRecipe as recipe } from '../lib/tutorial-data';
+---
+<div class="tutorial-choice" data-pagefind-ignore>
+  <fieldset>
+    <legend>Your development computer</legend>
+    <div class="segments">
+      {Object.entries(recipe.platforms).map(([id, platform]) => <label>
+        <input type="radio" name="tutorial-platform" value={id} />
+        <span>{platform.label}</span>
+      </label>)}
+    </div>
+  </fieldset>
+  <p>Choose the computer you’ll build on. Your choice applies throughout these six lessons.</p>
+  <noscript><p>JavaScript is disabled. Instructions for all three platforms appear below.</p></noscript>
+</div>
+<script>
+  import { initialPlatform, tutorialLink, validPlatform } from '../lib/tutorial-platform.mjs';
+  const controls = [...document.querySelectorAll<HTMLInputElement>('input[name="tutorial-platform"]')];
+  const storageKey = 'day-tutorial-platform';
+  let saved: string | null = null;
+  try { saved = localStorage.getItem(storageKey); } catch { /* Storage can be disabled. */ }
+  function select(platform: string, remember = false) {
+    if (!validPlatform(platform)) return;
+    controls.forEach(control => { control.checked = control.value === platform; });
+    document.querySelectorAll<HTMLElement>('[data-tutorial-platform]').forEach(panel => {
+      panel.hidden = panel.dataset.tutorialPlatform !== 'all' && panel.dataset.tutorialPlatform !== platform;
+    });
+    const address = new URL(location.href);
+    address.searchParams.set('platform', platform);
+    history.replaceState(null, '', address);
+    document.querySelectorAll<HTMLAnchorElement>('a[href]').forEach(link => {
+      link.href = tutorialLink(link.getAttribute('href')!, location.href, platform);
+    });
+    if (remember) {
+      saved = platform;
+      try { localStorage.setItem(storageKey, platform); } catch { /* Selection still works. */ }
+    }
+  }
+  if (navigator.clipboard) document.querySelectorAll<HTMLButtonElement>('[data-copy-text]').forEach(button => {
+    button.hidden = false;
+    button.addEventListener('click', async () => {
+      const original = button.textContent;
+      try {
+        await navigator.clipboard.writeText(decodeURIComponent(button.dataset.copyText!));
+        button.textContent = 'Copied';
+      } catch { button.textContent = 'Select the code to copy'; }
+      window.setTimeout(() => { button.textContent = original; }, 1800);
+    });
+  });
+  const initial = initialPlatform(location.href, saved, navigator);
+  if (initial) select(initial);
+  controls.forEach(control => control.addEventListener('change', () => select(control.value, true)));
+  window.addEventListener('popstate', () => {
+    const platform = initialPlatform(location.href, saved, navigator);
+    if (platform) select(platform);
+  });
+</script>
+<style>
+  .tutorial-choice { margin: 12px 0 28px; padding: 20px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
+  fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
+  legend { padding: 0; margin-bottom: 12px; font-weight: 650; }
+  .segments { display: flex; width: fit-content; max-width: 100%; padding: 4px; gap: 4px; background: var(--bg-2); border: 1px solid var(--border); border-radius: 12px; }
+  label { position: relative; cursor: pointer; min-width: 0; }
+  input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+  label span { display: block; padding: 8px 20px; border-radius: 8px; color: var(--muted); }
+  input:checked + span { color: var(--text); background: var(--surface); box-shadow: 0 1px 4px #0002; }
+  input:focus-visible + span { outline: 2px solid var(--brand); outline-offset: 2px; }
+  p { margin: 12px 0 0; font-size: 0.9rem; }
+  :global(.tutorial-step[hidden]) { display: none !important; }
+  :global(.tutorial-copy:not([hidden])) { display: block; margin: 0 0 6px auto; padding: 6px 10px; font: inherit; font-size: 0.8rem; border: 1px solid var(--border); border-radius: 6px; color: var(--text); background: var(--surface); cursor: pointer; }
+  :global(.tutorial-copy:focus-visible) { outline: 2px solid var(--brand); outline-offset: 2px; }
+  :global(.tutorial-platform-label) { margin-bottom: 6px; font-size: 0.85rem; font-weight: 650; }
+  @media (max-width: 450px) { label span { padding-inline: 12px; } }
+</style>

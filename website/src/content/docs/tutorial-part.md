@@ -32,7 +32,7 @@ in [`parts/`](https://github.com/daybrite/day/tree/main/crates), the non-UI coun
 whether the crate has a UI:
 
 - Building a **visible control** backed by a native widget? Write a **piece**; see
-  [the piece tutorial](/contributing/backend-contracts/extending) and [`day-piece-text-editor`](https://github.com/daybrite/day/tree/main/crates/day-piece-text-editor).
+  [the piece tutorial](https://github.com/daybrite/day/blob/main/docs/extending.md) and [`day-piece-text-editor`](https://github.com/daybrite/day/tree/main/crates/day-piece-text-editor).
 - Exposing a **device service** with no UI of its own? Write a **part**.
 
 A part reuses the same build-contribution channel pieces use (the `[package.metadata.day.*]` keys
@@ -296,7 +296,7 @@ and `Context` that `day-platform-android` already caches.
 > [!NOTE] The shipped crate does this with a bridge now
 > Everything in this section is the mechanism underneath, and it still works as described, but
 > [`day-part-device`](/docs/reference/battery) itself has since moved its Android half to a
-> [daybridge](/contributing/backend-contracts/bridge) arm: the Java lives inline in `src/android.rs` beside the Rust
+> [daybridge](https://github.com/daybrite/day/blob/main/docs/bridge.md) arm: the Java lives inline in `src/android.rs` beside the Rust
 > declaration it implements, and the JNI call and the packed-`long` protocol below are generated,
 > so the checked-in `.java` file and the `java = [...]` table are gone. Read this section to
 > understand what a bridge generates for you; read [speech](https://github.com/daybrite/day-part-speech/blob/main/docs/speech.md) for what
@@ -463,7 +463,7 @@ reaches the APK and the part silently does nothing. [`day-part-local-notify`](/d
 receiver) is the reference. The table also takes `res` (piece-shipped Android resources),
 `gradle-repositories` (extra Maven repos), and `proguard` (R8 keep rules for Java something reaches
 by reflection; what Rust calls is kept by its binding); see the
-[extending reference](/contributing/backend-contracts/extending).
+[extending reference](https://github.com/daybrite/day/blob/main/docs/extending.md).
 
 When you run `day build -t android-material`, the CLI runs `cargo metadata`, walks the app's entire
 dependency closure, and collects every part's and piece's `[package.metadata.day.android]` blocks
@@ -564,7 +564,7 @@ Android or iOS) one line of `Cargo.toml` metadata.
 ---
 
 For the full source, see [`crates/day-part-device/`](https://github.com/daybrite/day/tree/main/crates/day-part-device) in the Day repo, and
-[extending](/contributing/backend-contracts/extending) for the shared contribution mechanism that parts and pieces both use.
+[extending](https://github.com/daybrite/day/blob/main/docs/extending.md) for the shared contribution mechanism that parts and pieces both use.
 [`crates/day-part-connectivity`](https://github.com/daybrite/day/tree/main/crates/day-part-connectivity) (SystemConfiguration + an iOS `frameworks` link + an Android permission) and
 [`crates/day-part-haptics`](https://github.com/daybrite/day/tree/main/crates/day-part-haptics) (objc2 feedback generators + an Android `Vibrator` shim) are two more parts
 to read as templates.

@@ -1766,7 +1766,7 @@ fn exec(step: Step, revision: u32) -> Reply {
                 let ok = with_tree(|t| t.scroll_to_target(node, &target, false));
                 if !ok {
                     return Err(Reply::fail(
-                        format!("scroll_to: {id:?} is not a realized scroll piece"),
+                        format!("scroll_to: {id:?} does not support this scroll target"),
                         true,
                     ));
                 }

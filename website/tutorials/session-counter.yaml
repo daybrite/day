@@ -1,0 +1,638 @@
+# Copyright © The Daybrite Project
+# SPDX-License-Identifier: CC-BY-SA-4.0
+schema: 1
+id: session-counter
+title: Session counter
+project: first-app
+platforms:
+  macos:
+    label: macOS
+    target: macos-appkit
+    toolkit: appkit
+    shell: bash
+    prerequisites: >-
+      Use an Apple silicon Mac with full Xcode 27 or newer. Open Xcode once to finish installation.
+      In Terminal, use Bash or Zsh.
+    quit: Quit with Command-Q before continuing.
+  windows:
+    label: Windows
+    target: windows-winui
+    toolkit: winui
+    shell: powershell
+    prerequisites: >-
+      Use Windows with Visual Studio C++ Build Tools, the Windows SDK, the MSVC Rust toolchain, and
+      Windows App Runtime 2.5.1 or newer. Use PowerShell 7 in a Developer PowerShell terminal so the
+      C++ tools are on PATH.
+    quit: Close the app window before continuing.
+  linux:
+    label: Linux
+    target: linux-gtk
+    toolkit: gtk
+    shell: bash
+    prerequisites: >-
+      These instructions use Ubuntu 24.04 or newer with GTK 4.10+, libadwaita 1.5+, librsvg 2.52+,
+      their development packages, and pkg-config. Use Bash in a desktop session.
+    quit: Close the app window before continuing.
+lessons:
+  - id: first-app
+    source: getting-started.md
+    route: /docs/tutorials/first-app
+    steps:
+      - id: prerequisites
+        kind: note
+        content: "{{prerequisites}}"
+      - id: install
+        kind: run
+        cwd: .
+        command: |
+          cargo install day-cli --locked
+        compatibility: install
+      - id: doctor
+        kind: run
+        cwd: .
+        command: |
+          day --version
+          day doctor --toolkit {{toolkit}}
+      - id: create
+        kind: run
+        cwd: .
+        command:
+          macos: |
+            mkdir -p first-app/src first-app/resource/locales/en
+            cd first-app
+          linux: |
+            mkdir -p first-app/src first-app/resource/locales/en
+            cd first-app
+          windows: |
+            New-Item -ItemType Directory -Path first-app/src, first-app/resource/locales/en
+            Set-Location first-app
+      - id: cargo
+        kind: file
+        cwd: first-app
+        path: Cargo.toml
+        mode: write
+        language: toml
+        content: |
+          [package]
+          name = "first-app"
+          version = "0.1.0"
+          edition = "2024"
+
+          [workspace]
+
+          [lib]
+          name = "dayapp"
+
+          [features]
+          default = ["mock"]
+          mock = ["day/mock"]
+          appkit = ["day/appkit"]
+          gtk = ["day/gtk"]
+          winui = ["day/winui"]
+
+          [dependencies]
+          day = { package = "day-app", version = "0.6" }
+
+          [build-dependencies]
+          day-build = "0.6"
+      - id: manifest
+        kind: file
+        cwd: first-app
+        path: Day.toml
+        mode: write
+        language: toml
+        content: |
+          schema = 1
+
+          [app]
+          id = "dev.daybrite.tutorial.session-counter"
+          title = "Session counter"
+          build = 1
+          targets = ["{{target}}"]
+
+          [window]
+          width = 640
+          height = 480
+          min_width = 400
+          min_height = 320
+      - id: build-script
+        kind: file
+        cwd: first-app
+        path: build.rs
+        mode: write
+        language: rust
+        content: |
+          fn main() {
+              day_build::prebuild_project().expect("day-build: prebuild");
+          }
+      - id: messages
+        kind: file
+        cwd: first-app
+        path: resource/locales/en/app.ftl
+        mode: write
+        language: ftl
+        content: |
+          app_title = Session counter
+          welcome = Count the sessions you finish today.
+      - id: ui
+        kind: file
+        cwd: first-app
+        path: src/lib.rs
+        mode: write
+        language: rust
+        content: |
+          use day::prelude::*;
+
+          day::resources!();
+          day::day_start!(options: res::window_options(), root);
+
+          pub fn root() -> impl Piece {
+              label(res::str::welcome())
+                  .padding(Space::L)
+                  .id(id!(welcome_label))
+          }
+      - id: entry
+        kind: file
+        cwd: first-app
+        path: src/main.rs
+        mode: write
+        language: rust
+        content: |
+          fn main() {
+              day::launch(dayapp::res::window_options(), dayapp::root);
+          }
+      - id: host
+        kind: run
+        cwd: first-app
+        platforms:
+          - macos
+        command: |
+          day project add-target {{target}}
+      - id: build
+        kind: run
+        cwd: first-app
+        command: |
+          day build -t {{target}}
+      - id: launch
+        kind: launch
+        cwd: first-app
+        command: |
+          day launch -t {{target}}
+        checks:
+          - assert_text:
+              id: welcome_label
+              key: welcome
+          - assert_native:
+              id: welcome_label
+              visible: true
+          - assert_no_placeholders: {}
+          - screenshot: first-app
+      - id: quit
+        kind: note
+        content: "{{quit}}"
+  - id: events
+    source: tutorial-events.md
+    route: /docs/tutorials/events
+    steps:
+      - id: messages
+        kind: file
+        cwd: first-app
+        path: resource/locales/en/app.ftl
+        mode: append
+        language: ftl
+        content: |
+          try_button = Try the button
+          click_received = Your button click reached the app.
+      - id: ui
+        kind: file
+        cwd: first-app
+        path: src/lib.rs
+        mode: write
+        language: rust
+        content: |
+          use day::prelude::*;
+
+          day::resources!();
+          day::day_start!(options: res::window_options(), root);
+
+          pub fn root() -> impl Piece {
+              column((
+                  label(res::str::welcome()),
+                  button(res::str::try_button())
+                      .action(|| {
+                          day::task(async {
+                              alert(res::str::click_received()).await;
+                          });
+                      })
+                      .id(id!(try_button)),
+              ))
+              .spacing(Space::M)
+              .padding(Space::L)
+          }
+      - id: launch
+        kind: launch
+        cwd: first-app
+        command: |
+          day launch -t {{target}}
+        checks:
+          - tap:
+              id: try_button
+          - assert_presented: {}
+          - respond:
+              button: 0
+          - wait_idle: null
+          - assert_not_presented: {}
+          - tap:
+              id: try_button
+          - assert_presented: {}
+          - respond:
+              button: 0
+          - wait_idle: null
+          - assert_no_placeholders: {}
+          - screenshot: events
+      - id: quit
+        kind: note
+        content: "{{quit}}"
+  - id: state
+    source: tutorial-state.md
+    route: /docs/tutorials/state
+    steps:
+      - id: messages
+        kind: file
+        cwd: first-app
+        path: resource/locales/en/app.ftl
+        mode: append
+        language: ftl
+        content: |
+          counter_value = Count: { $count }
+          add_one = Add one
+      - id: ui
+        kind: file
+        cwd: first-app
+        path: src/lib.rs
+        mode: write
+        language: rust
+        content: |
+          use day::prelude::*;
+
+          day::resources!();
+          day::day_start!(options: res::window_options(), root);
+
+          pub fn root() -> impl Piece {
+              let count = Signal::new(0i64);
+
+              column((
+                  label(res::str::counter_value(count)).id(id!(counter_label)),
+                  button(res::str::add_one())
+                      .action(move || count.update(|n| *n = n.saturating_add(1)))
+                      .id(id!(increment_button)),
+              ))
+              .spacing(Space::M)
+              .padding(Space::L)
+          }
+      - id: launch
+        kind: launch
+        cwd: first-app
+        command: |
+          day launch -t {{target}}
+        checks:
+          - assert_text:
+              id: counter_label
+              key: counter_value
+              args:
+                count: 0
+          - tap:
+              id: increment_button
+              repeat: 2
+          - assert_text:
+              id: counter_label
+              key: counter_value
+              args:
+                count: 2
+          - assert_no_placeholders: {}
+          - screenshot: state
+      - id: quit
+        kind: note
+        content: "{{quit}}"
+  - id: layout
+    source: tutorial-layout.md
+    route: /docs/tutorials/layout
+    steps:
+      - id: messages
+        kind: file
+        cwd: first-app
+        path: resource/locales/en/app.ftl
+        mode: append
+        language: ftl
+        content: |
+          reset_count = Reset
+          session_hint = Add one after each session. Reset when you start a new day.
+      - id: ui
+        kind: file
+        cwd: first-app
+        path: src/lib.rs
+        mode: write
+        language: rust
+        content: |
+          use day::prelude::*;
+
+          day::resources!();
+          day::day_start!(options: res::window_options(), root);
+
+          pub fn root() -> impl Piece {
+              let count = Signal::new(0i64);
+
+              column((
+                  label(res::str::welcome()),
+                  label(res::str::counter_value(count)).id(id!(counter_label)),
+                  row((
+                      button(res::str::add_one())
+                          .action(move || count.update(|n| *n = n.saturating_add(1)))
+                          .id(id!(increment_button)),
+                      button(res::str::reset_count())
+                          .action(move || count.set(0))
+                          .id(id!(reset_button)),
+                  ))
+                  .spacing(Space::M),
+                  label(res::str::session_hint()),
+              ))
+              .spacing(Space::M)
+              .padding(Space::L)
+              .grow()
+          }
+      - id: launch
+        kind: launch
+        cwd: first-app
+        command: |
+          day launch -t {{target}}
+        checks:
+          - tap:
+              id: increment_button
+          - tap:
+              id: reset_button
+          - assert_text:
+              id: counter_label
+              key: counter_value
+              args:
+                count: 0
+          - assert_native:
+              id: increment_button
+              visible: true
+          - assert_native:
+              id: reset_button
+              visible: true
+          - assert_no_placeholders: {}
+          - screenshot: layout
+      - id: quit
+        kind: note
+        content: "{{quit}}"
+  - id: navigation
+    source: tutorial-navigation.md
+    route: /docs/tutorials/navigation
+    steps:
+      - id: messages
+        kind: file
+        cwd: first-app
+        path: resource/locales/en/app.ftl
+        mode: append
+        language: ftl
+        content: |
+          nav_counter = Counter
+          nav_summary = Summary
+          summary_value = Sessions completed: { $count }
+          summary_hint = This count lasts until you quit the app.
+      - id: ui
+        kind: file
+        cwd: first-app
+        path: src/lib.rs
+        mode: write
+        language: rust
+        content: |
+          use day::prelude::*;
+
+          day::resources!();
+          day::day_start!(options: res::window_options(), root);
+
+          pub fn root() -> impl Piece {
+              let count = Signal::new(0i64);
+              let section = Signal::new("counter".to_string());
+
+              nav(section)
+                  .style(NavStyle::Sidebar)
+                  .title(res::str::app_title())
+                  .item("counter", res::str::nav_counter(), move || {
+                      counter_page(count)
+                  })
+                  .item("summary", res::str::nav_summary(), move || {
+                      summary_page(count)
+                  })
+                  .grow()
+          }
+
+          fn counter_page(count: Signal<i64>) -> impl Piece {
+              column((
+                  label(res::str::counter_value(count)).id(id!(counter_label)),
+                  row((
+                      button(res::str::add_one())
+                          .action(move || count.update(|n| *n = n.saturating_add(1)))
+                          .id(id!(increment_button)),
+                      button(res::str::reset_count())
+                          .action(move || count.set(0))
+                          .id(id!(reset_button)),
+                  ))
+                  .spacing(Space::M),
+                  label(res::str::session_hint()),
+              ))
+              .spacing(Space::M)
+              .padding(Space::L)
+              .grow()
+          }
+
+          fn summary_page(count: Signal<i64>) -> impl Piece {
+              column((
+                  label(res::str::summary_value(count)).id(id!(summary_label)),
+                  label(res::str::summary_hint()),
+              ))
+              .spacing(Space::M)
+              .padding(Space::L)
+              .grow()
+          }
+      - id: launch
+        kind: launch
+        cwd: first-app
+        command: |
+          day launch -t {{target}}
+        checks:
+          - tap:
+              id: increment_button
+          - navigate:
+              route: summary
+          - assert_text:
+              id: summary_label
+              key: summary_value
+              args:
+                count: 1
+          - navigate:
+              route: counter
+          - assert_text:
+              id: counter_label
+              key: counter_value
+              args:
+                count: 1
+          - assert_no_placeholders: {}
+          - screenshot: navigation
+      - id: quit
+        kind: note
+        content: "{{quit}}"
+  - id: complete-app
+    source: tutorial-complete-app.md
+    route: /docs/tutorials/complete-app
+    steps:
+      - id: messages
+        kind: file
+        cwd: first-app
+        path: resource/locales/en/app.ftl
+        mode: write
+        language: ftl
+        content: |
+          app_title = Session counter
+          counter_value = Count: { $count }
+          add_one = Add one
+          reset_count = Reset
+          session_hint = Add one after each session. Reset when you start a new day.
+          nav_counter = Counter
+          nav_summary = Summary
+          summary_value = Sessions completed: { $count }
+          summary_hint = This count lasts until you quit the app.
+          show_summary = Show summary
+          back_to_counter = Back to counter
+      - id: ui
+        kind: file
+        cwd: first-app
+        path: src/lib.rs
+        mode: write
+        language: rust
+        content: |
+          use day::prelude::*;
+
+          day::resources!();
+          day::day_start!(options: res::window_options(), root);
+
+          pub fn root() -> impl Piece {
+              let count = Signal::new(0i64);
+              let section = Signal::new("counter".to_string());
+
+              nav(section)
+                  .style(NavStyle::Sidebar)
+                  .title(res::str::app_title())
+                  .item("counter", res::str::nav_counter(), move || {
+                      counter_page(count)
+                  })
+                  .item("summary", res::str::nav_summary(), move || {
+                      summary_page(count)
+                  })
+                  .grow()
+          }
+
+          fn counter_page(count: Signal<i64>) -> impl Piece {
+              column((
+                  label(res::str::counter_value(count)).id(id!(counter_label)),
+                  row((
+                      button(res::str::add_one())
+                          .action(move || count.update(|n| *n = n.saturating_add(1)))
+                          .id(id!(increment_button)),
+                      button(res::str::reset_count())
+                          .action(move || count.set(0))
+                          .id(id!(reset_button)),
+                  ))
+                  .spacing(Space::M),
+                  label(res::str::session_hint()),
+                  nav_link(res::str::show_summary(), "summary").id(id!(summary_button)),
+              ))
+              .spacing(Space::M)
+              .padding(Space::L)
+              .grow()
+          }
+
+          fn summary_page(count: Signal<i64>) -> impl Piece {
+              column((
+                  label(res::str::summary_value(count)).id(id!(summary_label)),
+                  label(res::str::summary_hint()),
+                  nav_link(res::str::back_to_counter(), "counter").id(id!(counter_button)),
+              ))
+              .spacing(Space::M)
+              .padding(Space::L)
+              .grow()
+          }
+      - id: launch
+        kind: launch
+        cwd: first-app
+        command: |
+          day launch -t {{target}}
+        checks:
+          - tap:
+              id: increment_button
+              repeat: 2
+          - tap:
+              id: summary_button
+          - assert_text:
+              id: summary_label
+              key: summary_value
+              args:
+                count: 2
+          - tap:
+              id: counter_button
+          - tap:
+              id: reset_button
+          - tap:
+              id: summary_button
+          - assert_text:
+              id: summary_label
+              key: summary_value
+              args:
+                count: 0
+          - assert_no_placeholders: {}
+          - screenshot: complete-app
+      - id: quit
+        kind: note
+        content: "{{quit}}"
+      - id: script-directory
+        kind: run
+        cwd: first-app
+        command:
+          macos: |
+            mkdir -p dayscript
+          linux: |
+            mkdir -p dayscript
+          windows: |
+            New-Item -ItemType Directory -Force -Path dayscript
+      - id: walkthrough
+        kind: file
+        cwd: first-app
+        path: dayscript/session-counter.yaml
+        mode: write
+        language: yaml
+        content: |
+          name: session-counter
+          on_failure: stop
+          flow:
+            - wait_for: { id: increment_button }
+            - assert_text: { id: counter_label, key: counter_value, args: { count: 0 } }
+            - tap: { id: increment_button }
+            - tap: { id: increment_button }
+            - assert_text: { id: counter_label, key: counter_value, args: { count: 2 } }
+            - tap: { id: summary_button }
+            - assert_route: { route: summary }
+            - assert_text: { id: summary_label, key: summary_value, args: { count: 2 } }
+            - tap: { id: counter_button }
+            - assert_route: { route: counter }
+            - assert_text: { id: counter_label, key: counter_value, args: { count: 2 } }
+            - tap: { id: reset_button }
+            - assert_text: { id: counter_label, key: counter_value, args: { count: 0 } }
+            - tap: { id: summary_button }
+            - assert_text: { id: summary_label, key: summary_value, args: { count: 0 } }
+      - id: test
+        kind: run
+        cwd: first-app
+        command: |
+          day launch -t {{target}} --locale en --script dayscript/session-counter.yaml

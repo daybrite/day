@@ -124,7 +124,7 @@ Opening failures and host teardown cancel affected requests. Registration preced
 root's startup so its first task can present. Secondary-window-specific ownership is not
 part of the current presentation contract; the ArkUI host uses the primary window.
 
-The [native-input regression suite](testing.md#native-arkui-dialog-tests) exercises actual
+The [native-input regression suite](https://github.com/daybrite/day/blob/main/docs/backend-contracts/test-infrastructure.md#native-arkui-dialog-tests) exercises actual
 ArkUI buttons, text editing, IME submit, Back and outside dismissal, in addition to the
 portable conformance cases for the public APIs and programmatic response path.
 

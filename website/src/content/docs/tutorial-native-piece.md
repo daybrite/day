@@ -68,9 +68,9 @@ Keep callbacks on the UI thread, suppress setter echoes, and release retained ca
 when the view is destroyed. Prefer native accessibility semantics and forward the Day label,
 identifier, enabled state and focus behavior.
 
-The [backend extension contract](/contributing/backend-contracts/extending) describes registration,
+The [backend extension contract](https://github.com/daybrite/day/blob/main/docs/extending.md) describes registration,
 native handles, measurement, lifecycle and container insertion. The
-[Android JNI contract](/contributing/backend-contracts/android-jni) covers Java factories and
+[Android JNI contract](https://github.com/daybrite/day/blob/main/docs/android-jni.md) covers Java factories and
 failure handling. Check the actual generated source before copying a platform-specific snippet.
 
 ## Declare native contributions
@@ -86,7 +86,7 @@ Native contributions belong to the extension that owns them:
 - Apple Swift sources, frameworks and package dependencies use the relevant Apple metadata.
 - HarmonyOS ArkTS and native contributions use the HarmonyOS metadata.
 
-See the [native contribution reference](/contributing/backend-contracts/extending) for the
+See the [native contribution reference](https://github.com/daybrite/day/blob/main/docs/extending.md) for the
 metadata keys and generated build artifacts. Declare permissions through the portable
 [permissions contract](/docs/reference/permissions) where a portable permission exists.
 
@@ -108,6 +108,6 @@ For a container, also verify child insertion, scrolling, clipping and child life
 [pull-to-refresh](/docs/reference/pullrefresh) demonstrates the behavior, but its implementation
 is now toolkit-owned rather than an optional extension package.
 
-See [testing](/contributing/backend-contracts/testing), the [text editor](/docs/reference/texteditor), and the
+See [testing](/docs/how-to/testing), the [text editor](/docs/reference/texteditor), and the
 [independent webview repository](https://github.com/daybrite/day-piece-webview) for maintained
 examples and additional platform contracts.

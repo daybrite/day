@@ -304,7 +304,7 @@ with the binary tool in `day-cli` producing a binary named `day`. An app writes
 > and from 0.6.1 every workspace member publishes on a semver tag ([§20](#20-continuous-integration)).
 > Apps, pieces and parts depend on the published crates by version, which is what `day new`
 > writes (`--git` takes the git remote instead). External pieces and parts publish too, from
-> their own repositories, through `dayapp.yml`'s `publish-crates`. CI builds a push against the
+> their own repositories, through the shared `daylib.yml` workflow ([§20](#20-continuous-integration)). CI builds a push against the
 > head of every Day repository's default branch (`day patch --main`) and a nightly run against
 > the newest release ([§15](#15-extensibility-pieces-parts-and-tweaks), [§20](#20-continuous-integration)).
 
@@ -1631,6 +1631,14 @@ hop needed a dedicated protocol — this cannot be retrofitted after the spec fr
   `scroll(child).scroll_target(signal)` builder (a `Signal<Option<ScrollTarget>>` of
   Top/Bottom/Leading/Trailing/Offset/Id), `TreeOps::{scroll_to_target, scroll_reveal}` composing
   reveal-rects in core, and the dayscript `scroll_to` step — one rail, every backend.
+- Native navigation menus own their content extent outside Day's scroll layout. For a
+  `NAV_MENU` node, `Top` and `Bottom` use `Toolkit::nav_scroll_to_edge`; other targets are
+  rejected. UIKit reveals the first or last collection-view item without animation, including
+  the first section heading when returning to the top;
+  Material scrolls the navigation view's recycler to its first or last row after layout,
+  revealing the title and search bar at the top and collapsing them at the bottom.
+  Selection and route stay unchanged. Other toolkits return unsupported. Dayscript addresses
+  the menu as `nav_menu`, with platform gates; see [docs/scroll.md](docs/scroll.md).
 - On content relayout the offset is preserved, clamped to the new extent.
 - **v1 restrictions, linted:** same-axis nested scrolls and `list`-inside-`scroll` are
   unsupported (`day lint` rule); cross-axis gesture arbitration is documented post-MVP work.
@@ -6122,6 +6130,17 @@ The `daybrite/actions` companion repository provides reusable workflows for exte
 > subpath works; a `web-deploy-tag-pattern` input gates publish-on-tag vs publish-on-main;
 > [docs/web.md](docs/web.md)), plus a scaffold-validation workflow. The Gradle/AGP legs use the runner's DEFAULT
 > preinstalled JDK (Day accepts 17+; the old "pin 21" was an AGP-8-era quirk).
+>
+> External pieces and parts use the repo's second reusable workflow, **`daylib.yml`**
+> (2026-10-26), so a library's `ci.yml` is its triggers and one job. Its `plan` job resolves Day
+> once for the run and reads the repository's manifests (the `plan-lib` action): the crates'
+> toolkit features and the demo's `Day.toml` targets. The `host` job runs clippy and tests on
+> Linux, macOS and Windows, plus clippy with each toolkit feature on the OS it draws on. The
+> `cross-check` job runs clippy for each mobile and web target the demo declares. The `demo` job
+> is `dayapp.yml` on the demo app. On a version tag, `publish` uploads the crates (publish-crates)
+> once host and cross-check pass, without waiting for the demo's emulator legs. A push builds
+> against day's `main` and every Day repository's default branch; a nightly run and a tag build
+> against the newest releases on crates.io.
 >
 > A repo with a `website/site.toml` gets the full **daysite** project site instead of the bare
 > web deploy, and that site publishes the app twice, as two BUILD CHANNELS (2026-09): the newest

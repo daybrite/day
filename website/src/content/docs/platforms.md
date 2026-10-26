@@ -127,7 +127,7 @@ The same Rust compiled to WebAssembly drives DOM elements (`<button>`, `<dialog>
 the [`day` CLI](/docs/reference/glossary#day-cli) alone. `day build -t web-dom` emits a self-contained static `dist/` you can host
 anywhere; there is no `day pack` step because `dist/` is already the artifact. It is experimental. The DOM toolkit now reports native file-dialog support and emulated list,
 tree, toolbar, and app-menu capabilities. External-piece coverage varies; inspect the
-[coverage matrix](/contributing/backend-contracts/coverage-matrix) and enable the piece's DOM feature where present.
+[coverage matrix](https://github.com/daybrite/day/blob/main/docs/coverage-matrix.md) and enable the piece's DOM feature where present.
 Browser permissions, user-activation requirements, and accessibility behavior still need runtime
 checks; neither API presence nor an emulated capability proves desktop-equivalent behavior. The
 [live build](https://showcase.daybrite.dev/webapp/) is deployed by the showcase's CI.

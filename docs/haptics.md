@@ -72,7 +72,7 @@ Platform guidance: [Apple: playing haptics](https://developer.apple.com/design/h
 | iOS | [`UIImpactFeedbackGenerator`](https://developer.apple.com/documentation/uikit/uiimpactfeedbackgenerator) / [`UINotificationFeedbackGenerator`](https://developer.apple.com/documentation/uikit/uinotificationfeedbackgenerator) / [`UISelectionFeedbackGenerator`](https://developer.apple.com/documentation/uikit/uiselectionfeedbackgenerator) | `objc2` + `objc2-ui-kit` |
 | macOS | [`NSHapticFeedbackManager.defaultPerformer`](https://developer.apple.com/documentation/appkit/nshapticfeedbackmanager) (Force Touch trackpad) | `objc2-app-kit` |
 | Android | [`Vibrator`](https://developer.android.com/reference/android/os/Vibrator) / [`VibrationEffect`](https://developer.android.com/reference/android/os/VibrationEffect) via a Java shim | `day-toolkit-material` + `[package.metadata.day.android]` |
-| HarmonyOS | [`vibrator.startVibration`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-sensor-service-kit/js-apis-vibrator.md) (Sensor Service Kit) via an ArkTS arm | [`day-bridge`](/contributing/backend-contracts/bridge) + `[package.metadata.day.ohos]` |
+| HarmonyOS | [`vibrator.startVibration`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-sensor-service-kit/js-apis-vibrator.md) (Sensor Service Kit) via an ArkTS arm | [`day-bridge`](https://github.com/daybrite/day/blob/main/docs/bridge.md) + `[package.metadata.day.ohos]` |
 | Windows · desktop Linux (GTK/Qt) | — (no haptic engine wired) | none (no-op, [`is_supported() == false`](https://daybrite.dev/api/day_part_haptics/fn.is_supported.html)) |
 
 ## How each platform realizes the styles

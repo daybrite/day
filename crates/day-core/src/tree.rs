@@ -881,7 +881,8 @@ pub trait TreeOps {
     fn patch_window_toolbar(&mut self, root: RNode, patch: day_spec::ToolbarPatch) -> bool;
     /// Programmatic scroll (§7.6, docs/scroll.md): resolve `target` against a scroll node's
     /// content/viewport and drive `Toolkit::scroll_to`. Returns false when `node` isn't a
-    /// realized scroll (the caller reports the miss; dayscript retries).
+    /// realized scroll, or a supported native navigation menu with a top/bottom target
+    /// (the caller reports the miss; dayscript retries).
     fn scroll_to_target(&mut self, node: RNode, target: &ScrollTarget, animated: bool) -> bool;
     /// Scroll the nearest enclosing scroll ancestor so `node`'s frame is visible (minimal
     /// scroll, `scrollRectToVisible` semantics). False when no scroll ancestor exists.
@@ -1859,6 +1860,14 @@ impl<B: Toolkit> TreeOps for Tree<B> {
         let Some(n) = self.nodes.get(node) else {
             return false;
         };
+        if n.kind == kinds::NAV_MENU {
+            return match (n.handle.clone(), target) {
+                (Some(h), ScrollTarget::Top | ScrollTarget::Bottom) => self
+                    .toolkit
+                    .nav_scroll_to_edge(&h, matches!(target, ScrollTarget::Bottom)),
+                _ => false,
+            };
+        }
         if n.kind != kinds::SCROLL {
             return false;
         }

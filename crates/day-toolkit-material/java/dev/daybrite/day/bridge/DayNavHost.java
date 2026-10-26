@@ -782,6 +782,11 @@ public class DayNavHost extends LinearLayout {
         listHome = null;
     }
 
+    /** Match the chrome position to a programmatic jump to either end of the root list. */
+    void scrollNavigationChrome(boolean bottom) {
+        if (scrollingChrome != null && !searchEditing()) appBar.setExpanded(!bottom, false);
+    }
+
     /** Keep pinned page footers inside the viewport as the app bar grows/shrinks. */
     private void sizeScrollingContent() {
         if (scrollingChrome.getHeight() <= 0) return;

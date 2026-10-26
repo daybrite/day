@@ -20,7 +20,7 @@ service crate instead of defining a bridge.
 
 ## Documentation
 
-- [Native-language bindings](https://daybrite.dev/contributing/backend-contracts/bridge/)
+- [Native-language bindings](https://github.com/daybrite/day/blob/main/docs/bridge.md/)
 - [Build a platform service](https://daybrite.dev/contributing/tutorials/part/)
 - [Using platform services](https://daybrite.dev/docs/reference/parts/)
 - [Rust API](https://daybrite.dev/api/day_bridge/index.html)

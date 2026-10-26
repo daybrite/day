@@ -243,7 +243,7 @@ doesn't exist.
 
 `id!(save_button)` declares the ID; YAML refers to `save_button`. The catalog supplies
 the human-readable title independently. For recycled rows, use [`.id_of`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.id_of) so the ID follows
-the current item. See [element IDs](/contributing/backend-contracts/element-ids).
+the current item. See [element IDs](/docs/reference/element-ids).
 
 ## Where Pieces come from
 

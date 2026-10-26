@@ -23,7 +23,7 @@ menu_item(res::str::save()).key("s").action(save) // ⌘S on macOS, Ctrl+S every
 windows have different target mappings. The DOM backend reports emulated toolbar and app-menu
 support; mobile backends can expose navigation chrome instead of desktop menus. An unsupported
 secondary native window falls back to a fullscreen cover. The
-[coverage matrix](/contributing/backend-contracts/coverage-matrix) and subsystem references
+[coverage matrix](https://github.com/daybrite/day/blob/main/docs/coverage-matrix.md) and subsystem references
 record source behavior, not native test results.
 
 The code blocks are integration fragments. Start in a working app, import `day::prelude::*`,

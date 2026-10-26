@@ -18,6 +18,10 @@ export function resolveContentLink(href, source) {
   const target = posix.normalize(posix.join(posix.dirname(source), bare));
   if (bySource.has(target)) {
     const route = canonicalPath(bySource.get(target) + suffix);
+    // Backend implementation references remain available in the repository for contributors.
+    if (isUnpublishedPath(route) && route.startsWith('/contributing/backend-contracts/')) {
+      return `https://github.com/daybrite/day/blob/main/${target}${suffix}`;
+    }
     return isUnpublishedPath(route) ? null : route;
   }
   // Source documents are preserved beside code. Files link to blob; directories to tree.

@@ -10,7 +10,7 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-Add a button that opens a confirmation alert. Start with the working macOS app from
+Add a button that opens a confirmation alert. Start with the working app from
 [1. Open your first window](/docs/tutorials/first-app), in the same terminal and app directory.
 Keep `Cargo.toml`, `Day.toml`, `build.rs`, and `src/main.rs` from that lesson.
 
@@ -18,38 +18,13 @@ Keep `Cargo.toml`, `Day.toml`, `build.rs`, and `src/main.rs` from that lesson.
 
 Append these keys to `resource/locales/en/app.ftl`. Keep the existing keys:
 
-<!-- tutorial-append: resource/locales/en/app.ftl -->
-```ftl
-try_button = Try the button
-click_received = Your button click reached the app.
-```
+<!-- tutorial-step: events/messages -->
 
 ## 2. Connect the button
 
 Replace all of `src/lib.rs` with this complete file:
 
-<!-- tutorial-file: src/lib.rs -->
-```rust
-use day::prelude::*;
-
-day::resources!();
-day::day_start!(options: res::window_options(), root);
-
-pub fn root() -> impl Piece {
-    column((
-        label(res::str::welcome()),
-        button(res::str::try_button())
-            .action(|| {
-                day::task(async {
-                    alert(res::str::click_received()).await;
-                });
-            })
-            .id(id!(try_button)),
-    ))
-    .spacing(Space::M)
-    .padding(Space::L)
-}
-```
+<!-- tutorial-step: events/ui -->
 
 [`column`](https://daybrite.dev/api/day_pieces/fn.column.html) arranges the label and button vertically. [`button`](https://daybrite.dev/api/day_pieces/fn.button.html) creates a button Piece; [`.action`](https://daybrite.dev/api/day_pieces/trait.ButtonBuilder.html#tymethod.action)
 registers the closure Day calls when it receives a click. The `||` closure takes no arguments.
@@ -62,12 +37,12 @@ a place for blocking network or file work. The message is constructed inside the
 
 ## 3. Try the event
 
-```sh
-day launch -t macos-appkit
-```
+<!-- tutorial-step: events/launch -->
 
 Press **Try the button**. An alert displays **Your button click reached the app.** Dismiss it,
-then press the button again to confirm the callback runs on each click. Quit with **Command-Q**.
+then press the button again to confirm the callback runs on each click.
+
+<!-- tutorial-step: events/quit -->
 
 ## Troubleshooting
 

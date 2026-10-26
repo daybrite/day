@@ -24,7 +24,7 @@ Native hosts initialize this runtime before using its services.
 ## Documentation
 
 - [Android setup](https://daybrite.dev/docs/reference/platforms/android-material/)
-- [Android JNI contract](https://daybrite.dev/contributing/backend-contracts/android-jni/)
+- [Android JNI contract](https://github.com/daybrite/day/blob/main/docs/android-jni.md/)
 - [Rust API source](https://github.com/daybrite/day/blob/main/crates/day-platform-android/src/lib.rs)
 
 [Source](https://github.com/daybrite/day/tree/main/crates/day-platform-android) ·

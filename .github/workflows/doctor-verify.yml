@@ -1,4 +1,4 @@
-# doctor-verify: daily end-to-end check of the user path on every platform-toolkit combo and day version.
+# doctor-verify: scheduled scaffold/package checks and executable tutorial walkthroughs.
 #
 # Each job does what a new user on a stock machine would: `cargo install day-cli` (from crates.io,
 # with the runner's preinstalled Rust), install that combo's toolkit prerequisites, and run
@@ -8,7 +8,7 @@
 # yanked release, a dependency that stopped compiling, a scaffold that drifted from the API, and
 # OS-specific regressions before users hit them.
 #
-# Two axes, crossed: 11 combos × 2 day versions.
+# Doctor matrix: platform-toolkit combos × main/latest Day versions.
 #   main:     doctor-verify installs day-cli from the git remote's main branch and scaffolds against it.
 #             A regression is reported the day it lands, not at the next release.
 #   latest:   the newest day-cli published to crates.io, what a user who installs today gets. The
@@ -30,6 +30,9 @@
 # NOTE: scaffolds take their `day` dependency from the git remote (a tag for a release, a branch
 # for `main`) because the framework crates are not yet published to crates.io. Once they are,
 # `--day-version <x.y.z>` can pair with `--registry` for the pure crates.io path.
+# Tutorial jobs independently validate the shared YAML and walk through all six Session counter
+# lessons on macOS, Windows, and Linux. Release jobs use the published site's recipe and a fresh
+# crates.io install; main jobs use checkout sources. Each job uploads its verification evidence.
 name: doctor-verify
 
 on:
@@ -38,8 +41,23 @@ on:
   schedule:
     - cron: "0 0,12 * * *"
   workflow_dispatch:
+  # PRs validate tutorial sources only; native checks run on the schedule or manual dispatch.
+  pull_request:
+    paths:
+      - website/tutorials/**
+      - website/plugins/tutorial-steps.mjs
+      - website/src/lib/tutorial*
+      - website/scripts/tutorial*.mjs
+      - website/scripts/verify-marketing-evidence.mjs
+      - website/src/components/TutorialPlatform.astro
+      - website/src/pages/tutorials/**
+      - website/src/content/docs/getting-started.md
+      - website/src/content/docs/tutorial-*.md
+      - website/package*.json
+      - .github/actionlint.yaml
+      - .github/workflows/doctor-verify.yml
 
-# No repo access needed: everything installs from crates.io / package managers.
+# Tutorial jobs check out the recipe and runner; doctor jobs install from public sources.
 permissions:
   contents: read
 
@@ -52,6 +70,7 @@ env:
 
 jobs:
   doctor-verify:
+    if: github.event_name != 'pull_request'
     name: ${{ matrix.combo }} · day ${{ matrix.day-version }}
     strategy:
       fail-fast: false # report every combo independently; one break shouldn't hide the others
@@ -142,3 +161,89 @@ jobs:
           # this alias when the driver delegates scaffold/build/pack to main.
           if [ "$target" = android-material ]; then target=android-mdc; fi
           day doctor verify -t "$target" --day-version ${{ matrix.day-version }} --profile release --strict --dir "${{ runner.temp }}/Day Project Root"
+
+  tutorial-source:
+    name: Tutorial recipe and renderer
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: website/package-lock.json
+      - run: npm --prefix website ci
+      - run: npm --prefix website run tutorials:check
+
+  tutorial-walkthrough:
+    name: Tutorial · ${{ matrix.platform }} · ${{ matrix.mode }}
+    if: github.event_name != 'pull_request'
+    needs: tutorial-source
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: [release, main]
+        platform: [macos, windows, linux]
+        include:
+          - platform: macos
+            runner: xcode-27
+            target: macos-appkit
+          - platform: windows
+            runner: windows-2025
+            target: windows-winui
+          - platform: linux
+            runner: ubuntu-24.04
+            target: linux-gtk
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+      - uses: dtolnay/rust-toolchain@stable
+      # Provision the documented SDK baseline. This does not install Day or create the app.
+      - uses: daybrite/actions/.github/actions/setup-day-deps@v1
+        with:
+          target: ${{ matrix.target }}
+          pack: false
+          extras: true
+      - uses: ilammy/msvc-dev-cmd@v1
+        if: runner.os == 'Windows'
+      - run: npm --prefix website ci
+      # The release lane reads the recipe shipped with the live site. The main lane uses this
+      # checkout's recipe, CLI, and framework, and records its dependency substitutions.
+      - name: Execute the tutorial
+        shell: bash
+        env:
+          TUTORIAL_PLATFORM: ${{ matrix.platform }}
+          TUTORIAL_MODE: ${{ matrix.mode }}
+          TUTORIAL_SOURCE: ${{ matrix.mode == 'release' && 'published' || 'checkout' }}
+          TUTORIAL_OUT: ${{ runner.temp }}/tutorial-${{ matrix.platform }}-${{ matrix.mode }}
+        run: |
+          command=(node website/scripts/tutorial-walkthrough.mjs
+            --platform "$TUTORIAL_PLATFORM" --mode "$TUTORIAL_MODE"
+            --source "$TUTORIAL_SOURCE" --out "$TUTORIAL_OUT")
+          if [[ "$TUTORIAL_PLATFORM" == linux ]]; then
+            xvfb-run -a -s '-screen 0 1280x1024x24' "${command[@]}"
+          else
+            "${command[@]}"
+          fi
+      - name: Record result
+        if: always()
+        shell: bash
+        env:
+          TUTORIAL_OUT: ${{ runner.temp }}/tutorial-${{ matrix.platform }}-${{ matrix.mode }}
+        run: |
+          if [[ -f "$TUTORIAL_OUT/evidence/result.json" ]]; then
+            cat "$TUTORIAL_OUT/evidence/result.json" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo 'Tutorial did not start; inspect prerequisite or recipe-fetch failures.' >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: tutorial-${{ matrix.platform }}-${{ matrix.mode }}
+          path: ${{ runner.temp }}/tutorial-${{ matrix.platform }}-${{ matrix.mode }}/evidence
+          retention-days: 14
+          if-no-files-found: warn

@@ -59,17 +59,57 @@ URLs. These checks use existing locked dependencies; they are not full Vale or m
 
 ## Validate app examples
 
-On macOS with the documented AppKit tools, build the local CLI and verify the tutorial:
+The six Session counter lessons use `website/tutorials/session-counter.yaml` for all commands,
+file examples, platform variants, and UI assertions. Markdown places steps using
+`<!-- tutorial-step: lesson-id/step-id -->`; keep them in recipe order. Add executable examples
+to the YAML, not Markdown fences. The website renderer and CI runner use the same parser.
+
+Run the source and rendering checks without a browser:
+
+```sh
+npm --prefix website run tutorials:check
+```
+
+The `doctor-verify` workflow runs the scaffold/package checks and tutorial walkthroughs together
+at 00:00 and 12:00 UTC daily, or through a manual workflow dispatch. Tutorial jobs cover
+macOS/AppKit, Windows/WinUI, and Ubuntu/GTK in two modes, with separate results and evidence.
+Relevant pull requests run only the tutorial source and rendering checks in this workflow.
+The **release** mode downloads the recipe published with daybrite.dev, installs Day fresh from
+crates.io, and executes the reader commands unchanged. The **main** mode uses this checkout's
+recipe and explicitly substitutes the checkout's CLI and framework dependencies. It reports
+compatibility with the candidate sources, not a published-reader result.
+
+To run the release instructions from the checkout on a prepared Mac:
+
+```sh
+node website/scripts/tutorial-walkthrough.mjs --platform macos --mode release
+```
+
+Use `windows` or `linux` on the corresponding host. Add `--source published` to test the recipe
+currently served by daybrite.dev. Use `--dry-run` to export the resolved plan without executing
+it. `--out <new-directory>` selects an unused session directory; otherwise it uses a temporary
+location. Each run isolates its Cargo home, build output, and app data. SDKs and Rust are
+prerequisites; these checks do not validate their installation procedures.
+
+Commands execute in order in Bash or PowerShell, preserving directory and environment changes.
+File steps write or append the displayed bytes. For an interactive launch, the harness starts
+the exact command, then attaches with `day drive` to check the recipe's expected behavior and
+take a screenshot. It stops the app afterward. This verifies scripted interactions, not
+physical input or the OS quit shortcut. A failed assertion ends the run; assertions are not
+retried by the harness. The evidence directory records the recipe hash, commands, steps,
+results, resolved lockfile, and screenshots. CI uploads only that directory, not the Cargo cache
+or session authentication tokens.
+
+For a faster local source-compatibility check using existing Cargo caches:
 
 ```sh
 cargo build --locked -p day-cli
 python3 -B scripts/docs/verify-tutorial.py --run-native
 ```
 
-The validator extracts the exact lesson files, builds six stages, runs AppKit walkthroughs, and
-lints the final app. Omit `--run-native` to compile without launching. It saves the documented
-Git-dependency manifest before substituting local framework paths in its isolated fixture.
-This checks lesson code against the checkout, not a fresh Git installation or remote revision.
+This validator also reads the YAML files and assertions, but substitutes local dependencies
+and supplies its own build and launch commands. It does not certify the reader's installation
+sequence. Omit `--run-native` to compile only.
 
 Validate the designated recipes and priority excerpts with:
 

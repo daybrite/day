@@ -795,7 +795,7 @@ per test, the evidence and captures beside the run's screenshots. A test is name
 function (`button_press` runs as `button-press`), a GUI case's page shows alone in the app's
 [`day::test_host`](https://daybrite.dev/api/day/fn.test_host.html), and a case that panics or passes its time limit (`--case-timeout`, 30 s by
 default) fails without stopping the run. The guide is
-[Tests in the app](/contributing/backend-contracts/testing).
+[Tests in the app](/docs/how-to/testing).
 
 ## Continuous integration
 

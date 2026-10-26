@@ -5,15 +5,14 @@
 
 The app is fresh; installed toolchains and Cargo's dependency caches are reused.
 No framework file, global installation, or other repository is modified.
-The documented Git dependencies are replaced only in the isolated test copy;
-this validates lesson code, not installation from GitHub or a fresh dependency cache.
+The documented registry dependencies are replaced only in the isolated test copy;
+this validates lesson code, not installation from crates.io or a fresh dependency cache.
 """
 from pathlib import Path
 import argparse
 import hashlib
 import json
 import os
-import re
 import shlex
 import shutil
 import subprocess
@@ -22,32 +21,19 @@ import time
 ROOT = Path(__file__).resolve().parents[2]
 WORK = ROOT / '.cache/docs/tutorial'
 PAGES = ROOT / 'website/src/content/docs'
-LESSONS = ['getting-started.md', 'tutorial-events.md', 'tutorial-state.md',
-           'tutorial-layout.md', 'tutorial-navigation.md', 'tutorial-complete-app.md']
-BLOCK = re.compile(r'<!-- tutorial-(file|append): ([\w./-]+) -->\n```\w+\n(.*?)\n```', re.S)
-ALLOWED = {'Cargo.toml', 'Day.toml', 'build.rs', 'src/lib.rs', 'src/main.rs',
-           'resource/locales/en/app.ftl', 'dayscript/session-counter.yaml'}
+RECIPE = json.loads(subprocess.check_output(
+    ['node', str(ROOT / 'website/scripts/tutorial-export.mjs'), 'macos'], text=True))
+LESSONS = [lesson['source'] for lesson in RECIPE['recipe']['lessons']]
 
-# Synthetic walkthrough fixtures for the intermediate lessons. The final lesson's
-# reader-facing script is extracted verbatim from its page instead.
-SMOKE_STEPS = [
-    ['assert_text: { id: welcome_label, key: welcome }',
-     'assert_native: { id: welcome_label, visible: true }'],
-    ['tap: { id: try_button }', 'assert_presented: {}', 'respond: { button: 0 }',
-     'assert_not_presented: {}', 'tap: { id: try_button }',
-     'assert_presented: {}', 'respond: { button: 0 }'],
-    ['assert_text: { id: counter_label, key: counter_value, args: { count: 0 } }',
-     'tap: { id: increment_button }', 'tap: { id: increment_button }',
-     'assert_text: { id: counter_label, key: counter_value, args: { count: 2 } }'],
-    ['tap: { id: increment_button }', 'tap: { id: reset_button }',
-     'assert_text: { id: counter_label, key: counter_value, args: { count: 0 } }',
-     'assert_native: { id: increment_button, visible: true }',
-     'assert_native: { id: reset_button, visible: true }'],
-    ['tap: { id: increment_button }', 'navigate: { route: summary }',
-     'assert_text: { id: summary_label, key: summary_value, args: { count: 1 } }',
-     'navigate: { route: counter }',
-     'assert_text: { id: counter_label, key: counter_value, args: { count: 1 } }'],
-]
+
+def file_steps(lesson):
+    lesson_id = next(item['id'] for item in RECIPE['recipe']['lessons'] if item['source'] == lesson)
+    return [step for step in RECIPE['steps'] if step['key'].startswith(lesson_id + '/')
+            and step['kind'] == 'file']
+
+
+# Local compatibility checks use the same expectations as the nightly reader walkthrough.
+SMOKE_STEPS = [step['checks'] for step in RECIPE['steps'] if step['kind'] == 'launch']
 
 
 def run(name, args, cwd, env, logs):
@@ -64,7 +50,7 @@ def run(name, args, cwd, env, logs):
 
 
 def local_framework_fixture(app):
-    """Keep the reader manifest, then select local sources for offline validation."""
+    """Keep the reader manifest, then select local sources for compatibility validation."""
     manifest = app / 'Cargo.toml'
     source = manifest.read_text()
     (app / 'Cargo.toml.documented').write_text(source)
@@ -102,23 +88,15 @@ def main():
     env.update(CARGO_NET_OFFLINE='true', TMPDIR=str(session / 'tmp'),
                GIT_OPTIONAL_LOCKS='0', CARGO_TARGET_DIR=str(ROOT / 'target'),
                PATH=str(ROOT / 'target/debug') + os.pathsep + env.get('PATH', ''))
-    hashes = {}
+    hashes = {'website/tutorials/session-counter.yaml': hashlib.sha256(
+        (ROOT / 'website/tutorials/session-counter.yaml').read_bytes()).hexdigest()}
     for index, lesson in enumerate(LESSONS, 1):
         source = (PAGES / lesson).read_text()
-        matches = list(BLOCK.finditer(source))
-        if not matches or len(matches) != source.count('<!-- tutorial-'):
-            raise SystemExit(f'Invalid or missing extraction markers: {lesson}')
-        # Every Rust fence in the learning path must be a designated complete file.
-        if source.count('```rust\n') != sum(m[2].endswith('.rs') for m in matches):
-            raise SystemExit(f'Undesignated Rust block: {lesson}')
-        for match in matches:
-            mode, name, body = match.groups()
-            if name not in ALLOWED:
-                raise SystemExit(f'Unexpected file: {name}')
-            dest = app / name
+        for step in file_steps(lesson):
+            dest = app / step['path']
             dest.parent.mkdir(parents=True, exist_ok=True)
-            with dest.open('a' if mode == 'append' else 'w') as out:
-                out.write(body + '\n')
+            with dest.open('a' if step['mode'] == 'append' else 'w') as out:
+                out.write(step['body'])
         hashes[lesson] = hashlib.sha256(source.encode()).hexdigest()
         if index == 1:
             local_framework_fixture(app)
@@ -129,7 +107,7 @@ def main():
             fixture = app / 'dayscript/lesson-smoke.yaml'
             fixture.parent.mkdir(exist_ok=True)
             fixture.write_text(f'name: lesson-{index}\non_failure: stop\nflow:\n' +
-                               ''.join('  - ' + step + '\n' for step in SMOKE_STEPS[index - 1]))
+                               ''.join('  - ' + json.dumps(step) + '\n' for step in SMOKE_STEPS[index - 1]))
             run(f'{index}-native', ['day', 'launch', '-t', 'macos-appkit', '--skip-build',
                                    '--locale', 'en', '--script', 'dayscript/lesson-smoke.yaml'], app, env, logs)
     run('clippy', ['cargo', 'clippy', '--offline', '--locked', '--no-default-features',

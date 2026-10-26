@@ -20,7 +20,7 @@ dayscript tests on the intended target for those checks.
 
 ## Documentation
 
-- [Component testing contracts](https://daybrite.dev/contributing/backend-contracts/testing/)
+- [Component testing contracts](https://daybrite.dev/docs/how-to/testing/)
 - [Test a running app](https://daybrite.dev/docs/how-to/dayscript/)
 - [Writing Day extensions](https://daybrite.dev/contributing/extending/)
 - [Rust API](https://daybrite.dev/api/day_mock/index.html)

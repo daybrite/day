@@ -5,6 +5,8 @@ import { render } from 'astro:content';
 import DocsLayout from '../layouts/DocsLayout.astro';
 import ContentIndex from '../components/ContentIndex.astro';
 import PlatformIcon from '../components/PlatformIcon.astro';
+import TutorialPlatform from '../components/TutorialPlatform.astro';
+import { tutorialRecipe } from '../lib/tutorial-data';
 import { contentPages } from '../lib/content';
 import { hubs, referenceNavigation } from '../lib/content-routes.mjs';
 import { platformsById, primaryPlatforms, tierOf } from '../lib/platforms.mjs';
@@ -21,6 +23,7 @@ export async function getStaticPaths() {
 }
 
 const { page } = Astro.props;
+const tutorial = tutorialRecipe.lessons.some(lesson => lesson.route === page.route);
 const pages = await contentPages();
 const rendered = 'entry' in page ? await render(page.entry) : undefined;
 const Content = rendered?.Content;
@@ -48,10 +51,11 @@ const referenceSections = page.route === '/docs/reference' ? referenceNavigation
     {tier && <a class="tier-badge" data-tier={tier.n} href={url('docs/reference/platforms#support-tiers')}>Tier {tier.n} · {tier.name}</a>}
   </div>}
   {page.status && <p class="status-note"><strong>Status:</strong> {page.status}. See the linked app reference for current API guidance.</p>}
+  {tutorial && <TutorialPlatform />}
   {Content ? <Content /> : <p>{page.description}</p>}
   {page.route === '/docs' && <>
     <h2>Build your first app</h2>
-    <p>Build a Session counter with the <a href={url('docs/tutorials/first-app')}>six-lesson macOS learning path</a>. Open a window, handle events, update state, arrange controls, navigate, and test the finished app. Other platforms branch from the completed app.</p>
+    <p>Build a Session counter with the <a href={url('docs/tutorials/first-app')}>six-lesson desktop learning path</a>. Open a window, handle events, update state, arrange controls, navigate, and test the finished app. Choose macOS, Windows, or Linux, then explore other targets from the completed app.</p>
     <h2>What are you working on?</h2>
     <ContentIndex pages={[
       { route: '/docs/how-to/navigation', title: 'Connect your screens', description: 'Share state between destinations and adapt navigation to the available space.' },

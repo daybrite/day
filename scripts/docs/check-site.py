@@ -39,7 +39,9 @@ def main():
     results=[];sitemap={n.text for n in ET.parse(DIST/'sitemap.xml').findall('.//{http://www.sitemaps.org/schemas/sitemap/0.9}loc')}
     catalog=json.loads((ROOT/'website/src/data/content-routes.json').read_text())
     unpublished={p['route'] for p in catalog.values() if p.get('published') is False}
-    unpublished.add('/contributing/design')
+    unpublished.update(['/contributing/design', '/contributing/backend-contracts',
+        '/contributing/backend-contracts/element-ids', '/contributing/backend-contracts/testing',
+        '/contributing/backend-contracts/native-project-migration'])
     publication_failures=[]
     for route in sorted(unpublished):
         if (DIST/route.lstrip('/')/'index.html').exists():
@@ -47,6 +49,8 @@ def main():
         if 'https://daybrite.dev'+route in sitemap:
             publication_failures.append(f'Unpublished source in sitemap: {route}')
     for f in sorted(DIST.rglob('index.html')):
+        if f.is_relative_to(DIST / 'contributing/backend-contracts'):
+            publication_failures.append(f'Retired backend-contract route rendered: {f}')
         if f.is_relative_to(DIST / 'api'):
             continue  # Rustdoc has its own templates and a separate bundle check.
         route='/' if f.parent==DIST else '/'+str(f.parent.relative_to(DIST));p=Page();p.feed(f.read_text());issues=[]

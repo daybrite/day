@@ -33,6 +33,7 @@ implement them, and this table proves it.
 | [`scroll_bar_inset`](https://daybrite.dev/api/day_spec/trait.Toolkit.html#method.scroll_bar_inset) | · | · | · | · | ✓ | · | · | · | · | ✓ |
 | [`list_row_metrics`](https://daybrite.dev/api/day_spec/trait.Toolkit.html#method.list_row_metrics) | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · |
 | [`scroll_to`](https://daybrite.dev/api/day_spec/trait.Toolkit.html#method.scroll_to) | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| [`nav_scroll_to_edge`](https://daybrite.dev/api/day_spec/trait.Toolkit.html#method.nav_scroll_to_edge) | · | · | ✓ | · | · | · | ✓ | · | · | · |
 | [`scroll_offset`](https://daybrite.dev/api/day_spec/trait.Toolkit.html#method.scroll_offset) | · | · | · | · | · | ✓ | · | · | ✓ | ✓ |
 | [`set_event_sink`](https://daybrite.dev/api/day_spec/trait.Toolkit.html#tymethod.set_event_sink) | yes | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | [`enable_gesture`](https://daybrite.dev/api/day_spec/trait.Toolkit.html#method.enable_gesture) | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |

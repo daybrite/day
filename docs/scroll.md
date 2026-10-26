@@ -64,12 +64,17 @@ buttons drive the recycling list's row rail ([`.scroll_to_row`](https://daybrite
 - scroll_to: { id: page_scroll, edge: bottom }     # top | bottom | leading | trailing
 - scroll_to: { id: page_scroll, x: 0, y: 300 }     # pin the viewport origin
 - scroll_to: { id: 'row:100' }                     # reveal an element in its nearest scroll
+- scroll_to: { id: nav_menu, edge: bottom, only_on: [ios-uikit, android-material] }
 ```
 
 The step is unanimated so the next step sees the settled position. `assert_visible` remains a
 presence check (realized + nonzero frame; DESIGN Appendix C); it does not test whether an
 element is inside the viewport, so pair [`scroll_to`](https://daybrite.dev/api/day_core/fn.scroll_to.html) with screenshots when the test is about
 what's on screen.
+
+On UIKit and Material, `nav_menu` accepts `top` and `bottom` to scroll the navigation list
+without opening a page or changing its selection. Return to the root route first when the
+list is behind a page. Other targets and toolkits do not support navigation-menu scrolling.
 
 ## How a target becomes a scroll
 

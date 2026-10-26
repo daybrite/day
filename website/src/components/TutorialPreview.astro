@@ -2,9 +2,10 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: CC-BY-SA-4.0
 import CodeSample from './CodeSample.astro';
-import lesson from '../content/docs/tutorial-state.md?raw';
 import { url } from '../lib/site';
-const source = lesson.match(/<!-- tutorial-file: src\/lib\.rs -->\n```rust\n([\s\S]*?)\n```/)?.[1];
+import { tutorialRecipe } from '../lib/tutorial-data';
+import { lessonFiles } from '../lib/tutorials.mjs';
+const source = lessonFiles(tutorialRecipe, 'macos', 3).get('src/lib.rs');
 if (!source) throw new Error('The homepage needs the exact tutorial-state app source.');
 ---
 <div class="tutorial-preview">

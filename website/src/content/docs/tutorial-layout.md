@@ -17,45 +17,13 @@ Start from [3. Update state](/docs/tutorials/state), in the same app directory.
 
 Append to `resource/locales/en/app.ftl`:
 
-<!-- tutorial-append: resource/locales/en/app.ftl -->
-```ftl
-reset_count = Reset
-session_hint = Add one after each session. Reset when you start a new day.
-```
+<!-- tutorial-step: layout/messages -->
 
 ## 2. Compose the layout
 
 Replace all of `src/lib.rs`:
 
-<!-- tutorial-file: src/lib.rs -->
-```rust
-use day::prelude::*;
-
-day::resources!();
-day::day_start!(options: res::window_options(), root);
-
-pub fn root() -> impl Piece {
-    let count = Signal::new(0i64);
-
-    column((
-        label(res::str::welcome()),
-        label(res::str::counter_value(count)).id(id!(counter_label)),
-        row((
-            button(res::str::add_one())
-                .action(move || count.update(|n| *n = n.saturating_add(1)))
-                .id(id!(increment_button)),
-            button(res::str::reset_count())
-                .action(move || count.set(0))
-                .id(id!(reset_button)),
-        ))
-        .spacing(Space::M),
-        label(res::str::session_hint()),
-    ))
-    .spacing(Space::M)
-    .padding(Space::L)
-    .grow()
-}
-```
+<!-- tutorial-step: layout/ui -->
 
 [`row`](https://daybrite.dev/api/day_pieces/fn.row.html) arranges its children horizontally; [`column`](https://daybrite.dev/api/day_pieces/fn.column.html) arranges them vertically. Both take a tuple
 of Pieces. [`.spacing`](https://daybrite.dev/api/day_pieces/trait.ColumnBuilder.html#tymethod.spacing) separates siblings; [`.padding`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.padding) leaves room around the container's content.
@@ -67,9 +35,9 @@ above the layout.
 
 ## 3. Resize and reset
 
-```sh
-day launch -t macos-appkit
-```
+<!-- tutorial-step: layout/launch -->
+
+<!-- tutorial-step: layout/quit -->
 
 Press **Add one** twice and then **Reset**. The label returns to **Count: 0**. Resize the window
 toward its minimum width: the buttons stay in a row and the hint can wrap beneath them. Test the

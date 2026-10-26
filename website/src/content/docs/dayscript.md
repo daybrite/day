@@ -51,7 +51,7 @@ It assumes a fresh launch with the count at zero.
 > identity; YAML uses its canonical spelling, `increment_button`. `assert_text` resolves
 > `counter_value` with the supplied arguments in the active locale. Avoid English text
 > assertions for translated UI. IDs are not translated and do not replace accessible labels.
-> See [element IDs](/contributing/backend-contracts/element-ids) and [localization](/docs/how-to/localization).
+> See [element IDs](/docs/reference/element-ids) and [localization](/docs/how-to/localization).
 
 Run it on a configured target:
 

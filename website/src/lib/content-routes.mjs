@@ -9,7 +9,9 @@ export const isPublished = (page) => page.published !== false;
 const unpublished = new Set(Object.values(routes).filter((p) => !isPublished(p)).map((p) => p.route));
 export function isUnpublishedPath(href) {
   const path = canonicalPath(href).split(/[?#]/)[0].replace(/\/$/, '');
-  return path === '/contributing/design' || unpublished.has(path);
+  return path === '/contributing/design' ||
+    path === '/contributing/backend-contracts' || path.startsWith('/contributing/backend-contracts/') ||
+    unpublished.has(path);
 }
 
 export function metadata(collection, id) {
@@ -30,11 +32,10 @@ export function canonicalPath(href) {
 
 export const hubs = [
   { route: '/docs', title: 'Start here', description: 'Choose a learning path, task guide, reference, or explanation.', audience: 'app developer' },
-  { route: '/docs/tutorials', title: 'Tutorials', description: 'Build a Session counter on macOS in six lessons, from your first window to events, state, layout, navigation, and a tested app.', audience: 'app developer' },
+  { route: '/docs/tutorials', title: 'Tutorials', description: 'Build a Session counter on macOS, Windows, or Linux in six lessons, from your first window to events, state, layout, navigation, and a tested app.', audience: 'app developer' },
   { route: '/docs/how-to', title: 'How-to guides', description: 'Find a procedure for a specific app development task.', audience: 'app developer' },
   { route: '/docs/explanation', title: 'Explanation', description: 'Understand pieces, signals, layout, state, and lifecycle.', audience: 'app developer' },
-  { route: '/contributing', title: 'Contributing', description: 'Set up framework development, understand the architecture, and find backend contracts.', audience: 'contributor' },
-  { route: '/contributing/backend-contracts', title: 'Backend contracts', description: 'Implementation contracts, generated coverage tables, and framework testing records.', audience: 'contributor' },
+  { route: '/contributing', title: 'Contributing', description: 'Set up framework development, understand the architecture, and build extensions.', audience: 'contributor' },
   { route: '/contributing/history', title: 'History', description: 'Retained migration and implementation history.', audience: 'contributor' },
   { route: '/contributing/tutorials', title: 'Contributor tutorials', description: 'Learn to create composite pieces, native pieces, and parts.', audience: 'contributor' },
   { route: '/contributing/documentation', title: 'Documentation authoring', description: 'The canonical style guide, terminology, authoring workflow, and validation commands.', audience: 'contributor' },
@@ -50,7 +51,6 @@ export const groups = [
   { name: 'Explanation', route: '/docs/explanation', audience: 'app developer' },
   { name: 'Framework development', route: '/contributing', audience: 'contributor', direct: true },
   { name: 'Contributor tutorials', route: '/contributing/tutorials', audience: 'contributor', sequential: true },
-  { name: 'Backend contracts', route: '/contributing/backend-contracts', audience: 'contributor' },
   { name: 'Documentation', route: '/contributing/documentation', audience: 'contributor' },
   { name: 'History', route: '/contributing/history', audience: 'contributor' },
 ];

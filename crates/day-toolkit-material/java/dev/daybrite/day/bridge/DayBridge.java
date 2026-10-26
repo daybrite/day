@@ -1106,6 +1106,50 @@ public final class DayBridge extends DayRuntime {
         });
     }
 
+    /** Scroll the native navigation list without selecting or opening a destination. */
+    public static boolean navScrollToEdge(View v, boolean bottom) {
+        if (!(v instanceof NavigationView)) return false;
+        androidx.recyclerview.widget.RecyclerView list = findNavigationList((ViewGroup) v);
+        if (list == null) return false;
+        main.post(() -> {
+            androidx.recyclerview.widget.RecyclerView.Adapter<?> adapter = list.getAdapter();
+            if (adapter == null || adapter.getItemCount() == 0) return;
+            for (android.view.ViewParent parent = v.getParent(); parent != null;
+                    parent = parent.getParent()) {
+                if (parent instanceof DayNavHost) {
+                    ((DayNavHost) parent).scrollNavigationChrome(bottom);
+                    break;
+                }
+            }
+            list.stopScroll();
+            // The app bar changes the viewport on the next layout pass. Resolve the edge
+            // after that pass, rather than positioning the last row against the old height.
+            list.getViewTreeObserver().addOnPreDrawListener(
+                    new android.view.ViewTreeObserver.OnPreDrawListener() {
+                @Override public boolean onPreDraw() {
+                    list.getViewTreeObserver().removeOnPreDrawListener(this);
+                    list.scrollToPosition(bottom ? adapter.getItemCount() - 1 : 0);
+                    return false;
+                }
+            });
+            list.requestLayout();
+        });
+        return true;
+    }
+
+    private static androidx.recyclerview.widget.RecyclerView findNavigationList(ViewGroup group) {
+        for (int i = 0; i < group.getChildCount(); i++) {
+            View child = group.getChildAt(i);
+            if (child instanceof androidx.recyclerview.widget.RecyclerView)
+                return (androidx.recyclerview.widget.RecyclerView) child;
+            if (child instanceof ViewGroup) {
+                androidx.recyclerview.widget.RecyclerView found = findNavigationList((ViewGroup) child);
+                if (found != null) return found;
+            }
+        }
+        return null;
+    }
+
     public static void setScrollContent(View v, int w, int h) {
         View content = contentOf(v);
         if (content instanceof DayFixed) ((DayFixed) content).setContentSize(w, h);

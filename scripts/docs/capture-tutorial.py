@@ -35,17 +35,16 @@ def main():
                GIT_OPTIONAL_LOCKS='0', CARGO_TARGET_DIR=str(ROOT / 'target'),
                PATH=str(ROOT / 'target/debug') + os.pathsep + env.get('PATH', ''),
                DAY_DATA_DIR=str(session / 'data'), DAY_PREFS_DIR=str(session / 'prefs'))
-    sources = {}
+    sources = {'website/tutorials/session-counter.yaml': hashlib.sha256(
+        (ROOT / 'website/tutorials/session-counter.yaml').read_bytes()).hexdigest()}
     for lesson in tutorial.LESSONS[:3]:
         source = (tutorial.PAGES / lesson).read_text()
         sources[str((tutorial.PAGES / lesson).relative_to(ROOT))] = hashlib.sha256(source.encode()).hexdigest()
-        for match in tutorial.BLOCK.finditer(source):
-            mode, name, body = match.groups()
-            assert name in tutorial.ALLOWED
-            dest = app / name
+        for step in tutorial.file_steps(lesson):
+            dest = app / step['path']
             dest.parent.mkdir(parents=True, exist_ok=True)
-            with dest.open('a' if mode == 'append' else 'w') as out:
-                out.write(body + '\n')
+            with dest.open('a' if step['mode'] == 'append' else 'w') as out:
+                out.write(step['body'])
     tutorial.local_framework_fixture(app)
     script = app / 'dayscript/website.yaml'
     script.parent.mkdir(exist_ok=True)

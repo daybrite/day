@@ -769,6 +769,7 @@ mod imp {
         static fn reorderNavSuite(suite: android.view.View, order: JString),
         static fn requestFrame(token: jlong),
         static fn scrollToRect(v: android.view.View, x: jint, y: jint, w: jint, h: jint, animated: jboolean),
+        static fn navScrollToEdge(v: android.view.View, bottom: jboolean) -> jboolean,
         static fn setA11y(v: android.view.View, label: JString, hint: JString, value: JString, id: JString, role: jint, level: jint, hidden: jboolean, selected: jint),
         static fn setAppearance(mode: jint),
         static fn setAppMenu(spec: JString),
@@ -4341,6 +4342,10 @@ mod imp {
                 },
                 min_height: 56.0,
             }
+        }
+
+        fn nav_scroll_to_edge(&mut self, h: &AHandle, bottom: bool) -> bool {
+            with_env(|env| DayBridge::navScrollToEdge(env, h.0.as_obj(), bottom).unwrap_or(false))
         }
 
         fn scroll_to(&mut self, h: &AHandle, target: Rect, animated: bool) {

@@ -68,3 +68,33 @@ test('CLI documentation links require current routes, including URLs with fragme
   ]);
   assert.deepEqual(checkDocSiteLinks('https://example.invalid/docs/cli', routes), []);
 });
+
+test('backend contracts are unpublished and retired URLs are not migrated', () => {
+  const retired = ['android-jni', 'api-style', 'bridge', 'coverage-matrix', 'duty-matrix',
+    'element-ids', 'extending', 'focus', 'grid', 'native-project-migration', 'recorder-matrix', 'testing'];
+  const pages = Object.values(routes).filter(isPublished);
+  assert.equal([...pages, ...hubs].some((p) => p.route.startsWith('/contributing/backend-contracts')), false);
+  assert.equal(navigation(pages, 'contributor').some((g) => g.route === '/contributing/backend-contracts'), false);
+  for (const slug of ['', ...retired.map((s) => '/' + s)]) {
+    const path = '/contributing/backend-contracts' + slug;
+    assert.equal(canonicalPath(path + '?from=old#details'), path + '?from=old#details');
+    assert.equal(isUnpublishedPath(path), true);
+    assert.equal(resolveContentLink(path, 'docs/focus.md'), null);
+  }
+  for (const slug of retired.filter((s) => !['focus', 'grid'].includes(s))) {
+    assert.equal(canonicalPath('/docs/internal/' + slug), '/docs/internal/' + slug);
+  }
+  assert.equal(resolveContentLink('bridge.md#streams', 'docs/http.md'),
+    'https://github.com/daybrite/day/blob/main/docs/bridge.md#streams');
+  assert.equal(resolveContentLink('backend-contracts/focus.md', 'docs/focus.md'),
+    'https://github.com/daybrite/day/blob/main/docs/backend-contracts/focus.md');
+  for (const [source, route] of [
+    ['element-ids', '/docs/reference/element-ids'],
+    ['testing', '/docs/how-to/testing'],
+    ['native-project-migration', '/docs/how-to/native-projects'],
+  ]) {
+    assert.equal(metadata('internal', source).route, route);
+    assert.equal(isPublished(metadata('internal', source)), true);
+    assert.equal(resolveContentLink(source + '.md', 'docs/buttons.md'), route);
+  }
+});
