@@ -109,8 +109,7 @@ src/*.rs ──► cargo build -p my-app --features appkit     (per-target CARGO
          day pack: macOS .app + ad-hoc codesign + .dmg
 ```
 
-Because GTK and Qt are portable, `macos-gtk`, `macos-qt`, `windows-gtk`, and `windows-qt` build the
-same way on their respective hosts. Resources that need a native compiler (GResource, `.qrc`) are
+Because GTK and Qt are portable, `macos-gtk` and `macos-qt` build the same way on a Mac. Resources that need a native compiler (GResource, `.qrc`) are
 compiled if the tool is on `PATH` and otherwise fall back to filesystem loading, so a missing
 `glib-compile-resources` never fails the build.
 

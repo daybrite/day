@@ -458,19 +458,19 @@ fn gtk_group() -> Group {
     Group {
         id: "gtk",
         label: "GTK 4 · libadwaita",
-        hosts: &["macos", "linux", "windows"],
+        hosts: &["macos", "linux"],
         probes: vec![
             pkg_probe(
                 "librsvg",
                 "librsvg-2.0",
                 LIBRSVG_MIN,
-                "install librsvg >= 2.52 development files (`apt install librsvg2-dev` · `brew install librsvg` · MSYS2 UCRT64: `pacman -S mingw-w64-ucrt-x86_64-librsvg`; ARM64: `mingw-w64-clang-aarch64-librsvg`)",
+                "install librsvg >= 2.52 development files (`apt install librsvg2-dev` · `brew install librsvg`)",
             ),
             pkg_probe(
                 "gtk4",
                 "gtk4",
                 GTK4_MIN,
-                "install GTK 4 (`brew install gtk4` · `apt install libgtk-4-dev` · MSYS2 mingw-w64-gtk4)",
+                "install GTK 4 (`brew install gtk4` · `apt install libgtk-4-dev`)",
             ),
             pkg_probe(
                 "libadwaita",
@@ -480,7 +480,7 @@ fn gtk_group() -> Group {
             ),
             // Optional: resource staging (§18.3) is best-effort; a missing `glib-compile-resources`
             // just skips the gresource blob and day loads images from the filesystem roots. So a
-            // miss is a warning, not an error (MSYS2 windows-gtk doesn't ship it on PATH).
+            // miss is a warning, not an error.
             Probe::new(
                 "glib-compile-resources",
                 which("glib-compile-resources").map(|p| p.display().to_string()),
@@ -510,7 +510,7 @@ fn gtk_group() -> Group {
             )
             .need(Need::PackOptional),
         ],
-        setup: "GTK 4 builds on macOS, Linux, and Windows via pkg-config. Day needs gtk4 4.10 or\n\
+        setup: "GTK 4 builds on macOS and Linux via pkg-config. Day needs gtk4 4.10 or\n\
                 newer and libadwaita 1.5 or newer — it builds stack navigation on\n\
                 AdwNavigationView and dialogs on GtkFileDialog/GtkAlertDialog, none of which\n\
                 exist below those versions. A distribution that ships an older GTK (Debian 12 has\n\
@@ -518,12 +518,7 @@ fn gtk_group() -> Group {
                 Native vector rendering also requires librsvg 2.52 or newer. Install the dev libraries:\n\
                 • macOS  — `brew install gtk4 libadwaita librsvg pkg-config`\n\
                 • Linux  — `apt install libgtk-4-dev libadwaita-1-dev librsvg2-dev pkg-config`\n\
-                • Windows— MSYS2 UCRT64: `pacman -S mingw-w64-ucrt-x86_64-gtk4 mingw-w64-ucrt-x86_64-libadwaita mingw-w64-ucrt-x86_64-librsvg`\n\
-                  (ARM64 hosts: the CLANGARM64 environment's `mingw-w64-clang-aarch64-` packages),\n\
-                  plus a GNU Rust toolchain — MSVC cannot link MSYS2's import libraries:\n\
-                  `rustup toolchain install stable-x86_64-pc-windows-gnu` (ARM64:\n\
-                  `stable-aarch64-pc-windows-gnullvm`), then build with MSYS2's bin on PATH and\n\
-                  RUSTUP_TOOLCHAIN set to it.\n\
+                On Windows, build `linux-gtk` inside WSL 2.\n\
                 `glib-compile-resources` (ships with glib) compiles bundled resources (§18.3); without\n\
                 it images fall back to loose files.",
     }
@@ -533,23 +528,23 @@ fn qt_group() -> Group {
     Group {
         id: "qt",
         label: "Qt 6 Widgets",
-        hosts: &["macos", "linux", "windows"],
+        hosts: &["macos", "linux"],
         probes: vec![
             Probe::new(
                 "qt6-widgets",
                 run_line("pkg-config", &["--modversion", "Qt6Widgets"])
                     .or_else(|| run_line("qmake6", &["-query", "QT_VERSION"]))
                     .or_else(|| run_line("qmake", &["-query", "QT_VERSION"])),
-                "install Qt 6 (`brew install qt` · `apt install qt6-base-dev qt6-svg-dev` · MSYS2 mingw-w64-qt6-base)",
+                "install Qt 6 (`brew install qt` · `apt install qt6-base-dev qt6-svg-dev`)",
             ),
             Probe::new(
                 "qt6-svg",
                 run_line("pkg-config", &["--modversion", "Qt6Svg"]),
-                "install Qt SVG development files (`apt install qt6-svg-dev` · `brew install qt` · MSYS2 MINGW64: `pacman -S mingw-w64-x86_64-qt6-svg`; ARM64: `mingw-w64-clang-aarch64-qt6-svg`)",
+                "install Qt SVG development files (`apt install qt6-svg-dev` · `brew install qt`)",
             ),
             // Optional: like glib-compile-resources, `rcc` staging is best-effort; a miss skips
             // the qresource blob (day loads images from the filesystem roots), so it's a warning,
-            // not an error (MSYS2 windows-qt doesn't ship `rcc` on PATH).
+            // not an error.
             Probe::new(
                 "rcc",
                 find_rcc().map(|p| p.display().to_string()),
@@ -579,16 +574,10 @@ fn qt_group() -> Group {
             )
             .need(Need::PackOptional),
         ],
-        setup: "Qt 6 Widgets builds on macOS, Linux, and Windows. Install Qt 6, Qt SVG development files, and pkg-config:\n\
+        setup: "Qt 6 Widgets builds on macOS and Linux. Install Qt 6, Qt SVG development files, and pkg-config:\n\
                 • macOS  — `brew install qt pkg-config`\n\
                 • Linux  — `apt install qt6-base-dev qt6-svg-dev qt6-webengine-dev pkg-config`\n\
-                • Windows— MSYS2: `pacman -S mingw-w64-x86_64-qt6-base mingw-w64-x86_64-qt6-svg` (ARM64 hosts: the\n\
-                  CLANGARM64 environment's `mingw-w64-clang-aarch64-qt6-base` and `mingw-w64-clang-aarch64-qt6-svg`), plus a GNU Rust\n\
-                  toolchain — MSVC cannot link MSYS2's import libraries, and the C++ shim is built\n\
-                  from pkg-config's flags, which an aqtinstall/online-installer Qt does not ship:\n\
-                  `rustup toolchain install stable-x86_64-pc-windows-gnu` (ARM64:\n\
-                  `stable-aarch64-pc-windows-gnullvm`), then build with MSYS2's bin on PATH and\n\
-                  RUSTUP_TOOLCHAIN set to it.\n\
+                On Windows, build `linux-qt` inside WSL 2.\n\
                 `rcc` (Qt's resource compiler, §18.3) is resolved from qmake's libexec; a missing Qt\n\
                 means both the build and bundled-resource staging fail.",
     }

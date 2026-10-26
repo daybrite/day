@@ -744,10 +744,9 @@ pub fn build(
     // Stage declared resources (images/ + assets/) into this target's native locations before its
     // platform build runs, so actool/aapt2/rcc/hvigor can process them (§18.3). Best-effort: this
     // needs the toolkit's native resource compiler (rcc / glib-compile-resources / …), which isn't
-    // always on PATH (e.g. MSYS2 windows-qt/windows-gtk ship no rcc/glib-compile-resources). When
-    // it's missing the resource blob is skipped (day loads assets from the filesystem roots
-    // (DAY_IMAGE_ROOT) and the app icon rides DAY_APP_ICON), so a missing tool must not fail the
-    // build.
+    // always installed. When it's missing the resource blob is skipped (day loads assets from the
+    // filesystem roots (DAY_IMAGE_ROOT) and the app icon rides DAY_APP_ICON), so a missing tool
+    // must not fail the build.
     // HarmonyOS stages resources after copying its native project in stage_host. iOS stages
     // them in mobile::prepare_ios, the one staging step `day pack` runs too, so a pack from a
     // fresh clone and a build write the same DayPieces catalog.
@@ -780,37 +779,6 @@ pub fn build(
     }
     let _ = std::fs::write(&stamp, outcome.artifact.display().to_string());
     Ok(outcome)
-}
-
-/// Keep every piece's renderer registration in the link on the MinGW targets.
-///
-/// A piece registers its renderer through a `linkme` static in its `lib-<toolkit>.rs` module:
-/// a `#[used]` static placed in the slice's link section, referenced by nothing the app
-/// calls. `#[used]` keeps the compiler from dropping it, and on ELF (`SHF_GNU_RETAIN`) and
-/// Mach-O (`S_ATTR_NO_DEAD_STRIP`) the object carries a flag the linker's dead-strip honors;
-/// MSVC gets an `/INCLUDE` directive. COFF linked by GNU `ld` has none of these, so
-/// `--gc-sections`, which rustc passes for every executable, discards the section as
-/// unreferenced, the "dead-strip gamble" DESIGN.md §8.2 records, seen in CI as a piece
-/// drawing Day's placeholder on windows-qt while rendering elsewhere, and as the set of
-/// missing pieces moving between commits. (Archive member selection is not the problem: the
-/// element's type-check shim references the static from the crate's root object, so the
-/// member is pulled on every platform, measured on a macos-gtk build, and it is the section
-/// that goes.)
-///
-/// So the two MinGW targets link without section garbage collection. The cost is a larger
-/// binary (the unreferenced code and data the collector would have dropped) on an
-/// experimental target; the precise alternative, `#[used(linker)]`, is nightly-only. Appended
-/// to an inherited `RUSTFLAGS` (CI sets one), the way the web build adds its cfg (web.rs).
-fn apply_mingw_registration_guard(cmd: &mut Command, target: &Target) {
-    if !matches!(target.name, "windows-qt" | "windows-gtk") {
-        return;
-    }
-    let mut rustflags = std::env::var("RUSTFLAGS").unwrap_or_default();
-    if !rustflags.is_empty() {
-        rustflags.push(' ');
-    }
-    rustflags.push_str("-C link-arg=-Wl,--no-gc-sections");
-    cmd.env("RUSTFLAGS", rustflags);
 }
 
 /// Preserve the Cargo executable when its display title differs only by case. On the
@@ -860,7 +828,6 @@ fn build_native(
             crate::patch::apply_day_src(&mut cmd);
             apply_app_identity(&mut cmd, project, target.name);
             crate::bridge::apply_staged(&mut cmd, project, target.name);
-            apply_mingw_registration_guard(&mut cmd, target);
             // The toolkit feature (e.g. `appkit`) + every standalone piece's `<pkg>/<toolkit>`
             // renderer feature, derived from `cargo metadata`, so the app depends on a piece
             // without re-listing its per-backend feature (Tier A.2).

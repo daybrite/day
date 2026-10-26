@@ -33,14 +33,7 @@ use crate::term::BOLD;
 
 /// Development stand-ins are excluded unless the website explicitly includes them.
 /// Tool droppings (`_drive`) are always excluded.
-const SKIP_DIRS: &[&str] = &[
-    "_drive",
-    "macos-gtk",
-    "macos-qt",
-    "windows-gtk",
-    "windows-qt",
-    "android-widget",
-];
+const SKIP_DIRS: &[&str] = &["_drive", "macos-gtk", "macos-qt", "android-widget"];
 
 // ---------------------------------------------------------------------------
 // Localized text

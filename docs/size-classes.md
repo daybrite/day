@@ -123,8 +123,8 @@ back.
 |---|---|---|---|
 | web-dom | ✅ | ✅ | the shim rebuilds chrome; page elements move between containers intact |
 | macos-appkit | ✅ | ✅ | one [`NSSplitViewController`](https://developer.apple.com/documentation/appkit/nssplitviewcontroller) either way — a stack is that split with its sidebar item collapsed |
-| linux-qt / windows-qt / macos-qt | ✅ | ✅ | one [`QSplitter`](https://doc.qt.io/qt-6/qsplitter.html) either way, back header installed in both |
-| linux-gtk / windows-gtk | ✅ | — | see below |
+| linux-qt / macos-qt | ✅ | ✅ | one [`QSplitter`](https://doc.qt.io/qt-6/qsplitter.html) either way, back header installed in both |
+| linux-gtk | ✅ | — | see below |
 | windows-winui | ✅ | — | a [`NavigationView`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.navigationview) owns its own `PaneDisplayMode`; re-presenting means driving that rather than re-homing pages |
 | ios-uikit | ✅ | **observed** | [`UISplitViewController`](https://developer.apple.com/documentation/uikit/uisplitviewcontroller), both columns navigation controllers |
 | android-material | ✅ | **observed** | `SlidingPaneLayout`, list pane beside a detail pane |

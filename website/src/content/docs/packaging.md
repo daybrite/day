@@ -41,8 +41,7 @@ credentials and check the destination store’s submission requirements.
 | `harmony-arkui` | `.hap` | HarmonyOS application package |
 | `web-dom` | Static `dist/` directory | Static hosting; use `day build` |
 
-The development combinations `macos-gtk`, `macos-qt`, `windows-gtk`, and `windows-qt` do not have a
-`day pack` step. See [platform support](/docs/reference/platforms) for their limitations.
+The development combinations `macos-gtk` and `macos-qt` do not have a `day pack` step. See [platform support](/docs/reference/platforms) for their limitations.
 
 ### macOS and iOS
 

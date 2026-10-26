@@ -155,8 +155,8 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 [data-pf='macos-appkit'] { --pf: var(--pf-macos-appkit); }
 [data-pf='ios-uikit'] { --pf: var(--pf-ios-uikit); }
 [data-pf='android-material'] { --pf: var(--pf-android-material); }
-[data-pf='linux-gtk'], [data-pf='macos-gtk'], [data-pf='windows-gtk'] { --pf: var(--pf-linux-gtk); }
-[data-pf='linux-qt'], [data-pf='macos-qt'], [data-pf='windows-qt'] { --pf: var(--pf-linux-qt); }
+[data-pf='linux-gtk'], [data-pf='macos-gtk'] { --pf: var(--pf-linux-gtk); }
+[data-pf='linux-qt'], [data-pf='macos-qt'] { --pf: var(--pf-linux-qt); }
 [data-pf='windows-winui'], [data-pf='windows-xaml'] { --pf: var(--pf-windows-winui); }
 [data-pf='harmony-arkui'] { --pf: var(--pf-harmony-arkui); }
 [data-pf='web-dom'] { --pf: var(--pf-web-dom); }

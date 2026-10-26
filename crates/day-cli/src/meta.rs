@@ -1042,10 +1042,9 @@ impl Project {
 }
 
 /// On Windows `std::fs::canonicalize` returns an extended-length `\\?\` (verbatim) path. That
-/// prefix flows into `CARGO_TARGET_DIR` (ops.rs), and the windows-gnu toolchain's MinGW linker
-/// (`ld`/`collect2`) can't parse `\\?\` object-file arguments: it drops the prefix and reports
-/// `cannot find \\symbols.o`, failing the link (hit on windows-gtk / windows-qt; MSVC's link.exe
-/// tolerates it, so xaml was unaffected). De-verbatim the path so every subtool gets a plain
+/// prefix flows into `CARGO_TARGET_DIR` (ops.rs) and from there into every tool a build runs.
+/// MSVC's link.exe tolerates it; GNU tools do not (MinGW's `ld` dropped the prefix and reported
+/// `cannot find \\symbols.o`), and a build script may run one. De-verbatim the path so every subtool gets a plain
 /// absolute path, still absolute, so the xcodebuild-SYMROOT need in `find_project` holds. No-op
 /// off Windows, where canonicalize never adds a verbatim prefix.
 fn strip_verbatim(p: PathBuf) -> PathBuf {
@@ -1426,7 +1425,7 @@ build = 7
     #[cfg(windows)]
     #[test]
     fn strip_verbatim_deverbatims_windows_paths() {
-        // Drive + UNC verbatim prefixes are removed so the MinGW linker can read the paths.
+        // Drive + UNC verbatim prefixes are removed so any tool can read the paths.
         assert_eq!(
             strip_verbatim(PathBuf::from(r"\\?\D:\a\day\day\apps\showcase")),
             PathBuf::from(r"D:\a\day\day\apps\showcase")

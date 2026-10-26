@@ -93,13 +93,12 @@ height = 640
   [`label(res::str::counter_value(count))`](https://daybrite.dev/api/day_pieces/fn.label.html). For computed values, format the message inside
   a label's closure. [`label(res::str::hi())`](https://daybrite.dev/api/day_pieces/fn.label.html) also follows locale changes.
 - A **target** is `(OS, toolkit)`: `macos-appkit`, `macos-gtk`, `macos-qt`, `ios-uikit`,
-  `android-material`, `harmony-arkui`, `linux-gtk`, `linux-qt`, `windows-winui`, `windows-gtk`,
-  `windows-qt`, `web-dom` (wasm in a browser; no process
+  `android-material`, `harmony-arkui`, `linux-gtk`, `linux-qt`, `windows-winui`, `web-dom` (wasm in a browser; no process
   environment, so pass runtime flags with `day launch --env K=V` and read them with [`day::env("K")`](https://daybrite.dev/api/day/fn.env.html), which is portable to every target).
 - Each target has a **support tier** ([definitions](/docs/reference/platforms#support-tiers)), which tells
   you how much to trust it: `ios-uikit`, `android-material`, `macos-appkit` are Tier 1 (thoroughly
   tested); `linux-gtk`, `linux-qt`, `windows-winui` are Tier 2; `harmony-arkui` and `web-dom` are
-  Tier 3 (experimental, with real gaps); `macos-gtk`, `macos-qt`, `windows-gtk`, `windows-qt` are
+  Tier 3 (experimental, with real gaps); `macos-gtk` and `macos-qt` are
   Tier 4 development combos that no app ships on and `day pack` refuses. Verify a user-facing
   change on a Tier 1 target unless the change is that platform's.
 

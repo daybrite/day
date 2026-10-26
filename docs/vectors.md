@@ -55,8 +55,8 @@ first review that way). `day build` reports the split per target
 | Toolkit | Native form |
 |---|---|
 | android-material | **VectorDrawable** in `res/drawable/` (solid fills/strokes, both fill rules, and linear/radial gradients on fill and stroke via `aapt:attr`, API 24, which is the scaffold's `minSdk`; clips/masks/filters, and the gradients VD's model cannot state, fall back to the raster at xxxhdpi, loudly). Intrinsic dimensions retain the SVG’s authored size and proportions, so native fit/crop matches the viewport without introducing rounding from a reduced icon size. A VD gradient carries no transform: linear bands are perpendicular to start→end and a radial is a true circle, so a gradient sheared out of perpendicular, a radial stretched to an ellipse, or an SVG focal point rasterizes rather than drawing subtly wrong art. `gradientUnits="objectBoundingBox"` is not such a case; usvg resolves it to user space before the emitter sees it |
-| linux-gtk, macos-gtk, windows-gtk | retained **SVG** through librsvg 2.52+ and Cairo in a [`GdkPaintable`](https://docs.gtk.org/gdk4/iface.Paintable.html). [`GtkPicture`](https://docs.gtk.org/gtk4/class.Picture.html) supplies fit/fill/stretch; snapshots render the geometry at the requested size. Icon paintables declare logical dimensions and are centered in their controls |
-| linux-qt, macos-qt, windows-qt | retained **SVG** through [`QSvgRenderer`](https://doc.qt.io/qt-6/qsvgrenderer.html) in the image widget and a [`QIconEngine`](https://doc.qt.io/qt-6/qiconengine.html) for SVG icon slots. Geometry is rendered at paint time; tint layers use the painter's device transform, including screenshot scale, instead of a fixed pixmap size |
+| linux-gtk, macos-gtk | retained **SVG** through librsvg 2.52+ and Cairo in a [`GdkPaintable`](https://docs.gtk.org/gdk4/iface.Paintable.html). [`GtkPicture`](https://docs.gtk.org/gtk4/class.Picture.html) supplies fit/fill/stretch; snapshots render the geometry at the requested size. Icon paintables declare logical dimensions and are centered in their controls |
+| linux-qt, macos-qt | retained **SVG** through [`QSvgRenderer`](https://doc.qt.io/qt-6/qsvgrenderer.html) in the image widget and a [`QIconEngine`](https://doc.qt.io/qt-6/qiconengine.html) for SVG icon slots. Geometry is rendered at paint time; tint layers use the painter's device transform, including screenshot scale, instead of a fixed pixmap size |
 | macos-appkit | the staged **SVG** via `DAY_VECTOR_SVG_ROOT` ([`NSImage`](https://developer.apple.com/documentation/appkit/nsimage) renders SVG files at display size on macOS 11+); other desktop dev launches use the raster cache via `DAY_VECTOR_RASTER_ROOT` (probed by `resolve_image_file`) |
 | ios-uikit | the **SVG** in a DayPieces asset-catalog imageset with `preserves-vector-representation` (Xcode 12+), so [`UIImage(named:)`](https://developer.apple.com/documentation/uikit/uiimage) renders at display size |
 | web-dom | the **SVG** beside `assets/images/`; day-toolkit-dom asks for `.svg` for the names in the page's `window.__DAY_VECTORS` list (via the shim's `vector:` env keys) and the browser renders it; the raster stays beside it as the older-host fallback |
@@ -78,8 +78,8 @@ The symbolic cache explicitly selects the SVG decoder, so leading license commen
 make a valid glyph fail image-format detection. Its decode preserves aspect ratio and alpha.
 
 These toolkits require development libraries at build time: `qt6-svg-dev` for Qt and
-`librsvg2-dev` (2.52+) for GTK on Debian/Ubuntu; Homebrew's `qt` / `librsvg`, or MSYS2's
-`qt6-svg` / `librsvg` packages on the other desktops. `day doctor` checks them. SVG feature
+`librsvg2-dev` (2.52+) for GTK on Debian/Ubuntu, or Homebrew's `qt` / `librsvg` on macOS.
+`day doctor` checks them. SVG feature
 coverage follows the native renderer version; this does not add browser scripting or SVG
 animation to Day's static vector contract.
 

@@ -326,6 +326,9 @@ pub mod conformance {
         Case::new()
             .proves(day_spec::kinds::CANVAS)
             .requires(Cap::Snapshot)
+            // 18 pixel samples, each a snapshot: 18–29 s on the CI Android 36 emulator, and
+            // over the 30 s default on a slow one.
+            .timeout(90.0)
             .page(|| {
                 let source = Signal::new(Some(Arc::new(GREEN.to_vec())));
                 column((

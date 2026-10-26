@@ -65,8 +65,8 @@ needed (including retained, offscreen pages). [`in_scope()`](https://daybrite.de
 | android-material | [`Choreographer.postFrameCallback`](https://developer.android.com/reference/android/view/Choreographer) / `removeFrameCallback` |
 | windows-winui | One-shot registration with `Microsoft.UI.Xaml.Media.CompositionTarget.Rendering` |
 | web-dom | `requestAnimationFrame` / `cancelAnimationFrame` |
-| macos/linux/windows-gtk | Host widget's `add_tick_callback`, timestamped by its [`GdkFrameClock`](https://docs.gtk.org/gdk4/class.FrameClock.html) |
-| macos/linux/windows-qt | Host [`QWindow::requestUpdate()`](https://doc.qt.io/qt-6/qwindow.html) / [`QEvent::UpdateRequest`](https://doc.qt.io/qt-6/qevent.html) |
+| macos/linux-gtk | Host widget's `add_tick_callback`, timestamped by its [`GdkFrameClock`](https://docs.gtk.org/gdk4/class.FrameClock.html) |
+| macos/linux-qt | Host [`QWindow::requestUpdate()`](https://doc.qt.io/qt-6/qwindow.html) / [`QEvent::UpdateRequest`](https://doc.qt.io/qt-6/qevent.html) |
 | harmony-arkui | [`OH_NativeVSync_RequestFrame`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-arkgraphics2d/capi-nativevsync.md), delivered back onto the ArkUI JS/UI loop |
 | mock | Inert; core tests inject a manual timestamp source |
 

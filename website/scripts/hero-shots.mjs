@@ -40,7 +40,7 @@ const WEBSITE_ROOT = resolve(HERE, '..');
 export const APP_ID = 'Day-Showcase';
 
 // The carousel shows only the "primary" target per OS — one canonical native toolkit each (plus
-// the web) — not the secondary/cross ports (macos-qt, macos-gtk, windows-gtk, windows-qt) that
+// the web) — not the secondary/cross ports (macos-qt, macos-gtk) that
 // also build in CI. Order here is the default (the client reshuffles anyway).
 const PRIMARY_PLATFORMS = [
   'macos-appkit',

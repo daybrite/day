@@ -118,10 +118,7 @@ When it replaces the form or navigates away, the framework dismisses automatical
 ## 5. Testing it
 
 `focused-inputs-survive-page-removal` repeatedly removes and remounts a focused field's page,
-then checks that an unrelated surviving field keeps focus and accepts input. GTK's
-`native_focus_removal` test also covers entries, spin buttons and text views through the
-backend's remove/release paths. Run it on a Windows desktop with `G_DEBUG=fatal-criticals`
-to catch stale IME callbacks as well as incorrect focus state.
+then checks that an unrelated surviving field keeps focus and accepts input.
 
 - **Native IME regression:** Day-News `scripts/test-android-keyboard.py` runs on a chosen
   emulator with an isolated synthetic account, checking Android's actual `mInputShown`

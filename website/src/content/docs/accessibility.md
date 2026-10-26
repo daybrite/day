@@ -104,8 +104,7 @@ See [audit logic](https://github.com/daybrite/day/blob/main/crates/day-script/sr
 ## Current limits
 
 - **GTK off Linux has no accessibility tree.** GTK's AT-SPI bridge is Linux-only, so the
-  `macos-gtk` and `windows-gtk` development combos ([Tier 4](/docs/reference/platforms#support-tiers))
-  are invisible to screen readers. Ship the platform-native [target](/docs/reference/glossary#target) for real users.
+  `macos-gtk` development combo ([Tier 4](/docs/reference/platforms#support-tiers)) is invisible to screen readers. Ship the platform-native [target](/docs/reference/glossary#target) for real users.
 - **Android annotations:** the delegate carries hints, explicit role/class hints, heading state,
   and identifiers as well as labels and values. Identifier exposure differs below API 33.
   [DayBridge](https://github.com/daybrite/day/blob/main/crates/day-toolkit-material/java/dev/daybrite/day/bridge/DayBridge.java)

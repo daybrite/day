@@ -107,7 +107,7 @@ public:
     }
     QPixmap scaledPixmap(const QSize &size, QIcon::Mode mode, QIcon::State state, qreal scale) override {
         // QIcon passed device pixels before 6.8; newer Qt passes logical pixels.
-        // Keep both the distro Qt and Homebrew/MSYS2 Qt sharp at fractional DPRs.
+        // Keep both the distro Qt and Homebrew Qt sharp at fractional DPRs.
 #if QT_VERSION >= QT_VERSION_CHECK(6, 8, 0)
         const QSize pixels = (QSizeF(size) * scale).toSize();
 #else

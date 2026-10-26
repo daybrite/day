@@ -59,13 +59,10 @@ marks it executable and runs it.
   later value change; use separate nodes if you need both.
 - Canvas text uses cairo's toy text API, not Pango, so complex-script shaping inside a
   [`canvas`](https://daybrite.dev/api/day_pieces/fn.canvas.html) is weaker than in a [`label`](https://daybrite.dev/api/day_pieces/fn.label.html).
-- GTK on macOS and Windows (`macos-gtk`, `windows-gtk`) exists for development convenience only
-  ([Tier 4](/docs/reference/platforms#support-tiers)); `day pack` skips them, and the accessibility tree is
-  absent (GTK's a11y bridge is Linux-only). `windows-gtk` builds
-  against MSYS2's GTK 4 with a GNU Rust toolchain
-  ([setup](/docs/reference/platforms/windows-winui#qt-and-gtk-on-a-windows-host)); there is no WebKitGTK 6 for
-  Windows, so the web view is a placeholder there, and bundled custom fonts don't register with
-  Pango.
+- GTK on macOS (`macos-gtk`) exists for development convenience only
+  ([Tier 4](/docs/reference/platforms#support-tiers)); `day pack` skips it, and the accessibility tree is
+  absent (GTK's a11y bridge is Linux-only). On Windows, build `linux-gtk` inside
+  [WSL 2](/docs/reference/system-requirements#windows).
 
 ## What each piece becomes
 

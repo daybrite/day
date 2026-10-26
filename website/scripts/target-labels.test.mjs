@@ -12,9 +12,9 @@ const labels = node => nodes(node).filter(n => n.properties?.className?.includes
 test('toolkit notes and tables reuse target marks, including secondary combinations',()=>{
   const tree=element('div',element('strong',text('AppKit / UIKit: behavior.')),
     element('th',text('GTK')),element('td',text('Qt')),
-    element('code',text('windows-gtk')));
+    element('code',text('macos-gtk')));
   accentTargets()(tree);
-  assert.deepEqual(labels(tree).map(n=>n.properties['data-pf']),['macos-appkit','ios-uikit','linux-gtk','linux-qt','windows-gtk']);
+  assert.deepEqual(labels(tree).map(n=>n.properties['data-pf']),['macos-appkit','ios-uikit','linux-gtk','linux-qt','macos-gtk']);
   for(const n of labels(tree))assert.equal(n.children[0].properties.ariaHidden,'true');
   assert.match(tree.children[3].children[0].children[0].properties.style,/data:image\/svg\+xml/);
 });

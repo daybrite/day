@@ -18,9 +18,6 @@ day-pieces = { workspace = true }
 day-toolkit-qt-sys = { workspace = true }
 linkme = { workspace = true }
 
-[target.'cfg(windows)'.dependencies]
-day-platform-windows = { workspace = true }
-
 # The Linux launcher entry and single-instance forwarding (docs/status-item.md,
 # docs/deep-links.md): Unity LauncherEntry and a claimed bus name over the session bus, std-only.
 [target.'cfg(target_os = "linux")'.dependencies]

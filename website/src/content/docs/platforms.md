@@ -54,8 +54,6 @@ fail CI; the HarmonyOS job also tolerates build and packaging failures.
 | `web-dom` | [Tier 3](/docs/reference/platforms#support-tiers) | Full, headless Chromium | Static `dist/` |
 | `macos-gtk` | [Tier 4](/docs/reference/platforms#support-tiers) | Full | None |
 | `macos-qt` | [Tier 4](/docs/reference/platforms#support-tiers) | Full | None |
-| `windows-gtk` | [Tier 4](/docs/reference/platforms#support-tiers) | Best-effort | None |
-| `windows-qt` | [Tier 4](/docs/reference/platforms#support-tiers) | Best-effort | None |
 
 Check the [CI run](https://github.com/daybrite/day/actions/workflows/ci.yml) for the revision you
 intend to ship. A tolerated failure does not block the remaining jobs.
@@ -66,13 +64,9 @@ for the current checkout.
 
 ### Development combinations
 
-GTK and Qt on macOS and Windows support toolkit compatibility testing on a development machine.
-They do not have release packaging. The GTK combinations also lack an accessibility tree.
-
-Windows GTK and Qt use MSYS2. Under CI’s x86-64 MinGW linker, external piece renderers fail to
-register and appear as placeholders; an MSYS2 environment using Clang and `lld` retains them.
-Windows GTK also lacks WebKitGTK 6. See the
-[Windows toolkit setup](/docs/reference/platforms/windows-winui#qt-and-gtk-on-a-windows-host) for details.
+GTK and Qt on macOS support toolkit compatibility testing on a Mac. They do not have release
+packaging, and `macos-gtk` also lacks an accessibility tree. On Windows, build `linux-gtk` and
+`linux-qt` inside [WSL 2](/docs/reference/system-requirements#windows) instead.
 
 ## Per-platform notes
 

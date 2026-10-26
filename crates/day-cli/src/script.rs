@@ -2189,7 +2189,7 @@ mod gate_tests {
         });
         let result = super::run_scripts(
             &project,
-            crate::targets::find("windows-gtk").unwrap(),
+            crate::targets::find("linux-gtk").unwrap(),
             port,
             "fixture-token",
             &[script],
@@ -2276,7 +2276,7 @@ mod gate_tests {
         let started = Instant::now();
         let result = super::run_scripts(
             &project,
-            crate::targets::find("windows-gtk").unwrap(),
+            crate::targets::find("linux-gtk").unwrap(),
             port,
             "fixture-token",
             &[script],

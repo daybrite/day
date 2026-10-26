@@ -55,8 +55,8 @@ Doctor uses toolkit names, while build and launch commands use target names:
 | `macos-appkit` | `appkit` |
 | `ios-uikit` | `uikit` |
 | `android-material` | `android` |
-| `linux-gtk`, `macos-gtk`, `windows-gtk` | `gtk` |
-| `linux-qt`, `macos-qt`, `windows-qt` | `qt` |
+| `linux-gtk`, `macos-gtk` | `gtk` |
+| `linux-qt`, `macos-qt` | `qt` |
 | `windows-winui` | `winui` |
 | `harmony-arkui` | `harmonyos` |
 | `web-dom` | `dom` |
@@ -279,10 +279,9 @@ rustup show active-toolchain
 ```
 
 `windows-winui` needs the MSVC toolchain, Visual Studio C++ Build Tools, and the Windows SDK.
-A missing `link.exe` points to that setup. Windows GTK and Qt builds use MSYS2 packages and a
-GNU-compatible Rust toolchain; mixing their import libraries with MSVC causes linking failures.
-Follow the [Windows setup instructions](/docs/reference/system-requirements#windows) for your backend and
-host architecture, then run its focused doctor check in the same terminal.
+A missing `link.exe` points to that setup. Follow the
+[Windows setup instructions](/docs/reference/system-requirements#windows), then run
+`day doctor --toolkit winui` in the same terminal.
 
 A `windows-winui` development build that links but offers a download page at start-up is missing
 the Windows App Runtime 2.5.1 or newer; `day doctor --toolkit winui` reports it.

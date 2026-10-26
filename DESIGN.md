@@ -234,9 +234,10 @@ measurements, so the whole pipeline is unit-testable without a display ([§3.2](
 [docs/web.md](docs/web.md) is the reference. It descends from the original `web-html` sketch, whose record is
 preserved in [§9](#9-the-eight-toolkits-and-the-extra-combinations).
 
-Because GTK and Qt are themselves portable, the **non-default combinations** `macos-gtk`,
-`macos-qt`, `windows-qt`, and `windows-gtk` are also valid targets — a target is just an
-(OS, toolkit) pair whose toolkit supports that OS. Day's own development loop runs six targets
+Because GTK and Qt are themselves portable, the **non-default combinations** `macos-gtk` and
+`macos-qt` are also valid targets — a target is just an (OS, toolkit) pair whose toolkit supports
+that OS and Day builds. (`windows-gtk` and `windows-qt` existed until 2026-10; a Windows host runs
+`linux-gtk` and `linux-qt` under WSL 2 instead, see [§9](#9-the-eight-toolkits-and-the-extra-combinations).) Day's own development loop runs six targets
 on a single macOS host: `macos-appkit`, `macos-gtk`, `macos-qt`, `ios-uikit` (Simulator),
 `android-material` (emulator), and `harmony-arkui` (cross-compile; emulator via `day devices boot -t harmony-arkui`).
 
@@ -1220,7 +1221,7 @@ exposed on Day alongside URL opening. Invoke it directly from user activation; `
 that a chooser started, not that a target received data. AppKit and macOS GTK use
 `NSSharingServicePicker`, retained by the backend until replacement/teardown; macOS Qt uses
 an Objective-C++ picker. UIKit presents `UIActivityViewController` from the current controller
-and anchors its iPad popover. Android launches an `ACTION_SEND` chooser. Windows GTK, Qt,
+and anchors its iPad popover. Android launches an `ACTION_SEND` chooser.
 The two Windows targets share a DataTransferManager adapter; its previous DataRequested registration
 is removed before a new payload is installed. Missing active windows and missing event arguments
 return explicit `E_HANDLE` / `E_POINTER` errors; neither condition reads stale thread error state. Web Share checks user activation and suppresses
@@ -2180,6 +2181,8 @@ and primitives, never text formats.
 > `#[used]` statics via `/INCLUDE`, so `windows-winui` and `windows-xaml` are unaffected). The
 > showcase walkthrough's `assert_no_placeholders` ledger records the affected kinds per target; the layered hardening
 > below is the designed fix and is now motivated by a real failure, not a hypothetical.
+> **Outcome (2026-10):** the MinGW targets were removed (see the note at the end of this section),
+> so no target Day builds links with GNU `ld` on COFF any more.
 >
 > **web-dom is the exception (2026-07):** `linkme`'s `#[distributed_slice]` refuses to compile for
 > `wasm32-unknown-unknown` ("distributed_slice is not implemented for this platform", 0.3.36 and
@@ -2233,6 +2236,13 @@ dayscript that the externally-registered piece actually rendered ([§20](#20-con
 > host projects `-force_load` the Rust archive on Apple for the selective-loading half of the
 > same problem. The generated registrant (item 2 above) remains the design; this is the
 > mitigation shipped ahead of it.
+>
+> **Outcome (2026-10): the MinGW targets are gone.** The guard was not enough: the
+> `host-test (windows-gnu)` job, which linked day's own tests the same way, still lost whole
+> modules of `#[day::test]` cases between runs of the same code. Rather than keep chasing a linker
+> no shipped target needed, `windows-gtk` and `windows-qt` were removed with the guard, the
+> windows-gnu job and every MSYS2 setup step; a Windows developer who wants GTK or Qt runs
+> `linux-gtk` or `linux-qt` under WSL 2.
 
 ### §8.3 Events
 
@@ -2594,16 +2604,24 @@ Two lifecycle realities that shape backends beyond pane's baseline:
 On mobile, the [§8.1](#81-the-toolkit-trait) "window" maps to the scene / activity content view; multi-window remains
 future, additive work ([§8.1](#81-the-toolkit-trait)'s status note).
 
-**Extra combinations** (`macos-gtk`, `macos-qt`, `windows-qt`, `windows-gtk`) need no extra code in
-the backend crates — GTK/Qt are portable; the *target* differs only in build/packaging ([§16](#16-the-day-cli), [§17](#17-the-conventional-day-project-and-daytoml):
+**Extra combinations** (`macos-gtk`, `macos-qt`) need no extra code in the backend crates —
+GTK/Qt are portable; the *target* differs only in build/packaging ([§16](#16-the-day-cli), [§17](#17-the-conventional-day-project-and-daytoml):
 where the toolkit libraries come from and whether `day pack` can bundle them; bundling GTK/Qt into
-a redistributable macOS/Windows app is real work and is explicitly **post-MVP**, DP-7). The
-`Day.toml` `targets:` list and `day doctor` gate which combinations a project claims.
+a redistributable macOS app is real work and is explicitly **post-MVP**, DP-7). They exist so
+GTK and Qt can be developed on a Mac, which has no other way to run them. The `Day.toml`
+`targets:` list and `day doctor` gate which combinations a project claims.
+
+> [!NOTE]
+> **`windows-gtk` and `windows-qt` were removed (2026-10).** They built with the windows-gnu
+> toolchain against MSYS2's MinGW libraries, since MSVC cannot link those, and the GNU linker
+> kept dropping link-time registrations ([§8.2](#82-the-open-renderer-registry)). Few developers would
+> use them, and Windows already has a better way to run GTK and Qt locally: `linux-gtk` and
+> `linux-qt` under WSL 2. Day now uses only the MSVC toolchain on Windows.
 
 **Support tiers.** Every target carries a tier saying how much testing and maintenance it gets:
 **Tier 1 — Supported** (`ios-uikit`, `android-material`, `macos-appkit`), **Tier 2 — Demi-supported**
 (`linux-gtk`, `linux-qt`, `windows-winui`), **Tier 3 — Experimental** (`harmony-arkui`,
-`web-dom`), **Tier 4 — Development** (`macos-gtk`, `macos-qt`, `windows-gtk`, `windows-qt`),
+`web-dom`), **Tier 4 — Development** (`macos-gtk`, `macos-qt`),
 **Tier 5 — Deprecated** (`windows-xaml`: superseded by `windows-winui`; still builds, packs and
 runs for existing projects, not for new apps, and due for removal). The
 tier is independent of backend completeness — a Tier 4 target runs the same backend crate as its
@@ -3482,9 +3500,9 @@ canvas(…).a11y(|a| a.role(Role::Meter).value(move || format!("{:.0}%", level.g
   Unknown visibility still audits; `assert_native` checks visibility itself. The day-script
   regression covers hidden, visible, unknown-visibility, and unreadable snapshots.
 - Reality check per toolkit lives in [§9](#9-the-eight-toolkits-and-the-extra-combinations); the honest summary: primary combinations have first-class
-  native a11y; `macos-gtk`/`windows-gtk` currently have none (GTK's AccessKit backend exists as of
-  4.18 but isn't in default builds), which is precisely why they're secondary. Qt is solid on all
-  three desktop OSes.
+  native a11y; `macos-gtk` currently has none (GTK's AccessKit backend exists as of 4.18 but
+  isn't in default builds), which is precisely why it's secondary. Qt is solid on both desktop
+  OSes it targets.
 
 ---
 
@@ -6223,8 +6241,7 @@ The `daybrite/actions` companion repository provides reusable workflows for exte
    deprecated xaml; plus `ios-uikit`, `android-material`, `harmony-arkui` and `web-dom`): each installs that
    host's toolkit dependencies and runs the checks that need it — above all
    `scripts/ci/scaffold-check.sh`, which proves `day new` output still lints, builds, packs and
-   rebuilds against this commit. Beside them, `host-test (windows-gnu)` runs the host-portable
-   tests under MSYS2's MinGW toolchain, which the msvc `day-cli-windows` legs do not cover. The build comes before the pack on purpose: the pack then runs
+   rebuilds against this commit. The build comes before the pack on purpose: the pack then runs
    in a tree carrying everything a build stages under `build/`, and the rebuild packs a copy
    carrying none of it, so a pack that takes anything from a build's leftovers instead of
    staging it for itself fails the comparison (the iOS DayPieces catalog did, 2026-09, packed
@@ -7549,9 +7566,9 @@ pub fn battery() -> BatteryHandle;             // BatteryHandle { pub level: Sig
 > cross-origin access errors. macOS GTK hosts a WKWebView aligned to a GTK allocation
 > anchor and detaches it on unmap. Its GTK capture controller forwards scroll events
 > to native WKWebView hit targets, bridging GTK’s Cocoa event interception while
-> preserving pixel/line units, modifiers, and gesture phases. Windows GTK and Qt without Qt WebEngine use Wry's
-> WebView2 child-window host; Windows runtime validation remains outstanding, and those
-> native children have clipping/overlap limits. The piece owns these hosts and their
+> preserving pixel/line units, modifiers, and gesture phases. Windows GTK and Qt without Qt WebEngine used Wry's
+> WebView2 child-window host until those targets were removed (2026-10); its Windows runtime
+> validation never happened. The piece owns these hosts and their
 > disposal, so Day's core gains no browser dependency. See [webview evaluation](docs/webview-eval.md)
 > and the piece's `tests/browser.mjs` and demo dayscript for the request/link contracts.
 
@@ -8162,7 +8179,7 @@ Scope cleanup tolerates core thread-local teardown. Apple reads balance scoped a
 `FileUrl::read_limited` performs bounded native I/O on a worker. File import, deduplication,
 persistence, error presentation and window choice remain app policy. Temporary cache entries
 are not persistent grants; staging retention and multi-process desktop activation are explicit
-limitations. Windows GTK/Qt get development registry files; macOS GTK/Qt get development
+limitations. Windows development builds get registry files; macOS GTK/Qt get development
 bundles, without extending Day's redistribution packer to bundle those toolkits. The development
 launcher preserves the original Cargo executable when its display title differs only by case
 (for example, `skipjack` / `Skipjack`) or resolves to the same filesystem path; alias creation

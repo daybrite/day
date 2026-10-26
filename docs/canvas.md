@@ -446,8 +446,8 @@ A call the target cannot run answers `Err(ExportError::Unsupported)` without rea
 | --- | --- | --- | --- |
 | **macos-appkit** | yes | yes | A flipped [`CGBitmapContext`](https://developer.apple.com/documentation/coregraphics/cgcontext), and [`CGPDFContext`](https://developer.apple.com/documentation/coregraphics/cgcontext) with title and author |
 | **ios-uikit** | yes | yes | [`UIGraphicsImageRenderer`](https://developer.apple.com/documentation/uikit/uigraphicsimagerenderer) and [`UIGraphicsPDFRenderer`](https://developer.apple.com/documentation/uikit/uigraphicspdfrenderer) |
-| **macos-gtk**, **linux-gtk**, **windows-gtk** | yes | yes | A cairo image surface, and a cairo PDF surface with title and author |
-| **macos-qt**, **linux-qt**, **windows-qt** | yes | yes | [`QImage`](https://doc.qt.io/qt-6/qimage.html), and [`QPdfWriter`](https://doc.qt.io/qt-6/qpdfwriter.html) at 72 dpi so one unit is one point |
+| **macos-gtk**, **linux-gtk** | yes | yes | A cairo image surface, and a cairo PDF surface with title and author |
+| **macos-qt**, **linux-qt** | yes | yes | [`QImage`](https://doc.qt.io/qt-6/qimage.html), and [`QPdfWriter`](https://doc.qt.io/qt-6/qpdfwriter.html) at 72 dpi so one unit is one point |
 | **android-material** | yes | yes | A [`Bitmap`](https://developer.android.com/reference/android/graphics/Bitmap)-backed [`Canvas`](https://developer.android.com/reference/android/graphics/Canvas), and [`android.graphics.pdf.PdfDocument`](https://developer.android.com/reference/android/graphics/pdf/PdfDocument). It has no metadata API, so title and author are dropped, and page sizes round to whole points |
 | **harmony-arkui** | yes | no | An `OH_Drawing_Bitmap`; HarmonyOS has no PDF drawing context |
 | **web-dom** | yes | no | A detached `<canvas>` and `createImageBitmap`, the one toolkit that answers on a later turn; browsers have no PDF writer |

@@ -71,8 +71,6 @@ jobs:
           - android-material
           - harmony-arkui
           - windows-winui
-          - windows-qt
-          - windows-gtk
         # Only the runner each combo needs: the toolkit column went with the setup ladder, which
         # is now one action that derives what a target needs from the target itself.
         include:
@@ -85,8 +83,6 @@ jobs:
           - { combo: android-material,   os: ubuntu-latest }
           - { combo: harmony-arkui, os: ubuntu-latest }
           - { combo: windows-winui, os: windows-latest }
-          - { combo: windows-qt,    os: windows-latest }
-          - { combo: windows-gtk,   os: windows-latest }
         # windows-winui is newer than the latest published CLI; verify it on `main` until a
         # release carries it, then drop this.
         exclude:
@@ -98,8 +94,6 @@ jobs:
         shell: bash
     steps:
       # --- the one true user step: install the published CLI with stock Rust ---------------
-      # windows-qt/gtk build apps with the windows-gnu toolchain, but the CLI itself installs
-      # fine with the default msvc toolchain on the runner.
       - name: cargo install day-cli
         run: cargo install day-cli
       - name: Require the verification command

@@ -123,12 +123,12 @@ it goes; `Vectors xaml: 81/81 glyph(s) vector` means every glyph converted and n
 | [windows-winui](/docs/reference/platforms/windows-winui) | **XAML geometry** — a `Path` in a scaling `Viewbox`, a `PathIcon` in the nav pane, redrawn at every size | a brush on the shapes |
 | [web-dom](/docs/reference/platforms/web-dom) | the SVG, rendered by the browser | a CSS mask painted with the tint |
 | [harmony-arkui](/docs/reference/platforms/harmony-arkui) | the SVG in `rawfile`, rendered by ArkUI's `Image` | SVG fill color |
-| [linux-gtk](/docs/reference/platforms/linux-gtk), macos-gtk, windows-gtk | retained SVG rendered by librsvg 2.52+ and Cairo at the requested size, including the [`vector`](https://daybrite.dev/api/day_pieces/fn.vector.html) piece | an alpha-preserving render-node color matrix |
-| [linux-qt](/docs/reference/platforms/linux-qt), macos-qt, windows-qt | retained SVG rendered by `QSvgRenderer` at the requested size, including the [`vector`](https://daybrite.dev/api/day_pieces/fn.vector.html) piece | alpha compositing at the current paint resolution |
+| [linux-gtk](/docs/reference/platforms/linux-gtk), macos-gtk | retained SVG rendered by librsvg 2.52+ and Cairo at the requested size, including the [`vector`](https://daybrite.dev/api/day_pieces/fn.vector.html) piece | an alpha-preserving render-node color matrix |
+| [linux-qt](/docs/reference/platforms/linux-qt), macos-qt | retained SVG rendered by `QSvgRenderer` at the requested size, including the [`vector`](https://daybrite.dev/api/day_pieces/fn.vector.html) piece | alpha compositing at the current paint resolution |
 
 Qt SVG and librsvg development libraries are required at build time. On Debian/Ubuntu,
 install `qt6-svg-dev` for Qt or `librsvg2-dev` (2.52+) for GTK. Homebrew supplies them through
-`qt` and `librsvg`; MSYS2 supplies `qt6-svg` and `librsvg` with the matching environment prefix.
+`qt` and `librsvg`.
 See [system requirements](/docs/reference/system-requirements) for complete commands. `day doctor`
 checks both dependencies and enforces librsvg's minimum version. GTK controls that accept
 only icon-theme names, including settings group icons and `AdwViewSwitcher`, still use the

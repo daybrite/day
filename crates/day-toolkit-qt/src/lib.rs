@@ -1,7 +1,7 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-//! day-toolkit-qt — the Qt 6 Widgets backend (linux-qt / macos-qt / windows-qt; DESIGN.md §9), over
+//! day-toolkit-qt — the Qt 6 Widgets backend (linux-qt / macos-qt; DESIGN.md §9), over
 //! the day-toolkit-qt-sys C++ shim. `Handle = QtHandle(*mut QWidget)`; absolute geometry; toggle is a
 //! QCheckBox (Qt Widgets has no native switch — an explicitly documented divergence).
 
@@ -4065,14 +4065,6 @@ impl Toolkit for Qt {
         unsafe { ffi::day_qt_dismiss_present(req) };
     }
 
-    #[cfg(windows)]
-    fn share_support(&self) -> day_spec::Support {
-        day_spec::Support::Native
-    }
-    #[cfg(windows)]
-    fn share_url(&mut self, url: &str, title: &str) -> bool {
-        day_platform_windows::share::share(url, title)
-    }
     #[cfg(target_os = "macos")]
     fn share_support(&self) -> day_spec::Support {
         day_spec::Support::Native
@@ -4904,8 +4896,6 @@ extern "C" fn run_frame(token: u64, timestamp: f64) {
 impl Platform for Qt {
     const TARGET: &'static str = if cfg!(target_os = "macos") {
         "macos-qt"
-    } else if cfg!(target_os = "windows") {
-        "windows-qt"
     } else {
         "linux-qt"
     };

@@ -151,26 +151,6 @@ pub const TARGETS: &[Target] = &[
         deprecated: Some("windows-winui"),
     },
     Target {
-        name: "windows-qt",
-        toolkit: "qt",
-        kind: TargetKind::Desktop,
-        os: "windows",
-        host: "windows",
-        label: "Windows (Qt)",
-        experimental: false,
-        deprecated: None,
-    },
-    Target {
-        name: "windows-gtk",
-        toolkit: "gtk",
-        kind: TargetKind::Desktop,
-        os: "windows",
-        host: "windows",
-        label: "Windows (GTK)",
-        experimental: false,
-        deprecated: None,
-    },
-    Target {
         name: "web-dom",
         toolkit: "dom",
         kind: TargetKind::Web,
@@ -346,7 +326,6 @@ mod tests {
     fn a_toolkit_alone_expands_to_the_hosts_target() {
         assert_eq!(expand_on("gtk", "macos").unwrap(), "macos-gtk");
         assert_eq!(expand_on("gtk", "linux").unwrap(), "linux-gtk");
-        assert_eq!(expand_on("gtk", "windows").unwrap(), "windows-gtk");
         assert_eq!(expand_on("qt", "linux").unwrap(), "linux-qt");
         for (toolkit, target) in [
             ("dom", "web-dom"),
@@ -366,11 +345,14 @@ mod tests {
         );
         assert_eq!(expand_on("wxwidgets", "macos").unwrap(), "wxwidgets");
         assert_eq!(expand_on("", "macos").unwrap(), "");
-        let err = expand_on("gtk", "other").unwrap_err();
-        assert!(
-            err.contains("macos-gtk") && err.contains("linux-gtk"),
-            "{err}"
-        );
+        // GTK and Qt have no Windows target; a Windows host is told which ones exist.
+        for host in ["windows", "other"] {
+            let err = expand_on("gtk", host).unwrap_err();
+            assert!(
+                err.contains("macos-gtk") && err.contains("linux-gtk"),
+                "{err}"
+            );
+        }
         // A comma list expands entry by entry.
         let list = parse_arg("dom,uikit,web-dom").unwrap();
         assert_eq!(list, "web-dom,ios-uikit");

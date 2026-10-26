@@ -55,15 +55,15 @@ Everything else depends on which targets you build.
 | `macos-appkit` | ✅ | — | — |
 | `ios-uikit` | ✅ | — | — |
 | `windows-winui` | — | — | ✅ |
-| `linux-gtk` / `windows-gtk` / `macos-gtk` | ✅ | ✅ | ✅ |
-| `linux-qt` / `windows-qt` / `macos-qt` | ✅ | ✅ | ✅ |
+| `linux-gtk` / `linux-qt` | — | ✅ | in WSL 2 |
+| `macos-gtk` / `macos-qt` | ✅ | — | — |
 | `android-material` | ✅ | ✅ | ✅ |
 | `harmony-arkui` | ✅ | ✅ | ✅ |
 | `web-dom` | ✅ | ✅ | ✅ |
 
 Apple's toolkits build only on macOS, and WinUI and legacy system XAML only on Windows, because they compile
-against SDKs that exist only on the host OS. GTK and Qt are portable, so a macOS or Windows machine can build and
-run them for development even though you ship `linux-gtk` and `linux-qt`.
+against SDKs that exist only on the host OS. GTK and Qt are portable, so a Mac can build and run them for
+development as `macos-gtk` and `macos-qt`, even though you ship `linux-gtk` and `linux-qt`.
 
 ## macOS
 
@@ -131,22 +131,9 @@ the cache. `day doctor --toolkit winui` checks the toolchain and the runtime.
 A packed app is self-contained: the runtime travels inside the `.msix` and the installer, so your
 users install nothing extra.
 
-For `windows-qt` and `windows-gtk`, install [MSYS2](https://www.msys2.org) and build with a **GNU**
-Rust toolchain, because MSVC cannot link MSYS2's import libraries, and the C++ shims are built
-from pkg-config's flags, which an online-installer Qt does not ship:
-
-```bash
-# Qt: run in the MINGW64 shell
-pacman -S mingw-w64-x86_64-qt6-base mingw-w64-x86_64-qt6-svg
-# GTK: run in the UCRT64 shell
-pacman -S mingw-w64-ucrt-x86_64-gtk4 mingw-w64-ucrt-x86_64-libadwaita mingw-w64-ucrt-x86_64-librsvg
-rustup toolchain install stable-x86_64-pc-windows-gnu
-```
-
-On ARM64 hosts, use the CLANGARM64 environment's `mingw-w64-clang-aarch64-` packages and the
-`stable-aarch64-pc-windows-gnullvm` toolchain. Build with MSYS2's `bin` on `PATH` and
-`RUSTUP_TOOLCHAIN` set to the GNU toolchain; the
-[Windows page](/docs/reference/platforms/windows-winui#qt-and-gtk-on-a-windows-host) walks through it.
+To work on the GTK or Qt targets from a Windows machine, build `linux-gtk` or `linux-qt` inside
+[WSL 2](https://learn.microsoft.com/windows/wsl/install), installing the Linux packages below in
+the WSL distribution. On Windows 11, WSL shows Linux apps' windows on the Windows desktop.
 
 ## Linux
 
@@ -185,12 +172,11 @@ is unaffected.
 
 | Toolkit | Package | Engine |
 |---|---|---|
-| GTK | `libwebkitgtk-6.0-dev` (Debian/Ubuntu), `mingw-w64-x86_64-webkitgtk6` (MSYS2) | [WebKitGTK](https://webkitgtk.org) 6 |
+| GTK | `libwebkitgtk-6.0-dev` (Debian/Ubuntu) | [WebKitGTK](https://webkitgtk.org) 6 |
 | Qt | `qt6-webengine-dev` (Debian/Ubuntu) | [Qt WebEngine](https://doc.qt.io/qt-6/qtwebengine-index.html) |
 
-Two toolkit combinations have no web view package. Homebrew's `webkitgtk` vends the GTK 3
-API and has no bottle, so `macos-gtk` builds without a web view. MSYS2 ships no Qt 6 WebEngine, so
-`windows-qt` does too.
+Homebrew's `webkitgtk` vends the GTK 3 API and has no bottle, so `macos-gtk` builds without a web
+view.
 
 ## Optional: media playback
 

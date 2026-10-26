@@ -769,7 +769,7 @@ jobs:
       contents: read
     uses: daybrite/actions/.github/workflows/dayapp.yml@v1
     with:
-      targets: macos-appkit, ios-uikit, android-material, macos-gtk, macos-qt, linux-gtk, linux-qt, windows-winui, windows-gtk, windows-qt, harmony-arkui, web-dom
+      targets: macos-appkit, ios-uikit, android-material, macos-gtk, macos-qt, linux-gtk, linux-qt, windows-winui, harmony-arkui, web-dom
       day-source: artifact
       project-path: apps/conformance
       # The scaffold around the app's own files (Day.toml, build.rs, resource/, platform/) is
@@ -1332,51 +1332,6 @@ jobs:
         run: cargo test --locked -p day-toolkit-xaml-sys --features winui --test native_tree_reload
       - name: Scaffold check (new + lint + build + pack + rebuild + launch)
         run: scripts/ci/scaffold-check.sh "$DAY_BIN" windows-winui
-  # The host-portable tests (scripts/ci/host-test.sh) under the windows-gnu toolchain, which the
-  # msvc row of the day-cli-windows legs does not cover: MinGW's GNU ld drops linker sections
-  # that MSVC keeps, and that is where the `linkme` registries have broken before. It builds
-  # from source and never runs the day CLI, so it needs no `day-cli-*` artifact. The toolkit
-  # crates are excluded there like everywhere else, so no Qt or GTK is installed: their MinGW
-  # builds are the windows-qt / windows-gtk targets' own concern.
-  windows-gnu:
-    name: host-test (windows-gnu)
-    # Experimental + packs no release artifact: skip on tags, and on website-only runs like every root job.
-    if: ${{ !startsWith(github.ref, 'refs/tags/') && !inputs.website-only && github.event_name != 'repository_dispatch' }}
-    runs-on: windows-2025
-    continue-on-error: true
-    defaults:
-      run:
-        shell: msys2 {0}
-    steps:
-      - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: stable-x86_64-pc-windows-gnu
-          components: clippy
-      - uses: Swatinem/rust-cache@v2
-      # mingw-w64-x86_64-gcc is the MinGW gcc/g++ the pin step below points the linker (and the
-      # `cc` crate, for the vendored C sources) at; pkgconf answers the build scripts that probe
-      # for system libraries.
-      - name: Set up MSYS2
-        uses: msys2/setup-msys2@v2
-        with:
-          msystem: MINGW64
-          update: true
-          path-type: inherit
-          install: mingw-w64-x86_64-gcc mingw-w64-x86_64-pkgconf
-      # rustup's windows-gnu toolchain links via whatever `x86_64-w64-mingw32-gcc` is first on
-      # PATH; on the runner that resolves to a different mingw (C:\mingw64). Force MSYS2's mingw
-      # to the front of PATH and pin the linker + the `cc` crate's compilers to MSYS2's gcc, so
-      # /mingw64/lib is searched. Forward-slash paths link cleanly.
-      - name: Pin the MSYS2 mingw toolchain
-        run: |
-          cygpath -w "$MINGW_PREFIX/bin" >> "$GITHUB_PATH"
-          GCC="$(cygpath -m "$MINGW_PREFIX/bin/gcc.exe")"
-          echo "CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER=$GCC" >> "$GITHUB_ENV"
-          echo "CC=$GCC" >> "$GITHUB_ENV"
-          echo "CXX=$(cygpath -m "$MINGW_PREFIX/bin/g++.exe")" >> "$GITHUB_ENV"
-      - name: Test host-portable crates
-        run: scripts/ci/host-test.sh
   msrv:
     if: ${{ !inputs.website-only && github.event_name != 'repository_dispatch' }}
     runs-on: ubuntu-24.04

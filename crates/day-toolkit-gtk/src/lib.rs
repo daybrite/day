@@ -1120,24 +1120,6 @@ fn wire_focus(w: &impl IsA<gtk4::Widget>, id: NodeId) {
     w.add_controller(focus);
 }
 
-/// GTK 4.24 defers focus removal until after paint when a widget is unparented. On Win32,
-/// GtkIMContextIME then cannot find the detached widget's native surface to unregister its
-/// display message filter. Disposing the input leaves that filter pointing at freed memory.
-/// Resign while the focused descendant is still attached; leave another subtree's focus alone.
-fn resign_focus_before_detach(widget: &gtk4::Widget) {
-    if !cfg!(target_os = "windows") {
-        return;
-    }
-    let Some(root) = widget.root() else {
-        return;
-    };
-    if let Some(focus) = root.focus()
-        && (focus == *widget || focus.is_ancestor(widget))
-    {
-        root.set_focus(None::<&gtk4::Widget>);
-    }
-}
-
 // ---------------------------------------------------------------------------
 // Menus (§ menus): render day's MenuItem model as a GMenu (GtkPopoverMenu for context menus,
 // GtkPopoverMenuBar for the app menu). Custom items → SimpleActions under the "daymenu" prefix that
@@ -3656,7 +3638,6 @@ mod day_cell {
                 .borrow_mut()
                 .remove(&(child.as_ptr() as usize));
             if child.parent().as_ref() == Some(self.upcast_ref()) {
-                super::resign_focus_before_detach(child);
                 child.unparent();
             }
         }
@@ -4556,8 +4537,7 @@ type AnnounceFn =
     unsafe extern "C" fn(*mut gtk4::ffi::GtkAccessible, *const std::ffi::c_char, std::ffi::c_int);
 
 /// `gtk_accessible_announce`, if the GTK this process loaded has it (4.14; the binding is
-/// pinned at v4_10, so the symbol is looked up rather than linked). Windows builds link GTK
-/// through MSYS2 and have no `dlsym`; they answer `None` until the binding catches up.
+/// pinned at v4_10, so the symbol is looked up rather than linked).
 fn announce_symbol() -> Option<AnnounceFn> {
     #[cfg(unix)]
     {
@@ -4974,8 +4954,7 @@ fn update_text_attrs(
 
 /// Register bundled fonts (§18.4) with whatever font system Pango draws from on this OS, so
 /// `Font::Custom` family names resolve: fontconfig on Linux; on macOS both CoreText and
-/// fontconfig (Homebrew Pango may use either fontmap depending on how it was built); GDI
-/// private fonts on Windows (MSYS2 Pango, best effort). Failures log and move on — the family
+/// fontconfig (Homebrew Pango may use either fontmap depending on how it was built). Failures log and move on — the family
 /// simply won't resolve and Pango falls back to the default face.
 fn register_bundled_fonts() {
     let fonts = day_spec::fonts::bundled_fonts();
@@ -5036,24 +5015,6 @@ fn register_bundled_fonts() {
                     let _ = CTFontManagerRegisterFontsForURL(url, 1, std::ptr::null_mut());
                     CFRelease(url);
                 }
-            }
-        }
-    }
-    #[cfg(windows)]
-    {
-        #[link(name = "gdi32")]
-        unsafe extern "system" {
-            fn AddFontResourceExW(
-                name: *const u16,
-                fl: u32, // FR_PRIVATE = 0x10
-                res: *mut std::ffi::c_void,
-            ) -> std::ffi::c_int;
-        }
-        use std::os::windows::ffi::OsStrExt as _;
-        for path in &fonts {
-            let wide: Vec<u16> = path.as_os_str().encode_wide().chain([0]).collect();
-            if unsafe { AddFontResourceExW(wide.as_ptr(), 0x10, std::ptr::null_mut()) } == 0 {
-                log::warn!("could not register bundled font {}", path.display());
             }
         }
     }
@@ -5196,9 +5157,8 @@ impl Toolkit for Gtk {
             Cap::ImageDecode | Cap::ImageEncode => Support::Native,
             // Canvas export (docs/canvas.md "Exporting"): `cairo_draw` paints a cairo image
             // surface for a bitmap and a cairo PDF surface for a document. The PDF symbols live in
-            // libcairo itself; Homebrew, Debian/Ubuntu and MSYS2's mingw-w64-cairo (the
-            // windows-gtk toolchain, which ships cairo-pdf.h and cairo-pdf.pc) all build that
-            // backend, so every GTK target links and answers it.
+            // libcairo itself; Homebrew and Debian/Ubuntu both build that backend, so every GTK
+            // target links and answers it.
             Cap::CanvasBitmap | Cap::CanvasPdf => Support::Native,
             // GtkTextView is editable-toggleable; it's always selectable and ships no spell-check,
             // so TextSelectable / TextSpellCheck stay Unsupported (the default arm).
@@ -7518,7 +7478,6 @@ impl Toolkit for Gtk {
     }
     fn release(&mut self, h: Handle) {
         LIST_ITEMS.with(|m| m.borrow_mut().remove(&widget_key(&h)));
-        resign_focus_before_detach(&h);
         // A released window content = that window is gone (docs/windows.md teardown):
         // drop the record, destroying a straggler window (a programmatic-close's window is
         // already closed; destroy on it is a no-op).
@@ -7829,7 +7788,6 @@ impl Toolkit for Gtk {
     }
 
     fn remove(&mut self, parent: &Handle, child: &Handle) {
-        resign_focus_before_detach(child);
         let handled = NAV_STATE.with(|m| {
             let mut m = m.borrow_mut();
             let Some(state) = m.get_mut(&widget_key(parent)) else {
@@ -9622,14 +9580,6 @@ impl Toolkit for Gtk {
             self.sharing = Some(picker);
         }
         true
-    }
-    #[cfg(windows)]
-    fn share_support(&self) -> day_spec::Support {
-        day_spec::Support::Native
-    }
-    #[cfg(windows)]
-    fn share_url(&mut self, url: &str, title: &str) -> bool {
-        day_platform_windows::share::share(url, title)
     }
     fn open_url(&mut self, url: &str) {
         // Hand the URI to the desktop's default handler (xdg-open equivalent). Fire and forget;

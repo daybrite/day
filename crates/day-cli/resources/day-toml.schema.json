@@ -212,7 +212,7 @@
               "macos-appkit", "macos-gtk", "macos-qt",
               "ios-uikit", "android-material",
               "linux-gtk", "linux-qt",
-              "windows-xaml", "windows-winui", "windows-qt", "windows-gtk",
+              "windows-xaml", "windows-winui",
               "harmony-arkui"
             ]
           }

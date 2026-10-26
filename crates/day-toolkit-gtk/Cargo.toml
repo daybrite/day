@@ -15,10 +15,6 @@ harness = false # GTK on macOS requires the process's main thread.
 name = "native_list_selection"
 harness = false # GTK on macOS requires the process's main thread.
 
-[[test]]
-name = "native_focus_removal"
-harness = false # GTK must run on the process's main thread.
-
 [dependencies]
 day-reactive = { workspace = true }
 log = { workspace = true }
@@ -36,7 +32,7 @@ pangocairo = "0.22"
 # Canvas export (docs/canvas.md "Exporting"): cairo's PDF surface. gtk4 re-exports cairo-rs
 # without its `pdf` feature, so this names the same crate at the same version to turn it on; the
 # feature only declares the `cairo_pdf_*` symbols, which libcairo itself exports wherever its PDF
-# backend is built (Homebrew, Debian/Ubuntu and MSYS2's mingw-w64-cairo all build it). v1_16 is
+# backend is built (Homebrew and Debian/Ubuntu both build it). v1_16 is
 # for `cairo_pdf_surface_set_metadata` (title, author); cairo 1.16 predates every GTK 4.10 distro.
 cairo-rs = { version = "0.22", features = ["pdf", "v1_16"] }
 # libadwaita: the desktop navigation paradigm (AdwNavigationSplitView / AdwNavigationView),
@@ -53,9 +49,6 @@ objc2-core-foundation = { workspace = true, default-features = true }
 objc2-core-graphics = { workspace = true }
 objc2-foundation = { workspace = true, features = ["NSString"] }
 objc2-app-kit = { workspace = true, features = ["NSApplication", "NSResponder", "NSImage"] }
-
-[target.'cfg(windows)'.dependencies]
-day-platform-windows = { workspace = true }
 
 # `dlsym` for GTK 4.14's `gtk_accessible_announce` (docs/accessibility.md): the binding is pinned
 # at its v4_10 level, so the library on the machine decides at run time whether the call exists.
