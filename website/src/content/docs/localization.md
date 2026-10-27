@@ -134,7 +134,7 @@ label(res::str::items_moved(res::str::ItemsMoved {
 }))
 ```
 
-The [example catalog](/docs/reference/examples/catalog) defines the messages used throughout
+The [example catalog](/docs/reference/localization#reference-example-messages) defines the messages used throughout
 the UI snippets. Copy the messages your example needs into your app's catalog.
 
 Keep numbers numeric so Fluent can choose the plural form and format the digits. Use
@@ -454,7 +454,7 @@ should send data through a `Setter`; do not format UI messages on its worker thr
 
 The Rust blocks on this page are setup excerpts and integration fragments. For a complete,
 compiled catalog and app, use [the first-app lesson](/docs/tutorials/first-app); the
-[technical recipes](/docs/reference/examples/catalog#technical-recipes) also compile their exact
+[technical recipes](https://github.com/daybrite/day/blob/main/docs/snippet-catalog.md#technical-recipes) also compile their exact
 catalog blocks. Undefined generated names are compiler errors, while invalid catalog/schema
 input can fail [`prebuild_project`](https://daybrite.dev/api/day_build/fn.prebuild_project.html), whose return is `Result<(), String>`. Keep the error handling
 in `build.rs` so generation failure stops the build.
@@ -470,7 +470,7 @@ The caller supplies a user's name and a count. Both labels follow signal and loc
 The second message uses named arguments so the wording and order remain in Fluent.
 
 Complete module for `src/localization_recipe.rs` in the
-[technical recipe harness](/docs/reference/examples/catalog#technical-recipes).
+[technical recipe harness](https://github.com/daybrite/day/blob/main/docs/snippet-catalog.md#technical-recipes).
 Add the matching Fluent messages below. This module is compiled as part of the harness;
 it is not a standalone app.
 

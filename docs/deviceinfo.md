@@ -16,8 +16,7 @@ cannot report a field.
 
 ## Add to your app
 
-Defined in [`day-part-device`](https://github.com/daybrite/day/tree/main/crates/day-part-device). Add this to your app’s `Cargo.toml`
-`[dependencies]` table, at the same Day version as the rest of your app:
+Add [`day-part-device`](https://github.com/daybrite/day/tree/main/crates/day-part-device) to your app’s Cargo dependencies, using the same Day version as the rest of your app:
 
 ```toml
 [dependencies]
@@ -58,7 +57,7 @@ because device identity is an OS concern rather than a toolkit one.
 `crates/day-part-device/examples/deviceinfo.rs` is a plain `main` that uses it with no Day
 framework at all.
 
-## Per-platform native realization
+## Platform implementations
 
 | OS | API | dependency |
 |---|---|---|
@@ -99,7 +98,7 @@ Every field is best-effort; each platform reports what it can:
   `HARDWARE` is `goldfish`/`ranchu`, …). [`Build.*`](https://developer.android.com/reference/android/os/Build) are static fields, so unlike the battery/network/
   clipboard parts, this one needs no `Context`, only the attached JVM. No permission required.
 
-## What it shows about the extension system
+## Extension integration
 
 Like [`day-part-device`](/docs/reference/battery) and [`day-part-connectivity`](/docs/reference/network), this is a headless external crate: it has no UI Piece
 and registers nothing into any toolkit's `RENDERERS` slice. On Android it rides the Day runtime only

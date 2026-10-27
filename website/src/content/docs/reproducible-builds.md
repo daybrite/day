@@ -15,7 +15,7 @@ compiled code and distributable packages separately, because signing and archive
 change even when the code does not. This guide explains the guarantees, platform exceptions,
 and tools for comparing a release with a rebuild.
 
-## Why it matters
+## Verify a release against its source
 
 If you can rebuild an artifact and get the same bytes someone else got, you can check that a binary
 corresponds to the source it claims to come from. Without that, you cannot tell a clean build from

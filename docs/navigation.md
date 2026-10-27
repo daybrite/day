@@ -22,7 +22,7 @@ you want the compiler to check destinations and their associated data. The strin
 ([`navigate`](https://daybrite.dev/api/day_pieces/fn.navigate.html), [`nav_back`](https://daybrite.dev/api/day_pieces/fn.nav_back.html), [`current_route`](https://daybrite.dev/api/day_pieces/fn.current_route.html)) lets deep links and dayscript address either form.
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
-[example messages](snippet-catalog.md) and [catalog setup](/docs/how-to/localization).
+[example messages](/docs/reference/localization#reference-example-messages) and [catalog setup](/docs/how-to/localization).
 
 ## Sidebar pull-to-refresh
 
@@ -115,25 +115,7 @@ with rows. `DocumentTabsPatch` toggles native chrome while retaining pages. `day
 `day:tab-close`, and `day:tab-move` custom events carry the key (where applicable); move carries the
 final destination index in `num`. These tags are protocol identifiers, not translated text.
 
-Day's nav host keeps its menu as child 0, inside the sidebar page whose rows become the bar, so
-a toolkit's document i is Day's child i + 1. Neither Qt nor GTK gives that page a tab: Qt parks
-it under the [`QTabWidget`](https://doc.qt.io/qt-6/qtabwidget.html), on the menu's parent chain but never a page, and GTK keeps it in a
-hidden box beside the [`AdwTabView`](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/class.TabView.html), so native tab indices are destination indices with nothing
-to subtract, and a drag to the first slot is an ordinary move. The
-[native Qt regression](../crates/day-toolkit-qt-sys/tests/tabs.cpp) parks a page, drives a plain tabbed
-nav with real keyboard events, checks the current widget and the reported indices, and in
-document mode checks a close request and a drag to the first slot.
 
-The conformance cases (`day test 'document-tabs-*'`, [docs/testing](testing.md)) run on every toolkit:
-selection through the strip with the current tab enabled and natively selected, neighbor
-selection on close, a vetoed close request, reordering with resident counters and the strip's
-geometry, background opens, cycling, the add button, an empty host, live titles, repeated
-presentation switches, OS window groups where `Cap::WindowTabbing` is supported, app-owned
-chrome through `TabActions`, and the model's contract headless.
-The [mock regressions](../crates/day-pieces/tests/mock_e2e.rs) cover retained identity, background
-insertion, removal, repeated presentation switching, native reorder across detached groups,
-close vetoes, and zero frame requests while idle. See [document-window tabs](windows.md#document-window-tabs)
-for focus, command routing, and close lifecycle.
 
 ## [`nav`](https://daybrite.dev/api/day_pieces/fn.nav.html): one-of-N
 
@@ -219,8 +201,8 @@ navigation existed.
 | Toolkit | Tabs presentation | Adaptive |
 |---------|-------------------|----------|
 | macos-appkit | [`NSTabView`](https://developer.apple.com/documentation/appkit/nstabview) (top tabs on a bezel), the detail pages as its items; labels from the host's rows | no; a Mac narrows to a stack |
-| ios-uikit | [`UITabBarController`](https://developer.apple.com/documentation/uikit/uitabbarcontroller) in `.tabSidebar` mode, driven by [`UITab`](https://developer.apple.com/documentation/uikit/uitab) on iOS 18+ and by `viewControllers` below it (2026-09) — see below | yes |
-| android-material | navigation suite: `BottomNavigationView` → [`NavigationRailView`](https://developer.android.com/reference/com/google/android/material/navigationrail/NavigationRailView) → permanent [`NavigationView`](https://developer.android.com/reference/com/google/android/material/navigation/NavigationView) drawer, by width. A `NavStyle::Sidebar` pane is a [`NavigationView`](https://developer.android.com/reference/com/google/android/material/navigation/NavigationView) too (2026-09) — see below | yes |
+| ios-uikit | [`UITabBarController`](https://developer.apple.com/documentation/uikit/uitabbarcontroller) in `.tabSidebar` mode, driven by [`UITab`](https://developer.apple.com/documentation/uikit/uitab) on iOS 18+ and by `viewControllers` below it; see the iOS notes below | yes |
+| android-material | navigation suite: `BottomNavigationView` → [`NavigationRailView`](https://developer.android.com/reference/com/google/android/material/navigationrail/NavigationRailView) → permanent [`NavigationView`](https://developer.android.com/reference/com/google/android/material/navigation/NavigationView) drawer, by width. A `NavStyle::Sidebar` pane is a [`NavigationView`](https://developer.android.com/reference/com/google/android/material/navigation/NavigationView) too; see the iOS notes below | yes |
 | linux-gtk | [`AdwViewSwitcher`](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/class.ViewSwitcher.html) over an [`AdwViewStack`](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/class.ViewStack.html) of resident pages, each in a filling `DayCell` | no |
 | linux-qt | [`QTabWidget`](https://doc.qt.io/qt-6/qtabwidget.html) — Qt's own one-of-N container | no |
 | web-dom | a composed tab bar (`.day-nav.tabs`) | yes |
@@ -230,26 +212,7 @@ navigation existed.
 Only the phones and the web grow a tab bar as the window narrows (`Cap::NavTabsAdaptive`); a
 desktop may pin one with `NavStyle::Tabs`, but narrowing hides its sidebar and pushes.
 
-> [!NOTE]
-> **Desktop tabs drew no bar until 2026-09-12.** AppKit built its segmented control from the
-> rows page's menu at the moment that page was inserted — before the menu existed, since
-> day-core mounts a page into its host before the page's content is built — and GTK's foot
-> switcher was pushed below the pane's clipped edge by the pages' own Day frames. Both now use
-> the toolkit's own tab control: an [`NSTabView`](https://developer.apple.com/documentation/appkit/nstabview) whose items own the pages and take their
-> labels when the `NAV_MENU` is inserted (and again on `NavMenuPatch::Items`), and an
-> [`AdwViewSwitcher`](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/class.ViewSwitcher.html) over the [`AdwViewStack`](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/class.ViewStack.html), whose pages sit in filling `DayCell`s and report
-> their size from the cell's allocation. Bundled vectors reach the switcher's `icon-name` as
-> SYMBOLIC icons, so GTK tints them to the label's color in either theme: day-toolkit-gtk stages each
-> as `<name>-symbolic.symbolic.png` (the shape over black, rendered through librsvg) in the
-> XDG cache and puts that directory on the icon theme's search path — a symbolic SVG would go
-> through GTK 4.20+'s own [`GtkSvg`](https://docs.gtk.org/gtk4/class.Svg.html) parser, which draws only a subset and broke a Material
-> glyph's curves. A row with no glyph gets a transparent symbolic, since libadwaita's switcher
-> button shows `image-missing` for a page without one. On AppKit the [`NSTabView`](https://developer.apple.com/documentation/appkit/nstabview) is inset in
-> its pane (12pt sides and foot, 8pt top), so its tabs clear the toolbar's edge.
-> Qt's [`QTabWidget`](https://doc.qt.io/qt-6/qtabwidget.html) drew its bar all along, but a programmatic selection (a route, a deep
-> link) never reached it: the suite's `NavPatch::Select` branch sat inside the split/stack
-> block, which has no state entry for a suite host and returned first. It is answered ahead
-> of that block now.
+
 
 > [!NOTE]
 > **Renamed.** [`nav`](https://daybrite.dev/api/day_pieces/fn.nav.html)`(sel)`[`.style`](https://daybrite.dev/api/day_pieces/trait.NavBuilder.html#tymethod.style)`(Tabs)` was `tabs()`, and [`nav`](https://daybrite.dev/api/day_pieces/fn.nav.html)`(sel)`[`.style`](https://daybrite.dev/api/day_pieces/trait.NavBuilder.html#tymethod.style)`(Sidebar)` was [`nav()`](https://daybrite.dev/api/day_pieces/fn.nav.html).
@@ -459,213 +422,29 @@ tab widgets is in progress (those toolkits ignore the item-set patch until then,
 still shows). The item logic is toolkit-independent and covered by
 `mock_e2e::nav_data_driven_items_reconcile`.
 
-### The iOS tabs host is driven by `UITab`
+### iOS tabs
 
-A `Tabs` presentation on ios-uikit is a [`UITabBarController`](https://developer.apple.com/documentation/uikit/uitabbarcontroller) in `.tabSidebar` mode, and since
-2026-09 its destinations are [`UITab`](https://developer.apple.com/documentation/uikit/uitab)
-objects rather than a `viewControllers` array of [`UITabBarItem`](https://developer.apple.com/documentation/uikit/uitabbaritem)s. Apple's guidance since iOS 18 is
-that adopting [`UITab`](https://developer.apple.com/documentation/uikit/uitab) is what gives a tab bar its automatic adaptivity — the tab bar and the
-sidebar become two renderings of ONE list of tabs, which is Day's model exactly, and it is what
-`.tabSidebar` is built to consume. The array still works, but the controller has to infer
-everything from view controllers, and the sidebar-side affordances have no tab to hang on.
+Tabs use [`UITabBarController`](https://developer.apple.com/documentation/uikit/uitabbarcontroller).
+On iOS 18 and later, UIKit can adapt the tab bar into a sidebar; older versions use the
+conventional tab bar. Section headings do not collapse destinations into tab groups.
 
-Six things this toolkit learned the hard way:
+Author tab icons at their intended display size. A bundled vector's declared dimensions
+can affect its native tab image size; see [Vectors](/docs/reference/vectors).
 
-- **A [`UITab`](https://developer.apple.com/documentation/uikit/uitab) is a model object with an identity, not a per-render descriptor.** Its provider hands
-  UIKit a view controller and UIKit then owns that controller as the tab's. This host re-syncs on
-  every page insert and every rows change; minting fresh tabs each time left two tabs claiming one
-  controller, and UIKit asserts in `-[UITab viewController]` as soon as it resolves the second. A
-  tab is created once per page and only its title and glyph are re-applied.
-- **The identifier is the PAGE, not the position.** `insert` can put a page in the middle, and an
-  identifier is fixed at construction. Day's index is the tab's position in the host's `tabs`.
-- **A tab's glyph needs a SIZE, and the ASSET is where it comes from.** A tab bar draws
-  [`UITab.image`](https://developer.apple.com/documentation/uikit/uitab) at the image's own size: UIKit scales an SF Symbol to the bar's metrics, but a
-  catalog image has no metrics to scale by. A Material Symbols export carries `width="48"
-  height="48"` and drew at 48pt, twice the height of an iOS tab icon and overlapping its own
-  label. The toolkit hands the image over untouched and the glyph is authored at icon size
-  instead ([docs/vectors](vectors.md)): thumbnailing here downsamples the catalog's bitmap
-  rendition and throws away the vector representation that put it there. Day-Showcase's Grids
-  tabs were the last 48pt holdouts (2026-09-05).
-- **A tab switch waits for the visible stack's transition.** Switching tabs hides the outgoing
-  tab's navigation controller, and a pop still animating there never finishes once its view has
-  left the window: the transition coordinator stays alive, the popped page stays on the stack,
-  and every later screenshot reports the UI still settling (Day-Trader's back-then-switch on
-  iOS 27, one walkthrough variant in eight). The selection moves in Day's tree at once; the
-  native switch is deferred a few runloop turns until no on-screen stack is transitioning.
-- **A tab's page is wrapped in a navigation controller on a wide window, unless the page brings
-  its own.** The wrapper is what gives a tab a bar for its page's commands. A page whose root is a
-  [`nav_stack`](https://daybrite.dev/api/day_pieces/fn.nav_stack.html) (or another stack or split host) already has one, and the wrapper stacked a second
-  bar over it with the same title and commands (Stanza's tabs on an iPad, 2026-10). The host
-  arrives after its page, so the toolkit undoes the wrapper when it does, leaving the tab as a
-  compact window has it: the page, whose own stack owns the bar.
-- **`didSelectTab:previousTab:` fires for programmatic selection too**, where the old
-  `didSelectViewController:` fired only for user taps. It therefore needs the same origin guard as
-  every other two-way control here — without it, installing the tabs reported a selection the user
-  never made and the app's bound signal followed it.
+### iOS sidebar
 
-**Below iOS 18 the same host runs on `viewControllers`.** [`UITab`](https://developer.apple.com/documentation/uikit/uitab) and `setTabs:` are iOS 18's, so
-the sync asks the CONTROLLER whether it answers `setTabs:` — the same shape the `.tabSidebar`
-`setMode:` probe takes — and where it does not, each page carries its title and glyph on the
-[`UITabBarItem`](https://developer.apple.com/documentation/uikit/uitabbaritem) UIKit makes for it, the roster goes in through `setViewControllers:`, `Select`
-addresses a page by INDEX, and the delegate's `didSelectViewController:` reports a tap. An iOS 17
-device therefore gets the plain tab bar an iOS 17 app always had rather than a crash. The
-`didSelectTab:previousTab:` method is declared OUTSIDE the delegate's protocol block for the same
-reason: a protocol block asks the runtime for the nav host's type encoding, and asking for an iOS
-18 nav host on an older runtime fails the class registration itself, which took down the whole
-scene as soon as a tabs host was realized.
+The sidebar uses a [`UICollectionView`](https://developer.apple.com/documentation/uikit/uicollectionview)
+list with UIKit's sidebar appearance and section headings. A page rooted in a scroll view
+extends beneath translucent navigation bars, with UIKit adjusting its scroll insets. Other
+content is laid out inside the safe area. Avoid adding a second safe-area inset around a
+navigation host.
 
-[`UITabGroup`](https://developer.apple.com/documentation/uikit/uitabgroup) is deliberately NOT used. Day's `NavMenuProps::sections` are headings — "a section
-header introducing the row at the same index" — whereas a [`UITabGroup`](https://developer.apple.com/documentation/uikit/uitabgroup) is a destination that
-CONTAINS others: in a sidebar it draws as a heading, but in the compact tab bar the whole group
-collapses to a single tab. Mapping flat sections onto it would turn N tab-bar destinations into G.
-It becomes the right realization if Day's nav host ever grows real hierarchy.
+### Android sidebar
 
-### The iOS sidebar is a collection-view list
-
-[`nav(NavStyle::Sidebar)`](https://daybrite.dev/api/day_pieces/fn.nav.html) realizes on ios-uikit as a [`UICollectionView`](https://developer.apple.com/documentation/uikit/uicollectionview) laid out by
-[`UICollectionLayoutListConfiguration`](https://developer.apple.com/documentation/uikit/uicollectionlayoutlistconfiguration) with the **`.sidebar` appearance**, in the primary column of
-a [`UISplitViewController`](https://developer.apple.com/documentation/uikit/uisplitviewcontroller). That appearance publishes the `listEnvironment` trait the cells'
-adaptive [`UIListContentConfiguration::cellConfiguration`](https://developer.apple.com/documentation/uikit/uilistcontentconfiguration) reads, and it is what gives the Settings
-sidebar its look: an inset rounded selection pill with a tinted label, and rows with no separators.
-A [`UITableView`](https://developer.apple.com/documentation/uikit/uitableview) draws its selection edge to edge whatever background configuration its cells carry,
-so the rounded shape is the list appearance's to give.
-
-**The list runs under the bars.** A page whose content is one scroll view — this list, a
-[`scroll`](https://daybrite.dev/api/day_pieces/fn.scroll.html)-rooted detail, a tree — fills the page's full bounds, and UIKit's inset adjustment
-starts the content below the navigation bar and lets it pass under the translucent bar and the
-bottom search field as it scrolls, as Settings and Mail do. A page whose content is a navigation
-host fills its bounds too, because the host passes the bars on to its own pages — which is what
-lets a tab's list reach under the tab bar. The window root follows the same rule: a window whose
-root is a nav, split or tab host is not padded by the status bar and home indicator, so the bars
-reach the screen's edges and the list runs behind them, the way every UIKit app's does. A page holding anything else (a heading over a list, a
-form, a canvas) is laid out inside the safe area instead, since it has no scroll insets to absorb
-a bar with.
-
-**Section headings ride the same list configuration.** `setHeaderMode(.supplementary)` turns them
-on, and a heading is a supplementary view carrying the adaptive
-[`UIListContentConfiguration::headerConfiguration`](https://developer.apple.com/documentation/uikit/uilistcontentconfiguration), so its type, color and insets come from the same
-sidebar environment the rows do. A list that declares no heading sets `.none` instead, so a flat
-sidebar reserves no band where a heading would go, and flipping heading-ness re-installs the
-layout, header mode being a property of the layout rather than of the data.
-
-The grouping stays private to the list. `NavMenuProps::sections` is parallel to the rows (a heading
-introduces the row at its own index), the toolkit folds that into runs of `(heading, first, len)`,
-and `row_of`/`path_of` translate between a flat row index and an [`NSIndexPath`](https://developer.apple.com/documentation/foundation/nsindexpath). Everything above
-the toolkit — `SelectionChanged`, `NavMenuProps::selected`, the per-row tint and badge arrays —
-keeps speaking in flat row indices.
-
-### The Android sidebar is a NavigationView
-
-[`nav(NavStyle::Sidebar)`](https://daybrite.dev/api/day_pieces/fn.nav.html) realizes on android-material as a Material
+The sidebar uses Material's
 [`NavigationView`](https://developer.android.com/reference/com/google/android/material/navigation/NavigationView),
-the class Android means for a standing navigation column. It was a [`LinearLayout`](https://developer.android.com/reference/android/widget/LinearLayout) of [`TextView`](https://developer.android.com/reference/android/widget/TextView)
-rows in a [`ScrollView`](https://developer.android.com/reference/android/widget/ScrollView) until 2026-09, with the 48dp height, the padding, the ripple and the 24dp
-leading glyph measured out by hand — a comment called that "the Material nav-drawer idiom", which
-it was imitating. The real one brings the M3 row metrics, the ripple, subheaders between
-`NavMenuProps::sections` (the flat list dropped them, so eight groups arrived as twenty bare rows),
-a RecyclerView so a long sidebar recycles, and the fully-rounded ACTIVE INDICATOR behind the
-checked row — which is why `NavMenuPatch::Selected` is no longer a no-op there.
-
-Two consequences worth knowing before touching it:
-
-- **A row's menu id is not its index.** `NavigationMenuItemView` copies its item's id onto ITSELF,
-  which puts menu ids and view ids in the one namespace `findViewById` searches — and Day's own
-  fragment containers take [`View.generateViewId()`](https://developer.android.com/reference/android/view/View), which counts up from 1. Rows keyed by bare
-  index collided immediately: `containerId` was 1, the second row became a view with id 1, it sits
-  earlier in the traversal than the detail container, and `FragmentTransaction.replace` built every
-  detail page INSIDE that sidebar row. Ids start at `ROW_ID_BASE` (0x01000000) for rows and
-  `SECTION_ID_BASE` for headings, above `generateViewId`'s ceiling and below aapt's floor.
-- **Rows recycle**, so a per-row context menu ([docs/menus](menus.md)) cannot be attached once. It goes on
-  from `OnChildAttachStateChangeListener`, reading the row a cell is CURRENTLY bound to from its
-  own `getItemData()` rather than from its adapter position, which headings and dividers shift.
-
-> [!IMPORTANT]
-> **A vetoed back must name the host's NODE.** `DayNavController`'s `navigationBar:shouldPopItem:`
-> intercepts the back button while `guarded`, emitting `Event::NavBack { already_popped: false }`
-> so Day's guard decides and performs the pop itself. That emit addressed
-> `NodeId(ivars().host)` — but `host` there is the host VIEW's pointer, the key of `NAV_STATE`,
-> not a node id. day-core therefore never saw the event, the guard never ran, and the veto stood:
-> tapping back did nothing at all on any guarded stack (2026-09, the Showcase's Stack page). It
-> resolves `state.host_node` now, like every other `NavBack` emit, and an unresolvable host fails
-> OPEN — vetoing with no one to answer is the one outcome that strands the user.
->
-> Nothing caught it because the walkthrough's `nav_back:` step drives day-core's rail directly and
-> never reaches `shouldPopItem:`. The tell from a user was that LONG-PRESSING back worked while
-> tapping did not: the history menu pops the controller itself, so the settle path reported it with
-> the right node.
-
-### How iOS tells a user's back from its own
-
-There is no mirror of the stack on iOS (2026-09-10; before this, day-toolkit-uikit kept a copy of the
-intended stack, re-applied it wholesale on every change, inferred the user's pops from `didShow`
-counts through a settle loop, and absorbed Day's answering pops with a counter — and both back
-bugs of that month lived in the bookkeeping). UIKit's `viewControllers` is the stack. Two rules:
-
-- **Day's changes are one delta, computed from what UIKit reports.** The insert duty that hands
-  a page's controller to the host pushes it (`push_page`: the active controller's current pages
-  plus this one, in one `setViewControllers:animated:`), and the remove duty that takes it back
-  pops it (`pop_page`: the current pages minus this one). A collapsed triple column is driven
-  through UIKit's column APIs instead (`showColumn`, `popToViewController:`), since a
-  wholesale set destroys the bookkeeping its merge keeps. A merge on iOS 26 nests the secondary
-  controller onto the primary as one entry, so `day_pages` flattens a nested controller into its
-  pages wherever a stack is read. A transition UIKit cancels (a window capture mid-flight does
-  that on iOS 26+) is applied once more from its completion.
-- **The user's back is observed where it starts.** `DayNavController` overrides
-  `popViewControllerAnimated:`, `popToViewController:animated:` and
-  `popToRootViewControllerAnimated:`: UIKit routes the back button there once `shouldPopItem:`
-  agrees, the swipe there under an interactive transition, and the history menu to the
-  `popTo…` pair. Day never calls those for its own changes, and its two pops on a collapsed
-  triple column announce themselves (`with_day_pop`), so a call that reaches super is the
-  user's. `observe_user_pop` waits for an interactive pop's own transition — a swipe let go
-  early is cancelled, and Day hears nothing. A button or history-menu pop cannot be cancelled,
-  so it is reported on the next run-loop turn instead of when its slide ends: the revealed page
-  takes taps during that slide, and a push made there must land on a model that no longer holds
-  the outgoing page (a late report popped the new page instead, leaving Day one page off
-  UIKit). `confirm_user_pop` emits one `NavBack { already_popped: true }` per Day page that
-  left. Day answers each by popping its model and removing the page, and `pop_page` finds the
-  page already gone: that no-op is the whole protocol between the two, and nothing is counted.
-  A title patch retitles the top of the stack Day has asked for, queued changes included, so a
-  title arriving with its push never lands on the page below.
-
-- **A pop during a size-class transition is UIKit's own.** A split view merges its columns when
-  it collapses and takes them apart again when it expands, and the un-merge is a real
-  `popViewControllerAnimated:` on the primary's controller — indistinguishable at the call site
-  from the user's back. `DayRootVC`'s `willTransitionToTraitCollection:withTransitionCoordinator:`
-  raises a flag for the length of the transition (released by the coordinator's completion, with
-  a two-second floor under a completion that never arrives), and `note_pop` reports nothing while
-  it is up. Read as a back instead, the pop deselects the row the user is on, and the widened
-  split then obeys its own "never show an empty detail" rule and opens the FIRST row: resizing an
-  iPad window across the breakpoint threw away the page you were reading and replaced it with the
-  top of the list (2026-09-19). The window root is early enough to see it, because UIKit
-  restructures the columns before it reports the expansion. The cost is that a back tapped during
-  the resize animation itself is ignored, which is the trade this is worth.
-
-`NavPatch::ListInStack` is not consulted here: UIKit's collapse folds the content list onto the
-merged stack by itself (the list is the supplementary column's root), and `NavPatch::ListVisible`
-shows or pops it there. `NavPatch::Presentation` never reaches a toolkit whose container
-re-presents (the pieces layer gates it on `Cap::NavRepresent`).
-
-The guard has the same two doors: `shouldPopItem:` vetoes the button, and the controller is the
-swipe recognizer's delegate, whose `gestureRecognizerShouldBegin:` vetoes the swipe; both emit
-`NavBack { already_popped: false }` and let Day decide. The gesture is never disabled, so a guard
-that proceeds pops through Day's rail and the next swipe works with nothing to re-enable.
-
-> [!NOTE]
-> **Considered and declined (2026-09-10): letting the toolkit own the stack.** The alternative to
-> the two rules above is to hand structure to UIKit entirely — Day asks `showDetailViewController`
-> / `show(column)` / `push` and learns the route from a single `NavChanged` report — and to
-> delete the `NavPatch` vocabulary with it. It was set aside on purpose. Day's model being the
-> truth, synchronously, is what lets one dayscript walkthrough pass on nine targets and every gate
-> keyed on the selection stay coherent in one flush; the friction it costs is confined to this
-> one toolkit; and the pieces that broke between iOS 18 and 26 were the places Day *observed*
-> UIKit, which that design would do more of. Revisit only if a later iOS release breaks the split
-> merge again after the remaining reconciliation has been trimmed, or a second native toolkit
-> needs the same fight.
-
-`nav_back:` in a walkthrough drives Day's rail and reaches none of this; `nav_back: { native: true }`
-presses the bar's button ([`Toolkit::native_back`](https://daybrite.dev/api/day_spec/trait.Toolkit.html#method.native_back) → `DayNavController::press_back`), which asks
-`shouldPopItem:` through its selector and pops through the override, so a script covers the code
-a tap runs. Trace it with `--env DAY_DIAG_NAV=1`: `user pop levels=1`, `exec SET native=N -> target=M`.
+including its row metrics, selected indicator, section headings, and scrolling behavior.
+Rows are recycled; row actions and context menus follow the current item.
 
 ## Back interception ([`on_back`](https://daybrite.dev/api/day_pieces/trait.NavStackBuilder.html#tymethod.on_back))
 
@@ -965,7 +744,7 @@ breakpoints, what survives a re-presentation, and which toolkits morph today.
 ## The content list (three panes)
 
 > Native pane on macos-appkit (a real `contentList`
-> [`NSSplitViewItem`](https://developer.apple.com/documentation/appkit/nssplitviewitem)), on Qt (the middle pane of the navigation [`QSplitter`](https://doc.qt.io/qt-6/qsplitter.html), since 2026-09) and
+> [`NSSplitViewItem`](https://developer.apple.com/documentation/appkit/nssplitviewitem)), on Qt (the middle pane of the navigation [`QSplitter`](https://doc.qt.io/qt-6/qsplitter.html)) and
 > ios-uikit ([`UISplitViewController`](https://developer.apple.com/documentation/uikit/uisplitviewcontroller) triple-column, merging into the stack at compact width);
 > composed by the nav host everywhere else, including the mock.
 > `Cap::NavContentList` carries the three-way answer. Since 2026-08 the composed compact flow

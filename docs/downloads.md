@@ -16,8 +16,7 @@ OS download service when they need to continue while the app is suspended or clo
 
 ## Add to your app
 
-Defined in [`day-part-downloads`](https://github.com/daybrite/day/tree/main/crates/day-part-downloads). Add this to your app’s `Cargo.toml`
-`[dependencies]` table, at the same Day version as the rest of your app:
+Add [`day-part-downloads`](https://github.com/daybrite/day/tree/main/crates/day-part-downloads) to your app’s Cargo dependencies, using the same Day version as the rest of your app:
 
 ```toml
 [dependencies]

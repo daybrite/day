@@ -61,17 +61,7 @@ toolkit's indicator tier (`Native` / `Emulated`).
 [`day::pullrefresh::gesture_support()`](https://daybrite.dev/api/day_pieces/pullrefresh/fn.gesture_support.html) separately reports whether a user pull can start a refresh.
 A composed indicator alone does not imply gesture support.
 
-## Scripting
-
-The piece's node accepts `Event::ToggleChanged` as a synthetic begin/end, so the existing dayscript
-`toggle:` step drives it identically on every toolkit:
-
-```yaml
-- toggle: { id: feed_refresh, value: true }     # begin (runs the app's reload)
-- assert_text: { id: refresh_status, key: refresh_status_refreshing }
-```
-
-## Per-toolkit realization
+## Toolkit implementations
 
 Platform guidance: [Android: swipe-to-refresh](https://developer.android.com/develop/ui/views/touch-and-input/swipe).
 

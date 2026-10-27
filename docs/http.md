@@ -16,8 +16,7 @@ authentication, caching, redirects, and timeouts.
 
 ## Add to your app
 
-Defined in [`day-part-http`](https://github.com/daybrite/day/tree/main/crates/day-part-http). Add this to your app’s `Cargo.toml`
-`[dependencies]` table, at the same Day version as the rest of your app:
+Add [`day-part-http`](https://github.com/daybrite/day/tree/main/crates/day-part-http) to your app’s Cargo dependencies, using the same Day version as the rest of your app:
 
 ```toml
 [dependencies]
@@ -46,7 +45,7 @@ rest of a modern HTTP API: streamed bodies, uploads, redirect and challenge call
 decisions, cookies, caching, metrics and WebSockets.
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
-[example messages](snippet-catalog.md) and [catalog setup](/docs/how-to/localization).
+[example messages](/docs/reference/localization#reference-example-messages) and [catalog setup](/docs/how-to/localization).
 
 ## Sending a request
 
@@ -542,18 +541,13 @@ bytes, an upload digest, and a WebSocket echo. The module's documentation lists 
 showcase's Network & HTTP page runs one inside the app on the platforms that allow a listening
 socket.
 
-## The Android engine
+## Android networking
 
-The Android transport runs on OkHttp 4.12, the engine AOSP's own [`HttpURLConnection`](https://developer.android.com/reference/java/net/HttpURLConnection) has been a
-fork of since Android 4.4. The system `ProxySelector`, VPN routing, the network security config
-(OkHttp checks `NetworkSecurityPolicy` for cleartext), and the platform trust manager with the
-user CA store all apply. OkHttp adds HTTP/2 over TLS and per-call cancellation. The okhttp, okio
-and kotlin-stdlib Gradle dependencies add roughly 1.5 to 2.5 MB before R8, and well under 1 MB
-after shrinking. The coordinate rides the part's own `[package.metadata.day.android]
-gradle-dependencies`, the mechanism [day-piece-lottie](https://github.com/daybrite/day-piece-lottie)
-also uses.
+The Android transport uses OkHttp and follows the system proxy, VPN routing, network security
+configuration, and platform trust manager. Its dependencies and `INTERNET` permission are
+contributed by the crate; the app does not need to add Gradle dependencies manually.
 
-## Deferred
+## Platform limits
 
 - Redirect approval, server trust questions and client certificates on HarmonyOS and the web,
   whose platform APIs follow redirects and evaluate trust without asking.
@@ -561,13 +555,12 @@ also uses.
 - Uploads the OS runs while the app is away. Downloads have that tier in
   [day-part-downloads](downloads.md).
 
-## What it shows about the extension system
+## Extension integration
 
 This is a headless part: `cfg(target_os)` backends behind one `mod imp`, per-target dependencies,
 and bridge arms in Java, ArkTS and JavaScript declared beside the Rust that reads their frames.
 Its Android arm contributes `android.permission.INTERNET` and the OkHttp coordinate through
-`[package.metadata.day.android]`. It was the first part on the bridge's stream tier, and
-[day-part-downloads](downloads.md) builds on its client without platform code of its own for the
+`[package.metadata.day.android]`. [day-part-downloads](downloads.md) builds on its client without platform code of its own for the
 in-app tier.
 
 ## Conditional requests for application-owned data
@@ -598,7 +591,7 @@ Both helpers live above the transport and work identically with URLSession, OkHt
 [libcurl](https://curl.se/libcurl/), HarmonyOS Network Kit and browser fetch. Web requests remain subject to CORS:
 publishers must allow conditional request headers and expose ETag/Last-Modified as needed.
 Reuse a `Client` for connection pooling; the root helpers already share one stateless client.
-See `validators::tests` and `client_tests::bounded_*` for portable regression coverage.
+
 
 [`Client::fetch_limited_with_progress_future`](https://daybrite.dev/api/day_part_http/struct.Client.html#method.fetch_limited_with_progress_future) (also available at the crate root) adds a
 `FnMut(received_bytes, Option<total_bytes>)` observer to the bounded collector. It runs on the

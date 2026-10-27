@@ -16,8 +16,7 @@ updates with selectable accuracy, so an app can balance precision and battery us
 
 ## Add to your app
 
-Defined in [`day-part-location`](https://github.com/daybrite/day/tree/main/crates/day-part-location). Add this to your app’s `Cargo.toml`
-`[dependencies]` table, at the same Day version as the rest of your app:
+Add [`day-part-location`](https://github.com/daybrite/day/tree/main/crates/day-part-location) to your app’s Cargo dependencies, using the same Day version as the rest of your app:
 
 ```toml
 [dependencies]
@@ -83,7 +82,7 @@ it, iOS terminates the app on first use.
 On the **web** there is no separate request at all: the first `watchPosition` call *is* the prompt,
 so whichever of the two crates runs first shows it.
 
-## Per-platform native realization
+## Platform implementations
 
 Platform guidance: [Apple: Core Location](https://developer.apple.com/documentation/corelocation); [Android: location permissions](https://developer.android.com/develop/sensors-and-location/location/permissions).
 
@@ -134,7 +133,7 @@ passes across alongside the value.
 > Device and simulator delivery has not been verified. Test updates, permission changes,
 > and unavailable location services on each target you ship.
 
-## What it shows about the extension system
+## Extension integration
 
 The crate registers nothing in any `RENDERERS` slice. It contributes its Android Java shim through
 `[package.metadata.day.android]` and its `CoreLocation` link through `[package.metadata.day.ios]`,

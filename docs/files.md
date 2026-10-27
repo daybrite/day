@@ -47,7 +47,7 @@ For OS file associations, Finder/Dock drops, and cold/warm document delivery, se
 for bounded reads that do not block the native UI thread.
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
-[example messages](snippet-catalog.md) and [catalog setup](/docs/how-to/localization).
+[example messages](/docs/reference/localization#reference-example-messages) and [catalog setup](/docs/how-to/localization).
 
 ## The path type: `FileUrl`
 
@@ -110,7 +110,7 @@ if capability(Cap::FolderDialog) == Support::Native
 
 Both probes and the enums are in the prelude ([`capability`](https://daybrite.dev/api/day_core/fn.capability.html), `Cap`, `Support`).
 
-## Per-toolkit native mapping
+## Toolkit implementations
 
 Platform guidance: [Apple: file management](https://developer.apple.com/design/human-interface-guidelines/file-management); [Android: accessing shared documents](https://developer.android.com/training/data-storage/shared/documents-files).
 
@@ -144,39 +144,6 @@ the same builders and the same `FileUrl` surface on web as on every other target
 
 All toolkits present the picker non-blocking (sheet / `open()` / delegate / Activity result),
 so the main loop keeps running and dayscript stays live while a picker is up.
-
-## Plumbing
-
-Files go through the existing [`present`](https://daybrite.dev/api/day_core/fn.present.html) path ([docs/dialogs](dialogs.md)) and add no `Toolkit` methods:
-
-- `day_spec::present::PresentSpec::{OpenFile, OpenFolder, SaveFile}` + `FileFilter { name, extensions }`.
-  `OpenFile { multiple }` is the one spec behind both [`open_file()`](https://daybrite.dev/api/day_pieces/fn.open_file.html) (`false`) and
-  [`open_files()`](https://daybrite.dev/api/day_pieces/fn.open_files.html) (`true`); `OpenFolder { title }` carries the folder chooser.
-- `PresentResult::Files(Vec<String>)`: the chosen locators, crossing the C ABI (Qt shim /
-  Android JNI / WinUI shim / ArkTS host) as tag `3` with the paths joined by the unit separator.
-  A multiple-selection pick reports every path, in the picker's order.
-- `Cap::FileDialogs` advertises native open/save pickers; `Cap::FolderDialog` the folder chooser.
-- [`day_spec::present::app_temp_dir()`](https://daybrite.dev/api/day_spec/present/fn.app_temp_dir.html): the app-writable staging dir; Android sets it to
-  `getCacheDir()` (the OS temp dir isn't app-writable there).
-
-## dayscript
-
-A file picker is a presentation, so a script answers it with a path ([docs/dialogs](dialogs.md)):
-
-```yaml
-- tap: { id: btn_save_file }
-- assert_presented: {}
-- respond: { path: "notes.txt" }        # relative → the app temp dir (writable on every target)
-- tap: { id: btn_open_file }
-- assert_presented: {}
-- respond: { path: "notes.txt" }         # reads the file just written: a real round-trip
-```
-
-This makes open/save flows headless-testable and screenshot-able on every toolkit without touching
-the machine's real filesystem. See `Day-Showcase` (the **Files & storage** page's Files section) and
-`Day-Showcase/dayscript/files.yaml`. The same `respond: { path }` answers an [`open_files()`](https://daybrite.dev/api/day_pieces/fn.open_files.html) pick
-(with that one file) and an [`open_folder()`](https://daybrite.dev/api/day_pieces/fn.open_folder.html) request (with that path as the directory), on every
-toolkit, including the ones without a native folder chooser.
 
 ## Windows picker behavior
 

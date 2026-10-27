@@ -81,3 +81,11 @@ test('canonical repository metadata does not duplicate its visible H1', async ()
   assert.ok((await inspectMarkdown(source)).issues.some((i) => i.rule === 'title'));
   assert.ok((await inspectMarkdown(source + '\n# Duplicate\n', { bodyTitle: true })).issues.some((i) => i.rule === 'title'));
 });
+
+
+test('generic importance headings are rejected, while quoted rule examples are allowed', async () => {
+  const bad = await inspectMarkdown('# Guide\n\n## Why it matters\n\nUseful content.\n');
+  assert.ok(bad.issues.some((issue) => issue.rule === 'prose'));
+  const good = await inspectMarkdown('# Style\n\nAvoid `Why it matters` headings.\n');
+  assert.deepEqual(good.issues, []);
+});

@@ -17,7 +17,7 @@ controls by stable identifiers, so a walkthrough can be reused across targets. W
 conditions rather than depending on fixed delays.
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
-[example messages](/docs/reference/examples/catalog) and [catalog setup](/docs/how-to/localization).
+[example messages](/docs/reference/localization#reference-example-messages) and [catalog setup](/docs/how-to/localization).
 
 ## A script
 
@@ -364,3 +364,64 @@ camera` marks the permission allowed on the device before the app starts, on And
 Simulator ([the CLI guide](/docs/reference/cli#the-commands)), so a script that takes a photo or records
 audio runs the real path. Unit-level testing below the UI has a separate tool: the [mock
 toolkit](/contributing/rendering#the-mock-toolkit) runs your Pieces headlessly in `cargo test`.
+
+## Dialogs and file pickers
+
+`day launch --script flow.yaml` defaults to **scripted** Day presentations. Alerts,
+confirmations, prompts, action sheets and open/save file pickers enter the same pending
+request registry and await the script's explicit answer, but no native dialog is opened.
+This avoids stranded system picker windows and exercises the app's real continuation
+(including file reads/writes). It does not test the native dialog's appearance, focus,
+permissions, filters or document-provider integration.
+
+```yaml
+flow:
+  - tap: { id: btn_open_file }
+  - assert_presented: {}
+  - respond: { dismiss: true }
+  - assert_text: { id: files_status, text: "open-cancel" }
+  - assert_not_presented:
+```
+
+Use `respond: { path: "fixture.txt" }` to choose a file, `respond: { text: "Ada" }`
+for a prompt, or `respond: { button: 1 }` for a dialog button. Relative paths resolve
+under the app's writable temp directory. Requests are never automatically accepted or
+cancelled: omitting `respond` leaves the app's future pending.
+
+For native integration tests, launch with `--dialogs native`. The equivalent workflow
+input is `launch-env: DAY_TEST_DIALOGS=native`. The CLI flag takes precedence over an
+explicit environment value; otherwise script launches supply `DAY_TEST_DIALOGS=scripted`.
+Ordinary interactive launches remain native, even though their dayscript engine is enabled.
+This policy is independent of `--fast` and requires rebuilding the app with mode support;
+older apps ignore the environment setting.
+
+A script or `day drive` can change the policy before opening a dialog:
+
+```yaml
+  - dialog_mode: { mode: scripted }
+  - tap: { id: btn_prompt }
+  - assert_presented: {}
+  - respond: { text: "Ada" }
+  - assert_not_presented:
+  - dialog_mode: { mode: native }
+```
+
+The step overrides the launch policy for subsequent presentations. Switching modes with
+an unanswered request fails: respond to it first. The policy lasts for the app process or
+until another `dialog_mode` step. When `--keep-alive` hands the app over after its scripts,
+the CLI switches it back to `native`, so a person using the app sees its prompts. An explicit
+`--dialogs` (or `--env DAY_TEST_DIALOGS=…`) keeps that mode instead, for `day drive` sessions
+that answer with `respond`; the restore is also skipped while a request is unanswered, and the
+CLI says so. Browser hosts initialize the same policy through their host environment.
+`assert_presented` and `assert_not_presented` inspect Day's **request registry**, not OS
+windows; they do not establish that a native dialog is visible or has physically closed.
+
+Native dismissal remains toolkit-dependent. Android finishes its document-picker activity;
+GTK deliberately avoids cancelling already-shown file pickers because that cancellation
+reproduced a GTK crash, and Harmony's document-picker bridge currently has no dismissal
+hook. Scripted mode prevents those native windows from opening at all. Native-mode tests
+on these paths still need user or platform automation for dismissal.
+
+OS permission prompts, authentication UI, external applications, and dialogs opened
+directly by third-party code do not use Day's presentation registry and are unaffected.
+Use explicit platform permission setup or platform UI automation for those tests.

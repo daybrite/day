@@ -18,7 +18,12 @@ The [`scroll`](https://daybrite.dev/api/day_pieces/fn.scroll.html) piece stays g
 indicators. This document covers driving it from code and from dayscript.
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
-[example messages](snippet-catalog.md) and [catalog setup](/docs/how-to/localization).
+[example messages](/docs/reference/localization#reference-example-messages) and [catalog setup](/docs/how-to/localization).
+
+## Add to your app
+
+This control is included in [`day-pieces`](https://github.com/daybrite/day/tree/main/crates/day-pieces)
+and re-exported through `day::prelude::*`. No additional crate or control feature is required.
 
 ## Authoring
 
@@ -57,24 +62,6 @@ content already in view doesn't move.
 The showcase's List page is the live reference (`Day-Showcase/src/pages/list.rs`): its scroll
 buttons drive the recycling list's row rail ([`.scroll_to_row`](https://daybrite.dev/api/day_pieces/trait.ListBuilder.html#tymethod.scroll_to_row)/[`.scroll_to_end`](https://daybrite.dev/api/day_pieces/trait.ListBuilder.html#tymethod.scroll_to_end), [docs/list](list.md));
 [`scroll_target`](https://daybrite.dev/api/day_pieces/trait.ScrollBuilder.html#tymethod.scroll_target) on a plain [`scroll`](https://daybrite.dev/api/day_pieces/fn.scroll.html) piece works the same way with a `ScrollTarget`.
-
-## dayscript
-
-```yaml
-- scroll_to: { id: page_scroll, edge: bottom }     # top | bottom | leading | trailing
-- scroll_to: { id: page_scroll, x: 0, y: 300 }     # pin the viewport origin
-- scroll_to: { id: 'row:100' }                     # reveal an element in its nearest scroll
-- scroll_to: { id: nav_menu, edge: bottom, only_on: [ios-uikit, android-material] }
-```
-
-The step is unanimated so the next step sees the settled position. `assert_visible` remains a
-presence check (realized + nonzero frame; DESIGN Appendix C); it does not test whether an
-element is inside the viewport, so pair [`scroll_to`](https://daybrite.dev/api/day_core/fn.scroll_to.html) with screenshots when the test is about
-what's on screen.
-
-On UIKit and Material, `nav_menu` accepts `top` and `bottom` to scroll the navigation list
-without opening a page or changing its selection. Return to the root route first when the
-list is behind a page. Other targets and toolkits do not support navigation-menu scrolling.
 
 ## How a target becomes a scroll
 

@@ -12,7 +12,14 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 # Split
 
 A [`split`](https://daybrite.dev/api/day_pieces/fn.split.html) puts two panes in the space it is given with a divider between them that the user
-drags, the editor-beside-preview shape. Like every Day surface it projects app-owned state:
+drags, the editor-beside-preview shape. The pane sizes follow app-owned state.
+
+## Add to your app
+
+This control is included in [`day-pieces`](https://github.com/daybrite/day/tree/main/crates/day-pieces)
+and re-exported through `day::prelude::*`. No additional crate or control feature is required.
+
+## Authoring
 
 ```rust
 let share = Signal::new(0.5);          // the first pane's share of the length
@@ -57,14 +64,5 @@ divider without re-emitting the report (the from-native echo rule), and the axis
 Everywhere else the piece composes: Day's layout places the first pane, a 9-point divider
 and the second pane by the share; the divider is a canvas drawing a hairline down its middle,
 carrying a [`.cursor()`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.cursor) (column- or row-resize) and an [`.on_drag()`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.on_drag) that moves the share by the
-pointer's travel as a fraction of the split's length. It carries the id `day-split-divider`,
-so a walkthrough can `drag` it. The behavior is the same on every target; only the divider's
+pointer's travel as a fraction of the split's length. The behavior is the same on every target; only the divider's
 look is the toolkit's where there is one.
-
-## What a walkthrough can assert
-
-The share is a signal, so a label bound to it is the cross-platform assertion: the
-conformance cases write the share and read the first pane's frame back, and turn the axis and
-read the second pane's position. A composed split takes a `drag` step on `day-split-divider`;
-a native one takes `set_value` on the split's own id, which the piece reads as the toolkit's
-report.

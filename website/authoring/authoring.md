@@ -163,6 +163,13 @@ to their internal guides, following the [cross-reference rules](style-guide.md#l
 copyable Rust, with the corresponding API links in the explanation beside the example. Verify
 the destination in the combined build rather than guessing a Rustdoc path. Check the receiver's
 actual type: identical method names such as `on_submit` and `header` can have different owners.
+External crates use versioned `https://docs.rs/<package>/<version>/<library>/` item links.
+Keep their released versions, guide URLs, and API destinations in
+[external-crates.json](../src/data/external-crates.json). Do not add them to `api-crates.json`:
+that catalog builds APIs from this workspace. When updating an external guide, check the actual
+published source and verify its docs.rs item pages and fragments; the local API checker only
+covers the bundled Rustdoc. Exclude unpublished packages and empty placeholder releases.
+
 The site marks item links with a dashed underline; keep ordinary
 Markdown links in the source rather than adding presentation markup.
 
@@ -196,3 +203,24 @@ set `CARGO_NET_OFFLINE=false` to permit third-party dependency downloads on a fr
 `CARGO_HOME` and `CARGO_TARGET_DIR` can isolate the dependency and build caches for that check.
 Record wider example-review gaps in the maintenance ledger, not as repeated notices on app
 documentation pages.
+
+## Dependency versions in examples
+
+`npm run docs:versions` checks published documentation, crate READMEs, authoring guides, and
+machine-readable tutorial recipes. Every Astro production build runs this check before rendering;
+`docs:architecture` runs it in CI too. A stale Day dependency fails with its source location.
+
+Core crate versions come from the workspace manifests. Examples may use the current minor
+release line or the full workspace version. External crate versions come from
+`src/data/external-crates.json`; additional documented dependencies live in
+`src/data/doc-dependencies.json`. Update those catalogs when adopting a verified release.
+External examples use the catalog's full version, or its minor shorthand when the patch is zero.
+The check runs offline; it does not infer releases from crates.io during a build.
+
+The check covers Cargo dependency entries, explicit `--day-version` arguments, and versioned
+Day API links. Unpublished historical records and synthetic validator test inputs may retain
+older versions. Path and workspace dependencies have no registry requirement to compare.
+
+Shared reference messages live in `public/examples/reference-messages.ftl`. Localization links
+to that downloadable file, and the excerpt compiler reads it directly. The unpublished
+`docs/snippet-catalog.md` retains the recipe build setup; it is not a documentation destination.

@@ -20,7 +20,7 @@ Start with a working app. The facade's default `prefs` feature supplies preferen
 Create and bind the signal in the scope that should own persistence. This complete module also
 shows explicit writes when the app needs a success flag.
 
-Complete module for `src/storage.rs` in the [technical recipe harness](/docs/reference/examples/catalog#technical-recipes).
+Complete module for `src/storage.rs` in the [technical recipe harness](https://github.com/daybrite/day/blob/main/docs/snippet-catalog.md#technical-recipes).
 The harness compiles this exact block; it is not a standalone app. Add the catalog entries below
 to `resource/locales/en/app.ftl` and declare the module in `src/lib.rs`.
 
@@ -109,7 +109,7 @@ return `Unsupported`. Keep credentials in a separately integrated secure store.
 
 ## Verify persistence
 
-Compile the module with the [recipe harness](/docs/reference/examples/catalog#technical-recipes).
+Compile the module with the [recipe harness](https://github.com/daybrite/day/blob/main/docs/snippet-catalog.md#technical-recipes).
 In the app, change the toggle, restart, and verify restoration. Exercise unavailable storage and
 a failed write separately. For isolated tests, enable the prefs `memory` feature and use a
 repository-local `DAY_DATA_DIR`; these controls avoid touching real user settings.

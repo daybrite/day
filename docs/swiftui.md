@@ -17,8 +17,7 @@ integration requires the AppKit or UIKit toolkit.
 
 ## Add to your app
 
-Defined in [`day-piece-swiftui`](https://github.com/daybrite/day/tree/main/crates/day-piece-swiftui). Add this to your app’s `Cargo.toml`
-`[dependencies]` table, at the same Day version as the rest of your app:
+Add [`day-piece-swiftui`](https://github.com/daybrite/day/tree/main/crates/day-piece-swiftui) to your app’s Cargo dependencies, using the same Day version as the rest of your app:
 
 ```toml
 [dependencies]
@@ -166,7 +165,7 @@ still lands. Keys have these constraints:
 The showcase's Benchmark page pairs this with app-global signals on the Day-native tab, so both
 tabs keep their parameters across tab switches and page revisits alike.
 
-## Per-platform realization
+## Platform implementations
 
 Platform guidance: [Apple: integrating SwiftUI](https://developer.apple.com/documentation/swiftui/framework-integration).
 

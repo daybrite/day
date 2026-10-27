@@ -30,7 +30,7 @@ the interface. Put computations inside a tracked closure when they need to follo
 ## Follow values, not builder calls
 
 API fragment; not a complete app. `counter_value` is defined in the
-[example catalog](/docs/reference/examples/catalog).
+[example catalog](/docs/reference/localization#reference-example-messages).
 
 ```rust
 use day::prelude::*;
@@ -122,7 +122,7 @@ for buttons rather than installing a separate [`.on_tap`](https://daybrite.dev/a
 scope when it must survive page replacement. The saturating increment avoids integer overflow.
 
 Complete module for `src/events.rs` in the
-[technical recipe harness](/docs/reference/examples/catalog#technical-recipes).
+[technical recipe harness](https://github.com/daybrite/day/blob/main/docs/snippet-catalog.md#technical-recipes).
 Add the matching Fluent messages below. This module is compiled as part of the harness;
 it is not a standalone app.
 

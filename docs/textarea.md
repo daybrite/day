@@ -15,25 +15,16 @@ Let people write messages, notes, or other multi-line text. [`text_area`](https:
 state and grows with its content up to a chosen height, then scrolls within the editor.
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
-[example messages](snippet-catalog.md) and [catalog setup](/docs/how-to/localization).
+[example messages](/docs/reference/localization#reference-example-messages) and [catalog setup](/docs/how-to/localization).
 
 ## Add to your app
 
-Defined in [`day-pieces`](https://github.com/daybrite/day/tree/main/crates/day-pieces) and
-re-exported by `day::prelude`. An app created with `day new` already has the required dependency;
-otherwise add it to `Cargo.toml`:
-
-```toml
-[dependencies]
-day = { package = "day-app", version = "0.6" }
-```
-
-No additional piece crate or `Day.toml` dependency is needed. Build with the app’s selected
-toolkit using `day build -t <target>`.
+This control is included in [`day-pieces`](https://github.com/daybrite/day/tree/main/crates/day-pieces)
+and re-exported through `day::prelude::*`. No additional crate or control feature is required.
 
 | Platforms / toolkits | Availability |
 | --- | --- |
-| AppKit, UIKit, GTK, Qt, Android, WinUI, ArkUI, Web | Built-in control; see [native realization](#per-toolkit-native-realization) for presentation differences. |
+| AppKit, UIKit, GTK, Qt, Android, WinUI, ArkUI, Web | Built-in control; see [toolkit implementations](#toolkit-implementations) for presentation differences. |
 
 ## Authoring
 
@@ -129,7 +120,7 @@ Custom ArkTS hosts must adopt the staged host's `registerTextAreaKey` callback f
 without it, the shortcut is ignored with a diagnostic rather than replacing text outside the
 native editing pipeline. `day build` stages this callback automatically for standard hosts.
 
-## Per-toolkit native realization
+## Toolkit implementations
 
 Platform guidance: [Apple: text fields](https://developer.apple.com/design/human-interface-guidelines/text-fields); [Android: input methods](https://developer.android.com/develop/ui/views/touch-and-input/creating-input-method); [Windows: text controls](https://learn.microsoft.com/en-us/windows/apps/design/controls/text-controls).
 
@@ -147,11 +138,7 @@ patch so an editor that starts read-only comes up that way); Android's
 `DayTextArea.java` rides the framework shim (its `applyAttrs` maps editable→InputType/keyListener,
 selectable→`setTextIsSelectable`, spell-check→`TYPE_TEXT_FLAG_NO_SUGGESTIONS`).
 
-## Follow-ups
+## Limits
 
-- **ArkUI spell-check**: still unsupported; verify an appropriate SDK/IME contract before
-  advertising it. The API 18 C TextArea interface has no spell-check toggle.
-- Styled text is a different control: [`day-piece-text-editor`](/docs/reference/texteditor) edits a whole `StyledText` — the
-  document labels render and [`.markdown()`](https://daybrite.dev/api/day_spec/styled/struct.StyledText.html#method.markdown) produces — in each platform's rich-text view
-  ([docs/texteditor](texteditor.md)). [`text_area`](https://daybrite.dev/api/day_pieces/fn.text_area.html) stays the plain-text one.
-- Reactive placeholder; a character/line counter affordance.
+ArkUI's TextArea interface has no spell-check toggle. For styled documents, use
+[Styled text editor](/docs/reference/texteditor); `text_area` edits plain text.

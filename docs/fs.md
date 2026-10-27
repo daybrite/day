@@ -18,8 +18,7 @@ Native targets use filesystem storage; web uses the browser’s Origin Private F
 
 ## Add to your app
 
-Defined in [`day-part-filesystem`](https://github.com/daybrite/day/tree/main/crates/day-part-filesystem). Add this to your app’s `Cargo.toml`
-`[dependencies]` table, at the same Day version as the rest of your app:
+Add [`day-part-filesystem`](https://github.com/daybrite/day/tree/main/crates/day-part-filesystem) to your app’s Cargo dependencies, using the same Day version as the rest of your app:
 
 ```toml
 [dependencies]
@@ -38,7 +37,7 @@ This reference covers paths, errors, and storage behavior. The
 [local storage guide](/docs/how-to/guide-storage) shows how to use files from an app.
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
-[example messages](snippet-catalog.md) and [catalog setup](/docs/how-to/localization).
+[example messages](/docs/reference/localization#reference-example-messages) and [catalog setup](/docs/how-to/localization).
 
 ## Authoring
 
@@ -102,19 +101,19 @@ functions exist only off wasm32.
 `NotFound`, `BadPath`, `Io(message)`, `Unsupported`. The web tier collapses provider detail
 into `Io`, except `NotFoundError` → `NotFound` and a context without OPFS → `Unsupported`.
 
-## What it shows about the extension system
+## Extension integration
 
 This is the third part to ride the day-toolkit-dom shim (after prefs and http), and the second to
 complete back into wasm with the request-id pattern. Native needs no platform code at all: one
-`std::fs` implementation over an env-resolved root covers six targets, with the mobile hosts
+`std::fs` implementation over an env-resolved root covers native targets, with the mobile hosts
 contributing a single `DAY_DATA_DIR` line each.
 
-## v2 notes (out of scope)
+## Streaming reads and limits
 
 The portable buffered API has no append, rename, recursive-remove, or metadata method.
 Native-only [`open_read(path)`](https://daybrite.dev/api/day_part_filesystem/fn.open_read.html) already returns a seekable `std::fs::File`; use it off the UI
 thread for large reads. A portable streaming writer and cancellation of accepted native IO
-are not supplied by these future wrappers.
+are not provided by the portable API.
 
 For macOS container storage, file permissions, migration, and SQLite sidecar restrictions,
 see [macOS App Sandbox](sandbox.md).
@@ -125,14 +124,8 @@ as [`read`](https://daybrite.dev/api/day_part_filesystem/fn.read.html) and [`wri
 Opening and reading are blocking: perform this work off the UI thread. Web does not expose this
 native handle; use [`read_future`](https://daybrite.dev/api/day_part_filesystem/fn.read_future.html) there, which currently returns the whole file as an owned buffer.
 
-## Lifetime and evidence
+## Async lifetime
 
-Code above is an integration fragment; its literal bytes are synthetic sample document data.
-Use the [compiled storage recipe](/docs/how-to/guide-storage) for full setup.
 Native async jobs run detached on the blocking pool. Dropping `FsFuture` discards delivery but
 does not undo an accepted write. [`write`](https://daybrite.dev/api/day_part_filesystem/fn.write.html) creates/truncates and does not promise atomic replacement.
 `FsError` is non-exhaustive; callers must allow new variants.
-
-Source: [public contracts](../crates/day-part-filesystem/src/lib.rs) and
-[native implementation](../crates/day-part-filesystem/src/native.rs), reviewed 2026-10-22. Browser storage
-and mobile host integration were not runtime-tested by the recipe compile check.

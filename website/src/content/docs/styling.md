@@ -25,7 +25,7 @@ its return type. See [decorators](https://github.com/daybrite/day/blob/main/crat
 for the checked-out contract. Native appearance still needs target-specific visual verification.
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
-[example messages](/docs/reference/examples/catalog) and [catalog setup](/docs/how-to/localization).
+[example messages](/docs/reference/localization#reference-example-messages) and [catalog setup](/docs/how-to/localization).
 
 ## Text
 

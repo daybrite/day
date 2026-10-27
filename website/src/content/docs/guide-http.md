@@ -13,7 +13,7 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 Fetch a response with [`day-part-http`](/docs/reference/http) and handle transport failures separately from HTTP status
 codes. Start with a working Day app and add [`day-part-http`](/docs/reference/http) from the same checkout or pinned
-revision as `day`. Use the [recipe harness](/docs/reference/examples/catalog#technical-recipes)
+revision as `day`. Use the [recipe harness](https://github.com/daybrite/day/blob/main/docs/snippet-catalog.md#technical-recipes)
 to compile the example without making a network request.
 
 ## Fetch when the input changes
@@ -23,7 +23,7 @@ page scope: it starts on construction, supersedes the previous request when the 
 and aborts its task when the scope is disposed. This differs from an ordinary [`day::task`](https://daybrite.dev/api/day/fn.task.html), which
 continues after the page closes unless you abort it.
 
-Complete module for `src/http.rs` in the [technical recipe harness](/docs/reference/examples/catalog#technical-recipes).
+Complete module for `src/http.rs` in the [technical recipe harness](https://github.com/daybrite/day/blob/main/docs/snippet-catalog.md#technical-recipes).
 The harness compiles this exact block; it is not a standalone app. Add the catalog entries below
 to `resource/locales/en/app.ftl` and declare the module in `src/lib.rs`.
 
@@ -114,7 +114,7 @@ credential behavior depend on the selected transport and host configuration.
 
 ## Verify the result
 
-Run the exact-code check from the [recipe setup](/docs/reference/examples/catalog#technical-recipes).
+Run the exact-code check from the [recipe setup](https://github.com/daybrite/day/blob/main/docs/snippet-catalog.md#technical-recipes).
 In your app, test a successful response, HTTP 404, timeout, replacement of an in-flight request,
 and leaving the page on each target you ship. API details: [request and future contracts](https://github.com/daybrite/day/blob/main/crates/day-part-http/src/lib.rs)
 and [client defaults](https://github.com/daybrite/day/blob/main/crates/day-part-http/src/client.rs).

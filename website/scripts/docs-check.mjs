@@ -56,6 +56,9 @@ export async function inspectMarkdown(source, { bodyTitle = false } = {}) {
         if (node.type === 'text' && /\b(simply|obviously|easy|easily|seamlessly)\b/i.test(node.value)) {
           issue(node, 'prose', 'Replace difficulty judgments or hype with concrete behavior.');
         }
+        if (node.type === 'text' && /\bwhy\s+it\s+matters\b/i.test(node.value)) {
+          issue(node, 'prose', 'Name the topic or concrete benefit instead of using a generic importance heading.');
+        }
         if (['link', 'linkReference', 'image', 'imageReference'].includes(node.type)) {
           const image = node.type.startsWith('image');
           const label = image ? node.alt : textOf(node);

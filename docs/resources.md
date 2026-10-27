@@ -64,7 +64,7 @@ resolves (`file` paths, [`AAssetManager`](https://developer.android.com/ndk/refe
 directory symbols share one namespace per level, so `site.old` beside `site-old/` is a build
 error. The inline web view builds on directory constants: `web_view_inline(res::assets::web::minisite)`
 serves the subtree as a bundled site (day-piece-webview's
-[docs/webview.md](https://github.com/daybrite/day-piece-webview/blob/main/docs/webview.md)).
+[docs/webview.md](/docs/reference/webview)).
 
 For a name known only at runtime, opt in explicitly; this bypasses the presence guarantee:
 
@@ -195,7 +195,7 @@ Android copies images into `res/drawable*/` and iOS into a `.process` `Media.xca
 into `rawfile/`. Day performs no image/SVG processing of its own; the native build system optionally
 optimizes.
 
-## Notes / limits
+## Limits
 
 - ArkUI uses `rawfile` (native-reachable, uncompressed) with no per-density auto-selection yet; a
   `media/` + ArkTS-bridge path for density is a future enhancement.

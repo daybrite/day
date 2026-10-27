@@ -48,7 +48,7 @@ window geometry.
 let two_up = day::size_class().is_some_and(|c| c.width >= WidthClass::Expanded);
 ```
 
-## Per-window, not per-app
+## Window scope
 
 The class belongs to a **window**. One process can show two windows in different classes at the
 same moment (a narrow window beside a wide one, iPadOS Stage Manager, Android split-screen), and
@@ -59,7 +59,7 @@ signal is keyed by window root, alongside the safe-area insets, and both scope t
 The value is derived in day-core from `Event::WindowResized`, which every toolkit already emits.
 A toolkit reports geometry and never a class, which keeps the breakpoint table in day-core alone.
 
-## What a nav host does with it
+## Adaptive navigation
 
 A [`nav`](https://daybrite.dev/api/day_pieces/fn.nav.html) presents as `Split` (list beside detail), `Stack` (one page at a time,
 back-navigable), `Tabs` (the rows as a tab bar) or `Rail` (the rows as a narrow strip). Left alone
@@ -75,7 +75,7 @@ Resolution answers four questions in order:
 1. Did the app pin one? If so, that one, clamped to something the toolkit can draw.
 2. Can this toolkit draw split panes at all (`Cap::NavSplit`)? If not, it stays single-pane.
 3. Which style is it? `Tabs` is a tab bar at every size; `Sidebar` is the `Split` ↔ `Stack`
-   ladder this document has always described.
+   presentation.
 4. `Automatic` walks the full ladder: `Split` when expanded, `Rail` at medium, and when compact
    either `Tabs` or `Stack`; `Cap::NavTabsAdaptive` decides which, because growing a tab bar
    from a narrowed window is idiomatic on the phones and the web and is not on any desktop
@@ -85,7 +85,7 @@ Pin one when the content only works one way, such as a settings sidebar whose de
 meaningless on its own or a wizard that has to stay a stack. A pin is still a preference: a
 toolkit with no split container stacks whatever it is asked for.
 
-### Re-presenting a live host
+### Preserving page state
 
 When the class crosses a breakpoint the host is **re-presented**: `NavPatch::Presentation` tells
 the toolkit to rebuild its own chrome and re-home the pages it already has. No page is torn down
@@ -155,59 +155,10 @@ build time, because the container collapses itself. `Stack` in `NavProps` is the
 marks a host that is a stack at *every* size (a pinned request, or the nested [`nav_stack()`](https://daybrite.dev/api/day_pieces/fn.nav_stack.html) piece
 under a split host), and the toolkit realizes it as a plain navigation controller.
 
-The following traps fail silently:
+## Mobile windows
 
-- **iOS.** The split's primary column must be a [`UINavigationController`](https://developer.apple.com/documentation/uikit/uinavigationcontroller), not a bare view
-  controller. UIKit merges the secondary column *into the primary's stack* when it collapses;
-  with nothing to merge into, it drops the navigation bar entirely on phones and breaks
-  first-responder handling, so `becomeFirstResponder` fails quietly. Which controller owns the
-  stack therefore depends on the presentation.
-- **iOS, again.** Day-initiated stack changes are one `setViewControllers:animated:` each,
-  computed at execution from the pages UIKit reports plus or minus the one page that joined or
-  left (`push_page`, `pop_page`). Nothing is kept on Day's side to fall out of step: a page that
-  the user already popped is absent from UIKit's reported state, and removing it is a no-op. One
-  thing IS kept, only while a set animates: its target, because UIKit defers a
-  `setViewControllers:animated:` issued mid-transition and keeps reporting the old stack until
-  it lands (and warns about the call). So changes issued in one turn coalesce into one set, and
-  a change that arrives while a set is in flight waits for that set's completion — never a
-  second set during an animation. A scripted `nav_back: { native: true }` waits for `ui_idle`
-  for the same reason: pressed during a push still animating, the bar had nothing to pop, and a
-  wide window then passed the step as "nothing was pushed" (the iPad CI leg, 2026-09-10).
-- **iOS, a third time.** Never *animate* to an empty stack (deselecting in the expanded split
-  empties the detail column): with no destination controller the transition sets up but never
-  completes, the stack keeps its old contents, and the orphaned transition coordinator reports
-  busy forever. Pass `animated: false` when the target is empty.
-- **iOS, a fourth time.** The collapse is not on Day's schedule. iOS 18 asks
-  `topColumnForCollapsingToProposedTopColumn:` and merges BEFORE Day's launch sync has put the
-  first destination in the detail column; iOS 26 asks after. Left to UIKit, an iPhone on iOS 18
-  opened on the sidebar with the model saying the page was open and nothing to pop. So the
-  delegate answers from the mirror for every host shape, and `split_presentation_changed`
-  finishes the merge UIKit started: a page still sitting in the secondary column after a
-  double-column collapse goes on top of the primary's stack, which is the shape the mirror has.
-- **iOS, a fifth time.** A host view Day places carries no autoresizing mask. UIKit gives every
-  controller's view `W+H`, and a masked child of a superview that grows from zero gets its own
-  size plus the delta: a nav host Day had sized to 420×810 under a tab page came out 840×1620
-  the moment the page took its bounds after Day's pass, with the list's trailing accessories and
-  the bar title off the right edge. `nav.view()` and the split's view are mounted with an empty
-  mask, and the split's container (`DayNavContainer`) sizes it in `layoutSubviews`.
-- **Every toolkit with an adaptive container.** Never nest one inside a pane. A
-  [`UISplitViewController`](https://developer.apple.com/documentation/uikit/uisplitviewcontroller) assumes it owns the window; embedded in a detail column its column
-  layout collapses into garbage. The `Stack`-is-literal lowering rule exists for this case, so
-  the nested host realizes as a plain navigation controller instead.
-
-## Resizable windows on the phones
-
-Both mobile platforms now resize app windows freely, and both vendors have stopped treating it as
-optional. Android 16 (API 36) **ignores** `screenOrientation`, `resizeableActivity`,
-`minAspectRatio` and `maxAspectRatio` on any display 600dp or wider (tablets, open foldables, and
-desktop windowing on every form factor), and the temporary opt-out property
-(`PROPERTY_COMPAT_ALLOW_RESTRICTED_RESIZABILITY`) is removed in API 37. iPadOS 26 deprecated
-[`UIRequiresFullScreen`](https://developer.apple.com/documentation/bundleresources/information-property-list/uirequiresfullscreen) and made every iPad window resizable; iOS 27 extends that to iPhone apps on
-iPad and to iPhone Mirroring on the Mac.
-
-Day needed little for this, because the class is **derived in day-core from
-`Event::WindowResized`** and every toolkit already emitted one. It needed that geometry to be the
-window's own, and the app to still be there afterwards.
+Mobile apps can run in resizable windows, split-screen layouts, and rotated or folded devices.
+Use the app window's available size rather than its device name or physical screen size.
 
 ### Android: survive the resize
 
@@ -271,8 +222,7 @@ those releases *worse*, because the resolver's fallback lowers a different host 
 
 A [`row`](https://daybrite.dev/api/day_pieces/fn.row.html) keeps its children on one line no matter what. That is the right contract for a label
 beside a value, and the wrong one for five buttons on a phone: the line overflows the window and
-the tail lands offscreen, still green under every dayscript assertion because the synthetic rail
-does not hit-test. [`.fit(RowFit::…)`](https://daybrite.dev/api/day_pieces/trait.RowBuilder.html#tymethod.fit) names what should happen instead, with the same children and the same
+the remaining controls land offscreen. [`.fit(RowFit::…)`](https://daybrite.dev/api/day_pieces/trait.RowBuilder.html#tymethod.fit) names what should happen instead, with the same children and the same
 call shape:
 
 ```rust
@@ -337,64 +287,6 @@ matters more than their visibility, such as a timeline, a filmstrip, or a rail o
 
 The showcase's Layout page renders one row under each policy with a live component count, which
 is the quickest way to see the difference.
-
-## Testing it
-
-dayscript's `size_class:` step reports a class the way a toolkit would, without resizing anything:
-
-```yaml
-- size_class: { width: compact }              # height defaults to `expanded`
-- assert_visible: { id: nav_list }
-- size_class: { width: expanded, height: medium }
-- size_class: { width: auto }                 # back to what the window reports
-```
-
-Everything downstream runs its real path: the host re-presents, a piece reading
-[`day::size_class()`](https://daybrite.dev/api/day/fn.size_class.html) rebuilds. What it does not change is the window's pixels, so a screenshot
-after this step shows the new layout at the old size.
-
-The forced class holds until `width: auto` or a `resize:` step, even when the window reports
-its size in the meantime. An app that swaps its whole shell on a class change rebuilds the
-window's content, and the report that follows would otherwise put the old class straight back.
-
-Where the geometry itself is under test, `resize:` moves it:
-
-```yaml
-- resize: { width: 1100, height: 900 }        # real points
-- assert_visible: { id: content_list }
-- resize: auto                                # back to the device's own geometry
-```
-
-The runner performs the resize and the engine half waits until the app has reported the new class,
-so the next step cannot race the platform's resize animation. It is asserted as a **width class**:
-what reaches day-core is the safe-area-inset content size, so a window resized to 900pt tall
-reports about 830 once the status bar, the navigation bar and the app bar come out (a page that is
-one scroll view reports its full height on iOS and absorbs the bars as content insets instead;
-the sides always come out, and on iPadOS 26 the floating sidebar is a 330pt left inset of the
-secondary column, so a detail beside it reports about 700 wide on an iPad Pro), and
-width is what every re-presentation decision reads anyway. Aim for mid-bucket sizes; a width within a few
-points of a breakpoint can fall the other side of it once insets are taken out.
-
-Only android-material has a host-side lever today (`adb shell wm size`, which is also what delivers the
-configuration change the manifest has to survive). Everywhere else the step **fails** rather than
-passing one that moved nothing. iOS coverage for a width crossing therefore comes from running the
-same walkthrough on an iPhone *and* an iPad, which is worth doing regardless: on iPadOS 26 an iPad
-app opens **windowed**, so its scene is materially narrower than its screen.
-
-> [!NOTE]
-> **iOS / UIKit: resizing tests.**
-> The `resize:` step is not supported. Run the walkthrough on both iPhone and iPad,
-> and check windowed iPad layouts as well as fullscreen layouts.
-
-Release the override with `width: auto` once the sweep is over. A forced class that outlives the
-steps it was written for follows the script into everything after it: a phone left on `expanded`
-lays out a two-pane split at 390pt, and the detail pane (the thing the next step is about to look
-for) sits off the right edge of the screen. The layout is correct; the window is not that
-wide.
-
-Write the two-part assertion: that the presentation changed **and** that the
-state survived. A morph that silently drops the selected section passes a naive screenshot check
-and fails the only thing this feature promises.
 
 ## Platform guidance
 

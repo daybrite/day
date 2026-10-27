@@ -17,8 +17,7 @@ capabilities and explanations required by each operating system.
 
 ## Add to your app
 
-Defined in [`day-part-permissions`](https://github.com/daybrite/day/tree/main/crates/day-part-permissions). Add this to your app’s `Cargo.toml`
-`[dependencies]` table, at the same Day version as the rest of your app:
+Add [`day-part-permissions`](https://github.com/daybrite/day/tree/main/crates/day-part-permissions) to your app’s Cargo dependencies, using the same Day version as the rest of your app:
 
 ```toml
 [dependencies]
@@ -154,7 +153,7 @@ the OS, and the runtime hands your app the two bits it needs to draw its own pri
 As a consequence, no user-facing string crosses this crate's boundary, so the layering rule that
 keeps `IntoText`/`LocalizedText` out of parts ([extension model](extending.md)) never has to be worked around.
 
-## Per-platform native realization
+## Platform implementations
 
 Platform guidance: [Apple: privacy](https://developer.apple.com/design/human-interface-guidelines/privacy); [Android: requesting permissions](https://developer.android.com/training/permissions/requesting).
 
@@ -326,7 +325,7 @@ else.
 | `day::lint::unused-permission` | declared, referenced by nothing (a warning — over-declaring gets apps rejected) |
 | `day::lint::stale-manifest` | the checked-in `Info.plist` or `InfoPlist.xcstrings` disagrees with Day.toml and the catalogs; run `day build -t ios-uikit` |
 
-## What it shows about the extension system
+## Extension integration
 
 The crate registers nothing in any `RENDERERS` slice. Its Android half is bundled with it and folded
 into the app's Gradle build by `[package.metadata.day.android]`, with **no edits to any core Day

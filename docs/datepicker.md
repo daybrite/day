@@ -69,7 +69,7 @@ Two intents (+ `Automatic`, which is `Compact` everywhere today):
 The platform chooses the finer presentation details, such as wheels versus a calendar or
 a dialog versus a popover.
 
-## Per-toolkit realization
+## Toolkit implementations
 
 Platform guidance: [Apple: pickers](https://developer.apple.com/design/human-interface-guidelines/pickers); [Android: date and time pickers](https://developer.android.com/develop/ui/views/components/pickers); [Windows: date and time controls](https://learn.microsoft.com/en-us/windows/apps/design/controls/date-and-time).
 
@@ -86,10 +86,10 @@ Platform guidance: [Apple: pickers](https://developer.apple.com/design/human-int
 
 [`day_pieces::datetime::support()`](https://daybrite.dev/api/day_pieces/datetime/fn.support.html) reports the active toolkit's tier.
 
-## What the unified pieces do not promise
+## Style limits
 
 - **Identical chrome** — Android's chooser is a modal dialog, iOS's a popover, Qt's a popup.
-- **Seconds everywhere** — [`.seconds()`](https://daybrite.dev/api/day_pieces/datetime/struct.TimePicker.html#method.seconds) is honored on AppKit and Qt (the two toolkits whose
+- **Seconds everywhere** — [`.seconds()`](https://daybrite.dev/api/day_pieces/datetime/struct.TimePicker.html#method.seconds) is honored on AppKit and Qt (whose
   controls have a seconds field) and is a no-op elsewhere.
 - **A combined date+time single control** — compose the two pieces; a `date_time_picker`
   convenience that upgrades to the native combined control on AppKit/UIKit/Qt is a possible v2.
@@ -98,18 +98,6 @@ Platform guidance: [Apple: pickers](https://developer.apple.com/design/human-int
 - **Native min/max on every surface** — GTK's [`GtkCalendar`](https://docs.gtk.org/gtk4/class.Calendar.html) and ArkUI's calendar picker have no
   bounds API; there the piece's own clamp bounds the *value* (the visual grid stays free), and
   a clamped pick snaps the control back on the echo patch.
-
-## Scripting
-
-Every picker accepts `Event::TextChanged` carrying an ISO value as a synthetic set, so dayscript's
-existing `input:` step drives any picker on any toolkit, and ISO readouts bound to the signals
-assert locale-independently:
-
-```yaml
-- input: { id: date_compact, text: "2026-11-05" }
-- assert_text: { id: date_value, text: "2026-11-05" }
-- input: { id: time_compact, text: "14:45" }
-```
 
 ## Limits
 

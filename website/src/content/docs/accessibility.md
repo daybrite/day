@@ -16,7 +16,7 @@ these annotations and excludes decorative content from the accessibility tree. T
 the annotations, testing, and [current platform limits](#current-limits).
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
-[example messages](/docs/reference/examples/catalog) and [catalog setup](/docs/how-to/localization).
+[example messages](/docs/reference/localization#reference-example-messages) and [catalog setup](/docs/how-to/localization).
 
 ## Annotating pieces
 
@@ -95,7 +95,7 @@ declared:
 The audit walks id'd nodes, asks the [toolkit](/docs/reference/glossary#toolkit) for the realized role, label,
 and value (via each [backend](/docs/reference/glossary#backend)'s read-back hooks), and fails the script on
 mismatch. Run in CI, it fails the build when a declared label stops reaching the native tree.
-All eight toolkit implementations provide a `read_native` hook in this checkout, with differing
+The toolkit implementations provide a `read_native` hook in this checkout, with differing
 field coverage. The audit ignores a node whose snapshot is not found or explicitly invisible;
 it compares identifier and declared label/value for the remaining nodes, and explicit roles only
 when the native role is known. A successful audit is therefore not a complete screen-reader test.
@@ -137,7 +137,7 @@ value. Annotate the native piece before wrapping it in layout modifiers. The cal
 an integer percentage; the drawing fraction is clamped to its valid range.
 
 Complete module for `src/accessibility_recipe.rs` in the
-[technical recipe harness](/docs/reference/examples/catalog#technical-recipes).
+[technical recipe harness](https://github.com/daybrite/day/blob/main/docs/snippet-catalog.md#technical-recipes).
 Add the matching Fluent messages below. This module is compiled as part of the harness;
 it is not a standalone app.
 

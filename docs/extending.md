@@ -499,22 +499,44 @@ shim); it `import`s the SwiftPM product and returns a native `UIView` that Rust 
 
 ### Web scripts (`[package.metadata.day.web]`)
 
-A crate's web half is usually Rust over day-toolkit-dom, or a [daybridge](bridge.md) `js` arm. When it
-needs hand-written JavaScript the page must load before the app starts (a worker, a synchronous
-channel, wasm imports under the crate's names), the crate ships the files and declares them:
+
+The shim implements day-toolkit-dom's imports. A crate whose wasm half needs JavaScript of its own
+ships it as ES modules, which the page imports before it instantiates the app. Two things
+produce them:
+
+- **daybridge** generates one per bridged crate from its `js` arms ([docs/bridge](bridge.md)).
+- **`[package.metadata.day.web]`** names hand-written files, for a browser half a bridge cannot
+  express: a worker, a synchronous channel, imports under the crate's own names.
 
 ```toml
 [package.metadata.day.web]
-modules = ["web/day-sql.js"]        # ES modules the host page imports
-files = ["web/day-sql-worker.js"]   # staged beside them, loaded by the modules
+modules = ["web/day-sql.js"]        # imported by the page
+files = ["web/day-sql-worker.js"]   # staged beside the modules, loaded by them
 ```
 
-`day build -t web-dom` stages them under `dist/modules/<crate>/` for every crate the wasm build
-links. A module exports `register(rt)`, which returns wasm imports, and optionally
-`start(rt, module)`, which the page awaits before the app's entry point.
-[docs/web](web.md#web-modules) has the contract; [`day-sqlite-worker`](https://github.com/daybrite/day-persistence/tree/main/crates/day-sqlite-worker) is the
-reference, and `scripts/ci/web-shim-abi.py` checks that a crate's modules supply every import
-its Rust declares.
+Paths are relative to the crate root. `day build -t web-dom` reads the table from every crate
+the wasm build links (the dependency graph filtered to `wasm32-unknown-unknown`, so a crate an
+app keeps behind `cfg(not(target_arch = "wasm32"))` contributes nothing) and stages each
+crate's files flat into `dist/modules/<crate>/`,
+so a module reaches a sibling with `new URL('./day-sql-worker.js', import.meta.url)` and two
+crates' files never meet. A path that is not a file, or two files of one name in one crate,
+fails the build. The module URLs join the generated bridge modules in `window.__DAY_MODULES`.
+
+A module may export either or both of:
+
+| Export | Called | Purpose |
+|---|---|---|
+| `register(rt)` | before instantiation | returns an object of wasm imports, merged into `env` |
+| `start(rt, module)` | once the app's wasm is compiled, before instantiation | gets the compiled `WebAssembly.Module`; the returned promise is awaited before the app's entry point runs |
+
+`rt` is the runtime a bridge arm gets (`str`, `mem`, `bytes`, `intoWasm`, `bytesIntoWasm`,
+`exports`, `dom`). `start` exists so that whatever a module boots is up, or known to be absent,
+by the time Rust runs, which keeps the Rust side synchronous. A module that fails to load or to
+start is logged to the console; an import it would have supplied is then missing, and the page
+reports that it could not start.
+
+[day-sqlite-worker](persistence.md#the-web) is the reference: its module supplies the
+`day_sql_*` imports and starts the SQL worker.
 
 ### The Android bridging contract
 
@@ -670,12 +692,12 @@ Core search fields use the same registration mechanism, with ownership split acr
 `crates/day-toolkit-*/src/controls/searchfield.rs`. Core frontends must not depend on toolkit crates.
 
 [day-piece-webview](https://github.com/daybrite/day-piece-webview) is a second reference, in its own
-repository since 2026-09 (its `docs/webview.md` covers the piece): a heavier native backend (an
+repository ([Web views](/docs/reference/webview) covers app usage): a heavier native backend (an
 embedded browser) that additionally contributes an Android permission, hand-rolls the iOS
 `WKWebView` (linking WebKit.framework through the `frameworks` key above), and returns the proposal
 from `measure` so a growing leaf fills on Android. It follows the external-repository rules
 described under day-piece-lottie below, and its `demo/` app's dayscript is its on-device test. The
-JavaScript evaluation seam it registers with stays here, in [webview-eval](webview-eval.md).
+See [JavaScript interaction](webview.md#javascript-interaction) for the app-facing evaluation API.
 
 [day-piece-lottie](https://github.com/daybrite/day-piece-lottie) is a third reference, and the first
 piece to live in a separate repository: an iOS/Android-only piece that pulls an external native package
@@ -685,7 +707,7 @@ above) and `com.airbnb.android:lottie` (Gradle). Its Swift and Java shims each w
 repository: crates.io version requirements on day (`day-core = "0.6"`, so the consuming app's
 `Cargo.lock` picks one day version for the whole graph), its own crates published to crates.io on a
 version tag (its CI is the shared `daylib.yml` workflow of daybrite/actions), a
-`[package.metadata.day] compat = "0.5"` line naming the day minor it was tested against, a `demo/`
+`[package.metadata.day] compat = "0.6"` line naming the day minor it was tested against, a `demo/`
 app whose dayscript is the on-device test, and a headless `model` module tested on the host. In
 this tree, `scripts/ci/scaffold-check.sh` keeps `swift-packages` exercised on the ios-uikit leg
 with a fixture piece that pulls swift-collections.
@@ -693,9 +715,9 @@ with a fixture piece that pulls swift-collections.
 [day-part-speech](https://github.com/daybrite/day-part-speech) is the reference for the other mechanism, and the
 first **part** to live in a separate repository: a headless part whose every platform implementation
 is a [bridge](bridge.md) arm — Swift, Java, ArkTS, JavaScript, C++, and C — inline in one
-`src/lib.rs` beside the Rust declaration they share. Its `docs/speech.md` walks through the arms.
+`src/lib.rs` beside the Rust declaration they share. The [speech source](https://github.com/daybrite/day-part-speech/blob/main/src/lib.rs) contains the native arms.
 [day-piece-camera](https://github.com/daybrite/day-piece-camera) is a fourth: a native camera
-on the three mobile toolkits — a Swift shim that reports back through a C function pointer, a
+on iOS, Android, and HarmonyOS — a Swift shim that reports back through a C function pointer, a
 Java class over CameraX that is its own `LifecycleOwner`, and a HarmonyOS arm where the ArkTS
 half only hosts an `XComponent` surface and a C shim over the NDK camera kit (compiled by the
 crate's own `build.rs`) owns the session. It is also the first piece to declare

@@ -1827,15 +1827,15 @@ pub trait Decorate: Piece + Sized {
     }
 
     #[doc(hidden)]
-    /// Span `n` columns (n ≥ 1) of the enclosing [`grid`] (docs/grid.md). Grid modifiers set
-    /// facts on the node the grid sees: apply them last (outermost), like `.grow_w()`; an
-    /// outer wrapper would hide the facts from the grid.
+    /// Span `n` columns (n ≥ 1) of the enclosing [`grid`] (docs/grid.md). Grid modifiers apply
+    /// to the outermost layout node after wrapping modifiers, regardless of their chain position.
     fn grid_span(self, n: usize) -> Decorated<Self> {
         Decorated::new(self).grid_span(n)
     }
 
     /// Override this cell's alignment within its cell rect of the enclosing [`grid`]
-    /// (docs/grid.md). Apply last (outermost), like [`Decorated::grid_span`].
+    /// (docs/grid.md). Like [`Decorated::grid_span`], this applies outside wrapping modifiers
+    /// regardless of its position in the chain.
     fn grid_align(self, a: Alignment) -> Decorated<Self> {
         Decorated::new(self).grid_align(a)
     }

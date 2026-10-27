@@ -72,10 +72,11 @@ serde_json = "1"
     # Use real documented messages. Last definition wins only when merging fixture
     # catalogs: guides deliberately reuse common example keys such as app_title.
     messages = {}
-    for text in [catalog, *texts.values()]:
-        for match in FTL.finditer(text):
-            for entry in re.finditer(r'^(-?[\w-]+)\s*=.*?(?=^-?[\w-]+\s*=|\Z)', match[1], re.M | re.S):
-                messages[entry[1]] = entry[0].rstrip()
+    shared = (ROOT / 'website/public/examples/reference-messages.ftl').read_text()
+    catalogs = [shared, *(match[1] for text in texts.values() for match in FTL.finditer(text))]
+    for source in catalogs:
+        for entry in re.finditer(r'^(-?[\w-]+)\s*=.*?(?=^-?[\w-]+\s*=|\Z)', source, re.M | re.S):
+            messages[entry[1]] = entry[0].rstrip()
     put(app / 'resource/locales/en/app.ftl', '\n'.join(messages.values()) + '\n')
     put(app / 'resource/assets/stations.json', '{"stations": []}\n')
     for name in ('wave', 'hero_banner'):

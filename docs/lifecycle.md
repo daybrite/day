@@ -158,18 +158,11 @@ item both work; on macOS the App-menu Quit is standard; Qt/WinUI quit their even
 Use `WillTerminate` for synchronous cleanup, not as the sole durability point for user data.
 
 Mobile note: iOS/Android apps don't have a user-facing "quit". There, `WillTerminate` means the OS is
-tearing the app down (Android `onDestroy` while finishing; iOS `applicationWillTerminate:`). Prefer
+tearing the app down (Android `onDestroy` while finishing, for the activity Day is mounted in: one a newer instance
+replaced, as a launch that clears the task does, finishes without ending the app; iOS `applicationWillTerminate:`). Prefer
 `DidEnterBackground` for "the user left" on mobile.
 
-## How it works
-
-[`on_lifecycle`](https://daybrite.dev/api/day/fn.on_lifecycle.html) records the closure in a day-core registry keyed by phase. Backends emit
-`Event::Lifecycle(phase)` from their native delegate (the same event rail as menu actions); the event
-pump routes it to `dispatch_lifecycle`, which runs the phase's handlers in a reactive batch. Adding
-lifecycle support to a new backend is two things: implement [`Toolkit::supports_lifecycle`](https://daybrite.dev/api/day_spec/trait.Toolkit.html#method.supports_lifecycle) (and the
-matching `const fn lifecycle_supported`), and emit `Event::Lifecycle(..)` at the right native moments.
-
-### Launch memory profiling
+## Launch memory profiling
 
 `day launch` enables `DAY_MEMORY_PROFILE=1` for native apps by default. A process-global
 sampler reads current-process memory every second, keeps constant-space min/max/sum/count,
@@ -180,10 +173,7 @@ Abrupt process termination cannot emit a lifecycle exit line. Scripted launches 
 checkpoint host reports and summarize the last observations when the connection is lost;
 see the DayScript contract in [DESIGN.md](../DESIGN.md#appendix-c--dayscript-reference-v1).
 
-## Verification boundary
+## Saving state
 
-The snippets are integration fragments; the log lines are illustrative output, not measured
-results. Review [core lifecycle dispatch](../crates/day-core/src/lifecycle.rs) and
-[task shutdown](../crates/day-core/src/present.rs) for ordering. The matrix records intended
-callback mappings; an OS can kill the process without delivering a final callback. Save
-important state as it changes rather than waiting for shutdown.
+An OS can kill the process without delivering a final lifecycle callback. Save important
+state as it changes rather than waiting for shutdown.

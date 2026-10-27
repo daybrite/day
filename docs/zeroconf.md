@@ -18,6 +18,8 @@ chooses whether and how to connect.
 
 ## Add to your app
 
+Add [`day-part-zeroconf`](https://crates.io/crates/day-part-zeroconf) to your app’s Cargo dependencies:
+
 ```toml
 [dependencies]
 day-part-zeroconf = "0.1"
@@ -98,13 +100,13 @@ listener is available, and drop it when the listener closes.
 | Web | Unsupported; browsers do not expose a general local-network DNS-SD API. |
 
 On Apple platforms, declare the intended service types and localized permission rationale in
-the [native host configuration](/docs/how-to/native-project-migration). A sandboxed macOS app
+the [native host configuration](/docs/how-to/native-projects). A sandboxed macOS app
 also needs the network client/server entitlements appropriate to its operations. Declaring a
 capability does not grant an entitlement or user permission.
 
 Android and HarmonyOS contribute network permissions through the crate's metadata. Check
 [`requires_explicit_permission()`](https://docs.rs/day-part-zeroconf/0.1.0/day_part_zeroconf/fn.requires_explicit_permission.html)
-and the [crate's host setup](https://github.com/daybrite/day-part-zeroconf#permissions-and-host-setup)
+and the [crate's host setup](https://github.com/daybrite/day-part-zeroconf/blob/main/docs/host-setup.md)
 for the additional runtime permission requirements of the selected OS and target SDK.
 
 Type enumeration on Android and HarmonyOS uses the default IPv4 multicast route. Targeted

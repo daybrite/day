@@ -12,7 +12,7 @@ sets an absolute size, and has to know how big the result is before it draws a f
 This is that surface: [`day::font_families()`](https://daybrite.dev/api/day/fn.font_families.html), `CanvasFont` on canvas text, and
 [`day::measure_text()`](https://daybrite.dev/api/day/fn.measure_text.html).
 
-Text samples use generated Fluent accessors; see the [example catalog](snippet-catalog.md)
+Text samples use generated Fluent accessors; see the [example catalog](/docs/reference/localization#reference-example-messages)
 and [localization setup](/docs/how-to/localization).
 
 ## The font list
@@ -176,37 +176,6 @@ and so genuinely does change what a family name measures to.
 One answer is deliberately **not** cached: the [`TextMetrics::approximate`](https://daybrite.dev/api/day_spec/struct.TextMetrics.html#method.approximate) fallback. "The toolkit
 could not answer" is a fact about the moment — Android's measurement returns nothing until its VM
 is up — not about the text, and caching it would pin a guess for the life of the process.
-
-## For toolkit authors
-
-Two defaulted `Toolkit` duties — [`font_families()`](https://daybrite.dev/api/day_core/fn.font_families.html) (default: none) and [`measure_text()`](https://daybrite.dev/api/day_core/fn.measure_text.html)
-(default: `None`) — plus `Cap::FontList`. Measure with the engine `replay` draws with, and put
-a `Leading` anchor at the top-leading corner of the line box: baseline-origin APIs draw at
-`at.y + ascent`.
-
-`TextMetrics` has two constructors so a toolkit does not have to do the shifting itself.
-[`TextMetrics::from_baseline(width, ascent, descent, cap_height, ink)`](https://daybrite.dev/api/day_spec/struct.TextMetrics.html#method.from_baseline) takes ink in the
-baseline-relative, y-up-negative form Core Text, Skia and Qt all report; [`TextMetrics::from_slots`](https://daybrite.dev/api/day_spec/struct.TextMetrics.html#method.from_slots)
-reads the eight-f64 array the C-ABI shims fill (advance, line height, ascent, cap height, then the
-ink box already relative to the line box's top-leading corner). Report the whole line box as the
-ink box where the platform gives no tight bounds — a superset is the safe direction to be wrong in
-— and 0.7 × size for a cap height it cannot supply.
-
-On the wire ([`day_spec::encode_ops`](https://daybrite.dev/api/day_spec/fn.encode_ops.html)), a non-default font precedes its text record as
-`OpCode::SetFont = 19`: `a` = the CSS weight (100 … 900, 0 = default), `b` = italic (0/1), the
-family name on the texts channel (`""` = default). Like `SetGradient` and `StrokeStyle` it
-applies to the next record and is then cleared; a decoder that does not know it must still
-consume its texts entry. A default font emits no record, so a drawing without fonts encodes
-exactly as before.
-
-The image op ([docs/images](images.md)) is `OpCode::Image = 22`: a plain nine-slot record —
-origin, size, the bitmap id and an opacity in the numeric slots, nothing on the texts channel —
-so a decoder that does not know it skips one record and consumes no text.
-
-A shim that enumerates in C++, Java or JavaScript hands the list back as one text in the format
-[`day_spec::parse_font_list`](https://daybrite.dev/api/day_spec/fn.parse_font_list.html) decodes: families separated by U+001E; inside a family,
-U+001F-separated fields — the family name, then one (face name, CSS weight, italic `0`/`1`)
-triple per face; an empty face name is synthesized from the weight and slant.
 
 ## Platform guidance
 

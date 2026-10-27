@@ -21,7 +21,7 @@ after exit. Linux, Windows, and the browser return `NotifyError::Unsupported`. G
 [`capabilities()`](https://daybrite.dev/api/day_part_local_notify/fn.capabilities.html) (step 6); see the [per-platform table](/docs/reference/notify#platform-capabilities).
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
-[example messages](/docs/reference/examples/catalog) and [catalog setup](/docs/how-to/localization).
+[example messages](/docs/reference/localization#reference-example-messages) and [catalog setup](/docs/how-to/localization).
 
 ## Register a localized channel and post
 
@@ -29,7 +29,7 @@ Call this module on the UI thread after notification permission is granted. Add 
 notification dependencies described below. Channel IDs are protocol identifiers; the channel
 name and notification title are user-facing and must use generated accessors.
 
-Complete module for `src/notify.rs` in the [technical recipe harness](/docs/reference/examples/catalog#technical-recipes).
+Complete module for `src/notify.rs` in the [technical recipe harness](https://github.com/daybrite/day/blob/main/docs/snippet-catalog.md#technical-recipes).
 The harness compiles this exact block; it is not a standalone app. Add the catalog entries below
 to `resource/locales/en/app.ftl` and declare the module in `src/lib.rs`.
 

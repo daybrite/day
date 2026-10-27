@@ -32,7 +32,7 @@ label(res::str::custom_size_sample()).font(Font::System(18.0))                //
 ```
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
-[example messages](snippet-catalog.md) and [catalog setup](/docs/how-to/localization).
+[example messages](/docs/reference/localization#reference-example-messages) and [catalog setup](/docs/how-to/localization).
 
 ## Semantic styles (`Font`)
 
@@ -131,9 +131,9 @@ URLs containing a fragment (`https://daybrite.dev/#docs`) still open externally.
 query parameters, and percent escapes follow the [navigation](./navigation.md) rules. Unknown
 routes do nothing; `#` alone pops the innermost stack to its root.
 
-[Markdown links](./markdown.md#links) and [`TextBuilder::link`](https://daybrite.dev/api/day_pieces/struct.TextBuilder.html#method.link) use the same [`open_link(target)`](https://daybrite.dev/api/day_pieces/fn.open_link.html)
+[Markdown links](./text-runs.md#links) and [`TextBuilder::link`](https://daybrite.dev/api/day_pieces/struct.TextBuilder.html#method.link) use the same [`open_link(target)`](https://daybrite.dev/api/day_pieces/fn.open_link.html)
 function by default. Unlike a standalone [`link`](https://daybrite.dev/api/day_pieces/fn.link.html), inline links require `Cap::TextLinks` for
-activation; see the [toolkit support table](./text-runs.md#per-toolkit).
+activation; see the [toolkit support table](./text-runs.md#toolkit-implementations).
 
 ## Selectable text
 

@@ -18,13 +18,13 @@ For an operation shared across surfaces, use a [reusable `Command`](commands.md)
 title, availability, optional check state, icon, shortcut, and handler once.
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
-[example messages](snippet-catalog.md) and [catalog setup](/docs/how-to/localization).
+[example messages](/docs/reference/localization#reference-example-messages) and [catalog setup](/docs/how-to/localization).
 A localized label, tooltip or search prompt follows a language change in place: a fixed list
 relabels its registered items (`relabel_contribution`) and a derived list re-runs on the locale,
 and either way the words reach the bar as `ToolbarPatch::Label` and `ToolbarPatch::Placeholder`
 on the live item, which keeps its widget, its action, its focus and its typed text.
 
-## The rule
+## Authoring
 
 **Where you declare an item is where it appears, and how long the declaring piece lives is how
 long it stays.** Everything else follows from that one sentence.
@@ -40,7 +40,7 @@ reader_page(article).toolbar([
 ])
 ```
 
-| Declared on | Rides |
+| Declared on | Visible with |
 |---|---|
 | the window's root piece | every page of that window |
 | a nav host ([`Nav::toolbar`](https://daybrite.dev/api/day_pieces/struct.Nav.html#method.toolbar)) | its sidebar column, and the root list when collapsed |
@@ -52,11 +52,10 @@ reader_page(article).toolbar([
 Nothing declares which bar it belongs to, and nothing declares when to hide: a command leaves the
 bar when the content it acts on leaves the screen. A collapsed content-list pane, a destination
 the selection has moved off, and a list a detail has been pushed over all take their commands with
-them. That is what a window's bar showing a page's commands one level out of step used to be.
+them.
 
 [`Decorate::toolbar`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.toolbar) takes one item, a list of them, an array, or a closure that derives the list
-and re-runs whenever its reactive reads change — one name for all four, through a disjoint marker
-parameter (the same `IntoText` shape used for other localized text). There is no separate reactive spelling.
+and re-runs whenever its reactive reads change.
 
 ```rust
 page.toolbar(one_item)
@@ -191,47 +190,14 @@ chosen index.
 Every item takes an `id`. It is the item's identity everywhere: the native item identifier, the
 dayscript target, and the key a targeted update addresses. Ids are unique within a bar.
 
-### What changes the bar, and how
+### Reactive updates and identity
 
-The bar is never rebuilt. Day hands a toolkit its bar as **edits**, the way the view tree
-arrives as `insert`/`remove` rather than as a new tree: each `ToolbarOp` adds or removes one
-item, and an item no op names keeps its native widget. That is what keeps a search field focused
-while the page around it changes.
+Use stable, unique IDs for toolbar items, including separators. Day uses them to retain items
+across updates. If visible contributions use the same ID, the first is kept and a warning is logged.
 
-- **Structure** (which items exist, in what order, and how each is drawn: its kind, label,
-  icon, placement) changes by edits. Day compares the bar the window should now carry with the one
-  it carries, item by item by id, and sends only the difference: removals, then insertions. An
-  item drawn differently (a new label, say) is removed and inserted alone, and so is one that
-  moved; a reshuffle moves the fewest items it can.
-- **Values** (a toggle's state, a segment's selection, enablement, a search field's text and
-  completions) change by `ToolbarPatch` on the live item, never by an edit. These ride their own
-  bindings, so keep them out of a derived builder's reactive reads and put structure there:
-  - a [`toolbar_toggle`](https://daybrite.dev/api/day_pieces/fn.toolbar_toggle.html)'s binding
-  - a [`.searchable(..)`](https://daybrite.dev/api/day_pieces/trait.NavBuilder.html#tymethod.searchable) surface's query binding ([docs/search](search.md))
-  - a reactive [`.enabled(…)`](https://daybrite.dev/api/day_pieces/struct.ToolbarEntry.html#method.enabled)
-
-  A value the user changes (typing, a click) is recorded in Day's model as it is reported, so the
-  model never differs from what the widget shows.
-
-Day keeps two copies of each window's bar: the one it should carry (what dayscript reads) and the
-one its toolkit has. An edit is computed against the second, and recorded there only once the
-toolkit took it. So an edit that could not be delivered (the window's root had no native handle
-yet) is not lost: the next recompose sends what the toolkit is missing, the way a whole-bar install
-used to heal on the next change.
-
-Two things keep ordinary activity from producing edits at all:
-
-- **One edit per turn.** Contributions change in bursts: swapping the page withdraws the old
-  page's commands and adds the new page's. Day composes the bar once, when the turn settles
-  ([`day_reactive::at_turn_end`](https://daybrite.dev/api/day_reactive/fn.at_turn_end.html)), so the in-between bar is never sent.
-- **Stable dispatch ids.** Each item reaches the toolkit under a slot id kept for that item id in
-  that window, never under its closure's id. A page rebuilt with the same commands and fresh
-  closures composes the same bar, so nothing is sent; the slot is pointed at the new closure, and
-  the native item keeps dispatching the id it already has.
-
-Every item needs an id, unique within the window's bar (a separator too: [`toolbar_separator(id)`](https://daybrite.dev/api/day_pieces/fn.toolbar_separator.html)).
-The id is the item's identity across edits; if two showing pages declare the same one, the first
-is kept and Day logs a warning.
+Use the item bindings for toggle state, selection, search text, and enabled state. Use a
+reactive toolbar builder when the set of items or their arrangement changes. Keeping values
+in their bindings lets an existing search field retain focus while surrounding items change.
 
 ### Icons
 
@@ -334,7 +300,7 @@ bar and the window's New Window and appearance chooser fold into the overflow wh
 that narrow.
 
 
-## Per-toolkit native realization
+## Toolkit implementations
 
 Platform guidance: [Apple: toolbars](https://developer.apple.com/design/human-interface-guidelines/toolbars); [Android: app bars](https://developer.android.com/develop/ui/views/components/appbar); [Windows: command bars](https://learn.microsoft.com/en-us/windows/apps/design/controls/command-bar).
 
@@ -415,112 +381,18 @@ Notes that are not obvious from the table:
   on, and Tab wraps around the window rather than stopping at its last control. Secondary
   windows carry their own bar, like the primary.
 
-## How a toolkit applies an edit
+## Limits
 
-[`Toolkit::edit_toolbar(h, ops)`](https://daybrite.dev/api/day_spec/trait.Toolkit.html#method.edit_toolbar) gets the removals first, then the insertions in ascending
-position, so applying them in order to the bar's current items yields the new bar. Every toolkit
-keeps a `day_spec::ToolbarMirror` of its bar and applies each op to it, and then does one of two
-things with its native bar:
+- On WinUI, a language change may leave item labels, tooltips, and search placeholders unchanged
+  until the bar's structure changes.
+- Toolbar customization and Qt dock-area dragging are not exposed by the portable API.
+- GTK does not place contributions in separate navigation-column header bars.
+- Contributions within a placement group follow registration order. A conditional contribution
+  that appears later is appended within that group.
+- Web toolbar tracks are measured when the bar is recomposed; pane-width changes can leave
+  a track's width stale until the next composition.
 
-- **A bar of live widgets** (GTK, Qt, AppKit, WinUI, Web) removes the one native item a
-  `Remove` names and builds one for an `Insert`, placing it right after
-  [`ToolbarMirror::prev_where`](https://daybrite.dev/api/day_spec/struct.ToolbarMirror.html#method.prev_where) its own group (an end of the header bar, a column's leading,
-  principal or trailing group, a region of the CommandBar). Nothing already on the bar moves.
-  Where the groups depend on the window (Qt's and Web's column tracks follow the navigation
-  split's panes), the toolkit keeps each item's column and order, and when the split arrives,
-  leaves, or a pane collapses, moves just the affected widgets into their new groups, keeping
-  the keyboard focus where it was.
-  AppKit's native bar is [NSToolbar](https://developer.apple.com/documentation/appkit/nstoolbar)'s identifier list, with system spacers between the groups, so
-  it removes the named items and then brings the identifier list to the one the model lays out,
-  inserting new items and moving only spacers, which hold no state.
-- **A bar of stateless actions** (Android's app-bar menu, UIKit's bar button items, ArkUI's
-  title-bar `.menus()`) repaints its action list from the mirror. Nothing on it holds state a
-  repaint could lose: on those platforms search lives on the navigation surface, never the bar.
-
-A value patch goes to the live item, and into the mirror, so a later repaint shows it too.
-
-## One model per window
-
-Every contribution — the window's own and each showing page's — is composed into ONE model per
-window before it crosses to the toolkit, so a toolkit draws what it has always drawn and never has
-to know that a page contributed any of it. There is deliberately no per-page model: one authority,
-so a live [`enabled`](https://daybrite.dev/api/day_pieces/struct.ToolbarEntry.html#method.enabled) patch and a re-compose cannot disagree. (They did once, and a page command
-declared while nothing was selected stayed disabled on a window that never re-composed afterwards —
-a tiled Android tablet, where selecting a row changes no chrome.)
-
-The corollary for scripting: `toolbar:` can only reach what is actually ON the bar. A step that
-drives a list pane's command has to run while that list is showing. The one exception is the
-reserved `day::search`, which the step also resolves to an inline field ([search](search.md)), so a
-script types the same query on a phone.
-
-## Events
-
-A button and a menu item ride the **menu action rail**: they emit `Event::MenuAction(id)` from the
-same registry [menus](menus.md) uses, so one closure can back both a toolbar button and its
-menu-bar twin. A toggle or a search field emits `Event::ToolbarChanged { action, value }` with a
-`ToolbarValue`, which day-core routes to the value callback registered for the id.
-
-## Scripting
-
-```yaml
-- toolbar: { item: refresh }                  # run a button's command
-- toolbar: { item: search, text: "swift" }    # type into a search item
-- toolbar: { item: search, key: nav_stack }   # …or type a Fluent key resolved in the RUN'S locale
-- toolbar: { item: star, on: true }           # set a toggle
-- toolbar: { item: theme, index: 2 }          # choose a segment
-```
-
-`index:` is required for a segmented item and `on:` for a toggle, for the same reason. A toggle's action is registered in the value registry rather than
-the menu-action one, so a bare `toolbar: { item }` on one used to dispatch into the wrong registry
-and do nothing at all; the step passed, the app never moved, and the script went on asserting
-against a state it had not reached. The step now refuses it and says which argument is missing.
-
-The step resolves the item in the current model and dispatches its
-action, so it passes even if the native control is still bound to a previous model's action, the
-failure mode a real keystroke hits. A toolkit that rebuilds its bar must rebind the live controls,
-not just diff the identifier list (day-toolkit-appkit had exactly this bug: after a locale change the
-search field dispatched an action id day-core had already swept, so typing did nothing).
-
-The step goes through the same dispatch the native control fires, so it exercises the app's
-wiring end to end. It does **not** prove the native widget drew; a screenshot does. The step
-fails on an unknown item (retryable, since a reactive bar may not have installed yet), on a
-disabled item, and on an item with no command.
-
-## Follow-ups
-
-- WinUI does not apply `ToolbarPatch::Label`/`Placeholder` yet (its shim has no setter for a
-  command's label, tooltip or a search box's prompt, and it cannot be built off Windows), so a
-  language change leaves the old words until the bar is next edited.
-- macOS toolbar customization, which needs the model and an autosaved arrangement to be
-  reconciled rather than in conflict.
-- Qt dock-area dragging, which needs `DayWindow` to become a [`QMainWindow`](https://doc.qt.io/qt-6/qmainwindow.html).
-- GTK columns, through a per-pane [`AdwHeaderBar`](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/class.HeaderBar.html) over the navigation split's panes (see the
-  toolkit notes) — the only platform where the column is dropped for want of work rather than for
-  want of an API.
-- Contributions order by registration, not by tree position: a [`when`](https://daybrite.dev/api/day_pieces/fn.when.html) arm switching on late
-  appends within its placement bucket rather than inserting where it sits.
-- Web measures the panes once per re-lower, so a track's width is stale until the next one.
-- On an iPad the toolkit infers whether a tab page will bring its own navigation host from the
-  tab bar's horizontal size class — the same question `gated_detail_piece` asks in the pieces
-  layer. Two layers deriving one fact; the fix is for the tabs presentation to build each
-  destination as a navigation host, as SwiftUI's `TabView { NavigationStack { … } }` does.
-
-Window composition is non-reentrant through native delivery. AppKit can enqueue layout or
-focus events while editing the bar, and core drains them as its tree borrow ends. Any nested
-composition is deferred until the delivered model has been recorded, then recomputed from
-that baseline. This prevents duplicate native insertion during the first article selection
-or a rapid change in toolbar contributors. Reconciliation also treats synthesized tracking
-separators as unique; only the system's fixed and flexible spaces can repeat.
-
-## Captures after an edit
-
-On AppKit, inserting or removing an item makes the bar lay out again and paint every item's
-image afresh, and the painting lands a frame or two after the edit: a capture taken straight
-after shows each bezel empty, including the items the edit never touched. The toolkit therefore
-reports `ui_idle` false for 120 ms after a toolbar edit, so a `wait_idle` or `screenshot` step
-right after one waits that long. Nothing observable marks the end of the painting, which is why
-the wait is a bounded settle rather than a signal.
-
+## UIKit toolbar layout
 
 On an expanded UIKit split, `ToolbarColumn` places sidebar, list, and reader commands
 on their respective navigation bars. Window commands accompany the reader. Collapsing

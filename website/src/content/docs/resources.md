@@ -31,7 +31,7 @@ images in their resource systems. Desktop fonts can remain loose files registere
 `day build` runs the target's staging path before its platform build.
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
-[example messages](/docs/reference/examples/catalog) and [catalog setup](/docs/how-to/localization).
+[example messages](/docs/reference/localization#reference-example-messages) and [catalog setup](/docs/how-to/localization).
 
 ## Typed names, generated at build
 
@@ -142,7 +142,7 @@ symbolic PNG cache; ordinary vector pieces and image widgets retain their SVG ge
 
 ### Where a vector degrades to a raster
 
-Two toolkits draw the art themselves rather than handing an SVG to the platform, and both accept
+Android and Windows draw the art instead of handing an SVG to the platform. They accept
 the same subset: **solid fills and strokes, in either fill rule**. Art outside it (gradients,
 clipping paths, masks, filters) stages no geometry, and that glyph alone ships as a raster
 instead:
@@ -159,7 +159,7 @@ behind a raster that still looks right.
 
 > [!NOTE]
 > It is usually better to remove a gradient from an icon. Two flat glyphs read
-> better at 24 pt than one gradient glyph, and they stay crisp on the two targets that would
+> better at 24 pt than one gradient glyph, and they stay crisp on Android and Windows, which would
 > otherwise rasterize them.
 
 ### Weights
@@ -270,7 +270,7 @@ Create `resource/assets/recipe_data.json` with the JSON below. Rebuild to genera
 runtime resource cannot be opened. A generated name checks discovery, not packaging success.
 
 Complete module for `src/resource_recipe.rs` in the
-[technical recipe harness](/docs/reference/examples/catalog#technical-recipes).
+[technical recipe harness](https://github.com/daybrite/day/blob/main/docs/snippet-catalog.md#technical-recipes).
 Add the matching Fluent messages below. This module is compiled as part of the harness;
 it is not a standalone app.
 

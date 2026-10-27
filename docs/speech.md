@@ -16,7 +16,7 @@ also consider [sound](/docs/reference/sound) and [accessibility](/docs/reference
 
 ## Add to your app
 
-Add the published [day-part-speech](https://crates.io/crates/day-part-speech) package:
+Add [`day-part-speech`](https://crates.io/crates/day-part-speech) to your app’s Cargo dependencies:
 
 ```toml
 [dependencies]

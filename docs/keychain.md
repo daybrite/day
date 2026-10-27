@@ -17,8 +17,7 @@ may be read, including "only after the device verifies the person, every time".
 
 ## Add to your app
 
-Defined in [`day-part-keychain`](https://github.com/daybrite/day/tree/main/crates/day-part-keychain). Add this to your app's `Cargo.toml`
-`[dependencies]` table, at the same Day version as the rest of your app:
+Add [`day-part-keychain`](https://github.com/daybrite/day/tree/main/crates/day-part-keychain) to your app’s Cargo dependencies, using the same Day version as the rest of your app:
 
 ```toml
 [dependencies]
@@ -123,7 +122,7 @@ makes the Secret Service show its unlock dialog during the call; UI code there p
 which works on a thread of its own. Completions run where the platform delivers them;
 [`get_future`](https://daybrite.dev/api/day_part_keychain/fn.get_future.html) awaited under [`day::task`](https://daybrite.dev/api/day/fn.task.html) resumes on the UI thread ([docs/async](/docs/explanation/async)).
 
-## Per-platform native realization
+## Platform implementations
 
 Platform guidance: [Apple: keychain services](https://developer.apple.com/documentation/security/keychain-services); [Android: the Android Keystore system](https://developer.android.com/privacy-and-security/keystore); [Windows: Data Protection API](https://learn.microsoft.com/en-us/windows/win32/api/dpapi/); [freedesktop: the Secret Service API](https://specifications.freedesktop.org/secret-service-spec/latest/); [HarmonyOS: Universal Keystore Kit](https://github.com/openharmony/docs/blob/master/en/application-dev/security/UniversalKeystoreKit/huks-overview.md).
 
@@ -173,7 +172,7 @@ Platform guidance: [Apple: keychain services](https://developer.apple.com/docume
   through `day-part-biometrics` with that challenge, and finishes the session with the token the
   dialog returned. Removing the lock-screen password invalidates the protected key.
 
-## What it shows about the extension system
+## Extension integration
 
 Like [`day-part-device`](/docs/reference/battery) and [`day-part-haptics`](/docs/reference/haptics), this is a headless crate with no UI Piece. It
 exercises three of the extension mechanisms at once ([docs/extending](https://github.com/daybrite/day/blob/main/docs/extending.md)): a daybridge Java arm for Android

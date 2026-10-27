@@ -15,25 +15,16 @@ Collect a single line of text, such as a name, email address, or password. [`tex
 [`secure_field`](https://daybrite.dev/api/day_pieces/fn.secure_field.html) bind edits to app state and let you choose the keyboard purpose and submit action.
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
-[example messages](snippet-catalog.md) and [catalog setup](/docs/how-to/localization).
+[example messages](/docs/reference/localization#reference-example-messages) and [catalog setup](/docs/how-to/localization).
 
 ## Add to your app
 
-Defined in [`day-pieces`](https://github.com/daybrite/day/tree/main/crates/day-pieces) and
-re-exported by `day::prelude`. An app created with `day new` already has the required dependency;
-otherwise add it to `Cargo.toml`:
-
-```toml
-[dependencies]
-day = { package = "day-app", version = "0.6" }
-```
-
-No additional piece crate or `Day.toml` dependency is needed. Build with the app’s selected
-toolkit using `day build -t <target>`.
+This control is included in [`day-pieces`](https://github.com/daybrite/day/tree/main/crates/day-pieces)
+and re-exported through `day::prelude::*`. No additional crate or control feature is required.
 
 | Platforms / toolkits | Availability |
 | --- | --- |
-| AppKit, UIKit, GTK, Qt, Android, WinUI, ArkUI, Web | Built-in control; see [native realization](#per-toolkit-native-realization) for presentation differences. |
+| AppKit, UIKit, GTK, Qt, Android, WinUI, ArkUI, Web | Built-in control; see [toolkit implementations](#toolkit-implementations) for presentation differences. |
 
 ## Authoring
 
@@ -118,7 +109,7 @@ cut to fit before the bound value sees it, and the cut text is written back to t
 holds the bound itself so it counts the same characters on every platform; GTK's native limit
 counts the same unit and is applied as well.
 
-## Per-toolkit native realization
+## Toolkit implementations
 
 Platform guidance: [Apple: text fields](https://developer.apple.com/design/human-interface-guidelines/text-fields); [Android: input methods](https://developer.android.com/develop/ui/views/touch-and-input/creating-input-method); [Windows: text controls](https://learn.microsoft.com/en-us/windows/apps/design/controls/text-controls).
 
@@ -156,14 +147,3 @@ Details that differ by platform:
 - **web** keeps `type="text"` for every purpose and picks the keyboard with `inputmode`. The typed
   inputs (`email`, `url`, `number`) trim or coerce what the user types, and a controlled input
   has to hold exactly the text it reports.
-
-## The duty
-
-```rust
-fn set_input_traits(&mut self, h: &Self::Handle, traits: &InputTraits) -> Option<Self::Handle>;
-```
-
-`InputTraits` carries all five members. day-pieces calls the duty once after `realize` when a
-field asks for anything but the defaults, and again with the whole set whenever [`secure`](https://daybrite.dev/api/day_pieces/trait.TextFieldBuilder.html#tymethod.secure) or
-[`read_only`](https://daybrite.dev/api/day_pieces/trait.TextFieldBuilder.html#tymethod.read_only) changes, so a toolkit applies every member on every call. A field that asks for
-nothing never calls it. The duty is required: a toolkit has to say how it hides a password.

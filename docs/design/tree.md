@@ -97,7 +97,7 @@ destinations. Neither nests, and neither can express "drag this node into that g
 tree needs its own piece: `tree(source, row)`, `kinds::TREE`.
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
-[example messages](../snippet-catalog.md) and [catalog setup](/docs/how-to/localization).
+[example messages](/docs/reference/localization#reference-example-messages) and [catalog setup](/docs/how-to/localization).
 
 ## The driving case: Day Sketch's layer panel
 

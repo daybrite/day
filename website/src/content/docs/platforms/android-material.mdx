@@ -138,7 +138,6 @@ project. A custom host that does not apply Day's plugin must configure merging i
 - Accessibility annotations are partial; see [the current limits](/docs/how-to/accessibility#current-limits).
 - Process death is a cold start unless your app persists its own state. Day does not restore a
   navigation stack for you.
-- Day has no built-in [map control](/docs/reference/map).
 - Runtime permissions are yours to request. Day generates the manifest entries from your
   `[permissions]` table, and [`day-part-permissions`](/docs/reference/permissions) performs the request, but Android's
   never-asked and permanently-denied states are indistinguishable without app-side persistence.

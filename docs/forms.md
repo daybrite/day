@@ -15,7 +15,12 @@ provide a shared layout for preferences, account details, and other forms, while
 keep their native behavior.
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
-[example messages](snippet-catalog.md) and [catalog setup](/docs/how-to/localization).
+[example messages](/docs/reference/localization#reference-example-messages) and [catalog setup](/docs/how-to/localization).
+
+## Add to your app
+
+This control is included in [`day-pieces`](https://github.com/daybrite/day/tree/main/crates/day-pieces)
+and re-exported through `day::prelude::*`. No additional crate or control feature is required.
 
 ## Authoring
 
@@ -85,11 +90,6 @@ Vertically the row asks both children for their first text baseline ([docs/basel
 each down to the deeper of the two, so the label meets the control's inset text instead of the
 middle of its box. The row is then as tall as that shared baseline plus the deepest descent below
 it. When either side reports no baseline the row centers both, as before.
-
-## Follow-ups
-
-- [`labeled`](https://daybrite.dev/api/day_pieces/fn.labeled.html) caption/footer affordances (secondary line under the control, iOS-settings style).
-- Optional per-[`section`](https://daybrite.dev/api/day_pieces/fn.section.html) label column (opt out of form-wide alignment for asymmetric sections).
 
 ## Platform guidance
 

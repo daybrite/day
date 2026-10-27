@@ -58,7 +58,7 @@ test('lowercase, mixed markup, and mid-heading names receive marks without chang
 });
 
 test('platform-section prose is decorated once per paragraph and ends at the next peer heading', () => {
-  const tree = element('div', element('h2', text('Per-toolkit native realization')),
+  const tree = element('div', element('h2', text('Toolkit implementations')),
     element('p', text('GTK and Qt use native controls. GTK measures its child.')),
     element('h3', text('Sizing')), element('p', text('AppKit measures the content.')),
     element('h2', text('Authoring')), element('p', text('AppKit renders this control.')),

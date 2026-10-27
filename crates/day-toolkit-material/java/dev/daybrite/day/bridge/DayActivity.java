@@ -240,6 +240,11 @@ public class DayActivity extends androidx.fragment.app.FragmentActivity {
         DayBridge.nativeOnEvent(0, DayBridge.K_SAFE_AREA, 0, top + ",0,0,0");
     }
 
+    /** Whether Day's tree is mounted in this instance: the last one created. */
+    private boolean isPrimary() {
+        return DayBridge.primaryActivity.get() == this;
+    }
+
     /** Whether the Activity is currently resumed (foreground + interactive). */
     private boolean resumed = false;
 
@@ -247,8 +252,11 @@ public class DayActivity extends androidx.fragment.app.FragmentActivity {
     @Override protected void onStart() { super.onStart(); DayBridge.lifecycle(4); }   // WillEnterForeground
     @Override protected void onResume() {
         super.onResume();
-        // The top-resumed activity provides the widget-creation Context (docs/windows.md).
-        DayBridge.ctx = this;
+        // The top-resumed activity provides the widget-creation Context (docs/windows.md) —
+        // unless a newer instance has taken Day over (see onDestroy): the one being replaced
+        // can still resume once on its way out, and its context would build the new tree's
+        // views against a fragment manager whose window does not hold them.
+        if (isPrimary()) DayBridge.ctx = this;
         resumed = true;
         DayBridge.lifecycle(2); // DidBecomeActive
     }
@@ -261,8 +269,12 @@ public class DayActivity extends androidx.fragment.app.FragmentActivity {
         // A crossfade still up comes down with its activity. The handoff slot stays: a
         // recreation that interrupted the fade has just filled it for the next activity.
         dropRecreateOverlay();
-        // Only a real finish is a termination; a config-change recreation is not.
-        if (isFinishing()) {
+        // Only a real finish is a termination; a config-change recreation is not. Nor is the
+        // finish of an instance a newer one has replaced: a launch that clears the task (a
+        // package update's relaunch, a notification's) creates the new instance first, which
+        // mounts Day's tree in itself, and only then finishes this one. Ending the app here
+        // would stop the runtime under the window still on screen.
+        if (isFinishing() && isPrimary()) {
             releaseRecreateShot();
             DayBridge.lifecycle(7); // WillTerminate
             DayBridge.lifecycle(8); // DidExit: nothing of the app runs after onDestroy

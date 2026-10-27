@@ -15,7 +15,6 @@
       "tree",
       "scroll",
       "split",
-      "activity",
       "colorpicker",
       "combobox",
       "datepicker",
@@ -66,7 +65,6 @@
     "pages": [
       "text",
       "text-runs",
-      "markdown",
       "color",
       "fonts",
       "images",
@@ -82,14 +80,15 @@
   {
     "id": "ui-extensions",
     "name": "Optional UI components",
-    "description": "Add styled-text editing, settings, media, and embedded views.",
+    "description": "Add charts, animation, media, styled-text editing, settings, and embedded views.",
     "pages": [
       "texteditor",
       "settings",
-      "map",
       "media",
       "swiftui",
-      "webview-eval"
+      "charts",
+      "lottie",
+      "webview"
     ]
   },
   {
@@ -111,13 +110,14 @@
       "notify",
       "badge",
       "status-item",
-      "break"
+      "break",
+      "zeroconf"
     ]
   },
   {
     "id": "device-features",
     "name": "Optional device features",
-    "description": "Read device information and use permissions, biometrics, sensors, location, sound, and haptics.",
+    "description": "Use cameras, speech, permissions, biometrics, sensors, location, sound, and haptics.",
     "pages": [
       "battery",
       "deviceinfo",
@@ -128,7 +128,9 @@
       "location",
       "sensors",
       "sound",
-      "wakelock"
+      "wakelock",
+      "speech",
+      "camera"
     ]
   },
   {
@@ -138,15 +140,16 @@
     "pages": [
       "platforms",
       "system-requirements",
-      "platforms/macos-appkit",
       "platforms/ios-uikit",
       "platforms/android-material",
+      "platforms/harmony-arkui",
+      "platforms/macos-appkit",
       "platforms/windows-winui",
       "platforms/linux-gtk",
       "platforms/linux-qt",
-      "platforms/harmony-arkui",
       "platforms/web-dom"
-    ]
+    ],
+    "ordered": true
   },
   {
     "id": "build-tools",
@@ -156,7 +159,6 @@
       "cli",
       "project-structure",
       "environment",
-      "manifest",
       "flavors",
       "agent",
       "for-agents",
@@ -170,7 +172,6 @@
     "description": "Browse API examples and look up Day terminology and extension conventions.",
     "pages": [
       "api-tour",
-      "examples/catalog",
       "glossary",
       "parts"
     ]

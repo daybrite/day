@@ -62,7 +62,7 @@ Day alerts, prompts and file pickers await `assert_presented` / `respond` withou
 native UI. Use `--dialogs native` (or `--env DAY_TEST_DIALOGS=native`) for native integration
 coverage. Scripts can switch with `dialog_mode: { mode: scripted }` or `{ mode: native }`
 after answering pending requests; `assert_not_presented` checks for unanswered Day requests.
-See [dialog testing](dialogs.md#dayscript-presentation-modes) for examples, native dismissal
+See [dialog testing](/docs/how-to/dayscript#dialogs-and-file-pickers) for examples, native dismissal
 limitations, and OS prompts outside Day's control. With `--keep-alive`, the CLI restores
 native mode once the scripts finish; pass `--dialogs scripted` to keep answering prompts with
 `day drive`.
@@ -145,7 +145,7 @@ first time; nobody is watching an unattended run to re-run it with the variable 
 
 The same post-mortem runs on a plain `day launch` (no script): an attached launch whose app dies on
 a fatal signal prints it before returning, and the command's own exit code carries the signal
-(`128 + signo`; SIGABRT is 134), where it used to report 0 and look like a clean quit.
+(`128 + signo`; SIGABRT is 134).
 
 Under GitHub Actions the headline also becomes an `::error::` annotation, so the job page names the
 crash without anyone opening the log.

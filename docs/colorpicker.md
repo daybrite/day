@@ -32,7 +32,7 @@ chooser when pressed. Both idioms give the app that same control and differ only
 chooser behind it.
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
-[example messages](snippet-catalog.md) and [catalog setup](/docs/how-to/localization).
+[example messages](/docs/reference/localization#reference-example-messages) and [catalog setup](/docs/how-to/localization).
 
 ## Authoring
 
@@ -58,17 +58,16 @@ The bound signal is **two-way**: a user's pick writes it, and the app writing it
 The value is Day's ordinary [`Color`](color.md), so the same signal drives [`.tint(…)`](https://daybrite.dev/api/day_pieces/trait.ButtonBuilder.html#tymethod.tint),
 [`.background(…)`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.background), a canvas fill or a gradient stop with no conversion.
 
-## The two idioms
+## Picker styles
 
 [`PickerIdiom`] has three values; the third is the default.
 
-- **`Native`** — realizes the piece's leaf, which six toolkits render with their own chooser. This
-  is *literal*: on a toolkit with no renderer it draws Day's visible `⟨day.piece.colorpicker⟩`
+- **`Native`** — uses the toolkit's chooser. On a toolkit without a native chooser, it draws Day's visible `⟨day.piece.colorpicker⟩`
   placeholder, exactly like any other unrendered kind. Pin it only behind a [`support()`](https://daybrite.dev/api/day_pieces/colorpicker/fn.support.html) check.
 - **`Composed`** — builds the picker out of ordinary Day pieces: a drawn swatch opening a
   [`cover`](cover.md) that holds a canvas saturation/brightness field, a hue strip, an opacity
   strip and a preset palette. Every part of it is Rust that already runs everywhere, so it is the
-  same picker on all nine targets, including the two that have no other option.
+  same picker on all targets, including those without a native chooser.
 - **`Automatic`** (default) — `Native` where the toolkit has a chooser, `Composed` where it does
   not.
 
@@ -76,7 +75,7 @@ The value is Day's ordinary [`Color`](color.md), so the same signal drives [`.ti
 whether the picker works (it works on every target), so an app showing a "not supported here"
 banner from this answer would be wrong. Use it to say *which* picker the user gets.
 
-## Per-toolkit realization
+## Toolkit implementations
 
 Platform guidance: [Apple: color](https://developer.apple.com/design/human-interface-guidelines/color); [Windows: color picker](https://learn.microsoft.com/en-us/windows/apps/design/controls/color-picker).
 
@@ -155,45 +154,19 @@ stray alpha channel cannot make an app's brand color half-transparent behind its
 A pick crosses back to Rust as the component form `Color`'s `Display` writes and
 [`Color::parse`](https://daybrite.dev/api/day_geometry/struct.Color.html#method.parse) reads, four floats rather than a packed 32-bit ARGB, so the toolkits
 whose pickers are float-precision ([`NSColor`](https://developer.apple.com/documentation/appkit/nscolor), [`GdkRGBA`](https://docs.gtk.org/gdk4/struct.RGBA.html), [`QColor::getRgbF`](https://doc.qt.io/qt-6/qcolor.html)) lose nothing on the
-way. Three arms are 8-bit at the source and quantize regardless: WinUI's [`Windows.UI.Color`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.color),
+way. These native representations use 8-bit channels: WinUI's [`Windows.UI.Color`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.color),
 `<input type="color">`'s `#rrggbb` value, and anything that round-trips through
 [`android.graphics.Color`](https://developer.android.com/reference/android/graphics/Color).
 
 Everything the *chooser* knew that `Color` cannot hold (a wide-gamut pick, which authoring model
-the user was in, a dynamic system color) is covered in [color](color.md), which also proposes
-what to do about it.
+the user was in, a dynamic system color) is described in [Colors](color.md).
 
-## Scripting
-
-The native leaf accepts `Event::TextChanged` carrying any form [`Color::parse`](https://daybrite.dev/api/day_geometry/struct.Color.html#method.parse) reads, so dayscript's
-`input:` step drives it on every toolkit:
-
-```yaml
-- input: { id: brand_well, text: "#2f6fde" }
-- assert_text: { id: brand_value, text: "#2f6fde" }
-```
-
-The composed panel is ordinary pieces, so it is driven by ordinary steps. The well's id is its
-route key; the panel's own parts carry fixed ids:
-
-```yaml
-- tap: { id: brand_color }              # `.id(id!(brand_color))` — the well
-- assert_visible: { id: color_picker_panel }
-- assert_text: { id: color_picker_value, text: "#e86a3c" }
-- tap: { id: color_picker_cancel }      # or color-picker-done
-```
-
-`color-picker-shade`, `color-picker-hue`, `color-picker-opacity` and `color-picker-presets` name
-the drawn controls. They take a `tap` at a point, which is how the walkthrough proves
-[`Decorate::on_tap_at`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.on_tap_at) reports *where* a press landed (see [canvas](canvas.md)).
-
-## What this piece does not promise
+## Limits
 
 - **Identical chrome across the native idiom.** AppKit's panel is a floating inspector, iOS's a
   sheet, GTK's a dialog, WinUI's a flyout. That difference is the platform's chrome; [`.composed()`](https://daybrite.dev/api/day_pieces/colorpicker/trait.ColorPickerBuilder.html#tymethod.composed) is the escape hatch when an app wants one look.
-- **An embedded/inline style.** Three of the eight toolkits have nothing to embed, and a style that
-  silently degrades on most toolkits is worse than one an app can reason about. The composed panel
-  covers the case an inline picker was wanted for.
+- **Inline pickers.** The portable API presents a chooser; it does not embed an inline editor.
+  Use the composed panel for consistent presentation across platforms.
 - **Palettes, recent colors, or an eyedropper of Day's own.** The native choosers each bring their
   own; the composed panel offers [`.presets(…)`](https://daybrite.dev/api/day_pieces/colorpicker/trait.ColorPickerBuilder.html#tymethod.presets) and nothing more.
 - **Anything `Color` cannot carry**, covered in [color](color.md).

@@ -17,8 +17,7 @@ platform’s menu entries where available:
 
 ## Add to your app
 
-Defined in [`day-piece-settings`](https://github.com/daybrite/day/tree/main/crates/day-piece-settings). Add this to your app’s `Cargo.toml`
-`[dependencies]` table, at the same Day version as the rest of your app:
+Add [`day-piece-settings`](https://github.com/daybrite/day/tree/main/crates/day-piece-settings) to your app’s Cargo dependencies, using the same Day version as the rest of your app:
 
 ```toml
 [dependencies]
@@ -78,7 +77,7 @@ only where it should. [`.map(|i| i.icon(..))`](https://daybrite.dev/api/day_piec
 section on a phone (a welcome page's "Settings" link).
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
-[example messages](snippet-catalog.md) and [catalog setup](/docs/how-to/localization).
+[example messages](/docs/reference/localization#reference-example-messages) and [catalog setup](/docs/how-to/localization).
 
 ## Values: `Pref<T>`
 

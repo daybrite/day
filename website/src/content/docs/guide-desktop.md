@@ -32,7 +32,7 @@ contains a compile-designated operation that can feed these presentations. A men
 installed by a menu entry; a standalone command button does not register a global hotkey.
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
-[example messages](/docs/reference/examples/catalog) and [catalog setup](/docs/how-to/localization).
+[example messages](/docs/reference/localization#reference-example-messages) and [catalog setup](/docs/how-to/localization).
 
 ## 1. Install the app menu
 

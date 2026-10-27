@@ -36,7 +36,7 @@ For build errors or device connection problems, see [Troubleshooting](/docs/how-
 | What | Version | Where |
 |---|---|---|
 | Rust | 1.89 or newer | [rustup.rs](https://rustup.rs) |
-| The `day` CLI | from the Day Git repository | [Getting started](/docs/tutorials/first-app) |
+| The `day` CLI | from crates.io | [Getting started](/docs/tutorials/first-app) |
 | Git | any | [git-scm.com](https://git-scm.com/downloads) |
 
 Install Rust through **rustup**, not Homebrew or a distro package. Cross-compiled targets (iOS,

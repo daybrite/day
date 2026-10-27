@@ -16,8 +16,7 @@ on the operating system’s privacy and focus rules.
 
 ## Add to your app
 
-Defined in [`day-part-clipboard`](https://github.com/daybrite/day/tree/main/crates/day-part-clipboard). Add this to your app’s `Cargo.toml`
-`[dependencies]` table, at the same Day version as the rest of your app:
+Add [`day-part-clipboard`](https://github.com/daybrite/day/tree/main/crates/day-part-clipboard) to your app’s Cargo dependencies, using the same Day version as the rest of your app:
 
 ```toml
 [dependencies]
@@ -51,7 +50,7 @@ is an OS concern rather than a toolkit one. `crates/day-part-clipboard/examples/
 plain `main` that uses it with no Day framework at all
 (`cargo run -p day-part-clipboard --example clipboard "hi"`).
 
-## Per-platform native realization
+## Platform implementations
 
 Platform guidance: [Android: copying and pasting](https://developer.android.com/develop/ui/views/touch-and-input/copy-paste).
 
@@ -95,7 +94,7 @@ Platform access rules:
   worker so a delayed provider or paste authorization cannot block the main thread. The legacy
   [`get_text()`](https://daybrite.dev/api/day_part_clipboard/fn.get_text.html) helper remains synchronous.
 
-## What it shows about the extension system
+## Extension integration
 
 Like [`day-part-device`](/docs/reference/battery) (see [battery](battery.md) and [extending](extending.md)), this is a
 headless external crate: it has no UI Piece and registers nothing into any toolkit's `RENDERERS`
@@ -154,9 +153,6 @@ Outside a native paste event, a byte read waits for all byte writes already issu
 page to settle before asking the browser for clipboard contents. This preserves Copy → Paste
 ordering when a write is asynchronous. Failed writes still report their own errors and do not
 block a subsequent read; native paste events use their captured payload immediately.
-`node --test scripts/ci/webdom-clipboard-test.mjs` covers delayed/out-of-order writes,
-write rejection, and native paste snapshots. The real-browser regression is Day-Sketch's
-`dayscript/demo.yaml`, including immediate Copy/Paste, Cut/Paste, and Undo.
 
 ### Native representation mappings
 
@@ -174,29 +170,14 @@ The desktop toolkit edit routes remain responsible for allowing a focused text e
 handle its own Copy/Paste first. Apps that need custom async behavior can use
 [`day::install_edit_bridge`](https://daybrite.dev/api/day/fn.install_edit_bridge.html) with `day::EditState` and the typed clipboard functions.
 
-### Day-Sketch and regression checks
+### Interoperability
 
-Day-Sketch offers its editable SVG as an app-specific representation, SVG, HTML, and
-plain text. A single image also offers its original encoded bytes; non-PNG images are
-additionally encoded as PNG for other image consumers. The SVG retains original source
-bytes, position, extent, rotation, and opacity. Raster-only paste decodes the supplied bytes
-and stores them as a new SQLite BLOB-backed image node. Async completion checks that the
-originating document/selection scope still exists. Cut deletes only after a successful
-write and only if the captured selection is still current.
+Offer an app-specific representation alongside a standard format when other applications
+should be able to paste the data. For images, PNG is a useful interchange format; retain the
+original encoded data separately if the app needs it for lossless editing.
 
-The independent `binary_clipboard` example can write/read a MIME format to a file, or
-round-trip PNG, arbitrary NUL/non-UTF8 bytes, and text. Pure tests validate MIME/size rules
-and malformed/truncated transport packets. `Day-Sketch/dayscript/clipboard-images.yaml`
-checks native copy/cut/paste, geometry, opacity, rotation, and undo/redo; stage its image
-fixture at a path readable by the target app. `scripts/web-clipboard-check.mjs` tests a
-PNG-only external browser clipboard, native PNG copy, editable paste, undo, and SQLite
-restoration after reload. Use the web shim from the same Day revision as the Wasm binary.
-
-The UIKit walkthrough also caught and verifies a canvas fix: [`UIImage.drawInRect`](https://developer.apple.com/documentation/uikit/uiimage) draws at
-full opacity, so replay now uses `drawInRect:blendMode:alpha:` for `DrawOp::Image`.
-
-General transfer sessions and file drops are planned separately in
-[Drag and drop for Day apps](drag-and-drop.md).
+For Cut, delete the captured selection only after the write succeeds and only if that
+selection is still current when the asynchronous operation completes.
 
 > [!WARNING]
 > **Windows, Linux, and HarmonyOS: clipboard interoperability.**
@@ -205,5 +186,5 @@ General transfer sessions and file drops are planned separately in
 
 > [!NOTE]
 > **Web / DOM: clipboard permissions.**
-> Browser permissions and clipboard formats differ by engine. Chromium checks do not
-> establish support in other browsers; test permission denial and foreign-app paste.
+> Browser permissions and clipboard formats differ by engine. Test permission denial and
+> paste from other applications in the browsers your app supports.

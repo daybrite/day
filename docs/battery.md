@@ -15,8 +15,7 @@ Read the battery level and charging state to show a charge indicator or adjust p
 
 ## Add to your app
 
-Defined in [`day-part-device`](https://github.com/daybrite/day/tree/main/crates/day-part-device). Add this to your app’s `Cargo.toml`
-`[dependencies]` table, at the same Day version as the rest of your app:
+Add [`day-part-device`](https://github.com/daybrite/day/tree/main/crates/day-part-device) to your app’s Cargo dependencies, using the same Day version as the rest of your app:
 
 ```toml
 [dependencies]
@@ -47,7 +46,7 @@ There are no cargo features; platform selection is purely `#[cfg(target_os)]`, b
 an OS concern rather than a toolkit one. `crates/day-part-device/examples/battery.rs` is a plain
 `main` that uses it with no Day framework at all.
 
-## Per-platform native realization
+## Platform implementations
 
 | OS | API | dependency |
 |---|---|---|
@@ -67,7 +66,7 @@ nor the Day runtime (unlike Android). The native API exposes capacity + plugged 
 charge state, so the state is inferred from whether external power is connected. The showcase's
 Device & sensors page shows a live readout ([docs/harmonyos](harmonyos.md)).
 
-## What it shows about the extension system
+## Extension integration
 
 This is the first headless external crate: it has no UI Piece and registers nothing into any
 toolkit's `RENDERERS` slice. It demonstrates that the standalone-piece toolkit-contribution

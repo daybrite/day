@@ -5,106 +5,8 @@
       "reason": "Module name, not a function."
     }
   ],
-  "docs/async.md": [
-    {
-      "code": "pump()",
-      "reason": "Test-local executor pump from resource_tests, not a public function."
-    }
-  ],
-  "docs/auth.md": [
-    {
-      "code": "session::open(url, callback_prefix, &options)",
-      "reason": "day-part-auth is outside this checkout and has no published Day Rustdoc bundle; this guide links its repository."
-    },
-    {
-      "code": "Client::start()",
-      "reason": "day-part-auth is outside this checkout and has no published Day Rustdoc bundle; this guide links its repository."
-    },
-    {
-      "code": "Client::complete(request, callback_url)",
-      "reason": "day-part-auth is outside this checkout and has no published Day Rustdoc bundle; this guide links its repository."
-    },
-    {
-      "code": "passkeys::create(&options)",
-      "reason": "day-part-auth is outside this checkout and has no published Day Rustdoc bundle; this guide links its repository."
-    },
-    {
-      "code": "passkeys::get(&options)",
-      "reason": "day-part-auth is outside this checkout and has no published Day Rustdoc bundle; this guide links its repository."
-    },
-    {
-      "code": "Client::new(provider, client_id)",
-      "reason": "day-part-auth is outside this checkout and has no published Day Rustdoc bundle; this guide links its repository."
-    },
-    {
-      "code": "Provider::new(authorization_endpoint, token_endpoint)",
-      "reason": "day-part-auth is outside this checkout and has no published Day Rustdoc bundle; this guide links its repository."
-    },
-    {
-      "code": ".scopes([...])",
-      "reason": "day-part-auth is outside this checkout and has no published Day Rustdoc bundle; this guide links its repository."
-    },
-    {
-      "code": ".param(name, value)",
-      "reason": "day-part-auth is outside this checkout and has no published Day Rustdoc bundle; this guide links its repository."
-    },
-    {
-      "code": ".session(SessionOptions)",
-      "reason": "day-part-auth is outside this checkout and has no published Day Rustdoc bundle; this guide links its repository."
-    },
-    {
-      "code": "Client::complete",
-      "reason": "day-part-auth is outside this checkout and has no published Day Rustdoc bundle; this guide links its repository."
-    },
-    {
-      "code": "session::capabilities().https_callback",
-      "reason": "day-part-auth is outside this checkout and has no published Day Rustdoc bundle; this guide links its repository."
-    },
-    {
-      "code": "session::cancel()",
-      "reason": "day-part-auth is outside this checkout and has no published Day Rustdoc bundle; this guide links its repository."
-    },
-    {
-      "code": "client.refresh(refresh_token).await",
-      "reason": "day-part-auth is outside this checkout and has no published Day Rustdoc bundle; this guide links its repository."
-    },
-    {
-      "code": "TokenSet::raw",
-      "reason": "day-part-auth is outside this checkout and has no published Day Rustdoc bundle; this guide links its repository."
-    },
-    {
-      "code": "apple::sign_in(SignInWithApple::new())",
-      "reason": "day-part-auth is outside this checkout and has no published Day Rustdoc bundle; this guide links its repository."
-    },
-    {
-      "code": "google::sign_in(GoogleSignIn::new(server_client_id))",
-      "reason": "day-part-auth is outside this checkout and has no published Day Rustdoc bundle; this guide links its repository."
-    },
-    {
-      "code": "passkeys::create",
-      "reason": "day-part-auth is outside this checkout and has no published Day Rustdoc bundle; this guide links its repository."
-    },
-    {
-      "code": "passkeys::get",
-      "reason": "day-part-auth is outside this checkout and has no published Day Rustdoc bundle; this guide links its repository."
-    },
-    {
-      "code": "passkeys::create(&options).await",
-      "reason": "day-part-auth is outside this checkout and has no published Day Rustdoc bundle; this guide links its repository."
-    },
-    {
-      "code": "passkeys::get(&options).await",
-      "reason": "day-part-auth is outside this checkout and has no published Day Rustdoc bundle; this guide links its repository."
-    },
-    {
-      "code": "passkeys::support()",
-      "reason": "day-part-auth is outside this checkout and has no published Day Rustdoc bundle; this guide links its repository."
-    },
-    {
-      "code": "AuthError::to_string()",
-      "reason": "day-part-auth is outside this checkout and has no published Day Rustdoc bundle; this guide links its repository."
-    }
-  ],
+  "docs/async.md": [],
+  "docs/auth.md": [],
   "docs/biometrics.md": [
     {
       "code": "start()",
@@ -117,18 +19,8 @@
       "reason": "Rust standard-library function or trait method, outside the published Day API."
     }
   ],
-  "docs/color.md": [
-    {
-      "code": "TextStyle::color",
-      "reason": "TextStyle data field, not a method."
-    }
-  ],
-  "docs/commands.md": [
-    {
-      "code": "Command { id, label, action }.build()",
-      "reason": "Historical/sample command spelling or a generic action across several adapter types, not one API owner."
-    }
-  ],
+  "docs/color.md": [],
+  "docs/commands.md": [],
   "docs/cover.md": [
     {
       "code": "build(&r)",
@@ -157,19 +49,7 @@
   ],
   "docs/dialogs.md": [
     {
-      "code": "dismiss(req)",
-      "reason": "Design pseudocode/private presentation plumbing or a native dialog API; no public item at this spelling."
-    },
-    {
-      "code": "resolve(req,\nresult)",
-      "reason": "Design pseudocode/private presentation plumbing or a native dialog API; no public item at this spelling."
-    },
-    {
       "code": ".alert",
-      "reason": "Design pseudocode/private presentation plumbing or a native dialog API; no public item at this spelling."
-    },
-    {
-      "code": "open()",
       "reason": "Design pseudocode/private presentation plumbing or a native dialog API; no public item at this spelling."
     }
   ],
@@ -217,48 +97,8 @@
       "reason": "Module name, not a function."
     }
   ],
-  "docs/grid.md": [
-    {
-      "code": "StackLayout::flatten",
-      "reason": "Private StackLayout implementation helper, not exposed in Rustdoc."
-    }
-  ],
-  "docs/harmonyos.md": [
-    {
-      "code": "day_toolkit_arkui::node",
-      "reason": "Module name, not a function."
-    },
-    {
-      "code": "day::arkui::start",
-      "reason": "ArkUI host/renderer implementation or Rust networking API; absent from the portable Day bundle."
-    },
-    {
-      "code": "canvas::create",
-      "reason": "ArkUI host/renderer implementation or Rust networking API; absent from the portable Day bundle."
-    },
-    {
-      "code": "day::frame",
-      "reason": "Module name, not a function."
-    },
-    {
-      "code": "anim::animate",
-      "reason": "ArkUI host/renderer implementation or Rust networking API; absent from the portable Day bundle."
-    },
-    {
-      "code": "start()",
-      "reason": "ArkUI host/renderer implementation or Rust networking API; absent from the portable Day bundle."
-    },
-    {
-      "code": "TcpListener::bind",
-      "reason": "Rust standard-library function or trait method, outside the published Day API."
-    }
-  ],
-  "docs/http.md": [
-    {
-      "code": "validators::tests",
-      "reason": "Private test module, not a callable API."
-    }
-  ],
+  "docs/harmonyos.md": [],
+  "docs/http.md": [],
   "docs/icons.md": [
     {
       "code": ".app",
@@ -278,10 +118,6 @@
   "docs/list.md": [
     {
       "code": "store.rows(projection)",
-      "reason": "ListSource callback field, generated model projection or standard Vec operation, not a public method."
-    },
-    {
-      "code": "release(cell)",
       "reason": "ListSource callback field, generated model projection or standard Vec operation, not a public method."
     },
     {
@@ -345,16 +181,7 @@
       "reason": "Accessor generated from an application model field; no published item for this application type."
     }
   ],
-  "docs/navigation.md": [
-    {
-      "code": "NavMenuProps::sections",
-      "reason": "NavMenuProps data field, not a method."
-    },
-    {
-      "code": "NavMenuProps::selected",
-      "reason": "NavMenuProps data field, not a method."
-    }
-  ],
+  "docs/navigation.md": [],
   "docs/notify.md": [
     {
       "code": ".app",
@@ -367,12 +194,7 @@
       "reason": "POSIX open call, not a Day API."
     }
   ],
-  "docs/picker.md": [
-    {
-      "code": "PickerProps::enabled",
-      "reason": "PickerProps data field, not a method."
-    }
-  ],
+  "docs/picker.md": [],
   "docs/prefs.md": [
     {
       "code": "Editor.commit()",
@@ -413,28 +235,7 @@
       "reason": "Application root builder supplied to the framework, not a published function."
     }
   ],
-  "docs/shapes.md": [
-    {
-      "code": "Shape: path(in rect) -> Path",
-      "reason": "Proposed/unimplemented shape API in the retained design discussion, not a current public function."
-    },
-    {
-      "code": "Geometry::contains(point)",
-      "reason": "Proposed/unimplemented shape API in the retained design discussion, not a current public function."
-    },
-    {
-      "code": ".native()",
-      "reason": "Proposed/unimplemented shape API in the retained design discussion, not a current public function."
-    },
-    {
-      "code": "path()",
-      "reason": "Proposed/unimplemented shape API in the retained design discussion, not a current public function."
-    },
-    {
-      "code": ".clip(shape)",
-      "reason": "Proposed/unimplemented shape API in the retained design discussion, not a current public function."
-    }
-  ],
+  "docs/shapes.md": [],
   "docs/size-classes.md": [
     {
       "code": "day_core::toolbar",
@@ -479,10 +280,6 @@
     {
       "code": "FontSpec::scale",
       "reason": "FontSpec data field or native GTK TextBuffer.insert, not a Day function."
-    },
-    {
-      "code": "TextBuffer::insert",
-      "reason": "FontSpec data field or native GTK TextBuffer.insert, not a Day function."
     }
   ],
   "docs/tweaks.md": [
@@ -511,24 +308,7 @@
       "reason": "Application bundle filename suffix, not a function."
     }
   ],
-  "docs/web.md": [
-    {
-      "code": "register(rt)",
-      "reason": "Generated JavaScript host function, browser fetch, or Rust thread API; not a Day callable."
-    },
-    {
-      "code": "start(rt, module)",
-      "reason": "Generated JavaScript host function, browser fetch, or Rust thread API; not a Day callable."
-    },
-    {
-      "code": "std::thread::sleep",
-      "reason": "Rust standard-library function or trait method, outside the published Day API."
-    },
-    {
-      "code": "fetch()",
-      "reason": "Generated JavaScript host function, browser fetch, or Rust thread API; not a Day callable."
-    }
-  ],
+  "docs/web.md": [],
   "website/src/content/docs/dayscript.md": [
     {
       "code": "day::record",
@@ -543,7 +323,7 @@
   ],
   "website/src/content/docs/guide-crash-reporting.md": [
     {
-      "code": "send(&meta, |result| \u2026)",
+      "code": "send(&meta, |result| …)",
       "reason": "External day-part-break reporting API has no published Day Rustdoc bundle; the guide links its repository."
     },
     {

@@ -96,7 +96,7 @@ was caught in review; the replacements are the settled rulings — follow them.
 - **Counted colon setups.** "Three things to notice:" / "Two rules keep this stable:" → allowed
   only when a real numbered list follows; otherwise fold the items into prose.
 - **Self-congratulation about what the reader did not write.** "You wrote zero platform code."
-  → say what the code does: "The piece runs on all eight backends from this one file."
+  → say what the code does: "The piece runs on supported toolkits from this one file."
 - **ALL-CAPS emphasis.** "only ORDER changes reload", "the ONLY correct gate", "a crate's OWN
   piece" → lowercase, everywhere, prose and code comments alike. If the sentence is ambiguous
   without the stress, rewrite it so the words carry the distinction ("only a change to the order
@@ -208,6 +208,11 @@ the [documentation structure guide](website/authoring/style-guide.md#write-for-t
 - Front-load. The first sentence says what the page is for.
 - Short paragraphs, one topic each.
 - Headings that describe content. Avoid "Overview" / "Introduction" when a real title fits.
+- Never use `Why it matters` as a heading or prose transition. Name the topic, behavior,
+  or decision directly, such as “Verify a release against its source.”
+- Do not count or number the toolkit inventory: avoid “the ninth toolkit” or “all eight
+  toolkits.” Name the relevant toolkits or link to the platform support table. Keep actual
+  technical constraints, such as selecting one toolkit per binary, explicit.
 - Show a runnable example instead of describing one.
 
 ## Before / after

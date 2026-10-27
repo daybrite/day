@@ -33,7 +33,7 @@ binding over a selection). Each arrow click, and each settled edit (Return, focu
 through `write_commit`, so under an undo stack every click is one undoable step.
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
-[example messages](snippet-catalog.md) and [catalog setup](/docs/how-to/localization).
+[example messages](/docs/reference/localization#reference-example-messages) and [catalog setup](/docs/how-to/localization).
 
 ## Authoring
 
@@ -58,26 +58,6 @@ labeled(
   visible placeholder.
 - **[`.id(…)`](https://daybrite.dev/api/day_pieces/stepper/struct.Stepper.html#method.id)** names the interactive field for dayscript on both idioms, wherever it sits in the
   chain.
-
-## Driving and asserting from dayscript
-
-The native leaf accepts `input:` (typed text, parsed and clamped), `set_value:`
-(`ValueChanged` previews, `ValueCommitted` commits), and mirrors its state into the probe
-through day-core's `set_probe_value` hook, so `assert_text` sees the display form
-([`fmt_value`](https://daybrite.dev/api/day_pieces/stepper/fn.fmt_value.html)'s fixed-decimal text) and `assert_value` the number, exactly like a built-in
-control. The composed idiom is a real text field and needs nothing special. One script drives
-both idioms by the same key.
-
-One scripted input commits once. The native event handler accepts `stepper:value` (and the
-legacy bridge's empty tag), but ignores unrelated custom events, including the
-`day:synthesized-text` paint notification that precedes `TextChanged`. Treating both as
-edits would create duplicate undo entries. `set_value:` still delivers one preview followed
-by one commit, so a binding can retain the value from before the gesture for undo.
-
-> [!NOTE]
-> **Windows and Web / DOM: composed control.**
-> These targets use the composed stepper rather than a native numeric input.
-> It is built from ordinary Day pieces.
 
 ## Platform guidance
 

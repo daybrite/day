@@ -76,5 +76,5 @@ and native-runtime review against the 2026-10-22 working tree. Treat those detai
 code examples as unverified for this revision. The
 [technical-review ledger](https://github.com/daybrite/day/blob/main/docs/history/documentation/coverage.csv)
 records its status. Code blocks are API excerpts or integration fragments unless explicitly
-designated in the [example catalog](/docs/reference/examples/catalog#technical-recipes).
+designated in the [example catalog](https://github.com/daybrite/day/blob/main/docs/snippet-catalog.md#technical-recipes).
 No current all-platform pass or screenshot attribution is established by this page.

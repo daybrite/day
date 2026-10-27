@@ -16,6 +16,8 @@ state for the capture controls. It does not save to the system photo library or 
 
 ## Add to your app
 
+Add [`day-piece-camera`](https://crates.io/crates/day-piece-camera) to your app’s Cargo dependencies:
+
 ```toml
 [dependencies]
 day-piece-camera = "0.1"

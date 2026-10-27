@@ -17,8 +17,7 @@ permission and scheduling support depend on the platform.
 
 ## Add to your app
 
-Defined in [`day-part-local-notify`](https://github.com/daybrite/day/tree/main/crates/day-part-local-notify). Add this to your app’s `Cargo.toml`
-`[dependencies]` table, at the same Day version as the rest of your app:
+Add [`day-part-local-notify`](https://github.com/daybrite/day/tree/main/crates/day-part-local-notify) to your app’s Cargo dependencies, using the same Day version as the rest of your app:
 
 ```toml
 [dependencies]

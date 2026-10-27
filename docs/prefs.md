@@ -72,7 +72,7 @@ Day framework at all (run it twice to watch a value survive the process).
 This is a small string store for user settings and lightweight app state, not a database. Keep
 values modest; large blobs belong in a file.
 
-## Per-platform native realization
+## Platform implementations
 
 Platform guidance: [Apple: settings](https://developer.apple.com/design/human-interface-guidelines/settings); [Android: saving key-value data](https://developer.android.com/training/data-storage/shared-preferences).
 
@@ -125,7 +125,7 @@ Platform guidance: [Apple: settings](https://developer.apple.com/design/human-in
 - **Any other platform**: a no-op store: [`set`](https://daybrite.dev/api/day_part_preferences/fn.set.html)/[`remove`](https://daybrite.dev/api/day_part_preferences/fn.remove.html)/[`contains`](https://daybrite.dev/api/day_part_preferences/fn.contains.html) return `false`, [`get`](https://daybrite.dev/api/day_part_preferences/fn.get.html) returns
   `None`.
 
-## What it shows about the extension system
+## Extension integration
 
 Like [`day-part-device`](/docs/reference/battery) and [`day-part-connectivity`](/docs/reference/network), this is a headless external crate: it has no UI Piece
 and registers nothing in any toolkit's `RENDERERS` slice. On Android it stages its own Java shim

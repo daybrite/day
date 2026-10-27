@@ -15,25 +15,16 @@ Let people choose one value from a defined set, using a segmented control, dropd
 [`picker`](https://daybrite.dev/api/day_pieces/fn.picker.html) binds the selected value to app state and is available through `day::prelude::*`.
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
-[example messages](snippet-catalog.md) and [catalog setup](/docs/how-to/localization).
+[example messages](/docs/reference/localization#reference-example-messages) and [catalog setup](/docs/how-to/localization).
 
 ## Add to your app
 
-Defined in [`day-pieces`](https://github.com/daybrite/day/tree/main/crates/day-pieces) and
-re-exported by `day::prelude`. An app created with `day new` already has the required dependency;
-otherwise add it to `Cargo.toml`:
-
-```toml
-[dependencies]
-day = { package = "day-app", version = "0.6" }
-```
-
-No additional piece crate or `Day.toml` dependency is needed. Build with the app’s selected
-toolkit using `day build -t <target>`.
+This control is included in [`day-pieces`](https://github.com/daybrite/day/tree/main/crates/day-pieces)
+and re-exported through `day::prelude::*`. No additional crate or control feature is required.
 
 | Platforms / toolkits | Availability |
 | --- | --- |
-| AppKit, UIKit, GTK, Qt, Android, WinUI, ArkUI, Web | Built-in control; see [native realization](#per-toolkit-native-realization) for presentation differences. |
+| AppKit, UIKit, GTK, Qt, Android, WinUI, ArkUI, Web | Built-in control; see [toolkit implementations](#toolkit-implementations) for presentation differences. |
 
 ## Authoring
 
@@ -99,7 +90,7 @@ owns the value: write a valid one to the binding when its option disappears.
 Use it only when the options change. Rebuilding a native menu costs more than
 moving a mark, and a picker whose choices are constant should stay constant.
 
-## Per-toolkit native realization
+## Toolkit implementations
 
 Platform guidance: [Apple: pickers](https://developer.apple.com/design/human-interface-guidelines/pickers); [Android: spinners](https://developer.android.com/develop/ui/views/components/spinner); [Windows: combo boxes](https://learn.microsoft.com/en-us/windows/apps/design/controls/combo-box).
 
@@ -122,10 +113,8 @@ through the `day_xaml_box`/`day_xaml_unbox` functions. Android's Java factory
 All toolkits report selection through `Event::SelectionChanged(i64)`; programmatic selection is
 echo-guarded per toolkit so it never loops.
 
-## Follow-ups
 
-- Per-option a11y labels.
+## Enabled state
 
-([`.enabled(e)`](https://daybrite.dev/api/day_pieces/trait.PickerBuilder.html#tymethod.enabled), constant or reactive, shipped 2026-10: `PickerProps::enabled` at realize and
-`PickerPatch::Enabled` on change, disabling every style on all eight toolkits, the composite
-segmented and inline styles child by child.)
+[`.enabled(value)`](https://daybrite.dev/api/day_pieces/trait.PickerBuilder.html#tymethod.enabled)
+accepts a constant, signal, or closure and disables interaction in every picker style.

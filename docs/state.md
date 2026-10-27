@@ -26,7 +26,7 @@ registry, so the ownership rules are shared by all backends. The `Ambient` tests
 [`mock_e2e.rs`](../crates/day-pieces/tests/mock_e2e.rs) cover the behavior.
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
-[example messages](snippet-catalog.md) and [catalog setup](/docs/how-to/localization).
+[example messages](/docs/reference/localization#reference-example-messages) and [catalog setup](/docs/how-to/localization).
 
 ## The shape: a `Copy` struct of handles
 

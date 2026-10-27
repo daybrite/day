@@ -15,7 +15,7 @@ a path back. Both use platform navigation controls and keep their state in
 [signals](/docs/reference/glossary#signal). Routes connect that state to deep links and automated tests.
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
-[example messages](/docs/reference/examples/catalog) and [catalog setup](/docs/how-to/localization).
+[example messages](/docs/reference/localization#reference-example-messages) and [catalog setup](/docs/how-to/localization).
 
 ## Sections: [`nav`](https://daybrite.dev/api/day_pieces/fn.nav.html)
 
@@ -282,7 +282,7 @@ while the labels are localized. The selection is supplied by the caller for prog
 navigation and tests.
 
 Complete module for `src/navigation_recipe.rs` in the
-[technical recipe harness](/docs/reference/examples/catalog#technical-recipes).
+[technical recipe harness](https://github.com/daybrite/day/blob/main/docs/snippet-catalog.md#technical-recipes).
 Add the matching Fluent messages below. This module is compiled as part of the harness;
 it is not a standalone app.
 

@@ -13,14 +13,13 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 [`day-part-sound`](https://daybrite.dev/api/day_part_sound/index.html) plays short clips bundled with the app (a tap, a chime, a card sliding onto a
 pile) through each platform's low-latency engine, once or as a [loop](#loops) that repeats until
-it is stopped. It is a headless part in `parts/`, like
+it is stopped. It is a headless part, like
 [`day-part-haptics`](/docs/reference/haptics), and the two are meant to be used together: a game pairs each haptic phrase
 with a clip, and the player turns either off in its settings.
 
 ## Add to your app
 
-Defined in [`day-part-sound`](https://github.com/daybrite/day/tree/main/crates/day-part-sound). Add this to your app’s `Cargo.toml`
-`[dependencies]` table, at the same Day version as the rest of your app:
+Add [`day-part-sound`](https://github.com/daybrite/day/tree/main/crates/day-part-sound) to your app’s Cargo dependencies, using the same Day version as the rest of your app:
 
 ```toml
 [dependencies]
@@ -154,7 +153,7 @@ ffmpeg -i in.ogg -ac 1 -ar 44100 -c:a pcm_s16le -map_metadata -1 out.wav
 - **Other audio.** Sound effects mix with music and podcasts from other apps rather than
   interrupting them. On iOS they follow the Silent switch.
 
-## Per-platform realization
+## Platform implementations
 
 Platform guidance: [Apple: playing audio](https://developer.apple.com/design/human-interface-guidelines/playing-audio); [Android: audio focus](https://developer.android.com/media/optimize/audio-focus).
 

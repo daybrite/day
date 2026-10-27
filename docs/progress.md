@@ -14,6 +14,13 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 Show how far a task has progressed, or indicate that work is still running when its duration
 is unknown. Day provides separate constructors for determinate progress and a busy indicator.
 
+## Add to your app
+
+This control is included in [`day-pieces`](https://github.com/daybrite/day/tree/main/crates/day-pieces)
+and re-exported through `day::prelude::*`. No additional crate or control feature is required.
+
+## Authoring
+
 ```rust
 // Determinate: a bar that fills to a known fraction (0.0..=1.0).
 progress(move || downloaded.get() / total.get())
@@ -36,7 +43,7 @@ column((
 ```
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
-[example messages](snippet-catalog.md) and [catalog setup](/docs/how-to/localization).
+[example messages](/docs/reference/localization#reference-example-messages) and [catalog setup](/docs/how-to/localization).
 
 ## API
 
@@ -54,21 +61,27 @@ The UI snippets use generated `res::str` accessors from an app's Fluent catalog;
 A constant [`progress(0.5)`](https://daybrite.dev/api/day_pieces/fn.progress.html) installs no binding. There is nothing to update after build,
 so it emits zero runtime patches (asserted in the e2e tests).
 
-## The wire (spec)
+## Spinners
 
-`day_spec`:
+Use [`spinner()`](https://daybrite.dev/api/day_pieces/fn.spinner.html) when work has no known
+completion percentage. It is available through `day::prelude::*` without an additional dependency.
 
-- `kinds::PROGRESS`.
-- `props::ProgressProps { value: Option<f64> }`: `None` means indeterminate; `Some(f)` a
-  determinate fraction. This single `Option` carries the determinate/indeterminate
-  distinction, so there is no separate "style" flag.
-- `props::ProgressPatch::Value(Option<f64>)`: the one sparse patch. A determinate bar only
-  ever sends `Some`; a spinner sends nothing after realize.
+```rust
+let running = Signal::new(true);
+spinner().animating(running).large()
+```
 
-[`Toolkit::realize`](https://daybrite.dev/api/day_spec/trait.Toolkit.html#tymethod.realize)/`update`/`measure` dispatch on `kinds::PROGRESS` like any other leaf;
-no new trait method was needed.
+[`animating`](https://daybrite.dev/api/day_pieces/trait.ProgressBuilder.html#tymethod.animating)
+accepts a Boolean, signal, or closure. It defaults to `true` and changes without rebuilding the
+view. Stopping preserves its layout space. Apple and GTK show a stopped indicator; Android and
+ArkUI can hide the indicator while retaining its space. Qt uses a busy progress bar and stops
+it by selecting a fixed range. The browser pauses its CSS animation.
 
-## Native mapping
+[`large`](https://daybrite.dev/api/day_pieces/trait.ProgressBuilder.html#tymethod.large) selects
+the platform's larger indicator. A determinate [`progress(fraction)`](https://daybrite.dev/api/day_pieces/fn.progress.html)
+uses the same `Progress` type; animation and size options apply to indeterminate indicators.
+
+## Toolkit implementations
 
 Platform guidance: [Apple: progress indicators](https://developer.apple.com/design/human-interface-guidelines/progress-indicators); [Windows: progress controls](https://learn.microsoft.com/en-us/windows/apps/design/controls/progress-controls).
 
@@ -98,7 +111,7 @@ Notes:
 - Spinner: a fixed square at its natural size (the engine uses the measured size because
   `grow_w` is false).
 
-## a11y
+## Accessibility
 
 Give a determinate bar a meter role and a label:
 
@@ -108,13 +121,3 @@ progress(move || volume.get() / 100.0)
 ```
 
 `Role::Meter` maps to each platform's progress accessibility role.
-
-## Checking progress in a walkthrough
-
-The determinate fraction is captured in the node probe, so a DayScript walkthrough can
-assert it:
-
-```yaml
-- set_value: { id: volume_slider, value: 80 }
-- assert_value: { id: volume_progress, value: 0.8 }   # 80/100, reactive
-```

@@ -1,12 +1,12 @@
 ---
-title: "Styled runs"
-description: "Several styles inside one label: the runs API over attributed text."
+title: "Styled text and Markdown"
+description: "Style labels with text runs and inline Markdown, including links and platform behavior."
 ---
 
 <!-- Copyright © The Daybrite Project
      SPDX-License-Identifier: CC-BY-SA-4.0 -->
 
-# Styled runs
+# Styled text and Markdown
 
 One label can carry several styles. This synthetic sentence demonstrates the run builder;
 it is not a pattern for splitting a translated UI message:
@@ -35,7 +35,7 @@ label(text).runs(runs)
 [`label`](https://daybrite.dev/api/day_pieces/fn.label.html)`()`[`.runs`](https://daybrite.dev/api/day_pieces/trait.LabelBuilder.html#tymethod.runs)`()` takes. [`.runs_from(builder)`](https://daybrite.dev/api/day_pieces/trait.LabelBuilder.html#tymethod.runs_from) does both in one call.
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
-[example messages](snippet-catalog.md) and [catalog setup](/docs/how-to/localization).
+[example messages](/docs/reference/localization#reference-example-messages) and [catalog setup](/docs/how-to/localization).
 
 ## Why not several labels in a row
 
@@ -99,7 +99,7 @@ both places.
 
 [`.base(font)`](https://daybrite.dev/api/day_pieces/struct.TextBuilder.html#method.base) sets the font the runs vary from; without it, runs sit on the label's own font.
 
-## Per-toolkit
+## Toolkit implementations
 
 | toolkit | Mechanism | Fixed-pitch face |
 | --- | --- | --- |
@@ -143,7 +143,7 @@ Link activation is `Cap::TextLinks`, and it is narrower than rendering:
 Every one of these reports the target to the app rather than opening it itself, so a label's
 [`.on_link()`](https://daybrite.dev/api/day_pieces/trait.LabelBuilder.html#tymethod.on_link) decides. Its default calls [`open_link`](https://daybrite.dev/api/day_pieces/fn.open_link.html): a leading `#` navigates to the route after
 the hash, and other targets open through [`Toolkit::open_url`](https://daybrite.dev/api/day_spec/trait.Toolkit.html#method.open_url). This also applies to links made
-with [`TextBuilder::link`](https://daybrite.dev/api/day_pieces/struct.TextBuilder.html#method.link); see [markdown links](./markdown.md#links) for the route contract and
+with [`TextBuilder::link`](https://daybrite.dev/api/day_pieces/struct.TextBuilder.html#method.link); see [markdown links](./text-runs.md#links) for the route contract and
 custom-handler behavior. Where activation is missing the run still draws as a link; the tap does
 nothing.
 
@@ -162,16 +162,7 @@ activation are not covered by this native tap suite.
 
 Some toolkit details affect how runs are built.
 
-**On macOS the label itself handles the field editor's link callback.** AppKit makes the
-[`NSTextField`](https://developer.apple.com/documentation/appkit/nstextfield) the shared field editor's delegate; it does not forward
-`textView:clickedOnLink:atIndex:` to the field's separate control delegate. `DayLabel`, an
-[`NSTextField`](https://developer.apple.com/documentation/appkit/nstextfield) subclass, handles that callback and returns `true`, suppressing AppKit's external
-URL opening. It reports the original target through `Event::LinkActivated`, including `#route`
-targets. The subclass is used for plain labels too, so links added by reactive markdown patches
-work without replacing the view. Labels with links remain selectable for native hit testing;
-removing links restores the app's explicit selection setting. See Apple's
-[Working With the Field Editor](https://developer.apple.com/library/archive/documentation/Cocoa/Conceptual/TextEditing/Tasks/FieldEditor.html)
-and the [native link regression](../crates/day-toolkit-appkit/tests/native_links.rs).
+
 
 **GTK renders runs as markup, not as a `pango::AttrList`,** because Pango's attributes cannot
 express a link and the markup dialect can. A [`GtkLabel`](https://docs.gtk.org/gtk4/class.Label.html)'s attribute list *overrides* the
@@ -192,13 +183,83 @@ its link, or mark the label [`.selectable()`](https://daybrite.dev/api/day_piece
 
 ## Markdown
 
-[markdown](./markdown.md) covers [`.markdown()`](https://daybrite.dev/api/day_pieces/trait.LabelBuilder.html#tymethod.markdown), which parses inline markdown at run time and
-produces exactly these runs; it is the convenient way to get them when the text is a translated
-string or something a user typed.
+Add emphasis, links, and inline code to labels with Markdown. The [`.markdown()`](https://daybrite.dev/api/day_pieces/trait.LabelBuilder.html#tymethod.markdown) modifier
+turns the label’s text into styled runs and updates them when that text changes.
+
+```rust
+label(res::str::save_instructions()).markdown()
+label(res::str::release_note()).markdown()          // a translated string
+label(move || draft.get()).markdown()         // live, as the user types
+```
+
+[`.markdown()`](https://daybrite.dev/api/day_pieces/trait.LabelBuilder.html#tymethod.markdown) reads a label's text as inline markdown: the markers are stripped and what they
+marked becomes styled runs in the one label.
+
+The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
+[example messages](/docs/reference/localization#reference-example-messages) and [catalog setup](/docs/how-to/localization).
+
+### Updating Markdown text
+
+Markdown is parsed when the label's text changes, so translations, network content, and
+user-supplied text can carry inline formatting. Use a plain label when formatting is not needed.
+
+### The grammar
+
+| Markdown | Result |
+| --- | --- |
+| `**bold**`, `__bold__` | bold |
+| `*italic*`, `_italic_` | italic |
+| `` `code` `` | the platform's monospaced face |
+| `~~strike~~` | struck through |
+| `[text](url)` | a link run, in the platform tint |
+| `\*` | a literal `*` |
+
+Styles nest: `**bold with *italic* inside**` gives three runs. A code span is literal inside, so
+`` `**not bold**` `` shows the asterisks.
+
+Anything unrecognized is text. An unclosed `**`, a stray `_` inside a word, or a `[` with no
+`](…)` after it stays exactly as typed. That is markdown's own rule, and it keeps a half-typed
+string in a live editor from flickering between readings on every keystroke.
+
+**Block constructs are not parsed.** Headings, lists, quotes, tables and paragraph breaks are
+layout, and layout in Day is [`column`](https://daybrite.dev/api/day_pieces/fn.column.html), [`form`](https://daybrite.dev/api/day_pieces/fn.form.html), [`list`](https://daybrite.dev/api/day_pieces/fn.list.html). A label is one paragraph; this is the
+markup that fits inside one.
+
+### Links
+
+A `[text](url)` run draws as a link and reports its target when tapped:
+
+```rust
+label(res::str::terms_blurb()).markdown()                          // opens the target
+label(res::str::terms_blurb()).markdown().on_link(|url| route(url)) // or handle it yourself
+label(res::str::navigation_links()).markdown()
+```
+
+Without [`.on_link()`](https://daybrite.dev/api/day_pieces/trait.LabelBuilder.html#tymethod.on_link), a target beginning with `#` navigates to the route after the hash:
+`#settings` calls [`navigate("settings")`](https://daybrite.dev/api/day_pieces/fn.navigate.html). This uses the existing [navigation](./navigation.md)
+rules, including paths and query parameters (`#mail/inbox?filter=unread`), percent escapes,
+and the empty route (`#`, which pops the innermost stack to its root). Unknown routes are
+ignored; they never open externally. Other targets open in the platform's default handler,
+including URLs with a fragment such as `https://daybrite.dev/#docs`.
+
+The [`link`](./text.md) piece and [`TextBuilder::link`](https://daybrite.dev/api/day_pieces/struct.TextBuilder.html#method.link) use the same behavior. A custom
+[`.on_link()`](https://daybrite.dev/api/day_pieces/trait.LabelBuilder.html#tymethod.on_link) receives the original target and overrides both navigation and external opening.
+Call [`open_link(target)`](https://daybrite.dev/api/day_pieces/fn.open_link.html) from the handler to use the default for targets you do not handle.
+The route must belong to a registered navigation surface; a separate Settings window, for
+example, needs an app handler that calls [`day::open_preferences()`](https://daybrite.dev/api/day/fn.open_preferences.html).
+
+Activation is `Cap::TextLinks`, which is narrower than run rendering. Where it is missing the
+link still draws; the tap does nothing. See [platform support](#toolkit-implementations) for the
+per-toolkit table.
+
+### Escaping user text
+
+[`.markdown()`](https://daybrite.dev/api/day_pieces/trait.LabelBuilder.html#tymethod.markdown) on a string a user supplied means their asterisks become emphasis. When the text is
+data rather than markup, leave the modifier off — a plain label never interprets anything.
 
 ## What `Cap` answers
 
-`Cap::TextRuns` and `Cap::TextLinks` are Native on all eight toolkits (AppKit, GTK, Qt,
+`Cap::TextRuns` and `Cap::TextLinks` are Native on all toolkits (AppKit, GTK, Qt,
 UIKit, Android, WinUI, ArkUI and Web).
 
 ## Platform guidance

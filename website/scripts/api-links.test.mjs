@@ -55,3 +55,16 @@ test('API links keep heading anchors and text without adding indicators', async 
   assert.doesNotMatch(result.code, /api-link-mark/);
   assert.doesNotMatch(result.code, />API</);
 });
+
+test('versioned external API links receive the same styling without changing their destination', () => {
+  const href = 'https://docs.rs/day-piece-webview/0.4.4/day_piece_webview/struct.JsHandle.html#method.eval';
+  const node = link(href);
+  apiLinks()(node);
+  assert.equal(node.properties.href, href);
+  assert.deepEqual(node.properties.className, ['api-link']);
+  for (const href of ['https://docs.rs/about', 'https://docs.rs.example.com/a/1/a/fn.eval.html']) {
+    const node = link(href), before = structuredClone(node);
+    apiLinks()(node);
+    assert.deepEqual(node, before);
+  }
+});

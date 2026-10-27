@@ -63,7 +63,7 @@ list and tree rows follow their owning view's window. A dismissing cover no long
 precedence over the primary window. Keep ids unique within each window.
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
-[example messages](snippet-catalog.md) and [catalog setup](/docs/how-to/localization).
+[example messages](/docs/reference/localization#reference-example-messages) and [catalog setup](/docs/how-to/localization).
 
 ## Titles: what the platform manages windows by
 
@@ -407,124 +407,38 @@ The tag is on the window title only. The macOS App menu, the About panel and the
 read the app's *name*, so [`launch_with`](https://daybrite.dev/api/day_core/fn.launch_with.html) pins [`WindowOptions::app_name`](https://daybrite.dev/api/day_spec/struct.WindowOptions.html#method.app_name) to the undecorated title
 before tagging; an app that sets only [`title`](https://daybrite.dev/api/day_spec/struct.WindowOptions.html#method.title) still shows "Day News" in its App menu.
 
-## dayscript
+## Toolkit implementations
 
-```yaml
-- menu: { key: day_preferences }                       # invoke a menu action (menus.md)
-- wait_for: { id: prefs_title }                        # global lookup; focused window wins duplicates
-- screenshot: { name: prefs, window: day.preferences } # capture a window by its open key
-- close_window: { window: day.preferences }            # async confirm → teardown, like the title bar
-- close_window: {}                                     # the initial window: the app ends (close policy above; GTK today)
-- expect_exit: { within: 20 }                          # …so the run waits for that instead of stopping the app
-```
+| Toolkit | Additional windows |
+| --- | --- |
+| AppKit | Native windows, including macOS window tabs. |
+| GTK | Native application windows. Preferences and About normally use dialogs over the active window; on macOS they use separate windows. |
+| Qt | Native windows. |
+| WinUI | Native windows; check keyboard accelerators in secondary windows. |
+| UIKit | Native scenes on supported iPads; a cover on iPhone. Register a new-window builder to supply content for scenes opened by the OS. |
+| Android | Document-style activities; Preferences uses a cover. |
+| ArkUI | Additional abilities when the host registers the launchers; Preferences uses a cover. |
+| Web | Covers within the app page. |
 
-`screenshot.window` resolves the key through the registry; on the cover tier it captures the
-primary window, whose fullscreen cover is the content, so the same pixels come back with no
-special case. (WinUI
-currently also answers the primary for per-window captures, a noted follow-up.)
-
-## The Toolkit duties (toolkits)
-
-[`Toolkit::open_window(id, options, kind) -> WindowOpenReply<Handle>`](https://daybrite.dev/api/day_spec/trait.Toolkit.html#method.open_window) creates and shows the
-native window, wires its events to `id` (`WindowResized` in content points, `WindowClosed`
-after the platform committed the close, `WindowFocused` on key changes), and answers the
-content container handle, the same contract as `ready`'s root.
-
-**`WindowResized` must carry `id`, not the primary's node.** It is what re-buckets that window's
-size class ([docs/size-classes](size-classes.md)), so a toolkit that reports every window's
-geometry against the primary re-lays-out the wrong window, which is what day-toolkit-uikit's holder view
-did, invisibly, until iPadOS made two windows at two sizes an ordinary thing. day-core relayouts
-*and* re-buckets on receipt, so a secondary window dragged from narrow to wide re-presents its
-navigation exactly as the primary does. Toolkits whose window
-creation is asynchronous (a scene, an activity, an ability) answer `Pending` and complete
-later through [`day_core::finish_window_open(id, raw, size)`](https://daybrite.dev/api/day_core/windows/fn.finish_window_open.html), the type-erased `RawHandle`
-adoption path list cells use; day-core parks the record (build deferred) and a close before
-completion cancels it ([`finish_window_open`](https://daybrite.dev/api/day_core/windows/fn.finish_window_open.html) answers `false`; the toolkit drops its window).
-**A window the platform opens by itself takes the same path in reverse.** iPadOS 26 offers
-Window ▸ New Window for any app that supports multiple scenes, an app icon dragged into Split
-View connects a scene, and a relaunch reconnects the sessions from the previous run — none of
-them carry the node id a [`Toolkit::open_window`](https://daybrite.dev/api/day_spec/trait.Toolkit.html#method.open_window) request does. day-toolkit-uikit builds the window and
-then calls [`day_core::open_new_window()`](https://daybrite.dev/api/day_core/windows/fn.open_new_window.html), so the content is whatever the app registered with
-[`register_new_window`](#new-window--the-macos-window-menu), the same builder behind File ▸ New Window on
-desktop; an app that registered none has nothing to put in the window, and the toolkit hands the
-scene back. Until 2026-09 those scenes were destroyed on sight, which is what made the system's
-New Window flash a window and lose it.
-
-[`apply_window(host, change)`](https://daybrite.dev/api/day_spec/trait.Toolkit.html#method.apply_window) carries every window property above, one `WindowChange` at a time,
-for any window including the first (its root container is its host). A state change the platform
-completes is reported back as `Event::WindowStateChanged`; a state the toolkit cannot reach is
-reported as the state the window is in, so the signal settles. [`window_frame(host)`](https://daybrite.dev/api/day_spec/trait.Toolkit.html#method.window_frame) and
-[`monitors()`](https://daybrite.dev/api/day_spec/trait.Toolkit.html#method.monitors) answer queries, and [`set_keep_running`](https://daybrite.dev/api/day_spec/trait.Toolkit.html#method.set_keep_running) tells a desktop toolkit to report its first
-window's close like any other instead of ending the app itself.
-
-[`close_window`](https://daybrite.dev/api/day_spec/trait.Toolkit.html#method.close_window)/[`focus_window`](https://daybrite.dev/api/day_spec/trait.Toolkit.html#method.focus_window)/[`set_window_title`](https://daybrite.dev/api/day_spec/trait.Toolkit.html#method.set_window_title)/[`snapshot_window_of`](https://daybrite.dev/api/day_spec/trait.Toolkit.html#method.snapshot_window_of) round out the duties;
-day-core releases the content handle after teardown, which is each toolkit's signal to
-destroy the native window (Qt/WinUI defer destruction to exactly this point so child-widget
-releases stay sound).
-
-| Toolkit | Tier | Mechanism |
-|---|---|---|
-| AppKit | Native | per-window [`NSWindow`](https://developer.apple.com/documentation/appkit/nswindow) + delegate (retained; windows are not released-when-closed); tabbing groups; Window menu |
-| GTK | Native | additional [`AdwApplicationWindow`](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/class.ApplicationWindow.html)s on the shared [`GtkApplication`](https://docs.gtk.org/gtk4/class.Application.html); app-level active-state debounced across windows. The panel kinds are dialogs, not windows: `Preferences` presents as an [`AdwPreferencesDialog`](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/class.PreferencesDialog.html) and `About` as an [`AdwDialog`](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/class.Dialog.html) with a header bar, over the active app window (a floating sheet in a wide window, a bottom sheet in a narrow one, Escape closes). The record keeps the window contract — [`close_window`](https://daybrite.dev/api/day_spec/trait.Toolkit.html#method.close_window) is `adw_dialog_close` and the dialog's `closed` signal is the `WindowClosed` confirm, [`focus_window`](https://daybrite.dev/api/day_spec/trait.Toolkit.html#method.focus_window) presents it again, [`set_window_title`](https://daybrite.dev/api/day_spec/trait.Toolkit.html#method.set_window_title) is its title, [`fit_window`](https://daybrite.dev/api/day_spec/trait.Toolkit.html#method.fit_window) is its content width and height, [`snapshot_window_of`](https://daybrite.dev/api/day_spec/trait.Toolkit.html#method.snapshot_window_of) renders its sheet, and [`apply_window`](https://daybrite.dev/api/day_spec/trait.Toolkit.html#method.apply_window) is ignored. A panel opened before any window exists is a window as before. On macOS the panel is always a window of its own (the same [`AdwPreferencesDialog`](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/class.PreferencesDialog.html), presented without a parent): that is where a Mac keeps Preferences, and a piece's Cocoa view in the GTK window's content view (day-piece-webview's [`WKWebView`](https://developer.apple.com/documentation/webkit/wkwebview)) draws above everything GTK draws there, so an in-window sheet could be covered whenever such a view is up. Alert dialogs stay in their window unless such a view would cover them, in which case they too present as windows. |
-| Qt | Native | shim `DayWindow` carrying its node id; explicit quit policy (`quitOnLastWindowClosed(false)`) |
-| WinUI | Native (CI-verified) | second Win32 host + its own `DesktopWindowXamlSource` island; accelerators in secondary islands are a noted v1 limit |
-| iOS | Native on iPad ([`UIScene`](https://developer.apple.com/documentation/uikit/uiscene) request/connect; the whole toolkit runs the scene lifecycle, and a scene the system opens on its own is filled from [`register_new_window`](https://daybrite.dev/api/day_core/windows/fn.register_new_window.html)) | iPhone answers Unsupported → cover; iPad runtime check pends a `day launch` device flag |
-| Android | Native | document-style `DayWindowActivity` per window (own recents entry; split-screen/freeform); `Preferences` → cover |
-| HarmonyOS | Native (when the ArkTS host registers the launchers) | multiton `DayWindowAbility` per window; `Preferences` → cover. Pre-existing toolkit quirk: presented covers pass asserts and receive taps but device captures show the page beneath (affects the cover piece identically — follow-up) |
-| web | Unsupported → cover fallback | a second browser window cannot share the wasm instance |
-| mock | Native | recorded windows + synthesized confirms; the e2e suite that pins the window duties |
+On macOS with GTK, native embedded views can cover an in-window dialog. Day presents affected
+alerts in separate windows. On HarmonyOS, check covers with actual device captures; interaction
+and capture behavior can differ.
 
 ## Document-window tabs
 
-[`document_tabs`](https://daybrite.dev/api/day_pieces/fn.document_tabs.html) can move resident documents into OS window groups on AppKit and macOS Qt.
-[`Toolkit::group_windows`](https://daybrite.dev/api/day_spec/trait.Toolkit.html#method.group_windows) explicitly groups and orders the supplied window handles, independently
-of the user's automatic-tabbing preference. [`window_tab_order(host)`](https://daybrite.dev/api/day_spec/trait.Toolkit.html#method.window_tab_order) returns known root `NodeId`s
-in native group order, or an empty vector where unsupported. GTK uses [AdwTabView](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/class.TabView.html) on every platform;
-it does not rewrite GDK's [NSWindow](https://developer.apple.com/documentation/appkit/nswindow) style mask or hide its title bar to create OS tabs.
+[`document_tabs`](https://daybrite.dev/api/day_pieces/fn.document_tabs.html) can present resident
+documents in OS window groups on AppKit and macOS Qt. GTK uses
+[AdwTabView](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/class.TabView.html).
+Document content retains its reactive state when moved between presentations.
 
-Each presentation window is registered with day-core for layout, focus, size, and close events.
-[`TreeOps::reparent`](https://daybrite.dev/api/day_core/trait.TreeOps.html#tymethod.reparent) moves the existing content subtree without disposing its scope or handles;
-it rejects dead nodes, cycles, and window roots. [`WindowHandle::set_content_scope`](https://daybrite.dev/api/day_core/windows/struct.WindowHandle.html#method.set_content_scope) directs focused
-ambient and command lookup to the retained document. A mutable `DocumentWindow` context moves
-its toolbar contributions with it, including nested-navigation visibility gates.
+Native activation selects the document. Native order changes are observed on focus and close
+events; a reorder that emits neither is reflected at the next such event.
 
-AppKit initializes each secondary window's content coordinates below its title/toolbar before
-mounting the document. Grouping windows updates that offset for the native tab strip and reports
-the resulting usable size to Day, even when AppKit sends no resize notification. Overlay windows
-retain their full content coordinates and report the chrome inset as safe area instead. The
-`native_document_layout` test checks initial and grouped window geometry.
-
-Native activation selects the document without echoing a focus request to the toolkit. Order is
-read on focus, close request, and completed close. Each detached group's order is merged into its
-existing positions in `TabSet`; observation does not merge detached groups back together. There
-is no polling timer or frame-clock subscription. A native reorder that emits no focus/close event
-is reflected at the next such event.
-
-[`WindowHandle::on_close_request`](https://daybrite.dev/api/day_core/windows/struct.WindowHandle.html#method.on_close_request) defers a native close to the document owner. The owner can keep
-the key while asking about unsaved edits; accepted removal calls [`TabSet::close`](https://daybrite.dev/api/day_pieces/struct.TabSet.html#method.close). Programmatic
-[`WindowHandle::close()`](https://daybrite.dev/api/day_core/windows/struct.WindowHandle.html#method.close) bypasses the request hook. Switching to composed presentation first moves
-content home, then closes the empty presentation windows, so closure cannot dispose the documents.
-The initial host becomes visible again when the collection is empty or composed mode is selected.
-A dedicated browser/document shell can opt into [`.hide_when_empty(true)`](https://daybrite.dev/api/day_pieces/struct.DocumentTabs.html#method.hide_when_empty): its host stays hidden
-with no documents in either presentation, and becomes visible again when a document opens in
-composed mode. The host scope remains alive; the app supplies New Window/New Tab commands rather
-than inserting a replacement document on close. This option currently controls OS-window-tab
-hosts (AppKit and macOS Qt); other toolkits retain their ordinary in-window behavior.
-
-Focused ambient lookup is reactive: window activation, content-scope assignment and window
-removal invalidate menu builders that read [`focused_environment`](https://daybrite.dev/api/day_pieces/fn.focused_environment.html)/[`Ambient::focused`](https://daybrite.dev/api/day_core/trait.Ambient.html#method.focused), so enabled
-states and captured actions follow the front document even when its selected tab is unchanged.
-Explicit [`WindowHandle::focus()`](https://daybrite.dev/api/day_core/windows/struct.WindowHandle.html#method.focus) also updates command routing immediately: an inactive AppKit
-application may accept activation without emitting a key-window notification. Native focus
-notifications still reconcile the registry when the user changes windows.
-
-Qt's macOS bridge is in `crates/day-platform-macos`. Its delegate proxy forwards toolkit-owned
-methods, retains the original delegate, and restores it at unregister. When necessary it supplies
-an NSWindowController for the native add-tab action. day-core stays platform-independent.
-
-This API does not change Preferences presentation: desktop Preferences use a separate singleton
-window, while mobile Preferences remain an in-app cover, including on iPad. See the
-[navigation contract](navigation.md#document-tabs) for keys, close handlers, and regression tests.
+[`WindowHandle::on_close_request`](https://daybrite.dev/api/day_core/windows/struct.WindowHandle.html#method.on_close_request)
+lets the owner ask about unsaved edits before removing a document. Programmatic
+[`WindowHandle::close()`](https://daybrite.dev/api/day_core/windows/struct.WindowHandle.html#method.close)
+bypasses that request hook. See [Navigation](/docs/reference/navigation#document-tabs) for the
+document-tab declaration and state model.
 
 ## Platform guidance
 

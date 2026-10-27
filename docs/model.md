@@ -9,7 +9,7 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-# The observable model (`day-model`) — normative
+# Observable models
 
 `day-model` is a store whose writes wake only the readers of the field that changed. With one
 `Signal<Vec<Item>>`, every observer re-runs when any field of any element changes; [`bind`](https://daybrite.dev/api/day_reactive/fn.bind.html)'s
@@ -18,10 +18,13 @@ re-run and re-clone on every keystroke, and the waste grows with the list. Here 
 (element, field) is its own dependency node: editing one item's name re-runs one closure instead
 of every row's.
 
-Enable it with the `day` facade's `model` feature:
+## Add to your app
+
+Enable the `model` feature on your existing Day dependency:
 
 ```toml
-day = { package = "day-app", version = "0.2", features = ["model"] }
+[dependencies]
+day = { package = "day-app", version = "0.6", features = ["model"] }
 ```
 
 `use day::prelude::*` then brings `Store`, `Keyed`, `Elem`, `Field`, `Source`, the

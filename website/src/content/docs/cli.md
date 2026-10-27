@@ -543,7 +543,7 @@ packaged size are printed at the end.
 day doctor verify                                   # every target this machine can build
 day doctor verify -t ios-uikit,macos-appkit         # only these
 day doctor verify --no-pack --profile release       # stop after the build; use the release profile
-day doctor verify --day-version 0.2.0               # check that release, not the CLI you have
+day doctor verify --day-version 0.6.1               # check that release, not the CLI you have
 ```
 
 Run it with no arguments and a target whose prerequisites are missing is skipped, with the same fix
@@ -564,7 +564,7 @@ other:
 
 ```bash
 day doctor verify --day-version main       # the main branch on GitHub
-day doctor verify --day-version 0.2.0      # that release
+day doctor verify --day-version 0.6.1      # that release
 day doctor verify --day-version latest     # the newest release on crates.io
 day doctor verify --day-version a1b2c3d    # that commit
 ```
@@ -575,11 +575,11 @@ temporary directory (`cargo install`), so nothing on your PATH changes. The same
 
 ```bash
 day new app my-app --day-version main       # day = { package = "day-app", git = "…", branch = "main" }
-day new app my-app --day-version 0.2.0      # day = { package = "day-app", git = "…", tag = "v0.2.0" }
+day new app my-app --day-version 0.6.1      # day = { package = "day-app", version = "0.6.1" }
 ```
 
-A release pins the matching `vX.Y.Z` git tag today, because the framework crates aren't on
-crates.io yet; with `--registry` it pins the crates.io version instead.
+A release selects the matching crates.io version. Add `--git` to select its `vX.Y.Z` Git tag
+instead. A branch or commit selects the Git source automatically.
 
 ## The conventional project
 

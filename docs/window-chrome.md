@@ -45,7 +45,7 @@ cannot open presents as a cover inside the first one ([docs/windows](windows.md)
 right splash on a phone.
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
-[example messages](snippet-catalog.md) and [catalog setup](/docs/how-to/localization).
+[example messages](/docs/reference/localization#reference-example-messages) and [catalog setup](/docs/how-to/localization).
 
 ## Chrome
 

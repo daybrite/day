@@ -1,0 +1,101 @@
+[
+  {
+    "pkg": "day-part-auth",
+    "version": "0.1.0",
+    "repository": "https://github.com/daybrite/day-part-auth",
+    "guide": "/docs/reference/auth",
+    "api": "https://docs.rs/day-part-auth/0.1.0/day_part_auth/",
+    "group": "Parts",
+    "blurb": "System sign-in, OAuth, and passkeys."
+  },
+  {
+    "pkg": "day-part-speech",
+    "version": "0.4.2",
+    "repository": "https://github.com/daybrite/day-part-speech",
+    "guide": "/docs/reference/speech",
+    "api": "https://docs.rs/day-part-speech/0.4.2/day_part_speech/",
+    "group": "Parts",
+    "blurb": "Speak text with the system voice."
+  },
+  {
+    "pkg": "day-part-zeroconf",
+    "version": "0.1.0",
+    "repository": "https://github.com/daybrite/day-part-zeroconf",
+    "guide": "/docs/reference/zeroconf",
+    "api": "https://docs.rs/day-part-zeroconf/0.1.0/day_part_zeroconf/",
+    "group": "Parts",
+    "blurb": "Discover and advertise local network services."
+  },
+  {
+    "pkg": "day-piece-crash-reporter",
+    "version": "0.1.0",
+    "repository": "https://github.com/daybrite/day-piece-break",
+    "guide": "/docs/reference/break",
+    "api": "https://docs.rs/day-piece-crash-reporter/0.1.0/day_piece_crash_reporter/",
+    "group": "Pieces",
+    "blurb": "Capture, review, and send crash reports."
+  },
+  {
+    "pkg": "day-piece-camera",
+    "version": "0.1.0",
+    "repository": "https://github.com/daybrite/day-piece-camera",
+    "guide": "/docs/reference/camera",
+    "api": "https://docs.rs/day-piece-camera/0.1.0/day_piece_camera/",
+    "group": "Pieces",
+    "blurb": "Preview the camera and capture photos."
+  },
+  {
+    "pkg": "day-piece-charts",
+    "version": "0.4.2",
+    "repository": "https://github.com/daybrite/day-piece-charts",
+    "guide": "/docs/reference/charts",
+    "api": "https://docs.rs/day-piece-charts/0.4.2/day_piece_charts/",
+    "group": "Pieces",
+    "blurb": "Reactive charts drawn with Day canvas."
+  },
+  {
+    "pkg": "day-piece-lottie",
+    "version": "0.4.4",
+    "repository": "https://github.com/daybrite/day-piece-lottie",
+    "guide": "/docs/reference/lottie",
+    "api": "https://docs.rs/day-piece-lottie/0.4.4/day_piece_lottie/",
+    "group": "Pieces",
+    "blurb": "Play bundled Lottie animations."
+  },
+  {
+    "pkg": "day-piece-media",
+    "version": "0.4.3",
+    "repository": "https://github.com/daybrite/day-piece-media",
+    "guide": "/docs/reference/media",
+    "api": "https://docs.rs/day-piece-media/0.4.3/day_piece_media/",
+    "group": "Pieces",
+    "blurb": "Native audio and video playback."
+  },
+  {
+    "pkg": "day-piece-webview",
+    "version": "0.4.4",
+    "repository": "https://github.com/daybrite/day-piece-webview",
+    "guide": "/docs/reference/webview",
+    "api": "https://docs.rs/day-piece-webview/0.4.4/day_piece_webview/",
+    "group": "Pieces",
+    "blurb": "Embed web pages and application documents."
+  },
+  {
+    "pkg": "day-piece-charts-gallery",
+    "version": "0.1.0",
+    "repository": "https://github.com/daybrite/day-piece-charts",
+    "guide": "/docs/reference/charts#examples",
+    "api": "https://docs.rs/day-piece-charts-gallery/0.1.0/day_piece_charts_gallery/",
+    "group": "Example libraries",
+    "blurb": "Reusable chart examples and export menus."
+  },
+  {
+    "pkg": "day-piece-lottie-gallery",
+    "version": "0.1.0",
+    "repository": "https://github.com/daybrite/day-piece-lottie",
+    "guide": "/docs/reference/lottie#examples",
+    "api": "https://docs.rs/day-piece-lottie-gallery/0.1.0/day_piece_lottie_gallery/",
+    "group": "Example libraries",
+    "blurb": "Reusable animation examples with bundled assets."
+  }
+]

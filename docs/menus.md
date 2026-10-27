@@ -30,7 +30,7 @@ For an operation shared across surfaces, use a [reusable `Command`](commands.md)
 title, availability, optional check state, icon, shortcut, and handler once.
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
-[example messages](snippet-catalog.md) and [catalog setup](/docs/how-to/localization).
+[example messages](/docs/reference/localization#reference-example-messages) and [catalog setup](/docs/how-to/localization).
 
 ## Building a menu
 
@@ -509,23 +509,6 @@ and the durable Preferences/New Window dispatch ids always survive.
 its own settings before the page sees it) without any menu code in the app, and macOS also auto-installs the standard
 Window menu. The mechanics (injection into an installed menu, role rewiring, and the
 [`register_new_window`](https://daybrite.dev/api/day_core/windows/fn.register_new_window.html) builder) are described in [docs/windows](windows.md).
-
-## Driving menus from dayscript
-
-`menu: { id: "view_grid" }` invokes the item the app NAMED with [`.id`](https://daybrite.dev/api/day_pieces/struct.MenuEntry.html#method.id). Prefer
-it to everything below: it is the only address that survives a locale change or a moving check mark,
-and it never falls back to matching a label, so a step naming an id that is not in the menu fails
-instead of quietly hitting some other item that reads the same.
-
-`menu: { item: "Save" }` invokes a unique app-menu action by exact label;
-`menu: { key: menu_save }` resolves a Fluent key in the run's locale first (locale-portable:
-app keys and the `day_*` role keys both work, so the auto Preferences item is
-`key: day_preferences`, with or without an installed app menu). `path: [File]`
-disambiguates by ancestor submenu: each entry matches a submenu's literal label or its
-Fluent key resolved in the run's locale, so `path: [menu_file]` works wherever
-`key: menu_file` does and one script stays valid in every language. The step dispatches the
-registered day action directly (toolkit-uniform, no native menu automation), so role-only
-items that run a native selector (Cut, Quit, …) are not invokable this way.
 
 ## Dynamic context menus
 

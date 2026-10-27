@@ -112,7 +112,7 @@ decoded bytes: [`Drawing::record`](https://daybrite.dev/api/day_pieces/struct.Dr
 toolkit's own canvas painter and returns a handle in the same table, so everything on this page
 applies to it, encoding included ([canvas](canvas.md#exporting)).
 
-## What each toolkit can and cannot do
+## Toolkit support
 
 Platform guidance: [Apple: images](https://developer.apple.com/design/human-interface-guidelines/images); [Android: drawables](https://developer.android.com/develop/ui/views/graphics/drawables).
 
@@ -125,7 +125,7 @@ Everything above works on every toolkit except where noted.
 | **macos-gtk**, **linux-gtk** | whatever gdk-pixbuf's loaders read | PNG, JPEG, TIFF, BMP | PNG and TIFF come from the texture's own writers; the rest through gdk-pixbuf |
 | **macos-qt**, **linux-qt** | whatever Qt's image plugins read | PNG, JPEG, TIFF, BMP | |
 | **android-material** | everything `BitmapFactory` reads | PNG, JPEG | The only toolkit that **reads** `has_alpha` rather than inferring it. WebP decodes but is not offered for encode: `WEBP_LOSSY` is API 30 and the scaffold's `minSdk` is 24 |
-| **web-dom** | whatever the engine reads | PNG, JPEG, and WebP where the engine writes it | The one toolkit where decoding **and** encoding are genuinely asynchronous. [`image_encode_formats()`](https://daybrite.dev/api/day_core/image/fn.image_encode_formats.html) asks the engine — Chromium writes WebP, WebKit does not — and an encode the engine would quietly turn into PNG is refused instead. `has_alpha` is derived from the container: an `ImageBitmap` exposes no way to ask |
+| **web-dom** | whatever the engine reads | PNG, JPEG, and WebP where the engine writes it | The one toolkit where decoding **and** encoding are asynchronous. [`image_encode_formats()`](https://daybrite.dev/api/day_core/image/fn.image_encode_formats.html) asks the engine — Chromium writes WebP, WebKit does not — and an encode the engine would quietly turn into PNG is refused instead. `has_alpha` is derived from the container: an `ImageBitmap` exposes no way to ask |
 | **harmony-arkui** | whatever the image framework reads | PNG, JPEG | `EncodeSpec::fit` is ignored: `OH_PixelmapNative_Scale` rescales in place, and fitting would resize the very bitmap every later draw shares |
 | **windows-winui** | whatever WIC reads | PNG | Win2D canvas bitmaps and WIC PNG encoding, with transparency and optional fit/downscaling. Image dimensions are read from the container header |
 | **mock** | a synthetic answer per format | PNG, JPEG | Deterministic sizes a test can predict, in the spirit of its synthetic text metrics |
@@ -210,17 +210,3 @@ Who keeps a decode alive:
 A handle that outlives its tree releases nothing, because there is no toolkit left to tell. That
 only arises when a tree is torn down while bitmaps are still alive — [`uninstall_tree`](https://daybrite.dev/api/day_core/fn.uninstall_tree.html) in tests,
 not an app, which exits the process instead.
-
-### Image handles during thread shutdown
-
-A `Bitmap` can outlive the core tree or the platform bitmap registry when thread-local
-state is destroyed (notably AppKit's normal Quit path). Its final release must tolerate
-both orders: core treats an inaccessible TLS root as an absent tree, and AppKit, GTK,
-and Qt skip removal when their toolkit registry is unavailable. GTK and AppKit have
-already released their native images; Qt leaves final cleanup to its C++ registry
-and avoids calling into that registry after toolkit TLS teardown has begun.
-Live registries still remove images normally; deferred release while the tree is borrowed
-is unchanged. This does not suppress panics or leak the registry to avoid destruction.
-Subprocess regressions in `day-core::image::teardown_tests` and
-the `bitmap_teardown_tests` modules in `day-toolkit-appkit`, `day-toolkit-gtk`, and `day-toolkit-qt` exercise
-late release when each TLS owner is unavailable.

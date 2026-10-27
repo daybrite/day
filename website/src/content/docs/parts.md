@@ -16,7 +16,7 @@ sensors. It provides a shared Rust API with an implementation selected at compil
 the target operating system. Parts are Cargo dependencies and require no runtime plugin registry.
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
-[example messages](/docs/reference/examples/catalog) and [catalog setup](/docs/how-to/localization).
+[example messages](/docs/reference/localization#reference-example-messages) and [catalog setup](/docs/how-to/localization).
 
 ## The catalog
 
@@ -38,8 +38,9 @@ The UI snippets use generated `res::str` accessors from an app's Fluent catalog;
 | [`day-part-haptics`](/docs/reference/haptics) | haptic feedback | [haptics](/docs/reference/haptics) |
 | [`day-part-sound`](/docs/reference/sound) | sound effects | [sound](/docs/reference/sound) |
 | [`day-part-wakelock`](/docs/reference/wakelock) | keeping the screen on | [wakelock](/docs/reference/wakelock) |
-| `day-part-speech` | text to speech through each platform's speech API; in a separate repository | [day-part-speech](https://github.com/daybrite/day-part-speech) |
-| [`day-part-auth`](/docs/reference/auth) | experimental account sign-in and native credential requests; separate checkout required | [sign-in and passkeys](/docs/reference/auth) |
+| [`day-part-speech`](/docs/reference/speech) | text to speech through the system voice | [speech](/docs/reference/speech) |
+| [`day-part-zeroconf`](/docs/reference/zeroconf) | discover and advertise local network services | [service discovery](/docs/reference/zeroconf) |
+| [`day-part-auth`](/docs/reference/auth) | experimental account sign-in and native credential requests | [sign-in and passkeys](/docs/reference/auth) |
 
 ## Select an API by its completion model
 
@@ -78,5 +79,6 @@ additional app-facing Part interface.
 
 Source review: [part crates](https://github.com/daybrite/day/tree/main/crates) and
 [facade feature gates](https://github.com/daybrite/day/blob/main/crates/day/Cargo.toml), 2026-10-22.
-The speech part is an external project; consult its repository for current compatibility.
+All catalog entries are available as Cargo dependencies. Guides include setup, platform limits,
+and links to their API reference.
 The [sign-in reference](/docs/reference/auth) describes the auth part's setup and current limitations.

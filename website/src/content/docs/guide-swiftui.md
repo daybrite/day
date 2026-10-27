@@ -100,7 +100,7 @@ and built inside the same xcodebuild run.
 
 The room name and formatted temperature come from the app's Fluent catalog. The Swift view
 receives the translated text; it does not assemble a second message in Swift. Add `living_room`
-and `temperature_celsius` from the [example catalog](/docs/reference/examples/catalog).
+and `temperature_celsius` from the [example catalog](/docs/reference/localization#reference-example-messages).
 
 ## 3. Call it
 

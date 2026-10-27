@@ -19,7 +19,7 @@ If you want to try it, [create your first app](/docs/tutorials/first-app). If yo
 framework, read [Is Day a good fit?](/features) and check [platform support](/docs/reference/platforms).
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
-[example messages](/docs/reference/examples/catalog) and [catalog setup](/docs/how-to/localization).
+[example messages](/docs/reference/localization#reference-example-messages) and [catalog setup](/docs/how-to/localization).
 
 ## What an interface looks like
 

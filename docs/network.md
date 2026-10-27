@@ -17,8 +17,7 @@ Show whether the device has a network connection and what kind it is, such as Wi
 
 ## Add to your app
 
-Defined in [`day-part-connectivity`](https://github.com/daybrite/day/tree/main/crates/day-part-connectivity). Add this to your app’s `Cargo.toml`
-`[dependencies]` table, at the same Day version as the rest of your app:
+Add [`day-part-connectivity`](https://github.com/daybrite/day/tree/main/crates/day-part-connectivity) to your app’s Cargo dependencies, using the same Day version as the rest of your app:
 
 ```toml
 [dependencies]
@@ -50,7 +49,7 @@ There are no crate features; platform selection is purely `#[cfg(target_os)]`, b
 an OS concern rather than a widget-toolkit one. `crates/day-part-connectivity/examples/network.rs` is a plain
 `main` that uses it with no Day framework at all.
 
-## Per-platform native realization
+## Platform implementations
 
 Platform guidance: [Android: network operations](https://developer.android.com/develop/connectivity/network-ops); [Apple: URL loading system](https://developer.apple.com/documentation/foundation/url-loading-system).
 
@@ -98,7 +97,7 @@ is a v2 follow-up.
 Connectivity says whether traffic *could* flow; to actually move bytes through the platform's HTTP
 stack (proxies, VPN, platform TLS), see its sibling part [`day-part-http`](http.md).
 
-## What it shows about the extension system
+## Extension integration
 
 Like [`day-part-device`](/docs/reference/battery), this is a headless external crate: it has no UI Piece and registers nothing
 into any toolkit's `RENDERERS` slice. It additionally exercises the **manifest-permission overlay**

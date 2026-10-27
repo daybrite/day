@@ -21,7 +21,7 @@ canvas(move |d, _| d.fill(Shape::Rect(Rect::new(0.0, 0.0, 40.0, height.get())), 
 ```
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
-[example messages](snippet-catalog.md) and [catalog setup](/docs/how-to/localization).
+[example messages](/docs/reference/localization#reference-example-messages) and [catalog setup](/docs/how-to/localization).
 
 ## Lerp
 

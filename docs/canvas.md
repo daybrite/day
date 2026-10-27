@@ -34,10 +34,10 @@ a complete interactive example with trails, impact particles, pause/resume, and 
 For transitions between two states (a value, a rect, a color, a whole chart), `day::tween`
 supplies the interpolation, the timing and the frame-driven driver ([tween](tween.md)).
 
-Text samples use generated Fluent accessors; see the [example catalog](snippet-catalog.md)
+Text samples use generated Fluent accessors; see the [example catalog](/docs/reference/localization#reference-example-messages)
 and [localization setup](/docs/how-to/localization).
 
-## The vocabulary
+## API
 
 | Op | What it does |
 | --- | --- |
@@ -115,7 +115,7 @@ The whole SVG 1.1 grammar is accepted: relative commands, `H`/`V`, the smooth fo
 elliptical arcs, implicit command repetition, and SVG's number syntax (`1e2`, `.5.5`, `10-5`).
 Malformed data is a compile error naming the offending character. Arcs are converted to cubics by
 the macro, because an arc is the one SVG command with no counterpart in the 2-D APIs Day draws
-through; converting once at build time is cheaper than converting in nine toolkits at draw time.
+through; converting once at build time is cheaper than converting separately in each toolkit at draw time.
 
 ## Rounded corners
 
@@ -149,8 +149,7 @@ d.stroke_styled(path, LinearGradient::horizontal(RUST, SKY), StrokeStyle::round(
 ```
 
 The default cap is `Butt` and the default join is `Miter`, matching PDF, SVG and every native 2-D
-API. AppKit, Qt and Android used to force round caps on every canvas stroke; they now honor the
-style, so a line that wants round ends has to ask for it.
+API. Request round caps explicitly for lines with rounded ends.
 
 ## Clipping
 
@@ -158,7 +157,7 @@ style, so a line that wants round ends has to ask for it.
 native 2-D context works this way, so there is no "unclip". [`clipped(shape, f)`](https://daybrite.dev/api/day_pieces/struct.Draw.html#method.clipped) wraps the
 save/clip/restore for you.
 
-## What each toolkit can and cannot do
+## Toolkit support
 
 Platform guidance: [Apple: Core Graphics](https://developer.apple.com/documentation/coregraphics); [Qt: painting](https://doc.qt.io/qt-6/paintsystem.html).
 
@@ -246,12 +245,8 @@ Top, Middle and Bottom are edges of the **line box** — the ascent-plus-descent
 from [`measure_text`](https://daybrite.dev/api/day_core/fn.measure_text.html) gets a frame that hugs what is drawn on every toolkit, and
 `TextVAlign::Baseline` is `at.y + metrics.ascent` below `Top`.
 
-**Let the anchor do it rather than measuring.** Right-aligning a label by measuring it and
-subtracting the width costs a [`measure_text`](https://daybrite.dev/api/day_core/fn.measure_text.html) call per label, and the toolkit is about to lay the
-same text out anyway. `day-piece-charts` drew every y-axis label that way until `Trailing`
-existed; the measurement per label is now gone. (Measuring is memoized —
-[docs/fonts](fonts.md#it-is-cached) — so the repeat is cheap; it is still work that the anchor
-does for free and more accurately.)
+Use a trailing text anchor for right-aligned labels. It aligns the text without a separate
+measurement and subtraction at each call site.
 
 (Before fonts arrived, gtk, qt, android, arkui and Web put a `Leading` anchor on the baseline
 instead; a caller that compensated for that with an offset can drop it.)
@@ -302,7 +297,7 @@ For chart selection, handle [`on_tap_at`](https://daybrite.dev/api/day_pieces/tr
 | android | ✓ (pointer) | `setOnHoverListener` — a mouse or a stylus. A finger generates no `HOVER_*` action at all |
 | arkui | — | the C node API's `NODE_ON_HOVER` carries no coordinates, and the contract is a point |
 
-The three toolkits that gate on device type all do it for the same reason: the platform reports a
+The toolkits that gate on device type all do it for the same reason: the platform reports a
 touch contact through the *same* enter/move/exit events, and passing those through would make every
 tap look like a hover.
 
@@ -340,7 +335,7 @@ pans), [`GtkGestureZoom`](https://docs.gtk.org/gtk4/class.GestureZoom.html) and 
 on Qt, and pinch plus a two-finger pan recognizer on iOS; one-finger drags still go to
 [`.on_drag`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.on_drag), so selection and panning coexist. DOM also delivers wheel pans (Changed phase,
 with negative browser wheel deltas to express content displacement). Android delivers horizontal
-pointer-wheel pans. Pinch remains unavailable on those two toolkits.
+pointer-wheel pans. Pinch remains unavailable on those toolkits.
 
 On AppKit, GTK, Qt and DOM, a non-canvas container with [`.on_pan`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.on_pan) receives horizontal wheel
 movement over its descendants, while vertical scrolling keeps its native behavior. Android
@@ -479,19 +474,7 @@ op count is stable and small. Two ways to keep it that way:
   (about 250 ops for a year of daily closes, every corner unjoined) to a single path op.
 - **One stamp over many identical marks** — see [Stamping](#stamping) above.
 
-### Geometry is decoded once, not once a frame
+### Reuse geometry
 
-A path and a polygon are the only shapes whose geometry does not fit the record's own slots: they
-ride a side channel, as text on the serializing toolkits and as a length-prefixed run on the web.
-Decoding that — parsing every segment into an [`android.graphics.Path`](https://developer.android.com/reference/android/graphics/Path), a [`QPainterPath`](https://doc.qt.io/qt-6/qpainterpath.html), a
-`Path2D` — used to happen on every frame, for drawings that had not moved.
-
-Each of those records now carries a **content key**, and toolkits keep the geometry they decoded
-under it. The key is a hash of the geometry itself, never of the op's position or identity, which
-is what makes it work for the way canvases are actually written: a draw closure that rebuilds its
-`PathBuilder` chain from scratch every frame produces an equal path, so it keys the same and the
-decoded geometry is reused. Nothing is asked of the caller — there is no cached path type to hold
-on to, and no handle to thread through a draw closure.
-
-Toolkits are free to ignore it: a key of `0` means "none offered", and a decoder that does not
-know the slot decodes the payload exactly as it did before.
+Keep paths and polygons stable when their geometry has not changed. Toolkits cache decoded
+geometry, so animating a transform can reuse a path instead of rebuilding its segments.

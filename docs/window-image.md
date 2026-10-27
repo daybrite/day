@@ -41,7 +41,7 @@ button(res::str::screenshot()).action(move || {
 ```
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
-[example messages](snippet-catalog.md) and [catalog setup](/docs/how-to/localization).
+[example messages](/docs/reference/localization#reference-example-messages) and [catalog setup](/docs/how-to/localization).
 
 ## What lands in the image
 
@@ -61,10 +61,9 @@ day::window_image().chrome().capture()?
 | Windows, Qt | the window, already including in-window chrome; see below | same image |
 | HarmonyOS | the window root node | same image |
 
-Two toolkits cannot separate the two. On Windows the capture is a `PrintWindow` of the top-level
-`HWND`, and on Qt a [`QWidget::grab`](https://doc.qt.io/qt-6/qwidget.html) of the top-level widget: both already contain everything drawn
-*inside* the window, and neither can reach the frame the window manager draws *outside* it. They
-answer [`chrome()`](https://daybrite.dev/api/day/struct.WindowImage.html#method.chrome) with the same image.
+On Windows and Qt, the capture already includes the chrome drawn inside the window.
+Calling [`chrome()`](https://daybrite.dev/api/day/struct.WindowImage.html#method.chrome)
+returns the same image.
 
 Nothing composited on top of the window by the system (a menu that has torn off into its own
 window, an IME candidate popup, a screen-recording indicator) is part of any capture.
@@ -77,7 +76,7 @@ window, an IME candidate popup, a screen-recording indicator) is part of any cap
 if day::window_image_support() == Support::Native { /* offer the command */ }
 ```
 
-It answers `Support::Native` on eight toolkits and `Support::Unsupported` on **Web**, where a
+It answers `Support::Unsupported` on **Web**, where a
 DOM cannot rasterize itself. Gate the UI on it (the Showcase's Screenshot menu item
 does) rather than offering a command that can only fail.
 
@@ -102,8 +101,6 @@ AppKit and UIKit in-process PNG captures use sRGB. UIKit explicitly selects an s
 with standard dynamic range, so a wide-gamut display does not change the bytes that
 `sample_pixel` compares. This converts the rendered colors; it does not relabel P3 bytes.
 External `simctl` screenshots keep their own color profile.
-
-Two of these were the second thing tried:
 
 **AppKit prefers the window server.** `cacheDisplayInRect` renders the view hierarchy the app
 drew and nothing else, so macOS's composited materials (a Liquid Glass sidebar, vibrancy)
@@ -181,7 +178,7 @@ whether every frame it owes is on screen; `screenshot` and `sample_pixel` wait w
 says no, before requesting the checkpoint, with the same 16 ms polling and the step's deadline.
 A hold is a statement about frames in flight, not about page content: a continuously
 animating host keeps a capture waiting until the step times out, which is the failure such a
-script should see. The Servo adapter of `day-piece-webview` is the first host to register one.
+script should see.
 
 `Ready` acknowledges a platform render checkpoint; it does not claim that a vsync callback
 proves physical display presentation. `OnCapture` delegates freshness to a synchronous native

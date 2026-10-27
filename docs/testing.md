@@ -21,7 +21,7 @@ page and an async body that drives it. Test names replace underscores with hyphe
 
 Use [element IDs](element-ids.md) to locate controls independently of their translated labels.
 The example below uses generated `res::str` accessors; add the
-[example messages](snippet-catalog.md) to your app's [catalog](/docs/how-to/localization).
+[example messages](/docs/reference/localization#reference-example-messages) to your app's [catalog](/docs/how-to/localization).
 
 ```rust
 use day::prelude::*;

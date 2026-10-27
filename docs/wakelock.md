@@ -17,8 +17,7 @@ phone held up. It is a headless part in `parts/`.
 
 ## Add to your app
 
-Defined in [`day-part-wakelock`](https://github.com/daybrite/day/tree/main/crates/day-part-wakelock). Add this to your app’s `Cargo.toml`
-`[dependencies]` table, at the same Day version as the rest of your app:
+Add [`day-part-wakelock`](https://github.com/daybrite/day/tree/main/crates/day-part-wakelock) to your app’s Cargo dependencies, using the same Day version as the rest of your app:
 
 ```toml
 [dependencies]
@@ -64,7 +63,7 @@ platform that cannot keep the screen on lets it sleep as usual.
 A lock keeps the screen on only while the app is in front. Every platform lets the screen sleep
 once the user switches away, and the part takes the setting back when the app returns.
 
-## Per-platform realization
+## Platform implementations
 
 Platform guidance: [Android: keeping the screen on](https://developer.android.com/develop/background-work/background-tasks/awake/screen-on).
 

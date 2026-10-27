@@ -25,7 +25,7 @@ For app examples, see [HTTP requests](/docs/how-to/guide-http) and
 cancellation, and the rules for implementing asynchronous parts.
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
-[example messages](snippet-catalog.md) and [catalog setup](/docs/how-to/localization).
+[example messages](/docs/reference/localization#reference-example-messages) and [catalog setup](/docs/how-to/localization).
 
 ## [`day::task`](https://daybrite.dev/api/day/fn.task.html) and `TaskHandle`
 
@@ -152,7 +152,7 @@ and the ready arm reads it.
 the loopback `Resource` demo, the PATCH `fetch_future` demo, and the URL checker that aborts
 its previous in-flight task on re-tap).
 
-## The policy
+## Threading rules
 
 These rules keep UI state on the main thread and let parts work without depending on a
 particular executor:
@@ -179,61 +179,12 @@ particular executor:
    callbacks that run on background threads (e.g. `fetch_async`) deliver through them;
    futures on [`day::task`](https://daybrite.dev/api/day/fn.task.html) don't need them.
 
-## Under the hood
-
-- The executor (`crates/day-core/src/present.rs`) stores boxed futures in a thread-local map;
-  waking posts a re-poll through [`day_reactive::on_main`](https://daybrite.dev/api/day_reactive/fn.on_main.html). It is std-only, ~100 lines.
-- [day-reactive](/docs/explanation/state) reaches the executor through an installed hook ([`install_spawner`](https://daybrite.dev/api/day_reactive/fn.install_spawner.html), the
-  poster/scheduler pattern) because day-core depends on [day-reactive](/docs/explanation/state), not the reverse.
-  [`day_core::launch_with`](https://daybrite.dev/api/day_core/fn.launch_with.html) wires it on every backend (including mock). The spawner returns an
-  abort closure that must be a no-op after completion: the spawner polls eagerly, so a
-  synchronously-ready fetcher finishes before `Resource` can store the abort.
-- `FetchFuture` ([docs/http](http.md)) is oneshot plumbing over `fetch_async`'s completion callback;
-  its `Drop` runs the platform cancel. It has no executor dependency; any executor can await
-  it, including a test's `block_on`.
-- `day-async` (2026-09) holds that plumbing once, std-only: [`oneshot()`](https://daybrite.dev/api/day_async/fn.oneshot.html) — a `Deliver<T>` any
-  thread may send from and a `Oneshot<T>` any executor can await, resolving to `Dropped` rather
-  than pending forever when the sender goes away — and `TokenRegistry<T>`, the
-  register-before-call, remove-by-token map behind every platform completion that crosses an
-  FFI boundary as a number. The bridge's callback tier ([docs/bridge](bridge.md) "Callbacks")
-  is its first user; the parts' hand-rolled copies migrate onto it.
-- `day-async` also owns the process's one timer thread: [`schedule(delay, job)`](https://daybrite.dev/api/day_async/fn.schedule.html) runs a job after a
-  delay and [`unschedule(id)`](https://daybrite.dev/api/day_async/fn.unschedule.html) forgets it, so a part's time limits and backoff wait there instead of
-  parking a thread each. [day-part-http](/docs/reference/http)'s total-time limits and question timeouts, and
-  [day-part-downloads](/docs/reference/downloads)' retry backoff, use it. The web has no threads, so a timer never fires there.
-  It stays separate from [`day::sleep`](https://daybrite.dev/api/day/fn.sleep.html)'s native timer because a part must work in a plain binary
-  and under `cargo test`, where no backend has installed a timer door.
-- `day-async` holds the blocking pool behind [`spawn_blocking`](https://daybrite.dev/api/day_async/fn.spawn_blocking.html) (2026-10): a `VecDeque` of jobs, a
-  `Condvar`, and threads that start on demand up to [`blocking_limit()`](https://daybrite.dev/api/day_async/fn.blocking_limit.html) and exit after two idle
-  seconds. A job is the user's closure under `catch_unwind`, delivering through a [`oneshot`](https://daybrite.dev/api/day_async/fn.oneshot.html); a
-  cancelled flag, set by the future's `Drop`, skips a job that has not started. [day-part-filesystem](/docs/reference/fs)'s
-  async operations run on it, detached. [`blocking_threads()`](https://daybrite.dev/api/day_async/fn.blocking_threads.html) reports the live count.
-- [`day::sleep`](https://daybrite.dev/api/day/fn.sleep.html) rides [`Platform::post_delayed`](https://daybrite.dev/api/day_spec/trait.Platform.html#method.post_delayed), which every backend implements with the loop's
-  own timer; the trait default (a thread that sleeps and posts) logs once when a backend without
-  one falls back to it. The conformance app's headless cases `sleep-*`,
-  `an-aborted-task-never-wakes-from-its-sleep` and `*-blocking-*` run on every toolkit in CI
-  ([docs/testing](testing.md)) and prove the timer resolves after its delay, in delay order,
-  yields on zero, and that blocking jobs leave the UI thread, resolve on it, report panics and
-  honor cancellation.
-
-## Test hooks
-
-- **day-core executor tests**: install an inline poster once
-  ([`day_reactive::install_main_poster(|f| f())`](https://daybrite.dev/api/day_reactive/fn.install_main_poster.html)) and every wake re-polls synchronously on the
-  test thread (`present.rs`'s `task_tests`).
-- **[day-reactive](/docs/explanation/state) Resource tests**: [`install_spawner`](https://daybrite.dev/api/day_reactive/fn.install_spawner.html) a miniature executor (poll-once at spawn +
-  an explicit `pump()`), and resolve hand-rolled manual futures (`resource_tests`).
-- **[day-part-http](/docs/reference/http) future tests**: a ~25-line park/unpark `block_on` (tests/http.rs). The
-  completion's wake from the delegate queue is exactly the cross-thread path production uses.
-- Missing installs fail loudly: [`on_main`](https://daybrite.dev/api/day_reactive/fn.on_main.html) and the spawner panic with "backend not started"
-  rather than dropping work.
-
-## Reading and checking these examples
+## Example setup and task lifetime
 
 The Rust blocks above are integration fragments with app-defined values and functions; they
 are not standalone apps. Use the [compiled HTTP recipe](/docs/how-to/guide-http)
-for complete imports, catalog keys, and the validation harness. `request_failed` is defined in
-that recipe's catalog; other generated messages come from [the snippet catalog](snippet-catalog.md).
+for complete imports and catalog keys. `request_failed` is defined in
+that recipe's catalog; other generated messages come from [the snippet catalog](/docs/reference/localization#reference-example-messages).
 
 [`on_main`](https://daybrite.dev/api/day_reactive/fn.on_main.html) takes a `Send + 'static` closure and requires an installed main poster. It cannot
 capture a `Signal`; pass data through a `Setter` instead. [`day::task`](https://daybrite.dev/api/day/fn.task.html) accepts a non-`Send`

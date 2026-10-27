@@ -13,11 +13,11 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 Browse examples of common controls and UI patterns. These are API fragments, not complete apps.
 Use the
 [beginner journey](/docs/tutorials/first-app) and
-[technical recipes](/docs/reference/examples/catalog#technical-recipes) for designated compiled code. They use `day::prelude::*` for the common APIs. For the underlying
+[technical recipes](https://github.com/daybrite/day/blob/main/docs/snippet-catalog.md#technical-recipes) for designated compiled code. They use `day::prelude::*` for the common APIs. For the underlying
 concepts, see [Pieces](/docs/explanation/pieces), [Reactivity](/docs/explanation/reactivity), and [Layout](/docs/explanation/layout).
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
-[example messages](/docs/reference/examples/catalog) and [catalog setup](/docs/how-to/localization).
+[example messages](/docs/reference/localization#reference-example-messages) and [catalog setup](/docs/how-to/localization).
 
 ## A first app
 

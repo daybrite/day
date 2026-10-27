@@ -50,7 +50,7 @@ day pack   --flavor custom -t android-material
 is what a CI job sets for a matrix leg.
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
-[example messages](/docs/reference/examples/catalog) and [catalog setup](/docs/how-to/localization).
+[example messages](/docs/reference/localization#reference-example-messages) and [catalog setup](/docs/how-to/localization).
 
 ## What a flavor can change
 

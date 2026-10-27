@@ -10,92 +10,34 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 */}
 
-`web-dom` is an optional Tier 3 experimental target. Day compiles the Rust app to WebAssembly
-and connects controls to DOM elements. Browser permissions and capabilities differ from the
-native desktop and mobile targets; evaluate this target separately.
+`web-dom` compiles a Day app to WebAssembly and presents controls as HTML elements. It is a
+[Tier 3 · Experimental](/docs/reference/platforms#support-tiers) target. Use the
+[Web guide](/docs/how-to/web) to build, run, test, and publish an app.
 
-> [!WARNING] Experimental ([Tier 3](/docs/reference/platforms#support-tiers))
-> Review the capabilities below before relying on the browser target. A successful native
-> app build does not validate this toolkit.
+## Requirements
 
-## Getting started
+A UI-only app needs the `wasm32-unknown-unknown` Rust target, which Day installs when missing.
+Persistence also needs a WebAssembly-capable C compiler and a host with the required response
+headers. See [System requirements](/docs/reference/system-requirements#web) and
+[Persistence](/docs/reference/persistence#the-web).
 
-The only prerequisite beyond the CLI is the wasm target.
+## Browser limitations
 
-```sh
-rustup target add wasm32-unknown-unknown
-cargo install --git https://github.com/daybrite/day day-cli
-day new app my-app --toolkit web-dom
-cd my-app
-day launch -t web-dom     # builds, serves over loopback, opens your browser
-```
+- Browser permissions, secure-context rules, and user-activation requirements apply to clipboard,
+  location, sensors, file pickers, and fullscreen requests.
+- Additional app windows use covers within the page. Desktop window placement and content
+  protection are unavailable.
+- Lists build visible rows plus overscan; previously visited rows retain their elements.
+  Test memory use with the size of collection your app displays.
+- HTTP is asynchronous and subject to CORS. Synchronous data-file reads and blocking HTTP
+  calls are unavailable.
+- Optional pieces and parts have their own browser support. Consult the individual component
+  pages, including [Web view](/docs/reference/webview), [Media](/docs/reference/media), and
+  [Lottie](/docs/reference/lottie).
 
-`day build -t web-dom` writes a self-contained `dist/`: `index.html`, the shim, the stylesheet, your
-`.wasm`, and any bundled images and fonts. There is no `day pack` for web, because `dist/` is
-already the deployable artifact: copy it to any static host.
-
-```sh
-day build -t web-dom --profile release
-# dist/ → your bucket, your CDN, GitHub Pages, anywhere
-```
-
-Serve it over HTTPS (or localhost). Browsers won't instantiate WebAssembly from `file:`, and
-sensors require a secure context.
-
-## Running dayscripts
-
-A [dayscript](/docs/how-to/dayscript) runs against the web build the way it does on every other target,
-with one addition: a page cannot screenshot itself, so the runner captures through a headless
-browser that `day` drives. Day bundles the driver (`day web driver` prints its path); it needs
-[Playwright](https://playwright.dev) and a browser for it, installed once into any directory:
-
-```sh
-mkdir -p ~/.cache/day-webdriver && cd ~/.cache/day-webdriver
-npm init -y && npm install playwright
-npx playwright install chromium
-```
-
-Then point `day` at it and run the script:
-
-```sh
-export DAY_WEB_DRIVER="node $(day web driver)"
-export DAY_WEB_DRIVER_PLAYWRIGHT=~/.cache/day-webdriver
-export DAY_WEB_DRIVER_BROWSER=chromium   # webkit (the default) or firefox also work
-day launch -t web-dom --script dayscript/walkthrough.yaml
-```
-
-On Linux use Chromium: Playwright's Linux WebKit has no Origin Private File System, which
-[`day-part-filesystem`](/docs/reference/fs) needs. Several `--script` flags run in one launch, against one app instance, which is
-how state from a seed script reaches the scripts after it; the browser profile, and the origin's
-storage with it, lasts exactly as long as the launch.
-
-## Caveats
-
-This toolkit covers a subset of what the native toolkits do. The following are missing or
-reduced:
-
-- External-piece support varies. The current coverage matrix includes DOM arms for date/time,
-  color-picker, and text-editor pieces, while several other in-tree pieces have none. Enable the
-  matching feature and check [source coverage](https://github.com/daybrite/day/blob/main/docs/coverage-matrix.md).
-  External media/WebView/Lottie repositories were not inspected in this review.
-- The toolkit reports `Cap::FileDialogs` as native and `Toolbar`, `AppMenu`, and `Tree` as
-  emulated. Browser user activation and permissions can still limit an operation; a capability
-  is not a runtime acceptance result. Secondary windows use the cover path.
-- The list is emulated: one element per row, created eagerly, with no recycling, so long
-  lists cost memory and time.
-- Split navigation is decided once at launch from the viewport width (≥ 700px), and does not
-  re-evaluate on resize.
-- Accessibility is thinner here than on native. Semantics come from the tags Day uses
-  (`<button>`, `<input>`, `<select>`, `<progress>`, `<textarea>`, `<dialog>`), and `aria-label`
-  flows through from [`.a11y(...)`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.a11y). But where a piece realizes as a `<div>` (label, tabs, navigation,
-  the nav menu, segmented and radio pickers, the spinner), there is no compensating ARIA role. If
-  you are shipping to an accessibility requirement, use a native target or budget for tweaks.
-- Parts have separate browser implementations and support queries. Do not infer availability
-  from the DOM toolkit alone; for example, clipboard has asynchronous browser operations while
-  synchronous helpers cannot wait for browser permission. Consult each part's reference.
-- Piece registration differs. `linkme`'s distributed slices don't compile for wasm, so web-dom
-  keeps a runtime registry and a piece registers itself from its constructor. A piece needs an
-  explicit `dom` feature to appear at all; see [extending](/contributing/extending).
+HTML semantics and Day's accessibility annotations supply the browser accessibility tree.
+Check keyboard operation and assistive technology with the controls and browser combinations
+your app uses; a native build does not validate the browser experience.
 
 ## What each piece becomes
 
@@ -126,15 +68,6 @@ this table adds links and notes.
 | dialogs / alerts / prompts | [`<dialog>`](https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/dialog) via `showModal()` |
 | *external* `media()` | [`<video>`](https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/video) |
 
-**Text measurement** uses a hidden offscreen element with the same computed font and a `max-width`,
-measured with `getBoundingClientRect()`, which gives the browser's wrapping metrics, cached per
-element and width.
-
-**Typography is rem-based**: `Font::Body` is 1rem, the other styles follow the Apple text-style
-ratios, and custom point sizes map to `pt/16` rem, so if you raise your browser's default font
-size, every Day font scales with it (canvas drawing text excepted, since it lives in the app's
-coordinate space).
-
-Pages report their own size back through a
-[`ResizeObserver`](https://developer.mozilla.org/en-US/docs/Web/API/ResizeObserver), which is how
-CSS-managed panes stay in sync with Day's layout.
+Text uses browser font preferences and the toolkit's desktop or touch-device scale. Page zoom
+applies as usual. Canvas text remains in drawing coordinates. Scrolling uses browser scroll
+containers, and browser-managed panes report their sizes to Day's layout system.

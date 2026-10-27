@@ -28,5 +28,13 @@
   "day-piece-settings": "/docs/reference/settings",
   "day-piece-swiftui": "/docs/reference/swiftui",
   "day-piece-text-editor": "/docs/reference/texteditor",
-  "day-reactive": "/docs/explanation/state"
+  "day-reactive": "/docs/explanation/state",
+  "day-part-speech": "/docs/reference/speech",
+  "day-part-zeroconf": "/docs/reference/zeroconf",
+  "day-piece-camera": "/docs/reference/camera",
+  "day-piece-charts": "/docs/reference/charts",
+  "day-piece-lottie": "/docs/reference/lottie",
+  "day-piece-webview": "/docs/reference/webview",
+  "day-piece-charts-gallery": "/docs/reference/charts",
+  "day-piece-lottie-gallery": "/docs/reference/lottie"
 }

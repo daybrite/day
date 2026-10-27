@@ -12,6 +12,13 @@ A Day button uses the platform's button control, including its keyboard handling
 ring, accessibility role, and pressed and disabled states. Give it a title describing the
 action, then add an icon or style when that helps the user recognize it.
 
+## Add to your app
+
+This control is included in [`day-pieces`](https://github.com/daybrite/day/tree/main/crates/day-pieces)
+and re-exported through `day::prelude::*`. No additional crate or control feature is required.
+
+## Authoring
+
 ```rust
 button(res::str::save()).action(save)
 button(res::str::save()).icon(Symbol::Save).prominent().action(save)
@@ -34,7 +41,7 @@ For an operation shared across surfaces, use a [reusable `Command`](commands.md)
 title, availability, optional check state, icon, shortcut, and handler once.
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
-[example messages](snippet-catalog.md) and [catalog setup](/docs/how-to/localization).
+[example messages](/docs/reference/localization#reference-example-messages) and [catalog setup](/docs/how-to/localization).
 
 ## Icons and labels
 
@@ -121,11 +128,8 @@ button(res::str::drafts())
 | ArkUI | The prominent fill over the button's own style; the bound NDK has no selected state attribute |
 | Web | `aria-pressed` and the `selected` class, drawn as the accent fill |
 
-`read_native` reports the state as `checked`, so a conformance case asserts it with
-`assert_on` and `assert_native` ([docs/testing](testing.md)). The composed document strip uses it for the
-current tab ([docs/navigation](navigation.md) "Document tabs").
 
-## Platform implementation
+## Toolkit implementations
 
 Platform guidance: [Apple: buttons](https://developer.apple.com/design/human-interface-guidelines/buttons); [Android: buttons](https://developer.android.com/develop/ui/views/components/button).
 
@@ -157,7 +161,7 @@ usual pressed-color change. AppKit applies label contrast through an attributed 
 icon contrast through `contentTintColor`; UIKit uses configuration foreground and background
 colors.
 
-## Toolkit contract
+## Plain buttons
 
 [`.plain()`](https://daybrite.dev/api/day_pieces/trait.ButtonBuilder.html#tymethod.plain) requests a borderless native action button for toolbar commands and list
 accessories. AppKit removes the [NSButton](https://developer.apple.com/documentation/appkit/nsbutton) bezel; UIKit uses its system button; Android
@@ -168,17 +172,3 @@ style is already transparent. [`.plain()`](https://daybrite.dev/api/day_pieces/t
 requests: the last one wins. Android plain already includes compact horizontal sizing.
 Switching away from a tinted or plain style restores the original Material foreground
 and icon state colors as well as its background.
-
-`ButtonProps` seeds the title, optional `Icon`, `icon_only`, enabled state, and style. Plain
-buttons continue to send `ButtonPatch::Title`. Icon buttons send `ButtonPatch::Content`,
-which updates their title and icon together and invalidates their measured size. The
-reactive binding uses [`bind_seeded`](https://daybrite.dev/api/day_reactive/fn.bind_seeded.html), avoiding a duplicate update immediately after creation.
-
-`Enabled` and `Style` patches remain independent of content. A toolkit must preserve the
-icon and accessible title when a style changes. UIKit retains content in a side table because
-replacing a configuration also replaces its image. ArkUI releases its internal image and
-text nodes when content changes or the button is released.
-
-External toolkit implementations can keep their existing plain-button title handling.
-To support icons, read the new props and handle `Content`, retaining its title as the
-accessible name even when it is not drawn.

@@ -157,7 +157,7 @@ reopen it, and a "link me to this screen" URL point at a modal.
   apps do not need dummy gesture handlers on headers or spacers. Hiding the cover restores
   interaction with the underlying page.
 
-## Per-toolkit realization
+## Toolkit implementations
 
 Platform guidance: [Apple: sheets](https://developer.apple.com/design/human-interface-guidelines/sheets); [Windows: dialogs](https://learn.microsoft.com/en-us/windows/apps/design/controls/dialogs-and-flyouts/dialogs).
 

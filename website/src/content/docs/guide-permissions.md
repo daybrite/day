@@ -25,7 +25,7 @@ the device or service is available. See [platform behavior](#4-what-each-platfor
 for details.
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
-[example messages](/docs/reference/examples/catalog) and [catalog setup](/docs/how-to/localization).
+[example messages](/docs/reference/localization#reference-example-messages) and [catalog setup](/docs/how-to/localization).
 
 ## Check an authoritative status
 
@@ -34,7 +34,7 @@ below. Use [`status_future`](https://daybrite.dev/api/day_part_permissions/fn.st
 when the current answer is `Prompt`, or is `Denied` and the backend allows another prompt; it does not open Settings for a granted or unsupported
 permission. Request consent from a user action, and offer a separate Settings action after denial.
 
-Complete module for `src/permissions.rs` in the [technical recipe harness](/docs/reference/examples/catalog#technical-recipes).
+Complete module for `src/permissions.rs` in the [technical recipe harness](https://github.com/daybrite/day/blob/main/docs/snippet-catalog.md#technical-recipes).
 The harness compiles this exact block; it is not a standalone app. Add the catalog entries below
 to `resource/locales/en/app.ftl` and declare the module in `src/lib.rs`.
 

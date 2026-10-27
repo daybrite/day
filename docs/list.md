@@ -9,7 +9,7 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-# Native [`list`](https://daybrite.dev/api/day_pieces/fn.list.html)
+# Lists
 
 Display large collections as scrollable rows without building every row at once. A [`list`](https://daybrite.dev/api/day_pieces/fn.list.html)
 reuses native cells as they enter and leave the viewport.
@@ -26,9 +26,14 @@ anchor (fine for a dozen items; ten thousand would all be built up front). [`lis
 the rows the native widget currently shows.
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
-[example messages](snippet-catalog.md) and [catalog setup](/docs/how-to/localization).
+[example messages](/docs/reference/localization#reference-example-messages) and [catalog setup](/docs/how-to/localization).
 
-## API: row sources, shared with [`each`](https://daybrite.dev/api/day_pieces/fn.each.html)
+## Add to your app
+
+This control is included in [`day-pieces`](https://github.com/daybrite/day/tree/main/crates/day-pieces)
+and re-exported through `day::prelude::*`. No additional crate or control feature is required.
+
+## Authoring
 
 On **windows-winui**, [`ItemsRepeater`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.itemsrepeater) and `StackLayout` own realization and scroll extents
 inside a native [`ScrollViewer`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.scrollviewer). Its element factory reuses `ItemContainer` rows with Day
@@ -216,92 +221,34 @@ and ArkUI report scroll changes; mock exposes `list_first_visible` for tests. Th
 is zero; clamp it when data shrinks. For section headers that float, use
 [`.sections`](#sections) instead of an overlay driven by this index.
 
-## `ListSource`: how the toolkit pulls rows
+## Row lifetime
 
-Recycling lists *pull*: the native data-source asks, synchronously, "how many rows?" and "fill
-this cell for row N". Day's normal native→Day path is enqueue-only (`EventSink`), so [`list`](https://daybrite.dev/api/day_pieces/fn.list.html) adds
-a second, synchronous channel, `ListSource`, injected into the toolkit the same way the event
-sink is:
+A physical cell keeps its row subtree while the toolkit reuses it for different items. Read
+item values through the `ItemSlot` in reactive closures and action handlers; a value captured
+when the row was first built may belong to a previous item. Store persistent per-item state
+in the model, keyed by the item's identity.
 
-```rust
-// day-spec
-pub struct ListSource {
-    pub first_visible: Option<Rc<dyn Fn(usize)>>, // opt-in enqueue-only viewport report
-    pub len: Rc<dyn Fn() -> usize>,
-    pub token_at: Rc<dyn Fn(usize) -> u64>,     // stable per-row identity for the native widget
-    pub bind_row: Rc<dyn Fn(usize, RawHandle)>, // build-or-rebind row `i` into this native cell
-    pub recycle: Rc<dyn Fn(RawHandle)>,         // cell leaving the viewport: its ids park until the next bind
-    pub release: Rc<dyn Fn(RawHandle)>,         // host discarded the cell for good: its row is disposed
-    pub layout_cell: Rc<dyn Fn(RawHandle, f64)>, // re-lay that cell's row at the width the platform gave it
-    pub cell_height: Rc<dyn Fn(RawHandle) -> f64>, // the row's laid height, padding included (a self-measuring cell's height)
-}
+Leaving the viewport does not necessarily dispose a row. Toolkits may keep spare cells for
+reuse; a discarded cell or removed list disposes its row scope. Element IDs for recycled rows
+must follow the slot's current identity. See [element IDs](/docs/reference/element-ids).
 
-trait Toolkit {
-    // default no-op; a recycling backend stores the source and calls it from its data-source.
-    fn attach_list(&mut self, _host: &Self::Handle, _source: ListSource) {}
-}
-```
+A plain items closure refreshes the list when its dependencies change. Sources that supply
+row deltas, such as persistence queries, can apply insertions, removals, and moves directly.
 
-day-core builds the `ListSource` when it realizes a `LIST` node; each closure re-enters the tree
-via [`with_tree(...)`](https://daybrite.dev/api/day_core/fn.with_tree.html). The toolkit calls them on the UI thread from *outside* any [`with_tree`](https://daybrite.dev/api/day_core/fn.with_tree.html)
-borrow (a fresh native scroll callback), so the re-entry is safe.
+## Toolkit implementations
 
-`bind_row` is the sanctioned exception to turn-batching: it runs the row's reactive flush
-and layout before returning, because the host measures the cell synchronously right after.
+| Toolkit | List view | Behavior |
+| --- | --- | --- |
+| AppKit | [`NSTableView`](https://developer.apple.com/documentation/appkit/nstableview) | Native scrolling and reusable cells. |
+| UIKit | [`UITableView`](https://developer.apple.com/documentation/uikit/uitableview) | Native scrolling and reusable cells. |
+| Android | [`RecyclerView`](https://developer.android.com/reference/androidx/recyclerview/widget/RecyclerView) | Native scrolling and reusable cells. |
+| GTK | [`GtkListView`](https://docs.gtk.org/gtk4/class.ListView.html) | Native scrolling; may retain spare cells beyond the visible rows. |
+| Qt | [`QListView`](https://doc.qt.io/qt-6/qlistview.html) | Native list interaction with a pool of Day row views. |
+| WinUI | [`ItemsRepeater`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.itemsrepeater) | Virtualized rows within a native scroll viewer. |
+| ArkUI | `List` with `NodeAdapter` | Native scrolling and reusable cells. |
+| Web | DOM scroller | Builds visible rows plus overscan; previously visited rows retain their elements. |
 
-## The driver (day-core)
-
-Per `LIST` node the tree holds:
-
-- a **row factory** supplied by the [`list()`](https://daybrite.dev/api/day_pieces/fn.list.html) piece (type-erased over `T`): given a row index and a
-  cell-anchor `RNode`, it builds the row subtree and returns a `BuiltRow`: the row's `Scope` and a
-  rebind writer that slot-writes another index into the row's `ItemSlot`;
-- a **snapshot** of the current items + their tokens, refreshed by an effect on the items closure;
-- a **cell map**: native cell → `BoundCell { anchor, active, scope, rebind, native_width,
-  laid_width, laid_height }`: the row each physical cell holds, whether it is on display, and
-  the width and height it was last laid at.
-
-`list_bind_row(host, index, cell)`:
-1. adopt `cell` into a cell-anchor `RNode` (a boundary node whose handle *is* the native cell,
-   the same trick the window root uses);
-2. if the cell is new, run the row factory (build once); otherwise rebind: restore the row's
-   parked element ids and slot-write `items[index]` into the existing row's signal;
-3. flush the row scope and lay the row out within the cell bounds, synchronously; the host reads
-   `cell_height` right after.
-
-`recycle(cell)` parks the row's element ids and marks the cell inactive; its laid height is
-forgotten, so the next row it shows is sized afresh rather than reported as a change. A later
-`bind_row` of the same cell rebinds instead of building.
-
-`release(cell)` is the host's goodbye: it discarded the cell for good (GTK's factory
-`teardown`, a [`UITableViewCell`](https://developer.apple.com/documentation/uikit/uitableviewcell) deallocating), so Day disposes the row built there, scope,
-nodes and ids, exactly as it does for every cell when the list itself goes. Pools discard
-cells on a far jump ([UITableView](https://developer.apple.com/documentation/uikit/uitableview) handed back 465 fresh cells over one run of the recycling
-case, [GtkListView](https://docs.gtk.org/gtk4/class.ListView.html) 244), and without this call each discarded cell left one dead row behind. The call is safe inside a day-core borrow (a host often tears cells down from inside
-a reload or a removal Day started): the work is held for the borrow's end, never dropped. A
-handle seen again after its release is a new cell and builds afresh.
-
-When the items signal changes, the effect refreshes the snapshot and applies a `ListPatch::Reload`
-so the native widget re-queries the source. A source connection that reports its own row events
-(a [day-persistence](/docs/reference/persistence) query, for one) sends `ListPatch::Splice(Vec<RowDelta>)` instead: sequential
-`Insert`, `Remove` and `Move` deltas the host applies as native row changes, with the selection
-following its rows. A plain items closure has no such events and reloads.
-
-## Per-toolkit mapping
-
-Platform guidance: [Apple: lists and tables](https://developer.apple.com/design/human-interface-guidelines/lists-and-tables); [Android: RecyclerView](https://developer.android.com/develop/ui/views/layout/recyclerview).
-
-| Toolkit | Widget | Recycling | Notes |
-|---|---|---|---|
-| mock    | simulated viewport | yes (test-driven) | [`MockProbe::list_bind`](https://daybrite.dev/api/day_mock/struct.MockProbe.html#method.list_bind)/`list_recycle`/`list_release` drive binds, pooling and discards; exercises the driver |
-| AppKit  | [`NSTableView`](https://developer.apple.com/documentation/appkit/nstableview) (view-based) | native | `makeView`/`viewFor` → `bind_row`; `numberOfRows` → `len` |
-| UIKit   | [`UITableView`](https://developer.apple.com/documentation/uikit/uitableview) + reuse id | native | `cellForRowAt` → `bind_row`; `didEndDisplaying` → `recycle`; the cell's `dealloc` → `release` (the table discards surplus cells as well as reusing them) |
-| Android | [`RecyclerView`](https://developer.android.com/reference/androidx/recyclerview/widget/RecyclerView) + `Adapter` | native | `onBindViewHolder` → `bind_row` |
-| GTK 4   | [`GtkListView`](https://docs.gtk.org/gtk4/class.ListView.html) + [`GtkListItemFactory`](https://docs.gtk.org/gtk4/class.ListItemFactory.html); each cell a `DayCell`, a custom container that asks for no width and lays the row out at the width the themed `row` node grants it | native | factory `bind`/`unbind` → `bind_row`/`recycle`, `teardown` → `release`; the cell's `size_allocate` → `layout_cell`. [GtkListView](https://docs.gtk.org/gtk4/class.ListView.html) keeps up to 200 spare items by design and rebinds them, so a five-row viewport settles at about 205 rows alive; items beyond that are torn down and released. A `Reload` splices only the row-count difference and re-binds the bound cells in place, top to bottom: replacing every model item would make [GtkListView](https://docs.gtk.org/gtk4/class.ListView.html) destroy each row widget and build a second set |
-| Qt      | [`QListView`](https://doc.qt.io/qt-6/qlistview.html) over a count-only [`QAbstractListModel`](https://doc.qt.io/qt-6/qabstractlistmodel.html) and a delegate that paints only the item chrome; each cell a plain [`QWidget`](https://doc.qt.io/qt-6/qwidget.html) placed over its row as a viewport child | native — a bounded pool (the viewport plus overscan) the Rust side retargets on every window change: a row scrolling out parks its cell and `recycle`s it, a row scrolling in takes a spare and `bind_row` rebinds it | the view owns selection, keys, focus, drag; Day owns the rows. Cells are never index widgets: the view deletes those on removal. Every Qt callback into Day is posted |
-| ArkUI   | `List` + `NodeAdapter`; each cell a `ListItem` holding the row | native | adapter attach/detach → `bind_row`/`recycle`; item ids carry a generation so a reload never rebinds a stale cell |
-| WinUI   | [`ItemsRepeater`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.itemsrepeater) + `StackLayout`; each cell an `ItemContainer` holding a `Canvas` for the row | native | the repeater's realization callbacks post `bind_row`/`recycle` (calling the source inside WinUI layout would re-enter Day) |
-| web     | a DOM scroller with a slot per row | emulated | rows in view plus an overscan are built; a row scrolled far away keeps its element |
+Toolkit-specific selection, swipe, and reorder behavior is described with each feature below.
 
 ## Row metrics
 
@@ -396,23 +343,6 @@ activity on a `fontScale` change, as it does for a theme or language change, and
 rebuilt at the new scale. The desktop and web toolkits do not report a live change yet; the
 new size applies from the next launch.
 
-The `list-rows-size-to-content` conformance case checks it on every toolkit: caption, body and
-large-title rows and a wrapped footnote each take their content's height natively (every next
-row starts one row height below, allowing only for the chrome the host adds to each row), the
-large-title row is taller than the caption row, the wrapped row taller than the body row, and a
-body row that grows is re-laid at its new height and shrinks back.
-
-## Building it (mock-first, like M0–M1)
-
-1. **spec**: `kinds::LIST`, `ListProps { row_height, selectable, multi_select }`, `RowHeight`, `ListPatch`,
-   `ListSource`, [`Toolkit::attach_list`](https://daybrite.dev/api/day_spec/trait.Toolkit.html#method.attach_list). *(additive; no toolkit breaks)*
-2. **pieces**: [`list()`](https://daybrite.dev/api/day_pieces/fn.list.html) + builder, reusing `ItemSlot`; produces the type-erased row factory.
-3. **core**: the driver + cell-anchor adoption + `list_bind_row`/`list_len`/reload.
-4. **mock**: a simulated viewport + `MockProbe` hooks; e2e tests: only-visible-rows built,
-   recycle = slot-write (no rebuild), data change → reload rebinds, [`on_select`](https://daybrite.dev/api/day_pieces/trait.ListBuilder.html#tymethod.on_select).
-5. **toolkits**: AppKit first (reference), then UIKit/Android/GTK/Qt; showcase [`list`](https://daybrite.dev/api/day_pieces/fn.list.html) playground +
-   walkthrough leg on all five.
-
 ## Selection
 
 Rows report selection through two events: `Event::SelectionChanged(row)` (single) and, in
@@ -465,9 +395,7 @@ exactly what a click on the same row reports, so [`on_select`](https://daybrite.
 
 On the desktops this is the native widget's own behavior: nothing in Day sits ahead of the
 responder chain, so a focused table, outline or [`QListView`](https://doc.qt.io/qt-6/qlistview.html) gets its arrow keys the way it
-always would ([docs/menus](menus.md)). Qt earns it since 2026-09, when its list became a real
-Qt item view hosting Day's cells; before that it was a scroll area of Day's own, and an arrow
-scrolled it. On **Web** there is no native list to inherit it from, so the
+always would ([docs/menus](menus.md)). On **Web** there is no native list to inherit it from, so the
 toolkit builds it: the host carries `role="listbox"` and the tab stop, cells carry `role="option"`
 and `aria-selected`, and the shim routes the keys into `day_dom_list_key`. Focus sits on the host
 rather than a row, because rows are recycled as the list scrolls and focus parked on one would

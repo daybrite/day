@@ -63,7 +63,7 @@ export function belongsTo(page, group) {
 const byNavigationTitle = (a, b) => (a.navTitle ?? a.title ?? a.route)
   .localeCompare(b.navTitle ?? b.title ?? b.route, 'en', { sensitivity: 'base' });
 
-/** One placement per reference page; sort each group by its visible sidebar labels. */
+/** One placement per reference page; keep declared order when requested, otherwise sort by sidebar label. */
 export function referenceNavigation(pages) {
   const byRoute = new Map(pages.filter(isPublished).map((p) => [p.route, p]));
   const assigned = new Set();
@@ -74,7 +74,7 @@ export function referenceNavigation(pages) {
       if (assigned.has(route)) throw new Error(`Duplicate reference placement: ${route}`);
       assigned.add(route);
       return byRoute.has(route) ? [byRoute.get(route)] : [];
-    }).sort(byNavigationTitle),
+    }).sort(group.ordered ? () => 0 : byNavigationTitle),
   }));
   for (const page of byRoute.values()) {
     if (page.route.startsWith('/docs/reference/') && !assigned.has(page.route)) {

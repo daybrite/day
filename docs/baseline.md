@@ -12,11 +12,8 @@ description: "How text in a row sits on a shared baseline across toolkits, and t
 Text in a row sits on its **baseline** (the line the letters stand on) rather than in the
 middle of whatever box happens to contain it.
 
-The two are the same thing only when every child puts its text at the same height inside its own
-box. Real controls do not: a bordered text field insets its text by the border, a date picker
-with a stepper is taller than the text it shows, and a Title-size number has a much taller ascent
-than the Caption unit beside it. Center those boxes and the text lands on three different
-invisible lines, a few points apart, close enough to look accidental.
+Baseline alignment keeps labels and controls aligned when their font sizes or internal
+padding differ. Use it for a value beside a unit, or a label beside an input.
 
 ```rust
 // Baseline-aligned by default: the label meets the field's inset text.
@@ -28,34 +25,19 @@ row((label(res::str::total()), label(res::str::sample_total()).font(Font::Title2
 ```
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
-[example messages](snippet-catalog.md) and [catalog setup](/docs/how-to/localization).
+[example messages](/docs/reference/localization#reference-example-messages) and [catalog setup](/docs/how-to/localization).
 
-## What day asks the toolkit
+## Alignment behavior
 
-Day asks one duty of `Toolkit`:
+Day uses each child's first text baseline. A child without a text baseline, such as an image
+or slider, is centered vertically instead. The measurement accounts for the child's allocated
+height, including controls that center their text within a larger frame.
 
-```rust
-fn first_baseline(&mut self, h: &Self::Handle, kind: PieceKind, size: Size) -> Option<f64>;
-```
-
-The distance from the top of the widget's frame to its first text baseline, in points, when the
-widget is `size` tall. `None` means the widget has no text baseline (an image, a slider, a bare
-container), and a baseline-aligned row falls back to centering that child.
-
-It is a **measurement, not a layout mode**. Day computes every frame itself and never hands a row
-to a native baseline-aligning container, so it needs the toolkit to report where the text sits
-inside the box. That is why support is broad: a
-toolkit with no baseline-aligning container at all can still report a font ascent.
-
-The size parameter matters because a control that centers its text vertically moves its baseline
-with its height, so the answer is only meaningful at the height the row settled on. That is why
-the size is a parameter rather than something the backend reads off the current frame.
-
-## Per-toolkit
+## Toolkit implementations
 
 | toolkit | source | `Cap::BaselineAlignment` |
 |---|---|---|
-| AppKit | the control's font, centered in its `alignmentRectInsets` box (see below) | Native |
+| AppKit | the control's font, centered in its `alignmentRectInsets` box  | Native |
 | GTK | `gtk_widget_measure`'s natural-baseline out-param | Native |
 | Android | `View.getBaseline()` | Native |
 | UIKit | derived: the view's font ascent, centered in its height | Emulated |
@@ -64,24 +46,9 @@ the size is a parameter rather than something the backend reads off the current 
 | WinUI | `TextBlock.BaselineOffset`; font-derived for templated controls | Emulated |
 | ArkUI | derived from `NODE_FONT_SIZE` | Emulated |
 
-`Native` means the platform reports the baseline itself; `Emulated` means day derives it from the
-widget's font. Both align correctly; the distinction is whether a control with unusual internal
-text placement can be wrong. `Unsupported` would mean rows fall back to centering, which is what
-every row did before this existed; nothing breaks, it just does not align.
-
-**Why AppKit derives rather than asks.** `firstBaselineOffsetFromTop` looks like the exact
-answer, and it is nearly right, but it has two problems. It is measured from the top of the view's
-*alignment rect* rather than its frame (a bezelled `NSDatePicker` insets its alignment rect 4pt),
-and it is **rounded to whole points**. A picker in a 26pt frame answers 15 (19 in frame terms)
-while it paints at 19.9, so a label beside it sits a point high, the drift baseline
-alignment exists to remove.
-
-So the AppKit backend derives the baseline from the metrics AppKit rounded: one line of the
-control's own font, centered in its alignment rect, baseline an ascender below the line's top. That
-reproduces AppKit's own numbers where they are right (a plain label: 12.91 against its 13) and
-keeps the fractional part where they are not. A `TEXT_AREA` keeps the reported value, since its
-first line sits at the top of its text container rather than centered in it, and a control with no
-font of its own falls back to the report.
+`Native` and `Emulated` describe how the toolkit obtains the measurement. Derived baselines
+can be less accurate for custom controls with unusual internal text placement. Unsupported
+controls fall back to vertical centering.
 
 ## Containers and decorators
 
@@ -94,12 +61,6 @@ A container answers on behalf of its content, through [`Layout::baseline`](https
 - every **single-child wrapper** ([`.width()`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.width), [`.frame()`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.frame), [`.padding()`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.padding), [`.grow()`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.grow),
   [`.max_width()`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.max_width), [`.min_width()`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.min_width), [`.background()`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.background)) forwards its child's, offset by where it places it.
 
-That last one matters more than it looks. A decorator is invisible at the call site:
-[`label`](https://daybrite.dev/api/day_pieces/fn.label.html)`(res::str::qty())`[`.width`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.width)`(90.0)` still reads as "a label". If wrappers reported no baseline, a row
-would silently center the very children the author asked to align, and the feature would look
-like it did not work. The `decorated_children_keep_their_baseline` test in
-`day-pieces/tests/mock_e2e.rs` pins it.
-
 Grid cells are **not** baseline-aligned; [`grid_row`](https://daybrite.dev/api/day_pieces/fn.grid_row.html)`(..)`[`.align`](https://daybrite.dev/api/day_pieces/trait.GridRowBuilder.html#tymethod.align)`(VAlign::FirstBaseline)` reads as
 `Center`. See [docs/grid](grid.md).
 
@@ -109,15 +70,3 @@ A baseline-aligned row is as tall as the deepest baseline plus the deepest desce
 which can exceed the height of its tallest child. Shifting a child down to meet the line can push
 it past where the tallest child ends, and a row measured at the tallest child's height would
 clip it.
-
-## Cost
-
-`first_baseline` is asked once per child per measure generation, cached beside the measure cache
-on the node and invalidated with it. A row that is not baseline-aligned never asks at all.
-
-## Trying it
-
-Day-Showcase's **Text** page ends with a *Baseline alignment* section: three rows mixing type
-sizes and control kinds, and a toggle that turns the alignment off. On AppKit the aligned rows
-measure a 0px spread between the label, the field's text and the trailing unit; centered, they
-drift 3–4px apart.

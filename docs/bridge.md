@@ -29,7 +29,7 @@ day_part_speech::speak(&res::str::forecast_rain().format())?;
 
 Resolve app-owned speech from the catalog on the UI thread, just like visible text.
 User-supplied text can be passed through directly. See the
-[example catalog](snippet-catalog.md) and [localization guide](/docs/how-to/localization).
+[example catalog](/docs/reference/localization#reference-example-messages) and [localization guide](/docs/how-to/localization).
 
 ## When to use one
 

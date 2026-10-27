@@ -49,7 +49,7 @@ Three rules:
   is correct; an affordance that only a cursor reveals (a resize handle with no visible grip)
   should check [`capability(Cap::Cursor)`](https://daybrite.dev/api/day_core/fn.capability.html) before it counts on being discovered.
 
-## The vocabulary
+## API
 
 `Cursor` is the CSS cursor vocabulary as an enum, plus one open variant. CSS names are the
 largest set any toolkit accepts as they are (GTK and the DOM take them verbatim), and every other
@@ -82,7 +82,7 @@ which is what the Showcase's Cursors page draws.
 
 Custom cursor images are not supported.
 
-## Per toolkit
+## Toolkit implementations
 
 Platform guidance: [Apple: pointing devices](https://developer.apple.com/design/human-interface-guidelines/pointing-devices); [Windows: mouse interactions](https://learn.microsoft.com/en-us/windows/apps/design/input/mouse-interactions).
 
@@ -98,10 +98,8 @@ Platform guidance: [Apple: pointing devices](https://developer.apple.com/design/
 | harmony-arkui | none yet | Unsupported | [`pointer.setPointerStyle`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-input-kit/js-apis-pointer.md) exists only in ArkTS; wiring a hover hook through an ArkTS helper is the follow-up |
 | mock | records the last cursor per widget | Native | probe-visible in tests |
 
-The duty and its implementors are in [duty-matrix](duty-matrix.md); the capability answers
-in [coverage-matrix](coverage-matrix.md). Both are generated and diffed in CI.
 
-## Shapes only one toolkit names
+## Toolkit-specific cursors
 
 The `day::cursor` module carries them, one submodule per toolkit, each gated on the facade's
 toolkit feature:
@@ -114,29 +112,5 @@ toolkit feature:
 | `day::cursor::android` | `ALL_SCROLL`, `NO_DROP`, `TOP_RIGHT_DIAGONAL`, `TOP_LEFT_DIAGONAL` |
 
 Each is a `Cursor::Native` value, so the named toolkit resolves it by its own table and any
-other ignores it. The gate is the point: a name only AppKit has is a compile error in a GTK
-build rather than a silent arrow, and the app wraps the use in the same `#[cfg(feature = …)]`.
+other ignores it. Guard toolkit-specific constants with the matching `#[cfg(feature = …)]`.
 [`Cursor::native("…")`](https://daybrite.dev/api/day_spec/enum.Cursor.html#method.native) is the ungated form for a name Day has no constant for.
-
-## How it reaches the widget
-
-[`Decorate::cursor`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.cursor) pushes an op that, after the inner piece is built, calls
-[`TreeOps::set_node_cursor`](https://daybrite.dev/api/day_core/trait.TreeOps.html#tymethod.set_node_cursor), which forwards to [`Toolkit::set_cursor`](https://daybrite.dev/api/day_spec/trait.Toolkit.html#method.set_cursor) on the node's handle. A
-reactive source also binds a closure that calls the same setter on change. The setter is
-idempotent and cheap on every toolkit, so there is no patch enum and no extra native node; a
-layout-only inner piece has no widget of its own and the op resolves the nearest realized node
-the way [`.selectable()`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.selectable) does.
-
-## Trying it
-
-The Showcase's **Cursors** page (Controls group): every named shape as a tile to hover, one box
-whose shape follows a picker, a nested pair that shows the nearest ancestor winning, and the
-toolkit's extras.
-
-```sh
-day launch -t macos-appkit --script dayscript/cursors.yaml
-```
-
-The walkthrough asserts the support row and drives the picker. The shape itself is the
-acceptance test, and it needs a person with a mouse: on macOS, in a browser, on the Android
-emulator with a mouse attached, and on the iPad simulator with pointer support enabled.

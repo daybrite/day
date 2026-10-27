@@ -1,7 +1,7 @@
 ---
 navTitle: "WinUI"
-title: "WinUI 3 (windows-winui)"
-description: "The windows-winui target: the Windows backend built against WinUI 3 and the Windows App SDK."
+title: "Build and package for Windows"
+description: "Run a Day app with WinUI, prepare offline build dependencies, and create a Windows package."
 ---
 
 <!--
@@ -9,154 +9,57 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-# WinUI 3 (`windows-winui`)
+# Build and package for Windows
 
-> **Status: Tier 2, the Windows target.** Day-Showcase's walkthrough passes on it, with every
-> piece that has a native Windows implementation built for WinUI (see [Pieces](#pieces)). `day new` gives a
-> Windows project this target; `windows-xaml` (system XAML) is deprecated (Tier 5).
+Use `windows-winui` for Windows apps. It uses WinUI 3 from the Windows App SDK and is a
+[Tier 2](/docs/reference/platforms#support-tiers) target. The older `windows-xaml` target is
+deprecated. See the [Windows toolkit reference](/docs/reference/platforms/windows-winui) for
+control support and platform behavior.
 
-`windows-winui` is Day's Windows backend compiled against WinUI 3 (`Microsoft.UI.Xaml`, shipped in
-the Windows App SDK) instead of system XAML (`Windows.UI.Xaml`, part of Windows), which the
-deprecated `windows-xaml` target still builds against.
-The two stacks expose nearly the same control set under two namespaces, so there is one
-backend and one shim, not two:
+## Prepare and run
 
-- `day` feature `winui` implies `xaml` and turns on `day-toolkit-winui/winui` → `day-toolkit-xaml-sys/winui`.
-  The shared Rust backend implementation applies to both Windows targets; [`day::toolkit_name()`](https://daybrite.dev/api/day/fn.toolkit_name.html)
-  reports `"WinUI"`.
-- `day-toolkit-xaml-sys/src/shim.cpp` is written against namespace aliases (`WUX`, `WUXC`, …) that point
-  at `Windows::UI::Xaml` or, under `DAY_WINUI`, `Microsoft::UI::Xaml`. What genuinely differs
-  sits behind `#ifdef DAY_WINUI` where it happens:
-  - **Bootstrapping.** An unpackaged app puts the Windows App SDK framework package on its
-    package graph with the bootstrapper (`MddBootstrapInitialize2`, release 2.5: the one
-    `Microsoft.WindowsAppRuntime.2` framework package, at 2.5.1 or newer) before any
-    `Microsoft.UI` type activates.
-  - **Hosting.** WinUI's own `DesktopWindowXamlSource` in the same Win32 host window:
-    `Initialize(WindowId)` and a `DesktopChildSiteBridge` instead of the system island's
-    `IDesktopWindowXamlSourceNative`. The bridge's child HWND is what the rest of the shim
-    focuses, as it does the system island's.
-  - **Dispatch.** A `Microsoft.UI.Dispatching.DispatcherQueue` on the UI thread (the system one
-    is kept too), and `ContentPreTranslateMessage` in the message loop for keyboard routing.
-  - **Resources.** The Application merges `XamlControlsResources` and answers for the controls'
-    types through `XamlControlsXamlMetaDataProvider`: WinUI ships its templates as a dictionary,
-    and there is no XAML compiler here to generate a provider.
-  - **Capture.** Screenshots read the window back from DWM with Windows.Graphics.Capture
-    (`IGraphicsCaptureItemInterop::CreateForWindow`, one frame from a free-threaded frame pool),
-    so they show the window frame, the XAML content and what WinUI composes outside the tree
-    (WebView2, video), and they work while the window is covered. GDI cannot do this:
-    `PrintWindow` (even with `PW_RENDERFULLCONTENT`) and a screen read return the host's empty
-    client area under WinUI's compositor. The cursor is left out, and the yellow "being
-    captured" outline Windows may draw is drawn on screen, never into the frame. Where WGC is
-    unavailable (before Windows 10 1903, or a session without DWM), the capture falls back to
-    rendering the XAML tree with `RenderTargetBitmap`, which has no frame or WebView content.
-    With the display off (the power plan's idle timeout; a script's steps are not user input)
-    DWM stops composing and every capture reads a blank or stale window while the steps still
-    pass, so a capture first holds the display on (`SetThreadExecutionState`) and, when the
-    display's power notification says it is off, wakes it with a zero-distance mouse move and
-    waits for it to come back before reading. Both XAML stacks share this.
+On a Windows development host, install Rust and the C++ build tools listed in
+[System requirements](/docs/reference/system-requirements#windows), then run:
 
-## Building
+```sh
+day doctor --toolkit winui
+day launch -t windows-winui
+```
 
-Nothing from the Windows App SDK is linked. The shim loads the bootstrapper, and the one flat
-export it needs (`ContentPreTranslateMessage`, in `Microsoft.UI.Windowing.Core.dll`) once the
-runtime is on the package graph, at run time: from next to the exe, else from the SDK cache the
-build used, whose path is compiled in. A static import of either would fail to load before the
-bootstrapper had run.
+Development builds use the installed Windows App SDK runtime. `day doctor` checks it and
+reports missing requirements. Day fetches the pinned SDK packages and generates the C++/WinRT
+projection needed by its native shims; applications do not need to generate this manually.
 
-The build inputs come from `day_toolchain::winappsdk`: the pinned NuGet packages (Foundation,
-WinUI, InteractiveExperiences, and WebView2, whose metadata `Microsoft.UI.Xaml`'s references),
-fetched with the in-box `curl`/`tar` into `%LOCALAPPDATA%\day\winappsdk` (or the NuGet global
-cache's copy), and a C++/WinRT projection generated from their metadata by the `cppwinrt.exe`
-of the same Windows SDK whose `base.h` the shim compiles with. `DAY_WINAPPSDK` points at an
-already laid-out copy for an offline machine; `DAY_WINAPPSDK_CACHE` moves the cache.
+`DAY_WINAPPSDK` selects a prepared SDK directory for offline builds. `DAY_WINAPPSDK_CACHE`
+changes the download cache. Keep the complete pinned package layout, including Win2D and
+WebView2 dependencies when the app uses them. See [Environment](/docs/reference/environment#windows).
 
-The pins are the component versions the `Microsoft.WindowsAppSDK` 2.5.1 metapackage names
-(Foundation 2.3.12, WinUI 2.3.9, InteractiveExperiences 2.1.9, WebView2 1.0.3719.77); from 2.0
-on each component is versioned on its own, so the release is `RUNTIME_VERSION`, not any one
-package's version. The projection is cached per Windows SDK and WinUI version.
+## Optional components
 
-At run time the Windows App SDK 2 runtime (2.5.1 or newer) must be installed; `day doctor`
-checks for it, and
-the bootstrapper offers its download page when it is missing.
+`day build -t windows-winui` enables matching toolkit features for declared optional pieces.
+Consult each piece's documentation for its dependency and Windows requirements.
 
-## Pieces
+[Web views](/docs/reference/webview) use WebView2. Packaged apps carry the loader libraries;
+development builds can use the SDK cache. The WebView2 runtime is a separate requirement.
 
-A piece's Windows implementation is built for WinUI the same way the backend is: one shim, compiled against
-whichever stack the build targets.
+## Package the app
 
-- **Cargo.** A `winui` feature that implies the piece's `xaml` feature and turns on
-  `day-toolkit-winui/winui` and `day-toolkit-xaml-sys/winui` (or forwards to the piece it wraps), with `"winui"` in
-  `[package.metadata.day.piece] backends`. The Rust half is the `xaml` half, unchanged, and
-  `day build -t windows-winui` switches `<piece>/winui` on like any backend feature.
-- **build.rs.** [`.includes(day_toolchain::winappsdk::shim_includes(&cppwinrt))`](https://daybrite.dev/api/day_toolchain/winappsdk/fn.shim_includes.html) where the shim used
-  to add the SDK's cppwinrt directory, and `DAY_WINUI` defined when
-  [`day_toolchain::winappsdk::shim_is_winui()`](https://daybrite.dev/api/day_toolchain/winappsdk/fn.shim_is_winui.html).
-- **The shim.** Its `winrt/Windows.UI.Xaml*.h` includes switch on `DAY_WINUI`, and its namespace
-  aliases go through `DAY_XAML_NS`. What else differs is small: the text editor's document API is
-  `Microsoft.UI.Text`, and the activity ring needs a size floor (WinUI's template measures to
-  nothing before it loads).
+```sh
+day pack -t windows-winui
+```
 
-The web view is the one piece with a different engine host. System XAML has no usable web view in
-an island, so its half hosts WebView2 by hand (a composition controller rendering into a visual
-spliced into the tree, with pointer input forwarded). WinUI 3 has a WebView2 control that does
-all of that, so the WinUI half creates the control, then drives the same `ICoreWebView2` the
-system-XAML half does, reached through `ICoreWebView2Interop2`: navigation, inline assets,
-evaluation and link policy are shared code. The control needs `WebView2Loader.dll` and
-`Microsoft.Web.WebView2.Core.dll`, which are the app's to supply rather than part of the Windows App
-SDK: a packed app carries both, and a development build preloads them from the WebView2 package.
+Windows packages include the Windows App SDK runtime beside the application. A packaged
+installation therefore does not require the development machine's runtime installation.
+Development builds remain framework-dependent to avoid copying that runtime on every build.
 
-**dayscript.** A step gate naming the legacy system XAML backend (`only_on: [xaml]`, `skip_on: [windows-xaml]`)
-applies to `windows-winui` too, since it is that backend; `winui` / `windows-winui` single the
-WinUI build out.
+Follow [Packaging](/docs/how-to/packaging) for installer formats, signing, and store distribution.
+Test the resulting package on a clean machine as well as on the development host.
 
-## Packing
+## Canvas and capture
 
-`day pack -t windows-winui` ships the app **self-contained**: the Windows App SDK runtime
-travels inside the package, so neither the `.msix` nor the installer needs it installed. This is
-what `WindowsAppSDKSelfContained=true` does in Microsoft's MSBuild targets
-(`Microsoft.WindowsAppSDK.SelfContained.targets`, in the SDK's Base package), done for a cargo
-build:
+WinUI draws canvases through Win2D, supplied by the pinned SDK packages. Bitmap and PNG export
+are supported; PDF export is unavailable. See [Canvas](/docs/reference/canvas).
 
-1. **The runtime beside the exe.** Each component package's
-   `runtimes-framework\win-<arch>\native` payload (DLLs, `.pri` resource indexes, compiled XAML,
-   localized `.mui` strings) and its metadata are staged into the payload root
-   ([`day_toolchain::winappsdk::self_contained_payload`](https://daybrite.dev/api/day_toolchain/winappsdk/fn.self_contained_payload.html)): Foundation, WinUI and
-   InteractiveExperiences.
-2. **Registration-free activation.** The exe is linked with a second manifest input
-   (`self_contained_manifest`) that registers every WinRT class those DLLs implement
-   (`<winrtv1:activatableClass>`) and their proxy stubs, generated from each package's
-   `package.appxfragment` the way the SDK's `GenerateAppManifestFromAppxFragments` task does.
-3. **Start-up.** The shim finds `Microsoft.WindowsAppRuntime.dll` beside the exe, loads it (the
-   SDK's own self-contained initializer), and skips the bootstrapper.
-
-Only pack links this way. An exe carrying those registrations activates the classes from its own
-folder and cannot fall back to an installed runtime, so `day build` and `day launch` stay
-framework-dependent (bootstrapped), which is also what keeps a development build from copying the
-runtime on every link.
-
-## Follow-ups
-
-- `day patch --local` finds only workspace members, so a crate outside the checkout's workspace
-  (day-piece-lottie's `gallery`) has to be added to the patch table by hand.
-- A framework-dependent `.msix` option (a `PackageDependency` on the 2.x runtime, which the Store
-  installs), for a much smaller Store package than the self-contained one.
-- Trimming the self-contained payload: the `.mui` string tables for every Windows display
-  language ship today, whether the app is localized into them or not.
-- CI: the `windows-winui` legs (the scaffold check and toolkit row in ci.yml, the showcase
-  gallery through daybrite/actions, whose `setup-day-deps` installs the Windows App Runtime and
-  caches the SDK packages) are written but have not run on GitHub yet.
-
-## Canvas and PNG export
-
-The WinUI canvas uses Microsoft.Graphics.Win2D 1.4.0, fetched and projected by
-`day_toolchain::winappsdk` alongside the Windows App SDK. No separate manual install is
-needed. Packaged applications carry `Microsoft.Graphics.Canvas.dll`; development builds
-can load it from the pinned SDK cache. An offline `DAY_WINAPPSDK` directory must include
-`microsoft.graphics.win2d.1.4.0` with its NuGet layout.
-
-A `CanvasControl` replays Day's drawing operations through Win2D. A persistent host owns
-focus and input, so drawing updates do not replace gesture targets. The same painter renders
-into `CanvasRenderTarget` for bitmap/PNG export. WIC decodes bitmap inputs and encodes PNG,
-including transparency and optional downscaling. WinUI advertises `CanvasBitmap` and
-`ImageEncode` (PNG only); PDF remains unsupported. Deprecated `windows-xaml` has no canvas
-renderer or canvas text measurement.
+Window capture normally uses Windows Graphics Capture, including composed content such as
+WebView2 and video. Where that API is unavailable, the XAML-tree fallback omits the window
+frame and separately composed content. See [Window images](/docs/reference/window-image).

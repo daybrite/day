@@ -1,7 +1,7 @@
 ---
 navTitle: "Web"
-title: "Web backend"
-description: "The web-dom backend: Rust compiled to WebAssembly driving real DOM elements, the shim, and the launch server."
+title: "Run and publish a web app"
+description: "Build a Day app for the browser, check browser limitations, and publish the generated static files."
 ---
 
 <!--
@@ -9,405 +9,166 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-# Web: the web-dom backend
+# Run and publish a web app
 
-Day's ninth backend renders in a browser. The DOM is the toolkit: a Day [`button`](https://daybrite.dev/api/day_pieces/fn.button.html) is a real
-`<button>`, a slider is `<input type="range">`, and a dialog is `<dialog>`, all semantic HTML
-plus ARIA. The backend is `crates/day-toolkit-dom`, the target name is
-`web-dom`, and the feature is `dom`. Status: **experimental**
-([Tier 3](/docs/reference/platforms#support-tiers)); the capability subset below is
-implemented, and the known gaps are listed at the end.
+Use the `web-dom` target to run a Day app in a browser. Rust compiles to WebAssembly, and
+Day presents controls as HTML elements. The target is
+[Tier 3 · Experimental](/docs/reference/platforms#support-tiers); check the capabilities your
+app needs before publishing it.
 
-```bash
-rustup target add wasm32-unknown-unknown   # optional: `day build` adds it when missing
-day build  -t web-dom     # wasm cdylib + host page → build/day/cargo/web-dom/<profile>/dist/
-day launch -t web-dom     # build, serve dist/ on 127.0.0.1, open the default browser
-day launch -t web-dom --locale ar    # locale rides as ?locale= on the URL
+## Run locally
+
+From the app's project directory:
+
+```sh
+day doctor --toolkit dom
+day launch -t web-dom
 ```
 
-The Rust target is the whole toolchain for a UI-only app. An app that depends on [day-persistence](/docs/reference/persistence)
-also needs a C compiler with a wasm32 backend: its web driver compiles the bundled
-SQLite to WebAssembly ([docs/persistence](persistence.md)). Open-source LLVM clang has the
-backend; Apple's Xcode clang does not, so `day build` probes plain `clang`, then Homebrew LLVM
-(`brew install llvm` is enough; the keg is probed directly, without any PATH setup), then
-[swift.org toolchains](https://www.swift.org/install/), and exports the first wasm-capable one
-as `CC_wasm32_unknown_unknown` for the build. Setting that variable (or `CC`) yourself picks
-the compiler, honored as-is. `day doctor --toolkit dom` reports which compiler the build will
-use.
+Day builds the app, starts a local HTTP server, and opens the default browser. It installs
+the `wasm32-unknown-unknown` Rust target when needed. To build without launching:
 
-## Architecture
+```sh
+day build -t web-dom
+```
 
-It has the same trampoline shape as the Android and HarmonyOS backends, with JavaScript in place
-of Java/C. A plain ES-module shim owns every real DOM call; Rust holds numeric element ids and
-crosses the boundary with `extern "C"` imports. The shim is plain JavaScript that the page loads
-directly, so the toolchain is rustc alone.
+The output is in `build/day/cargo/web-dom/<profile>/dist/`. Serve that directory over HTTP
+rather than opening `index.html` as a file. Use the browser's developer console for logs and
+startup errors; Rust's `println!` does not provide browser console output. See
+[Logging](/docs/how-to/logging).
+
+Apps using [Persistence](/docs/reference/persistence) also need a C compiler with WebAssembly
+support. On macOS, `brew install llvm` supplies one; Xcode's clang does not. Day probes available
+compilers, and `day doctor --toolkit dom` reports the selection. Set
+`CC_wasm32_unknown_unknown` explicitly when you need a particular compiler.
+
+## Adapt the app to the browser
+
+The browser controls permissions, network access, storage, and window management. Check
+capabilities at runtime and provide an alternative when a feature is unavailable.
+
+| Feature | Browser behavior |
+| --- | --- |
+| Controls and drawing | HTML controls, DOM layout, and canvas drawing. See the [toolkit reference](/docs/reference/platforms/web-dom) and each component's support table. |
+| HTTP | Async requests use the browser's fetch API and are subject to CORS. Blocking HTTP calls are unsupported. |
+| Preferences | Stored in `localStorage` for the current origin. |
+| Files | Open uses a browser file picker; save initiates a download. Folder dialogs are unsupported. |
+| Persistent databases | Require the storage and hosting capabilities described below. |
+| Clipboard, location, and sensors | Depend on browser support, permissions, a secure context, and sometimes a live user gesture. |
+| Windows | The app runs within its page. Desktop window placement and additional OS windows are unavailable. |
+
+Use [`day::task`](https://daybrite.dev/api/day/fn.task.html) and
+[`day::sleep`](https://daybrite.dev/api/day/fn.sleep.html) for asynchronous work.
+[`day::spawn_blocking`](https://daybrite.dev/api/day/fn.spawn_blocking.html) runs inline on this
+target, so a long job still blocks the page. Prefer browser async APIs for long operations;
+see [Async work](/docs/explanation/async).
+
+Images and fonts are staged with the build. Synchronous
+[`resource()`](https://daybrite.dev/api/day_core/fn.resource.html) access to bundled data bytes
+is unavailable in the browser. Check [Resources](/docs/reference/resources) when sharing data
+loading code with native targets.
+
+Browser storage belongs to an origin. A local server that starts on a different port has a
+different store. Private browsing, storage policy, or clearing site data can also affect
+persistence. Do not use a successful local session as proof that a hosted database will persist.
+
+## Navigation, language, and appearance
+
+App routes appear in the URL hash. Opening `/#mail/inbox` navigates to that route, and browser
+Back and Forward follow the app's navigation history. Define routes as described in
+[Navigation](/docs/how-to/navigation).
+
+The app uses the browser's languages and appearance by default. To inspect another locale:
+
+```sh
+day launch -t web-dom --locale ar
+```
+
+The host also accepts `?locale=<language-tag>` and `?theme=light` or `?theme=dark`.
+`day launch --env KEY=VALUE` passes app configuration through query parameters, read with
+[`day::env`](https://daybrite.dev/api/day/fn.env.html). These values are visible in the URL;
+use them for non-secret configuration. Avoid the reserved keys `theme`, `locale`, `dayscript`,
+`vw`, `vh`, `dpr`, `dark`, `locales`, `route`, `tz`, and `tzoffset`.
+
+## Test browser behavior
+
+Use [DayScript](/docs/how-to/dayscript) for the app's interactions:
+
+```sh
+day launch -t web-dom --script dayscript/walkthrough.yaml
+```
+
+Screenshots require a browser driver. Install Playwright and a browser once:
+
+```sh
+mkdir -p ~/.cache/day-webdriver && cd ~/.cache/day-webdriver
+npm init -y && npm install playwright
+npx playwright install chromium
+```
+
+Then return to the app directory and configure the bundled driver:
+
+```sh
+export DAY_WEB_DRIVER="node $(day web driver)"
+export DAY_WEB_DRIVER_PLAYWRIGHT=~/.cache/day-webdriver
+export DAY_WEB_DRIVER_BROWSER=chromium
+day launch -t web-dom --script dayscript/walkthrough.yaml
+```
+
+`DAY_WEB_DRIVER_BROWSER` selects `webkit`, `chromium`, or `firefox`. Interactive launches
+do not need a driver.
+
+The bundled driver uses a temporary browser profile that is removed after the run. If one
+script seeds data for another, pass both with repeated `--script` options in the same launch.
+For storage tests on Linux, use Chromium; the bundled Linux WebKit engine lacks OPFS.
+
+Also check the app interactively at narrow and wide viewport sizes, with keyboard navigation,
+and with the browsers you intend to support. Scripted actions alone do not establish that
+browser permission prompts or user-gesture restrictions work for a person.
+
+## Publish the build
+
+Upload the contents of `dist/` to a static web host. Keep the generated files together and
+serve over HTTPS. Asset URLs are relative, so the app can live at a domain root or under a
+subdirectory. Configure the host to serve `.wasm` as `application/wasm` for streaming startup.
+
+For durable file databases, the host must provide cross-origin isolation:
 
 ```text
-index.html                        app.wasm (Rust cdylib)
-  #day-root                        day-toolkit-dom   (Toolkit/Platform over the shim imports)
-  shim.js  ──instantiate──▶        day-core / day-pieces / day-localization-ui
-     │  env.day_dom_create/insert/set_frame/…   (imports: the DOM verbs)
-     └── wasm.day_dom_main/event/posted/frame/… (exports: entry + callbacks)
+Cross-Origin-Opener-Policy: same-origin
+Cross-Origin-Embedder-Policy: require-corp
 ```
 
-- **`crates/day-toolkit-dom/src/lib.rs`** — the `Toolkit`/`Platform` impl. Pieces map to elements
-  (`<div>`, `<button>`, `<input>`, `<select>`, `<progress>`, `<img>`, `<canvas>`, `<dialog>`…);
-  layout stays day-core-owned `position:absolute` frames, with two exceptions below.
-- **`crates/day-cli/resources/web/`** — `shim.js` (the DOM half: element table, event dispatch,
-  canvas replay, dialogs, text measurement, and the loader for [web modules](#web-modules)),
-  `day.css` (control styling, light + dark via CSS
-  custom properties), `index.html` (fetches and instantiates the wasm). The trio lives in the CLI
-  rather than beside the toolkit because `day build` embeds it with `include_str!` (so an
-  installed CLI needs no source checkout) and `include_str!` may not reach outside its own
-  package. **Editing shim.js means rebuilding the CLI** before the change reaches a served page.
-- **`day::day_start_web!(root)`** — exports `day_dom_main`, which `shim.js` calls once the module is
-  instantiated. Emits nothing off wasm32, like the other entry macros. Apps reach it
-  through `day::day_start!("App Name", root)`, which expands to this macro and to every other
-  platform's entry, one line in `lib.rs` covering all of them.
-- **Logging** ([docs/logging](logging.md)) — `day_dom_log(level, ptr, len)` is the console
-  bridge: `error!`/`warn!`/`info!`/`debug!` land on the matching `console.*` method, so devtools'
-  level filter applies to Day's output. This is the only sink a page has, because std's stdout on
-  `wasm32-unknown-unknown` accepts bytes and drops them, so a bare `println!` in a Day app is
-  silent here, which is why the framework and the scaffold both log through `log`. It is
-  hand-rolled rather than `console_log`/`wasm-logger`, because both need `web-sys` and one of
-  them `wasm-bindgen`, which this backend does not use.
+Day's local server sends these headers. On hosts that cannot provide them, such as GitHub
+Pages, the persistence extension reports `durable: false` and refuses file-database opens.
+Check [Persistence](/docs/reference/persistence#the-web) before choosing a host.
 
-The browser owns geometry in two places:
+The reusable Day app workflow can deploy the web build to GitHub Pages. Include `web-dom` in
+its targets and set `deploy-web: true`; follow the complete
+[GitHub Actions instructions](/docs/how-to/github-actions#deploy-to-github-pages) for permissions
+and repository settings. The local `/dayscript` bridge and `/day-http-ok` demonstration endpoint
+are not part of a static deployment.
 
-- **Scrolling** maps to `overflow:auto` containers (DP-8's hybrid, as proposed): day children
-  are absolutely placed inside a sized content `<div>`, the browser scrolls it natively.
-- **Nav and tab panes** are CSS-framed (flex split view, stacked pages); each pane reports its
-  size back through a ResizeObserver as `Event::FrameChanged`, the DayNavPage contract
-  ([docs/navigation](navigation.md)). Split-vs-stack for a [`nav(Sidebar)`](https://daybrite.dev/api/day_pieces/fn.nav.html) is decided once at launch from
-  the initial viewport width (`SPLIT_MODE`, ≥ 700 px) and never re-evaluated on resize; a
-  window widened past the threshold stays a stack until reload.
+## Installation and offline use
 
-Synchronous text measurement (the one duty a browser makes hard) uses a hidden measurement
-element (so wrapping matches real labels), cached per element and invalidated on text or font
-patches.
+The build includes a web app manifest, generated icons, and a service worker. Supported
+browsers can offer installation or Add to Home Screen. Once cached, the app shell can load
+offline; remote APIs and uncached content still need a network connection.
 
-A label with [styled runs](text-runs.md) is measured from clones of its spans rather than its
-flat text: a bold span is wider than the same words in the base font, and measuring the flat
-text under-counted a wrapped paragraph by a line, which clipped its last word (2026-09).
-
-**Typography is rem-based, scaled per form factor.** The style ramp (`font_rem` in day-toolkit-dom) is the
-Apple text-style ratios with `Body` = 1, and a step becomes a length through one multiplier:
-day-toolkit-dom emits `calc(<step>rem * var(--day-text-scale))`, so day.css's `--day-text-scale` is the only
-place the size is decided, with nothing in Rust to keep in step with it. Controls (and the picker
-measurer, `measure_str`) take the same expression at `Body`, as on every native toolkit, where a
-button's caption and a label are one size.
-
-The scale differs by pointer type, because a point means different things on a desktop and a phone:
-
-| | `--day-text-scale` | `1rem` | `Body` |
-|---|---|---|---|
-| desktop (default) | 0.8125 = 13/16 | the browser's font-size preference (`html` is pinned at `font-size: 100%`) | 13px, one CSS pixel per Apple point, the size AppKit gives a desktop app |
-| `pointer: coarse` | 1 | `-apple-system-body`, which on iOS *is* Dynamic Type | 17px on iOS and tracking "Larger Text"; 16px where the keyword is unknown (Android has no Dynamic Type to track) |
-
-Before 2026-08 one scale of 1.12 served both, which put a desktop browser on the phone ramp: `Body`
-came out at 17.9px and the whole UI read about a third larger than the same app on macOS. Nothing
-may redefine `html`'s size outside that media query, because 1rem *is* the reader's preference;
-that is how web-dom delivers the accessibility text scaling [docs/text](text.md) promises, and page zoom applies on
-top of it. Chrome metrics that wrap text (the sidebar row's padding and icon) are in `em` for the
-same reason: they follow the font instead of pinning a desktop row size onto a touch device.
-
-Canvas draw-op text is the exception, because it renders in the app's coordinate space, where
-scaling text but not geometry would corrupt drawings.
-
-## Web modules
-
-The shim implements day-toolkit-dom's imports. A crate whose wasm half needs JavaScript of its own
-ships it as ES modules, which the page imports before it instantiates the app. Two things
-produce them:
-
-- **daybridge** generates one per bridged crate from its `js` arms ([docs/bridge](bridge.md)).
-- **`[package.metadata.day.web]`** names hand-written files, for a browser half a bridge cannot
-  express: a worker, a synchronous channel, imports under the crate's own names.
-
-```toml
-[package.metadata.day.web]
-modules = ["web/day-sql.js"]        # imported by the page
-files = ["web/day-sql-worker.js"]   # staged beside the modules, loaded by them
-```
-
-Paths are relative to the crate root. `day build -t web-dom` reads the table from every crate
-the wasm build links (the dependency graph filtered to `wasm32-unknown-unknown`, so a crate an
-app keeps behind `cfg(not(target_arch = "wasm32"))` contributes nothing) and stages each
-crate's files flat into `dist/modules/<crate>/`,
-so a module reaches a sibling with `new URL('./day-sql-worker.js', import.meta.url)` and two
-crates' files never meet. A path that is not a file, or two files of one name in one crate,
-fails the build. The module URLs join the generated bridge modules in `window.__DAY_MODULES`.
-
-A module may export either or both of:
-
-| Export | Called | Purpose |
-|---|---|---|
-| `register(rt)` | before instantiation | returns an object of wasm imports, merged into `env` |
-| `start(rt, module)` | once the app's wasm is compiled, before instantiation | gets the compiled `WebAssembly.Module`; the returned promise is awaited before the app's entry point runs |
-
-`rt` is the runtime a bridge arm gets (`str`, `mem`, `bytes`, `intoWasm`, `bytesIntoWasm`,
-`exports`, `dom`). `start` exists so that whatever a module boots is up, or known to be absent,
-by the time Rust runs, which keeps the Rust side synchronous. A module that fails to load or to
-start is logged to the console; an import it would have supplied is then missing, and the page
-reports that it could not start.
-
-[day-sqlite-worker](persistence.md#the-web) is the reference: its module supplies the
-`day_sql_*` imports and starts the SQL worker.
-
-## The main loop, timers, and [`day::sleep`](https://daybrite.dev/api/day/fn.sleep.html)
-
-The browser owns the loop; wasm has one thread, and `std::thread`, `Instant`, `SystemTime`,
-and the process environment are all absent. Three substitutions make Day code run unchanged:
-
-- [`Platform::post`](https://daybrite.dev/api/day_spec/trait.Platform.html#tymethod.post) queues a microtask; [`Toolkit::request_frame`](https://daybrite.dev/api/day_spec/trait.Toolkit.html#method.request_frame) uses cancellable `requestAnimationFrame`
-  (animation clocks tick per frame, and CSS transitions carry opacity/transform/color).
-- [`Platform::post_delayed(ms, f)`](https://daybrite.dev/api/day_spec/trait.Platform.html#method.post_delayed) (new with this backend; every native toolkit now has its own
-  timer behind it too) is `setTimeout` here. It backs **[`day::sleep(ms)`](https://daybrite.dev/api/day/fn.sleep.html)**, the awaitable timer
-  for [`day::task`](https://daybrite.dev/api/day/fn.task.html) flows. Use it instead of `std::thread::sleep` for fake-work delays and it
-  works on every backend ([docs/async](async.md)).
-- [`day::spawn_blocking(job)`](https://daybrite.dev/api/day/fn.spawn_blocking.html) has no thread to use, so the job runs inline at the future's first
-  poll. Keep web jobs short, or branch on `cfg!(target_arch = "wasm32")` and use the platform's
-  own async API ([docs/async](async.md)).
-- The launch locale reaches localization through `set_launch_locale` (the `?locale=` query
-  parameter, else the browser's language list) because there is no `DAY_LOCALE` environment
-  variable to read.
-
-## Capabilities
-
-What the subset covers today: containers, labels, buttons, toggles, sliders, text fields and
-areas, all three picker styles, progress and spinners, images, dividers, scrolling, canvas
-(shapes, gradients, text, transforms; replayed onto `<canvas>` 2D), split + stack navigation
-with back bar, tabs, the emulated recycling list with multi-selection, alert/confirm/prompt
-dialogs (`<dialog>`), fonts bundled via `FontFace` with a generated `fonts.json`, localization
-including RTL mirroring, dark mode, lifecycle (`DidBecomeActive`/`WillResignActive` from page
-visibility), routes in the URL (below), [day-part-preferences](/docs/reference/prefs) backed by `localStorage`
-([docs/prefs](prefs.md), so app state bound through [`day::prefs::bind`](https://daybrite.dev/api/day/prefs/fn.bind.html) survives a reload), and
-[day-part-http](/docs/reference/http) backed by the browser's `fetch()` ([docs/http](http.md)): `fetch_async` and
-`fetch_future` work in full, with drop-cancel through an `AbortController`; the blocking
-entry points return `Unsupported` (one thread, no blocking waits). [day-persistence](/docs/reference/persistence) file
-databases work in full through the day-sql worker ([docs/persistence](persistence.md)),
-and the open/save file pickers are the browser's own file input and download
-([docs/files](files.md)).
-
-## Routes in the URL
-
-The app's route and the URL hash stay in step, both ways ([docs/navigation](navigation.md)):
-
-- **Loading `…/#controls`** opens on that section: the host page hands the hash to
-  [`set_launch_deeplink`](https://daybrite.dev/api/day_core/fn.set_launch_deeplink.html), the web spelling of `DAY_DEEPLINK`.
-- **Navigating in the app** updates the hash through the [`Toolkit::set_route`](https://daybrite.dev/api/day_spec/trait.Toolkit.html#method.set_route) duty: one
-  history entry per step, so browser back/forward walk the app's navigation. The launch
-  reflection replaces the current entry instead of pushing one.
-- **A hash change the app didn't write** (back/forward, a hand-edited URL) arrives as
-  `Event::RouteRequested` and navigates; echoes of the app's own updates are dropped on both
-  sides of the boundary.
-
-Routes are the same strings every platform speaks: `day::routes!` keys and `/`-separated
-paths (`#mail/inbox/msg-42` works like [`navigate("mail/inbox/msg-42")`](https://daybrite.dev/api/day_pieces/fn.navigate.html)).
-
-## dayscript on the web
-
-`day launch -t web-dom --script …` and `day drive` work like every other target. The engine
-runs inside the wasm; the page opens a WebSocket to the dev server's `/dayscript`, and the
-server bridges it to the plain TCP protocol the runner already speaks, so one script
-runs on every platform. The differences from native are all internal:
-
-- The engine's implicit bounded wait reschedules through the delayed poster instead of
-  sleeping (one thread, no `Instant`); replies arrive when the step settles.
-- The in-page `screenshot` step reports unsupported (a DOM cannot rasterize itself), so the
-  runner captures through the **`DAY_WEB_DRIVER`** browser instead: set it to a command line
-  (e.g. `node $(day web driver)`, the CLI's bundled headless-Playwright driver) and `day` spawns it as
-  `<cmd> <url> <control-port>`; the driver serves `GET /screenshot` (PNG) and `GET /quit` on
-  the control port. The bundled driver opens a throwaway persistent profile
-  (`launchPersistentContext`), not Playwright's default ephemeral context; WebKit gives an
-  ephemeral session no OPFS backing, and [day-part-filesystem](/docs/reference/fs) is OPFS-only ([docs/fs](fs.md)). Its engine
-  comes from `DAY_WEB_DRIVER_BROWSER` (`webkit` default, `chromium`, `firefox`): macOS WebKit
-  has OPFS and is the local default, but Playwright's Linux WebKit (the WPE port) ships no
-  OPFS at all, so Linux CI runs the walkthrough under Chromium. Without a driver, scripted
-  runs fail at the first screenshot; interactive `day launch` never needs one.
-  For Chromium, the driver grants clipboard read/write permissions only to the launched
-  origin. Scripted Edit commands arrive without a browser user gesture; this lets them use
-  the real clipboard without a permission prompt blocking the run. It does not replace the
-  clipboard with a mock or change permissions for interactive launches or other engines.
-- Storage lasts exactly as long as the launch: the driver's profile is created for the run
-  and removed at quit, and the loopback origin's port changes per launch, so no OPFS state
-  survives from one `day launch` to the next the way a native target's on-disk store does.
-  Scripts that hand state onward (a seed script before a walkthrough) must ride one
-  launch as repeated `--script` flags, which runs them in sequence against the same
-  instance (and is how the CI workflow runs a multi-script `scripts:` input on web-dom).
-- Steps for capabilities the web lacks (the native file pickers) carry
-  `skip_on: [web-dom]` in the walkthrough; the runner drops them for this target
-  (DESIGN.md Appendix C). The HTTP demo runs unskipped: the dev server answers the
-  same-origin `/day-http-ok` echo endpoint (below) with the same bodies the native demo's
-  loopback server serves.
-- Day element ids double as DOM ids (via the a11y identifier duty), so the page is
-  inspectable with the same ids scripts use.
-
-CI runs the full showcase walkthrough this way (light/dark × en/fr/ar/zh-CN) and publishes
-the captures in the website gallery's "Web DOM" column.
-
-Known gaps, in rough order of interest:
-
-- **Bundled data assets** — [`resource()`](https://daybrite.dev/api/day_core/fn.resource.html) returns `None` (no synchronous file reads in a
-  browser). Images and fonts work; raw asset bytes need an embedding mode that does not exist
-  yet.
-- **Menus are composed** — no DOM equivalent of a native menu bar exists, so the app menu is a
-  trailing `⋯` button on the toolbar strip whose popover carries the model (`Cap::AppMenu`
-  emulated; the model's accelerators are live, except Settings…'s ⌘, / Ctrl+comma, which the
-  browser keeps for its own settings and so is left off), and a context menu is presented as day pieces
-  at the summon point ([docs/menus](menus.md)). Nav-row context menus are still dropped.
-- **Native pieces** — webview, map, lottie, combobox, searchfield and activity render their
-  standard placeholder. [`day-piece-media`](/docs/reference/media) now renders a real `<video>` ([docs/media](media.md)): the browser
-  supplies the transport chrome, so a URL is required (a file path cannot load) and autoplay needs
-  `.muted(true)`. [`day-pieces`](/docs/reference/colorpicker) renders `<input type="color">`
-  ([docs/colorpicker](colorpicker.md)), the browser's own picker, which on desktop is the system
-  chooser; its value is 8-bit `#rrggbb`, and the `alpha` attribute is set but honored only where the
-  browser has shipped it. The registry is open for the others: day-toolkit-dom exposes a runtime renderer registry
-  (`day_toolkit_dom::register_renderer`) rather than the `linkme` distributed slice the other eight backends
-  use, because `#[distributed_slice]` does not compile for wasm32; a piece self-registers from its
-  own constructor. A piece that needs to report back asks for the shim's listeners with
-  `Dom::listen(&handle, listen::INPUT)`, the same wiring the built-in kinds get, exposed for
-  pieces alongside `element` / `set_attr` / `call`. Parts other than prefs, http, sensors and location (battery,
-  clipboard, haptics…) answer their unavailable tier. [`day-part-sensors`](/docs/reference/sensors) streams the accelerometer
-  and gyroscope from `DeviceMotionEvent` (no cross-browser magnetometer exists; [docs/sensors](sensors.md)),
-  [`day-part-location`](/docs/reference/location) rides `navigator.geolocation`, and [`day-part-permissions`](/docs/reference/permissions) answers from
-  `navigator.permissions`. All three need a secure context, and iOS Safari's motion prompt must be
-  requested from inside a button action while the user gesture is still live.
-- **[day-piece-crash-reporter](/docs/reference/break)** — no signal handlers on wasm; init succeeds and every API degrades to its
-  documented stub.
-- **Window control** — the page can set `document.title` and go fullscreen through the
-  Fullscreen API ([`WindowHandle::state()`](https://daybrite.dev/api/day_core/windows/struct.WindowHandle.html#method.state), [docs/windows](windows.md)), which browsers allow
-  only from a click or key press; a request outside one settles back to `Normal`. [`day::monitors()`](https://daybrite.dev/api/day/fn.monitors.html)
-  reports `window.screen`, and a window's appearance override is the page's. Size, position,
-  stacking, content protection and multi-window do not apply.
-- **Window chrome** — in an installed Chromium app with the window-controls overlay switched on,
-  `WindowChrome::Overlay` runs the page under the title bar (the inset comes from
-  `navigator.windowControlsOverlay`) and [`.window_drag_region()`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.window_drag_region) marks `app-region: drag`
-  ([docs/window-chrome](window-chrome.md)). Elsewhere both are inert.
-
-## Home screen and offline
-
-The dist is an installable web app: added to a home screen from Safari on iOS, Chrome on
-Android, or any browser that follows the W3C Web Application Manifest, it gets its own icon and
-name, opens without browser chrome, and launches with the network away. `day build` writes the
-pieces beside `index.html`:
-
-- **`manifest.webmanifest`** — the name and short name, the description, the language, the
-  display mode (a `standalone` app also offers `window-controls-overlay` through
-  `display_override`), the theme and background colors, the icons, the `[[shortcuts]]` as the
-  `shortcuts` member ([docs/deep-links](deep-links.md#launcher-shortcuts)), and the
-  `[[file_types]]` as `file_handlers`. Every URL in it is relative
-  (`./`, `icons/…`), so the one file serves from a Pages root, a project subpath, or a project
-  site's `webapp/` directory, and its `id` is the resolved start URL wherever it lands.
-- **`icons/icon-{64,192,512}.png`** — from the png family `day icon build` renders; 192 and 512 are
-  the sizes an install needs, and the 512 doubles as the maskable icon since the master's
-  background layer fills the square. A project without an icon master ships no icons and the
-  manifest lists none.
-- **The head of `index.html`** — the title, the manifest link, one `theme-color` per
-  appearance, the favicon and apple-touch-icon links, and the iOS home-screen metas Safari
-  still reads for the status bar and the title.
-- **`sw.js`** — the offline shell. Its cache is named by a digest of every file in the dist,
-  filled with all of them at install, and served network-first: the network's answer when there
-  is one (refreshing the cache), the cache's when there is not, and `index.html` for any
-  navigation neither can answer. A rebuild changes the digest, so the next visit installs a
-  fresh cache and drops the old one; `day launch` sends `Cache-Control: no-store`, so a dev
-  page never sees a stale worker. Same-origin GETs inside the worker's scope only.
-
-The texts come from where they already live: the name and short description from
-`store/<default locale>/` ([docs/store](store.md)), falling back to `[app] title`, and the
-language from the default locale. `[web]` in Day.toml holds the few things nothing else knows,
-all optional:
+The manifest uses the app's store metadata and icon resources. Optional `Day.toml` settings
+control browser appearance:
 
 ```toml
 [web]
-short-name = "Showcase"        # under the icon; default: the name, or its leading words within 12 characters
-theme-color = "#ffffff"        # browser chrome, light appearance (default)
-theme-color-dark = "#000000"   # dark appearance (default)
-background-color = "#123246"   # the splash while the app loads; default: the light theme color
-display = "standalone"         # standalone | minimal-ui | browser | fullscreen
+theme-color = "#ffffff"
+theme-color-dark = "#000000"
+background-color = "#123246"
+display = "standalone"
 ```
 
-The worker registers only on `https:` and loopback, which browsers require anyway; a plain
-`http:` host serves the app as before, without the offline shell. Scripted runs
-([dayscript on the web](#dayscript-on-the-web)) are unaffected: the worker passes every
-request through while the network is up, and the bridge is a WebSocket, which it never sees.
+The service worker registers on HTTPS and loopback hosts. A changed build creates a new cache.
+When checking an update, inspect the active service worker and clear site data if an old
+installation is interfering with the test.
 
-## Serving and static hosting
-
-The dist directory is self-contained static files that any host can serve as they are. The only
-reason `day launch` runs a server at all is that browsers refuse to instantiate wasm from `file:`
-URLs; any static host works, including GitHub Pages. One
-capability rides on response headers rather than files: the day-sql worker's
-SharedArrayBuffer channel ([docs/persistence](persistence.md)) exists only on
-cross-origin-isolated pages, so `day launch` sends `Cross-Origin-Opener-Policy: same-origin`
-and `Cross-Origin-Embedder-Policy: require-corp`, and a static host must send the same two
-headers for file databases to persist. A host that cannot set headers (GitHub Pages) still
-serves the app; [day-persistence](/docs/reference/persistence) reports `durable: false` there and file opens refuse
-loudly, while everything else works unchanged. The shim
-prefers `instantiateStreaming` (which requires the `application/wasm` MIME type) and falls
-back to a buffered instantiate on hosts that serve wasm as something else, so a plain
-directory listing on a minimal server still boots. Every asset reference in the dist is
-**relative** (`day.css`, `./shim.js`, `app.wasm`, `assets/…`), so it serves correctly from a
-subpath (a project-Pages URL like `https://<user>.github.io/<repo>/`) with no `<base>` tag.
-
-### Deploy to GitHub Pages
-
-The [`daybrite/actions`](https://github.com/daybrite/actions) companion repo's reusable
-`dayapp` workflow can also publish the web-dom build to the calling repo's own Pages site
-(e.g. Day-Skies → `https://day-skies.github.io/Day-Skies/`): set `deploy-web: true` with `web-dom`
-among the `targets`, so the one workflow that builds and packages every platform also deploys the
-web build. Add this to the app repo and enable Settings → Pages → Source = "GitHub Actions":
-
-```yaml
-# .github/workflows/ci.yml
-name: ci
-on:
-  push: { branches: ["**"], tags: ["v[0-9]+.[0-9]+.[0-9]+*"] }
-  workflow_dispatch:
-permissions:            # reusable workflows run with the CALLER's permissions
-  contents: write       # release-asset upload on tag builds
-  pages: write          # web-dom → GitHub Pages
-  id-token: write       # actions/deploy-pages authenticates the upload with an OIDC token
-jobs:
-  app:
-    uses: daybrite/actions/.github/workflows/dayapp.yml@v1   # pin @<tag> to match your day dep
-    secrets: inherit
-    with:
-      targets: macos-appkit, ios-uikit, android-material, web-dom
-      deploy-web: true           # publish the web-dom build to GitHub Pages
-      release-mode: pre-release  # or choose "latest" to perform full releases
-```
-
-The web deploy reuses the release-profile dist the build already produced (no second build) and
-hands it to `actions/upload-pages-artifact` + `actions/deploy-pages`. No secrets are needed; the
-deploy authenticates with the workflow's own OIDC token, which is why `id-token: write` is
-required. By default it publishes on every push to the default branch; pass
-`web-deploy-tag-pattern: '^v[0-9]+\.[0-9]+\.[0-9]+$'` to publish only on version tags instead.
-
-Beyond static files, the dev server answers two dynamic paths: `/dayscript` (the WebSocket
-bridge above) and **`/day-http-ok`**, a method-echo endpoint for HTTP demos whose native
-form would spin a loopback listener, which a browser tab cannot (GET answers `day-http-ok`;
-any other method echoes `day-http-ok:<METHOD>`, matching the showcase's native one-shot
-server byte for byte). On a static host that endpoint does not exist, so the showcase's demo
-buttons report what the host returned (a 404 page, or a 405 for PATCH); the URL checker
-and every other HTTP call work anywhere.
-
-The showcase publishes its own web-dom build at
-**`https://showcase.daybrite.dev/webapp/`**, from the `daybrite/Day-Showcase` repository's CI
-rather than from this one, because the app is a separate project; daybrite.dev links to it. This
-repository's `web-dom` job still builds the dist and drives the walkthrough against it, as the wasm
-build test; it just does not publish the result. To see a local build, `day build --target web-dom`
-in a showcase checkout and serve `build/day/cargo/web-dom/*/dist/`, or `day launch -t web-dom`.
-
-Query parameters the host page reads: `theme=light|dark` (else the OS preference),
-`locale=<bcp47>` (else the browser languages), and any app key looked up through [`day::env`](https://daybrite.dev/api/day/fn.env.html).
-A browser sandbox has no process environment, so `day launch --env K=V` forwards each pair
-as `?K=V` (percent-encoded) and [`day::env("K")`](https://daybrite.dev/api/day/fn.env.html) reads it back through the shim. The shim's
-page-fact keys (`vw`, `vh`, `dpr`, `dark`, `locales`, `route`, `tz`, `tzoffset`) and the reserved
-`theme`, `locale`, and `dayscript` names shadow same-named app keys; avoid those as env names.
-`tz` carries the browser's IANA zone for zone-aware apps such as Day-Time, and `tzoffset` the
-offset that zone is running at in MINUTES EAST of UTC — `tzoffset` for now, `tzoffset:<epoch-ms>`
-for a moment, since daylight saving makes the answer a function of the instant. Both honor `?tz=`
-for testing, so a run can be pinned to a zone the machine is not in. Together they are what lets a
-web app compute a local calendar day without shipping a copy of the IANA database: the browser
-already has one, and Day-News's "Today" reads it through `daynews-time`.
+For custom JavaScript supplied by an extension, see the
+[web module contract](https://github.com/daybrite/day/blob/main/docs/extending.md#web-scripts-packagemetadatadayweb).

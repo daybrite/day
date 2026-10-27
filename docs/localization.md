@@ -18,6 +18,20 @@ resolves each message using a shared locale signal and the catalog attached to t
 The [localization guide](/docs/how-to/localization) covers setup and translation
 workflows. This reference defines the generation, lookup, and tooling contracts.
 
+## Reference example messages
+
+The UI examples use generated `res::str` accessors for sample messages. These messages belong
+to the example app; Day does not provide them as built-in strings.
+
+[Download the example messages](/examples/reference-messages.ftl) and copy the entries you need
+into `resource/locales/en-US/app.ftl` (or your app's default locale). Keep your existing messages,
+rename sample keys to suit your screens, and define matching keys and arguments in each locale
+you ship. When a guide includes its own Fluent block, use that block's definitions.
+
+Follow the [localization guide](/docs/how-to/localization) to generate the accessors and load the
+catalog at startup. In a child Rust module, import `crate::res` to use the generated accessors.
+File paths, route keys, protocol strings, and user-authored content do not need translation.
+
 ## Catalog generators
 
 | Entry point in `build.rs` | Output in `OUT_DIR` | Include macro | Lookup |
@@ -315,9 +329,7 @@ Azerbaijani use Turkic folding. Matching does not remove accents: `é` and `e` r
 
 ## Locale data
 
-The runtime accepts ICU4X 2.1 and newer compatible 2.x releases. Servo 0.6's SpiderMonkey
-integration pins several components to 2.1; apps embedding it resolve that compatible set.
-This does not add Servo to Day's dependency graph.
+The runtime accepts ICU4X 2.1 and newer compatible 2.x releases.
 
 ICU4X components use compiled locale data independently of the app's Fluent locale list.
 Changing that list changes the app's translations, not the embedded ICU data selection.

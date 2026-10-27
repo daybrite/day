@@ -20,7 +20,7 @@ Test keyboard navigation and screen-reader behavior on the platforms you ship; a
 alone do not establish that a screen is usable.
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
-[example messages](snippet-catalog.md) and [catalog setup](/docs/how-to/localization).
+[example messages](/docs/reference/localization#reference-example-messages) and [catalog setup](/docs/how-to/localization).
 
 ## Authoring
 
@@ -182,8 +182,3 @@ ArkUI answer `found=false`: GTK 4 has no public getters for an accessible's labe
 ArkUI's accessibility text is empty unless Day set it, so neither can be read back faithfully. Role
 is diffed only for explicit roles Day applied, since native controls own their roles, which vary
 per platform.
-
-## Follow-ups
-
-- `day lint` a11y rule: interactive piece without a derivable label → warning (`--strict` error).
-- The accessibility group of `read_native` for GTK and ArkUI, so `a11y_audit` runs there too.

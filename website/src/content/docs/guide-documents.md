@@ -70,7 +70,7 @@ create windows or overwrite documents automatically.
 it does not infer a file format or display raw error text. Use it from an [`on_open_files`](https://daybrite.dev/api/day/fn.on_open_files.html)
 callback through [`day::task`](https://daybrite.dev/api/day/fn.task.html). The other Rust block above is an integration fragment.
 
-Complete module for `src/documents.rs` in the [technical recipe harness](/docs/reference/examples/catalog#technical-recipes).
+Complete module for `src/documents.rs` in the [technical recipe harness](https://github.com/daybrite/day/blob/main/docs/snippet-catalog.md#technical-recipes).
 The harness compiles this exact block; it is not a standalone app. Add the catalog entries below
 to `resource/locales/en/app.ftl` and declare the module in `src/lib.rs`.
 

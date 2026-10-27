@@ -59,7 +59,7 @@ before [`.drop_target(...)`](https://daybrite.dev/api/day_pieces/trait.Decorate.
 transfer decorator creates a native wrapper. The source and target may be the same piece.
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
-[example messages](snippet-catalog.md) and [catalog setup](/docs/how-to/localization).
+[example messages](/docs/reference/localization#reference-example-messages) and [catalog setup](/docs/how-to/localization).
 
 ## Acceptance and completion
 

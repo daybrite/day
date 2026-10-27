@@ -70,7 +70,7 @@ them. Day already asks for the `Notifications` permission ([docs/permissions.md]
 one. This closes that gap.
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
-[example messages](../snippet-catalog.md) and [catalog setup](/docs/how-to/localization).
+[example messages](/docs/reference/localization#reference-example-messages) and [catalog setup](/docs/how-to/localization).
 
 ## Two capabilities, so two parts
 

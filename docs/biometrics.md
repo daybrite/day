@@ -22,8 +22,7 @@ server session.
 
 ## Add to your app
 
-Defined in [`day-part-biometrics`](https://github.com/daybrite/day/tree/main/crates/day-part-biometrics). Add this to your app's `Cargo.toml`
-`[dependencies]` table, at the same Day version as the rest of your app:
+Add [`day-part-biometrics`](https://github.com/daybrite/day/tree/main/crates/day-part-biometrics) to your app’s Cargo dependencies, using the same Day version as the rest of your app:
 
 ```toml
 [dependencies]
@@ -113,7 +112,7 @@ executor, a WinRT thread-pool thread, the HarmonyOS JS thread), which is why the
 the `.await` writes signals directly ([docs/async](/docs/explanation/async)). Nothing here posts to a main loop, so the
 crate works in a plain `main` and under `cargo test`.
 
-## Per-platform native realization
+## Platform implementations
 
 Platform guidance: [Apple: Local Authentication](https://developer.apple.com/documentation/localauthentication); [Android: show a biometric authentication dialog](https://developer.android.com/identity/sign-in/biometric-auth); [Windows Hello](https://learn.microsoft.com/en-us/windows/apps/develop/security/windows-hello); [HarmonyOS: User Authentication Kit](https://github.com/openharmony/docs/blob/master/en/application-dev/security/UserAuthenticationKit/user-authentication-overview.md).
 
@@ -155,7 +154,7 @@ Platform guidance: [Apple: Local Authentication](https://developer.apple.com/doc
   accepts once; `day-part-keychain` uses this for its protected items. `ACCESS_BIOMETRIC` is
   required even for a PIN-only prompt.
 
-## What it shows about the extension system
+## Extension integration
 
 A headless crate with no UI Piece, like [`day-part-haptics`](/docs/reference/haptics). Its Android and HarmonyOS halves are
 daybridge arms ([docs/bridge](https://github.com/daybrite/day/blob/main/docs/bridge.md)) in Java and ArkTS, and its `[package.metadata.day.permissions] uses`

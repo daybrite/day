@@ -16,8 +16,7 @@ and error effects. Calls have no effect on devices without a supported haptic en
 
 ## Add to your app
 
-Defined in [`day-part-haptics`](https://github.com/daybrite/day/tree/main/crates/day-part-haptics). Add this to your app’s `Cargo.toml`
-`[dependencies]` table, at the same Day version as the rest of your app:
+Add [`day-part-haptics`](https://github.com/daybrite/day/tree/main/crates/day-part-haptics) to your app’s Cargo dependencies, using the same Day version as the rest of your app:
 
 ```toml
 [dependencies]
@@ -63,7 +62,7 @@ There are no cargo features; platform selection is purely `#[cfg(target_os)]`, b
 engine is an OS concern rather than a toolkit one. `crates/day-part-haptics/examples/haptics.rs` is a
 plain `main` that uses it with no Day framework at all.
 
-## Per-platform native realization
+## Platform implementations
 
 Platform guidance: [Apple: playing haptics](https://developer.apple.com/design/human-interface-guidelines/playing-haptics); [Android: haptics design principles](https://developer.android.com/develop/ui/views/haptics/haptics-principles).
 
@@ -101,7 +100,7 @@ Platform guidance: [Apple: playing haptics](https://developer.apple.com/design/h
   `[package.metadata.day.ohos] permissions`. The OpenHarmony emulator has no vibrator, so the call
   is accepted and nothing is felt.
 
-## What it shows about the extension system
+## Extension integration
 
 Like [`day-part-device`](/docs/reference/battery) and [`day-part-connectivity`](/docs/reference/network), this is a headless external crate: it has no UI
 Piece and registers nothing into any toolkit's `RENDERERS` slice. It exercises the

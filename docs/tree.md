@@ -14,6 +14,11 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 The tree piece displays hierarchical data with expandable rows. Use it for document outlines,
 folders, and grouped navigation.
 
+## Add to your app
+
+This control is included in [`day-pieces`](https://github.com/daybrite/day/tree/main/crates/day-pieces)
+and re-exported through `day::prelude::*`. No additional crate or control feature is required.
+
 ## Signature
 
 API excerpt; not a complete app. `NodeSource` and its slot/key types are defined in
@@ -92,7 +97,7 @@ Multi-selection and movement are off by default. The
 reveal, and type-ahead options.
 [`tree`](https://daybrite.dev/api/day_pieces/fn.tree.html) does not return a construction `Result`; malformed source data is not thereby validated.
 
-## Platform rendering
+## Toolkit implementations
 
 | Toolkit | Rendering |
 | --- | --- |

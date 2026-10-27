@@ -194,27 +194,6 @@ theme changes), and `currentColor` on the web, so it also turns white on a selec
 template to the foreground, not to the authored art. A source swap on a template or tinted glyph
 re-cuts the mask from the new name, so a recycled row shows the icon it was rebound to.
 
-## Conformance
-
-The [conformance app](../apps/conformance/README.md) stages real SVG fixtures and runs
-`vector-*` pixel assertions on every active platform-toolkit target. It checks explicit tint,
-unpainted regions, stroke caps, both fill rules, multiple sizes, and a native button icon slot. It also exercises resizing an
-existing view, reactive tint
-with partial opacity, fit/fill/stretch on non-square SVGs, SVG/bitmap source replacement,
-and native button foreground updates.
-Qt's native `qt-vectors` test additionally checks icon pixmaps at 1×, 1.5×, 2× and 3×,
-reactive foreground changes, and theme/outline symbol resolution. It runs with the existing
-CMake/CTest native suite in CI.
-
-Checking both painted and transparent regions prevents a missing icon from passing as an
-outline. The icon-slot case also exercises WinUI's stroke-to-filled-geometry conversion.
-
-A separate fine-detail fixture contains a line that is opaque at display size but never
-opaque in the 256px cache. Its pixel check and raster negative control catch that fallback
-being enlarged instead of drawing the vector. They do not prove the absence of every possible
-raster implementation. In particular, the current GTK and Qt standalone raster paths are
-expected to fail this case; there is no target exclusion concealing that limitation.
-
 ## Lint
 
 `day lint` validates every vector source: unreadable/unparseable art, glyph-embedded `<text>`
@@ -223,11 +202,11 @@ empty `.symbolset`, a template whose Regular variant fails extraction, and, when
 is a declared target, art outside the VectorDrawable subset (`day::lint::vector-raster-fallback`,
 a heads-up that Android ships the raster).
 
-## Not yet
+## Limits
 
-Apple-native symbol weights (the `.symbolset` catalog staging that would enable them; staged
-weights are template-extracted everywhere today, Apple included), and the opt-in runtime
-rasterizer for downloaded SVGs ([`day-pieces`](/docs/reference/images)'s planned svg arm).
+Native Apple symbol-weight selection is not exposed; Day stages template-extracted weights.
+There is no optional runtime SVG rasterizer for downloaded SVG data. Use bundled vectors or
+an image format supported by the target.
 
 ## Platform guidance
 

@@ -9,8 +9,14 @@ SPDX-License-Identifier: CC-BY-SA-4.0 -->
 # Pager
 
 Use [`pager`](https://daybrite.dev/api/day_pieces/pager/fn.pager.html) to keep a fixed set of
-page slots alive while changing which page is selected. It is included in `day-pieces` and
-available through `day::prelude::*` without another dependency.
+page slots alive while changing which page is selected.
+
+## Add to your app
+
+This control is included in [`day-pieces`](https://github.com/daybrite/day/tree/main/crates/day-pieces)
+and re-exported through `day::prelude::*`. No additional crate or control feature is required.
+
+## Selection and lifetime
 
 [`pager(state, busy, pages, settled)`](https://daybrite.dev/api/day_pieces/pager/fn.pager.html) takes two signals, a vector of `AnyPiece` pages, and a
 callback. [`PagerState`](https://daybrite.dev/api/day_spec/controls/pager/struct.PagerState.html)

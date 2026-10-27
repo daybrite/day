@@ -21,16 +21,18 @@
     "assemble": "node scripts/assemble-gallery.mjs",
     "astro": "astro",
     "docs:check": "node scripts/docs-check.mjs",
-    "docs:test": "node --test scripts/docs-check.test.mjs scripts/target-labels.test.mjs scripts/api-links.test.mjs scripts/api-reference-coverage.test.mjs",
-    "docs:architecture": "node scripts/check-content-routes.mjs && node scripts/check-sidebar-icons.mjs && node --test scripts/content-routes.test.mjs && npm run tutorials:check",
+    "docs:test": "node --test scripts/docs-check.test.mjs scripts/target-labels.test.mjs scripts/api-links.test.mjs scripts/api-reference-coverage.test.mjs scripts/doc-dependency-versions.test.mjs",
+    "docs:architecture": "npm run docs:versions && node scripts/check-content-routes.mjs && node scripts/check-sidebar-icons.mjs && node --test scripts/content-routes.test.mjs && npm run tutorials:check",
     "docs:api-references": "node scripts/check-api-references.mjs",
-    "tutorials:check": "node --test scripts/tutorials.test.mjs"
+    "tutorials:check": "node --test scripts/tutorials.test.mjs",
+    "docs:versions": "node scripts/check-doc-dependency-versions.mjs"
   },
   "dependencies": {
     "@astrojs/markdown-remark": "^7.2.3",
     "@astrojs/mdx": "^7.0.6",
     "astro": "^7.2.3",
-    "js-yaml": "^4.3.0"
+    "js-yaml": "^4.3.0",
+    "smol-toml": "1.7.0"
   },
   "devDependencies": {
     "linkinator": "^6.3.0",

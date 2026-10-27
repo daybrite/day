@@ -15,12 +15,12 @@ Text inputs support this across toolkits. Focusable containers and non-text cont
 platform limits described below.
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
-[example messages](snippet-catalog.md) and [catalog setup](/docs/how-to/localization).
+[example messages](/docs/reference/localization#reference-example-messages) and [catalog setup](/docs/how-to/localization).
 
-## 1. The API
+## Authoring
 
 Focus binds to a signal with [`.focused(…)`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.focused), exactly like every other two-way control binding.
-One name covers both shapes (a marker-trait overload, the `IntoText` pattern):
+Use a boolean for one control, or an optional key to coordinate a group:
 
 ```rust
 // One field: a Bool signal. Native focus writes it; writing it moves focus.
@@ -38,7 +38,7 @@ column((
     text_field(pass).focused((focus, Field::Pass)),
     button(res::str::log_in()).action(move || {
         if user.with(|s| s.is_empty()) { focus.set(Some(Field::User)); return; }
-        …
+        // Continue with the app's sign-in action.
     }),
 ))
 ```
@@ -49,42 +49,24 @@ column((
 - **Signal → native:** writing `Some(K)` / `true` requests native focus for the bound control.
   Writing `None` / `false` resigns it; on iOS and Android that dismisses the soft keyboard,
   matching the platform convention SwiftUI set.
-- **Reading is free.** [`focus.get() == Some(Field::User)`](https://daybrite.dev/api/day_reactive/struct.Signal.html#method.get) is a tracked read like any other,
+- **Read the binding.** [`focus.get() == Some(Field::User)`](https://daybrite.dev/api/day_reactive/struct.Signal.html#method.get) is a tracked read like any other,
   with nothing else to wire.
-- **Field chaining** is a write in [`on_submit(f)`](https://daybrite.dev/api/day_pieces/trait.TextFieldBuilder.html#tymethod.on_submit), which ships with the same change: the native
-  end-editing / return hooks focus needs are the ones `Event::Submitted` needs.
+- **Field chaining** is a write in [`on_submit(f)`](https://daybrite.dev/api/day_pieces/trait.TextFieldBuilder.html#tymethod.on_submit), to move to the next field after submission.
 
-[`.focusable()`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.focusable) opts a composed container into focus: the canvas contract (press-to-focus,
-`FocusChanged` both ways, the keys through [`.on_key`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.on_key) while focused) behind the
-[`Toolkit::set_focusable`](https://daybrite.dev/api/day_spec/trait.Toolkit.html#method.set_focusable) duty. AppKit, UIKit, GTK, Qt, Android and DOM implement it for
-containers. Editable descendants retain their editing keys; a container can request focus with
-[`.focused(...)`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.focused) after navigation. WinUI and ArkUI still require a canvas or native control as the
-keyboard focus target; their container duty remains a no-op. Reserved with names but not implemented: `default_focus(…)`
-on containers, `focus_order(n)`, and focus scopes for dialogs. Tab/Shift-Tab traversal stays
-native, with focus order following layout order.
+## Focus requests and lifetime
 
-## 2. Semantics: the rules
+Writing a focus binding updates the signal immediately and requests a native focus change.
+The platform may refuse the request, for example when the control cannot take focus. A signal
+read immediately after the write does not confirm that the native control has gained focus;
+subsequent native focus events reconcile the binding with the actual state.
 
-1. **Writes are requests.** A write asks the toolkit on the next main-loop turn; the last write
-   in a turn wins.
-2. **The signal converges on reality.** Toolkits report the *resulting* state through
-   `Event::FocusChanged`, and that report is what lands in the signal (through the echo guard).
-   A request naming a target the platform will not focus produces no event: platform focus is
-   unchanged, and the next real focus event corrects the signal.
-3. **One-turn latency.** [`focus.set(…)`](https://daybrite.dev/api/day_reactive/struct.Signal.html#method.set) then [`focus.get()`](https://daybrite.dev/api/day_reactive/struct.Signal.html#method.get) in the same turn reads the old
-   value, the same asynchrony every reference framework has, made explicit.
-4. **Mount reconciliation.** When a piece bound to `K::V` mounts and the signal already reads
-   `Some(K::V)`, it requests focus. Set the signal, then present the sheet: the field focuses
-   when it appears. (The initial `false`/`None` is *not* applied: resigning focus a control
-   never had would steal it from whoever has it.)
-5. **Echo discipline.** A programmatic focus move fires native focus events; those must not
-   re-request. The pieces layer keeps a per-binding echo cell of the native state and skips
-   applies that already match it; toolkits additionally skip resigns when the control doesn't
-   own focus (so a stale release can't blur a sibling).
-6. **Loss and gain pair up.** When focus moves between two controls bound to the same group
-   signal, the event pump dispatches the queued gain *before* the loss it arrived with, so the
-   signal transitions `Some(A)` → `Some(B)` without an observable `None`. A loss with no queued
-   successor (click on empty space, window resigned) writes `false` / `None`.
+When a bound control mounts and its binding already selects it, it requests focus. This lets
+an app select a field before presenting a sheet. An initial `false` or `None` does not resign
+another control's focus.
+
+Moving between controls in the same group updates the selected key. Losing focus without a
+successor clears it. Tab and Shift-Tab traversal follows the platform's focus order; Day does
+not expose custom focus-order or dialog focus-scope builders.
 
 ## Which controls take focus
 
@@ -107,7 +89,3 @@ Place long forms in a scroll view. Android and UIKit resize the available conten
 the keyboard appears and reveal the focused field, in a cover or sheet as well as in the
 window, so a button row at the bottom of a sheet stays above the keyboard. HarmonyOS uses ArkUI's resize avoidance
 mode. Test field visibility at the bottom of the form and after changing keyboard height.
-
-## Implementation
-
-See the [toolkit contract](backend-contracts/focus.md) for event delivery and keyboard handling.

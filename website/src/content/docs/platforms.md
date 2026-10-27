@@ -137,9 +137,8 @@ checks; neither API presence nor an emulated capability proves desktop-equivalen
 Framework-level features that don't vary by platform but aren't done, kept here so there's one
 list:
 
-- **Animation**: partial. [`with_animation(spec, || …)`](https://daybrite.dev/api/day_core/fn.with_animation.html) ships, and five of the eight toolkits execute
-  opacity, transform, and frame changes natively: AppKit, UIKit, Android, web, and ArkUI (where
-  frames move instantly). On GTK, Qt, and WinUI the changes apply at commit with no animation
+- **Animation**: partial. [`with_animation(spec, || …)`](https://daybrite.dev/api/day_core/fn.with_animation.html) supports native opacity, transform, and frame animation on AppKit, UIKit, Android, Web, and ArkUI
+  (where frames move instantly). On GTK, Qt, and WinUI the changes apply at commit with no animation
   (`Cap::Animation` reports unsupported), because Day never ticks its own frames for native
   widgets. An animated background *color* interpolates on UIKit and ArkUI only, and the enter/exit
   `.transition` surface is not implemented.

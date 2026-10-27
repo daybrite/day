@@ -44,7 +44,7 @@ Use localized resources in application titles, just as for a normal button. Add
 caller. It returns whether the handler ran; it does not report the result of asynchronous work.
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
-[example messages](/docs/reference/examples/catalog) and [catalog setup](/docs/how-to/localization).
+[example messages](/docs/reference/localization#reference-example-messages) and [catalog setup](/docs/how-to/localization).
 
 ## Build a guarded command
 
@@ -52,7 +52,7 @@ Start in a live UI scope. This module defines one action and binds its enabled s
 signal as its label. The numeric limit is sample policy. The other snippets on this page are
 integration fragments.
 
-Complete module for `src/commands.rs` in the [technical recipe harness](/docs/reference/examples/catalog#technical-recipes).
+Complete module for `src/commands.rs` in the [technical recipe harness](https://github.com/daybrite/day/blob/main/docs/snippet-catalog.md#technical-recipes).
 The harness compiles this exact block; it is not a standalone app. Add the catalog entries below
 to `resource/locales/en/app.ftl` and declare the module in `src/lib.rs`.
 
@@ -127,12 +127,6 @@ See the [full design, lifecycle rules, platform notes, and app audit](/docs/refe
 plus [menus and toolbars](/docs/how-to/guide-desktop). Day-Showcase's Menus & dialogs page demonstrates
 one counter through content buttons, toolbar items, and a context menu. Its page stars and
 recorder playback also use the framework abstraction.
-
-For other UI components, named definitions are most useful for helpers with several required
-arguments. Existing one-argument functions and fluent modifiers remain the normal API. See the
-[assessment of additional named component definitions](/docs/reference/commands#assessment-named-definitions-for-other-components)
-for candidates, coexistence with functions, and the distinction between a definition and a
-runtime piece. Those additional wrappers are proposals, not implemented APIs.
 
 Implementation:
 [`crates/day-pieces/src/commands.rs`](https://github.com/daybrite/day/blob/main/crates/day-pieces/src/commands.rs).

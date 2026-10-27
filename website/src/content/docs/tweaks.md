@@ -18,7 +18,7 @@ the same widget and handle with additional configuration.
 The showcase's Tweaks page (in the [gallery](/examples)) demonstrates everything on this page.
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
-[example messages](/docs/reference/examples/catalog) and [catalog setup](/docs/how-to/localization).
+[example messages](/docs/reference/localization#reference-example-messages) and [catalog setup](/docs/how-to/localization).
 
 ## Applying a tweak
 
@@ -96,11 +96,11 @@ use day_tweak_tooltip::TooltipTweak;
 
 button(res::str::save()).bezel(Bezel::Toolbar); // AppKit only; stock elsewhere
 button(res::str::save()).tooltip(res::str::save_hint()); // AppKit, GTK, Android; no-op elsewhere
-slider(v).tickmarks(Tickmarks::count(11).snap(true)); // six toolkits, incl. its own C++
+slider(v).tickmarks(Tickmarks::count(11).snap(true));
 ```
 
 The tick-marks crate demonstrates configuring a native feature on
-six toolkits through objc2, gtk4-rs, JNI, and compiled Qt C++,
+toolkits through objc2, gtk4-rs, JNI, and compiled Qt C++,
 WinRT C++, and ArkUI NDK code. It documents each platform's behavior (Material sliders always
 snap when stepped; UIKit has no native tick API, so there it's a no-op). Publish the
 crate as a Cargo package. Consumers add it as a dependency, and `day build` enables the corresponding toolkit features.

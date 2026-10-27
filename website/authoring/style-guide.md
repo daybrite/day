@@ -37,8 +37,12 @@ canonical glossary entry. Do not use Piece, Part, widget, control, or window as 
 Start every reference page with a short explanation of what the capability helps people do.
 Keep titles focused on the capability; omit parenthetical packaging labels such as “external
 piece” or “headless capability crate.” For a crate reference, follow the introduction with
-“Add to your app”: name and link the defining crate, show the Cargo dependency (currently the
-Git source, not a published version), explain required features or Day.toml configuration, and
+“Add to your app”: explain only the setup needed beyond a normal Day app.
+For built-in controls, state that the control is included in `day-pieces` and re-exported through
+`day::prelude::*`, with no additional crate or control feature required. Do not repeat the base
+`day-app` dependency or the `day new` installation instructions. For optional components and
+parts, name and link the required crate or feature and show only the additional Cargo or
+`Day.toml` configuration. Use registry versions for published dependencies. Then
 summarize availability by platform/toolkit. Distinguish native, composed, placeholder, and
 unavailable behavior. A feature declaration or successful build alone does not establish runtime
 support. Use the standard target icons and tints alongside readable platform names.
@@ -84,7 +88,7 @@ is not enough.
 
 ## Name and label toolkits
 
-Use **toolkit**, not **backend**, for Day's UI implementations: “Per-toolkit native realization”
+Use **toolkit**, not **backend**, for Day's UI implementations: “Toolkit implementations”
 and “Toolkit notes.” Keep actual API identifiers, feature names, source paths, and URLs unchanged.
 “Backend” remains appropriate for a server, storage provider, or other non-UI implementation.
 
@@ -101,7 +105,7 @@ The Markdown renderer adds the site's platform icons
 and light/dark tint colors throughout headings, table cells, bold labels, and inline target IDs,
 including lowercase feature labels and names inside links or mixed Markdown. It also marks the
 first mention of each target in each paragraph of a platform-specific section (for example,
-“Per-toolkit native realization” or “Toolkit notes”). Use a bold lead such as `**UIKit:**` for a
+“Toolkit implementations” or “Toolkit notes”). Use a bold lead such as `**UIKit:**` for a
 target-specific list item; do not add emoji or hand-picked colors. Linux and Apple family labels
 carry both relevant target marks rather than implying a single toolkit. Review the rendered
 per-toolkit sections, not just the installation/availability summary at the top of the page.
@@ -228,3 +232,11 @@ Mechanical checks cover selected prose, Markdown structure, and local source lin
 site checks cover rendered internal links. Semantic accuracy, accessibility, screenshot
 provenance, localization correctness, and example compilation require separate review.
 The human-readable guide is canonical; keep agent instructions short and link here.
+
+## Specific headings and toolkit names
+
+Do not use `Why it matters`. Name the subject or action, such as “Verify a release against its source.”
+Avoid toolkit inventory counts and ordinal labels. Name the relevant toolkits or link to the
+platform table; keep technical constraints such as one toolkit per binary. Component references
+explain app behavior, setup, examples, and limits. Keep design alternatives, patch protocols,
+regression histories, and contributor task lists in contributor documentation.

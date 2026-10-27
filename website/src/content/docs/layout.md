@@ -21,7 +21,7 @@ provide compilable examples. Source contracts live in
 and [core layout](https://github.com/daybrite/day/blob/main/crates/day-core/src/layout.rs).
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
-[example messages](/docs/reference/examples/catalog) and [catalog setup](/docs/how-to/localization).
+[example messages](/docs/reference/localization#reference-example-messages) and [catalog setup](/docs/how-to/localization).
 
 ## Arrange controls
 
@@ -190,7 +190,7 @@ Use [`labeled`](https://daybrite.dev/api/day_pieces/fn.labeled.html) to associat
 itself. This example leaves text height flexible and scrolls when space is limited.
 
 Complete module for `src/layout_recipe.rs` in the
-[technical recipe harness](/docs/reference/examples/catalog#technical-recipes).
+[technical recipe harness](https://github.com/daybrite/day/blob/main/docs/snippet-catalog.md#technical-recipes).
 Add the matching Fluent messages below. This module is compiled as part of the harness;
 it is not a standalone app.
 

@@ -19,7 +19,7 @@ new toolkit protocol, global action registry, or toolkit dependency. Each presen
 normal native widget and dispatch registration; the command shares Rust behavior and state.
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
-[example messages](snippet-catalog.md) and [catalog setup](/docs/how-to/localization).
+[example messages](/docs/reference/localization#reference-example-messages) and [catalog setup](/docs/how-to/localization).
 
 ## Define once, present in several places
 
@@ -165,44 +165,6 @@ The detailed, evolving matrices live in [menus](menus.md), [toolbars](toolbars.m
 Windows behavior requires Windows runtime validation; an OpenHarmony compile-check does not
 claim emulator validation. `dayscript toolbar:` drives the model and is not proof that native
 chrome rendered; inspect screenshots too.
-
-## Sample-app audit and migrations
-
-All eight `Day-*` sample applications and Games-Fair were reviewed. This is an operation-level
-refactor, not a mechanical replacement of every one-off action on a
-[`ButtonBuilder`](https://daybrite.dev/api/day_pieces/trait.ButtonBuilder.html#tymethod.action),
-[`ToolbarEntry`](https://daybrite.dev/api/day_pieces/struct.ToolbarEntry.html#method.action), or
-[`MenuEntry`](https://daybrite.dev/api/day_pieces/struct.MenuEntry.html#method.action).
-
-| Application | Findings and changes |
-|---|---|
-| Day-Showcase | Replaced the private command struct with Day commands for star, appearance, pseudo-locale, screenshots and recording/playback/clear. Menus use adapters; sidebar star and page toolbar use a bound page command; toolbar star no longer needs a mirror signal. Scripting playback uses the same guard/handler as the menu. Added the Menus & dialogs counter example across buttons, toolbar, and dynamic context menu, with localized explanation and Dayscript coverage. |
-| Day-News | Shared Refresh and Mark All Read definitions now supply menu/toolbar/content fallback controls. The mobile Mark All Read button now uses the same unread-availability guard as chrome. Subscription setup's follow-up refresh remains ordinary domain logic. |
-| Day-Sketch | Three zoom definitions now own labels, icons, localized accelerators, and handlers for both View menu and toolbar. Standard undo/copy/paste roles and canvas gestures remain native/domain-specific. Grouping/arrangement are further candidates, but their context-selection rules should stay explicit. |
-| Day-Trader | Add Symbol is one definition used by the Symbols menu and toolbar, preserving the toolbar's script id and primary placement. Reloads following a settings mutation remain domain logic rather than a second user command. |
-| Day-Rise | Add/Done/Delete/Show Done are candidates. Existing app-menu operations resolve the focused scene, while page toolbars capture their own scene; that distinction is intentional. Kept this code and the list's row-specific/swipe setters rather than replacing them with an app-global command. |
-| Day-Tunes | Playback/stop/skip/favorite and catalog refresh are strong candidates; the player is app-wide, unlike each window's selected station. Kept its current transport/two-way controls in this pass. A later migration can bind commands to the app player while retaining those eligibility distinctions. |
-| Day-Skies | Most handlers are parameterized per-city navigation/editing or settings side effects. Kept these direct handlers; a future user-facing refresh shared with chrome would warrant a command. |
-| Day-Bench | Benchmark controls mostly start distinct workloads or write parameters. Kept one-off actions/two-way bindings so the benchmark workload and measurement remain unchanged. |
-| Games-Fair | A gamekit Close command now powers the canvas header and 18 pause/results Quit buttons across nine games. Quit routes through the same shell close hook as the header; game-specific ids/colors remain. Custom Sudoku/Match Three controls and gameplay moves remain direct domain/gesture operations. |
-
-The new mock regressions in `crates/day-pieces/tests/mock_e2e.rs` cover shared reactive labels,
-checked state, all invocation paths, stale enabled snapshots, scope disposal, independent captured
-state, and native toggle rejection. Showcase's `dayscript/commands.yaml` covers button/toolbar
-interoperation, revisiting the page, shared menu/toolbar check state, and repeated desired-state
-requests. Existing app walkthroughs cover migrated operations.
-
-## Assessment: named definitions for other components
-
-This section recorded an assessment (2026-09) of named-field definitions for other
-constructors, with the then-current `Command { id, label, action }.build()` as the model. The
-outcome is the house style in [docs/api-style](api-style.md): a constructor keeps up to
-three positional, type-distinct arguments ([`Command::new(id, label, action)`](https://daybrite.dev/api/day_pieces/struct.Command.html#method.new) is one), coupled
-configuration is one value with its own builder (`Search`, `ContentList`, `Reorder`, `Delete`,
-`Move`), items are values ([`item(..)`](https://daybrite.dev/api/day_pieces/fn.item.html), [`toolbar_button(..)`](https://daybrite.dev/api/day_pieces/fn.toolbar_button.html), [`menu_item(..)`](https://daybrite.dev/api/day_pieces/fn.menu_item.html), `(value, title)`
-picker options), and named fields are reserved for same-typed arguments, where the generated
-`res::str` argument structs use them ([docs/localization](localization.md)). No
-`.into_piece()`/`.into_entry()` wrappers were added.
 
 ## Platform guidance
 

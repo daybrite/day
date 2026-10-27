@@ -18,7 +18,7 @@ and are not repeated here.
 
 Platform execution claims below are retained records and were not rerun during restructuring.
 
-## The URL model — Shipped
+## The URL model
 
 ```text
 <scheme>://<route>[?<params>]          e.g.  fieldnotes://mail/inbox/msg-42?hint=shared
@@ -38,7 +38,7 @@ Short schemes collide: nothing stops another app from claiming `fieldnotes://`, 
 resolves the tie (see the per-platform notes). Apps that care should set an explicit,
 longer scheme.
 
-## The delivery contract — Shipped
+## The delivery contract
 
 However a link arrives, the behavior inside the app is the same:
 
@@ -74,7 +74,7 @@ Platform guidance: [Apple: custom URL schemes](https://developer.apple.com/docum
 | windows-winui | Day.toml `url_schemes` (MSIX, NSIS); `--day-open-url <link>` on the command line | ✓ | ✓ single-instance forwarding | Compile-checked |
 | linux-gtk / linux-qt | Day.toml `url_schemes` (`.desktop` `x-scheme-handler`); `--day-open-url <link>` | ✓ | ✓ single-instance forwarding | Shipped |
 
-### iOS — Shipped, two concerns
+### iOS
 
 Under the scene lifecycle the app runs, URLs arrive at the scene delegate, and that is where
 day-toolkit-uikit takes them: cold from the connection options' `URLContexts` (and a quick action's
@@ -92,7 +92,7 @@ launch until the dayscript walkthrough caught it. Concerns:
    natural host for that file is the daysite deployment the app already publishes; `day pack`
    knows the signing config and daysite knows the domain, so the pieces exist. Not started.
 
-### Android — Shipped, two concerns
+### Android
 
 The scaffold's manifest registers the scheme with `BROWSABLE` (so links in a browser work) and
 `launchMode="singleTask"`, which is what routes a warm link through `onNewIntent` instead of
@@ -105,7 +105,7 @@ Concerns:
 2. **Intent extras are not the URL.** Only the `data` URI is treated as a link; anything else
    in the intent is ignored, per the delivery contract above.
 
-### HarmonyOS — Shipped
+### HarmonyOS
 
 The module's `skills` declare a `uris` entry with the app scheme, and both temperatures are
 one call: the ArkTS host forwards a cold `want.uri` (in `onCreate`, before `start()`) and a
@@ -205,7 +205,7 @@ are not conveyed yet (the platforms render their default glyph), and on OpenHarm
 `want.uri` arrives as an empty string on non-URI launches, which is why the ability checks
 `want.uri || parameters["day.uri"]` rather than `??`.
 
-## Testing shipped pieces
+## Testing deep links
 
 What works today: the dayscript step below on every toolkit; `DAY_DEEPLINK=route day
 launch …` for the cold env path; `xcrun simctl openurl booted <url>`,
@@ -217,7 +217,7 @@ want the generated profile declares. On an iOS 16/17 simulator `simctl openurl` 
 an "Open in …?" confirmation SpringBoard shows headlessly, so automated openurl runs need a
 tap the simulator cannot inject; a device, or an XCUITest runner, gets past it.
 
-**`deep_link: { url: "scheme://route?x=1" }` — Shipped.** An in-process step: the URL maps to
+**`deep_link: { url: "scheme://route?x=1" }`.** An in-process step: the URL maps to
 its route through the same [`day_spec::route_of_url`](https://daybrite.dev/api/day_spec/fn.route_of_url.html) every platform intake uses, then
 navigates: a warm delivery without the OS. It proves the app's routing, param handling, and
 back-stack seeding identically on every toolkit including mock (cheap enough for every
@@ -228,7 +228,8 @@ route against the app's declared keys, the same check `navigate:` gets.
 
 ## External URL handlers
 
-Declare additional OS associations at the root of Day.toml:
+Declare additional OS associations at the root of `Day.toml`. Scheme names use lowercase URI
+syntax (`[a-z][a-z0-9+.-]*`) and are added alongside the app’s navigation scheme:
 
 ```toml
 url_schemes = ["feed", "web+feed"]
@@ -247,3 +248,8 @@ Apple bundles, Android/Harmony manifests, Linux desktop entries, Windows MSIX an
 advertise protocol candidates. Windows development builds emit an opt-in registration file.
 PWA manifests include only valid `web+` names. Registration doesn't force the user's default or
 make every HTTPS link leave a browser; MIME handling depends on browser/platform policy.
+
+### Platform guidance
+
+- [Apple: custom URL schemes](https://developer.apple.com/documentation/xcode/defining-a-custom-url-scheme-for-your-app)
+- [Android: deep links](https://developer.android.com/training/app-links/deep-linking)

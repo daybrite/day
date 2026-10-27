@@ -21,14 +21,8 @@ Source contracts: [Piece and PieceSeq](https://github.com/daybrite/day/blob/main
 [containers](https://github.com/daybrite/day/blob/main/crates/day-pieces/src/containers.rs), and
 [structural pieces](https://github.com/daybrite/day/blob/main/crates/day-pieces/src/structure.rs).
 
-The Rust blocks on this page are API excerpts or integration fragments, not complete apps.
-Use the [beginner journey](/docs/tutorials/first-app) for compile-tested complete files.
-Source contracts: [Piece and PieceSeq](https://github.com/daybrite/day/blob/main/crates/day-core/src/build.rs),
-[containers](https://github.com/daybrite/day/blob/main/crates/day-pieces/src/containers.rs), and
-[structural pieces](https://github.com/daybrite/day/blob/main/crates/day-pieces/src/structure.rs).
-
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
-[example messages](/docs/reference/examples/catalog) and [catalog setup](/docs/how-to/localization).
+[example messages](/docs/reference/localization#reference-example-messages) and [catalog setup](/docs/how-to/localization).
 
 ## Start with a control
 
@@ -270,3 +264,11 @@ for each [toolkit](/docs/reference/glossary#toolkit) you support (a piece that o
 ---
 
 Next: [Reactivity](/docs/explanation/reactivity), the [signals](/docs/reference/glossary#signal) that update the widget tree.
+
+## Add optional components
+
+Optional crates compose with the same piece tree. Choose [charts](/docs/reference/charts),
+[Lottie animations](/docs/reference/lottie), [media playback](/docs/reference/media),
+[camera capture](/docs/reference/camera), or [web views](/docs/reference/webview) for richer
+content. Each guide includes its Cargo dependency, platform requirements, and API links.
+The [API index](/docs/reference/api) lists both built-in and external crates.
