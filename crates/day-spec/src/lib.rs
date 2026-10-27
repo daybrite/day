@@ -7097,10 +7097,20 @@ pub mod storage {
         use super::*;
         use std::collections::HashMap;
 
+        /// The resolved path as text. `Path::join` uses the host's separator, so on a Windows host
+        /// another platform's path comes back with `\` between the joined parts; the expectations
+        /// are that platform's own, so its separators are compared as `/`.
         fn at(os: Os, dir: Dir, vars: &[(&str, &str)]) -> Option<String> {
             let vars: HashMap<&str, &str> = vars.iter().copied().collect();
             let var = |name: &str| vars.get(name).map(PathBuf::from);
-            resolve(dir, os, "dev.example.notes", &var).map(|p| p.display().to_string())
+            resolve(dir, os, "dev.example.notes", &var).map(|p| {
+                let text = p.display().to_string();
+                if os == Os::Windows {
+                    text
+                } else {
+                    text.replace('\\', "/")
+                }
+            })
         }
 
         #[test]
