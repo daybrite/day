@@ -10,9 +10,11 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 # Clipboard
 
-Let people copy and paste text, images, and app-specific data. `day-part-clipboard` reads and
-writes the system clipboard, including multiple representations of the same item. Access depends
-on the operating system’s privacy and focus rules.
+The clipboard holds content for copying and pasting between places in an app or between apps. It
+lets people reuse text, images, and other data without entering them again.
+
+`day-part-clipboard` reads and writes the system clipboard, including multiple representations of
+the same item. Access depends on the operating system’s privacy and focus rules.
 
 ## Add to your app
 

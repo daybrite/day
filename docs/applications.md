@@ -4,8 +4,8 @@ navTitle: "Application handlers"
 
 # System application handlers
 
-Find which installed apps can open a URL or file, or identify the user’s default browser,
-without launching another app.
+Application handlers connect file types and web addresses to the apps that can open them. Looking up
+those associations lets an app offer an appropriate destination or use the person's default choice.
 
 Use [`day::application_handlers(&HandlerQuery)`](https://docs.rs/day-app/latest/day/fn.application_handlers.html) to read current OS associations, and
 [`day::default_browser()`](https://docs.rs/day-app/latest/day/fn.default_browser.html) for the OS-selected HTTPS browser. `HandlerQuery` accepts an

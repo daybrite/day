@@ -10,9 +10,11 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 # Lottie animations
 
-Use `day-piece-lottie` for animated illustrations, loading sequences, and motion graphics
-exported as Lottie JSON. It plays a bundled animation in a Day layout and provides a separate
-model API for inspecting animation metadata without opening a player.
+Lottie animations play illustrations and motion graphics authored outside the app. They are useful
+when a designed sequence needs to appear within a page, such as an explanation or a completion cue.
+
+`day-piece-lottie` plays a bundled Lottie JSON animation in a Day layout. It also provides a
+separate model API for inspecting animation metadata without opening a player.
 
 ## Add to your app
 

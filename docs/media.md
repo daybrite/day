@@ -10,6 +10,9 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 # Media playback
 
+Media playback lets people listen to audio or watch video within an app. Playback controls let them
+decide when to start, pause, or move through the content.
+
 `day-piece-media` plays audio and video through platform players. Use a media piece for playback
 attached to a screen, or an audio session when playback needs to outlive that screen.
 

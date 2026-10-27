@@ -10,9 +10,12 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 # Focus
 
-Bind keyboard focus to a signal to observe the active control or move focus from your app.
-Text inputs support this across toolkits. Focusable containers and non-text controls have
-platform limits described below.
+Keyboard focus identifies the control that receives typing and other keyboard input. A visible focus
+indicator and a predictable order help people move through a screen without a pointer.
+
+Bind keyboard focus to a signal to observe the active control or move focus from your app. Text
+inputs support this across toolkits. Focusable containers and non-text controls have platform limits
+described below.
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
 [example messages](/docs/reference/localization#reference-example-messages) and [catalog setup](/docs/how-to/localization).

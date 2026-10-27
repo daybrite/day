@@ -10,6 +10,9 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 # Logging
 
+Logs record events and diagnostic details while an app runs. They help developers trace a problem
+and understand what happened before an error.
+
 Day emits through [`log`](https://docs.rs/log), the ecosystem's logging facade. Write a line with
 the macros the prelude already gives you, and it comes out on every platform with no setup:
 

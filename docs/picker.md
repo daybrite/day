@@ -11,8 +11,12 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 # Picker
 
-Let people choose one value from a defined set, using a segmented control, dropdown, or wheel.
-[`picker`](https://docs.rs/day-pieces/latest/day_pieces/fn.picker.html) binds the selected value to app state and is available through `day::prelude::*`.
+A picker lets people select a value from a set of allowed choices. It suits inputs with known
+answers, where showing the options is clearer than asking people to type one.
+
+[`picker`](https://docs.rs/day-pieces/latest/day_pieces/fn.picker.html) binds the selected value to
+app state and is available through `day::prelude::*`. It can use a segmented control, dropdown, or
+wheel.
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
 [example messages](/docs/reference/localization#reference-example-messages) and [catalog setup](/docs/how-to/localization).

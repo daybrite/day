@@ -11,8 +11,11 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 # Split
 
-A [`split`](https://docs.rs/day-pieces/latest/day_pieces/fn.split.html) puts two panes in the space it is given with a divider between them that the user
-drags, the editor-beside-preview shape. The pane sizes follow app-owned state.
+A split view places related content in two panes separated by a movable divider. It lets people
+compare or work with both areas at once and adjust the space each receives.
+
+The pane sizes in a [`split`](https://docs.rs/day-pieces/latest/day_pieces/fn.split.html) follow
+app-owned state.
 
 ## Add to your app
 

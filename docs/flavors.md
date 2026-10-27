@@ -11,9 +11,11 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 # Build flavors
 
-A flavor ships one source tree as more than one app: a paid build beside a free one, a
-white-label build per customer, a demo build with a smaller target list. It is a layer over
-`Day.toml`, written in a `Day-<name>.toml` beside it, and it applies to one command at a time:
+Build flavors produce variants of an app from the same source project. They let development,
+testing, or separately branded editions use different identities, resources, and settings.
+
+A flavor is a layer over `Day.toml`, written in a `Day-<name>.toml` beside it. It applies to one
+command at a time:
 
 ```sh
 day build  --flavor custom -t ios-uikit

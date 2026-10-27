@@ -10,8 +10,9 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 # Environment variables: toolchain & SDK discovery
 
-Configure which SDKs, compilers, and native tools Day uses to build your app. This reference
-covers automatic discovery and environment-variable overrides.
+Build tools need to locate the SDKs, compilers, and native libraries required by a target.
+Environment variables let a developer override Day's automatic discovery when those tools are
+installed in a different location.
 
 Day locates host toolchains and SDKs through one shared implementation
 (`crates/day-toolchain`), used by the `day` CLI, by every crate build script that compiles its

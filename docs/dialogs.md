@@ -11,7 +11,10 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 # Dialogs and prompts
 
-Ask for confirmation, show an alert, or collect a short answer through a native dialog.
+A dialog asks for a decision or a short piece of information before an app continues a task. It is
+useful when the answer affects what happens next, such as confirming a deletion or naming a new
+item.
+
 An action opens the dialog and awaits the result; the app can then continue or cancel its work.
 
 ```rust

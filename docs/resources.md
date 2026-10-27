@@ -10,9 +10,12 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 # Resources
 
-Bundle images, vectors, fonts, and data files with your app, and access them through generated
-`res::images`, `res::vectors`, `res::fonts`, and `res::assets` constants. Day stages each resource
-for the platform’s native packaging and loading tools.
+Bundled resources are the images, fonts, and data files shipped with an app. Keeping them in the
+project makes them available without a download and lets the build prepare them for each target.
+
+Access bundled files through generated `res::images`, `res::vectors`, `res::fonts`, and
+`res::assets` constants. Day stages each resource for the platform’s native packaging and loading
+tools.
 
 | Project dir | Kind | API (typed) | Native store |
 |---|---|---|---|

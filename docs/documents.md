@@ -6,9 +6,12 @@ description: "Declare supported files once, receive OS open events, and import t
 
 # Document types and file activation
 
+Document files let people keep their work as items they can open, move, and share. Registering the
+file types an app understands makes it available when people choose an app to open those files.
+
 Declare the files an app can open in `Day.toml`. Day generates the platform registration;
-application code handles the contents. Registration offers the app in **Open With**; a type the
-app owns can also make it the default app for those files.
+application code handles the contents. Registration offers the app in **Open With**; a type the app
+owns can also make it the default app for those files.
 
 ```toml
 [[file_types]]

@@ -11,8 +11,11 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 # Colors and gradients
 
-Use `Color` for fixed sRGB colors and `Paint` for canvas fills and styled strokes. Leave a
-control's color unset when it should follow the platform's default appearance.
+Color can distinguish content, show state, and draw attention to an action. Text, shapes, or other
+cues need to carry the same meaning when color alone would be hard to distinguish.
+
+Use `Color` for fixed sRGB colors and `Paint` for canvas fills and styled strokes. Leave a control's
+color unset when it should follow the platform's default appearance.
 
 ## Solid colors
 

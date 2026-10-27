@@ -11,7 +11,10 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 # Text area
 
-Let people write messages, notes, or other multi-line text. [`text_area`](https://docs.rs/day-pieces/latest/day_pieces/fn.text_area.html) binds the text to app
+A text area gives people room to write and edit several lines of plain text. It suits messages,
+notes, and other entries whose length would make a single-line field awkward.
+
+[`text_area`](https://docs.rs/day-pieces/latest/day_pieces/fn.text_area.html) binds the text to app
 state and grows with its content up to a chosen height, then scrolls within the editor.
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the

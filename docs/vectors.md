@@ -11,8 +11,11 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 # Vector images
 
-Display scalable SVG icons and illustrations using generated `res::vectors` constants. Day
-stages each asset in a form the target toolkit loads natively.
+Vector graphics describe images with paths and shapes that can scale without losing sharp edges.
+They suit interface icons and illustrations that appear at different sizes.
+
+Use generated `res::vectors` constants to display SVG assets. Day stages each asset in a form the
+target toolkit loads natively.
 
 ```rust
 vector(res::vectors::home).tint(color).frame(24.0, 24.0)

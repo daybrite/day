@@ -7,9 +7,9 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 Authoring template: replace the guidance below before publication.
 
-## Purpose and status
-
-State the lookup scope and whether the contract is implemented, experimental, or proposed. Identify revision and evidence.
+Start with one or two original sentences defining the topic and its useful role. Keep this opening
+independent of an input device or platform unless the topic itself is platform-specific. Follow
+with the Day-specific lookup scope and setup; keep warnings beside the affected behavior.
 
 ## Signature or syntax
 

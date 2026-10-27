@@ -11,9 +11,11 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 # Stepper field
 
-Let people adjust a number in steps, such as a quantity, zoom level, or dimension.
-`day-pieces` binds the value to app state and uses a native numeric control where
-available, with a composed control on other targets.
+A stepper adjusts a value in increments so people can repeat small changes. It suits quantities
+such as an item count or a dimension when each increase or decrease has a predictable size.
+
+`day-pieces` binds the value to app state and uses a native numeric control where available, with a
+composed control on other targets.
 
 ## Add to your app
 

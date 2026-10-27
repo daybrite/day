@@ -8,8 +8,11 @@ description: "Name controls for UI tests, use stable keys for repeated rows, and
 
 # Element IDs
 
-Give controls stable names so [DayScript](/docs/how-to/dayscript) can find them in any UI language.
-Declare each identity at the piece with `id!`.
+Element IDs give controls stable names for automation and inspection. A script can use an ID to find
+the same control even when its visible label changes with the interface language.
+
+Declare each identity at the piece with `id!`; [DayScript](/docs/how-to/dayscript) uses it to locate
+the control.
 
 ```rust
 button(res::str::save()).id(id!(account::save))

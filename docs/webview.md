@@ -10,9 +10,12 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 # Web views
 
-Embed a help site, a document reader, or a browser pane with `day-piece-webview`. The piece
-uses the selected toolkit's web engine and exposes navigation controls, JavaScript evaluation,
-browser profiles, and application-provided resources through one Rust interface.
+A web view displays web content as part of an app's interface. It lets people read a help page or
+use an embedded document without leaving the surrounding app.
+
+`day-piece-webview` uses the selected toolkit's web engine and exposes navigation controls,
+JavaScript evaluation, browser profiles, and application-provided resources through one Rust
+interface.
 
 For account sign-in, use [authentication](/docs/reference/auth), which opens the platform's
 sign-in surface. An embedded browser is not a replacement for that flow.

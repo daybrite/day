@@ -11,8 +11,8 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 # Lists
 
-Display large collections as scrollable rows without building every row at once. A [`list`](https://docs.rs/day-pieces/latest/day_pieces/fn.list.html)
-reuses native cells as they enter and leave the viewport.
+A list presents related items as rows that people can scan, select, or open. It suits collections
+such as messages or search results, including those too long to fit onscreen at once.
 
 [`list`](https://docs.rs/day-pieces/latest/day_pieces/fn.list.html) drives the platform's recycling list ([`NSTableView`](https://developer.apple.com/documentation/appkit/nstableview) / [`UITableView`](https://developer.apple.com/documentation/uikit/uitableview) /
 [`RecyclerView`](https://developer.android.com/reference/androidx/recyclerview/widget/RecyclerView) / [`GtkListView`](https://docs.gtk.org/gtk4/class.ListView.html) / [`QListView`](https://doc.qt.io/qt-6/qlistview.html) / WinUI [`ItemsRepeater`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.itemsrepeater)), so large collections get native

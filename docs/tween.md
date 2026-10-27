@@ -8,9 +8,12 @@ description: "Interpolation, timing and frame-driven transitions for canvas anim
 
 # Tweening
 
-Animate values over time to move, resize, or recolor content drawn on a canvas. `day::tween`
-provides interpolation, timing curves, and frame-driven values that redraw as they change.
-For native widget animation, use [`with_animation`](https://docs.rs/day-core/latest/day_core/fn.with_animation.html) instead.
+A tween changes a value gradually between states over time. Applied to position, size, or color, it
+can make a visual change easier to follow.
+
+`day::tween` provides interpolation, timing curves, and frame-driven values for [canvas](canvas.md)
+drawings. For native widget animation, use
+[`with_animation`](https://docs.rs/day-core/latest/day_core/fn.with_animation.html) instead.
 
 ```rust,ignore
 use day::tween::{Lerp, Tweened};

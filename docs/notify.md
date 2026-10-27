@@ -11,9 +11,11 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 # Local notifications
 
-Show reminders and updates through the operating system’s notification UI.
-`day-part-local-notify` posts notifications immediately or schedules them for later;
-permission and scheduling support depend on the platform.
+Notifications bring a reminder or update to someone's attention outside the app's current screen.
+They are useful for information that remains relevant when the person is doing something else.
+
+`day-part-local-notify` posts notifications immediately or schedules them for later; permission and
+scheduling support depend on the platform.
 
 ## Add to your app
 

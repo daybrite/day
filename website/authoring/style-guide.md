@@ -34,7 +34,13 @@ The [templates](templates/README.md) are drafting aids, not new public routes.
 Lead with the outcome and prerequisites. Define unfamiliar terms at first use and link to the
 canonical glossary entry. Do not use Piece, Part, widget, control, or window as synonyms.
 
-Start every reference page with a short explanation of what the capability helps people do.
+Start every reference page with one or two original sentences defining the topic and its useful
+role. Explain the component or capability before naming its crate or API. Keep the description
+independent of an input device or operating system unless the topic itself is platform-specific.
+Design guidance can inform the concepts, but write the introduction in Day's voice rather than
+copying or closely paraphrasing another guide. Replace a repeated definition instead of adding
+another one. Follow the introduction with Day-specific setup and contracts, preserving platform
+limits and warnings near the affected behavior.
 Keep titles focused on the capability; omit parenthetical packaging labels such as “external
 piece” or “headless capability crate.” For a crate reference, follow the introduction with
 “Add to your app”: explain only the setup needed beyond a normal Day app.

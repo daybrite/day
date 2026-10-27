@@ -11,8 +11,9 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 # Tree
 
-The tree piece displays hierarchical data with expandable rows. Use it for document outlines,
-folders, and grouped navigation.
+A tree presents items in a hierarchy, with branches that expand to reveal their children. It helps
+people explore nested content such as folders or a document outline without showing every level at
+once.
 
 ## Add to your app
 

@@ -11,10 +11,13 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 # App-local file storage
 
-`day-part-filesystem` reads and writes files beneath an app-data directory. Use it for documents,
-cached responses, and other data that is too large for [preferences](prefs.md).
-Native targets use filesystem storage; web uses the browser’s Origin Private File System
-(OPFS). Files persist across launches, subject to the platform’s storage policies.
+File storage keeps documents and other app data available after the app closes. It suits content
+that needs a file of its own, such as a saved draft or a downloaded attachment.
+
+`day-part-filesystem` reads and writes files beneath an app-data directory, for content too large
+for [preferences](prefs.md). Native targets use filesystem storage; Web uses the browser’s Origin
+Private File System (OPFS). Files persist across launches, subject to the platform’s storage
+policies.
 
 ## Add to your app
 

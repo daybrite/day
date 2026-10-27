@@ -5,8 +5,13 @@ description: "searchable(Search): a declared search surface each platform presen
 
 # Search
 
-Let people filter a page or find a destination with a search field in the platform’s usual
-location. Bind the query to app state with [`.searchable()`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.searchable); the app decides which results to show.
+Search helps people reach content by describing what they want instead of browsing through every
+destination. Placing search with the page or navigation it affects makes its scope easier to
+understand.
+
+Bind the query to app state with
+[`.searchable()`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.searchable);
+the app decides which results to show.
 
 ```rust
 nav(section)

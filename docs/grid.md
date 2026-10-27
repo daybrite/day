@@ -11,9 +11,11 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 # Grid
 
-Arrange content in rows with shared column widths. Use a grid for aligned controls, summaries,
-and small tables of values. Columns size to their contents, so labels can change without
-maintaining matching width constants in every row.
+A grid aligns content across rows and columns so people can scan related values. It is useful for
+small tables, labeled details, and controls that need to line up across several rows.
+
+Day’s columns share widths across rows and size to their contents, so changing labels does not
+require matching width constants in every row.
 
 ## Add to your app
 

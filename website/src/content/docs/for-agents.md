@@ -11,7 +11,9 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-This reference lists conventions and constraints for coding agents working on Day apps.
+Coding agents need the same project conventions and API constraints as other contributors. This
+reference gathers the Day-specific rules they need when generating or editing an app.
+
 The examples are intended for direct reuse. A machine-readable site index is available at
 [`/llms.txt`](/llms.txt).
 

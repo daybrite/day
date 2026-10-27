@@ -11,9 +11,12 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 # Settings and About
 
-Provide app preferences and an About screen from one declaration. `day-piece-settings`
-organizes settings into groups and rows, connects them to stored values, and installs the
-platform’s menu entries where available:
+Settings give people a place to adjust an app's behavior to their needs. Grouping related options
+makes those choices easier to find and revisit.
+
+`day-piece-settings` declares app preferences and an About screen together. It organizes settings
+into groups and rows, connects them to stored values, and installs the platform’s menu entries where
+available:
 
 ## Add to your app
 

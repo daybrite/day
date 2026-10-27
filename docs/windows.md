@@ -11,9 +11,12 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 # Secondary windows
 
-Open another window for a document, preferences, or a separate task. Day uses a native window
-where supported and a fullscreen cover otherwise. Query the capability at runtime: normal windows
-and preferences covers have different support on iPad, Android, and OpenHarmony.
+Windows give documents or tasks separate places to appear. Where the platform supports multiple
+windows, people can arrange them to compare content or work on several things at once.
+
+Day uses a native window where supported and a fullscreen cover otherwise. Query the capability at
+runtime: normal windows and preferences covers have different support on iPad, Android, and
+OpenHarmony.
 
 ## Signature and defaults
 

@@ -10,11 +10,14 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 # Biometrics
 
-An app that guards something (a vault, a payment, a settings page) asks the device to verify the
-person before opening it. `day-part-biometrics` shows the platform's own authentication dialog
-(Touch ID, Face ID, Android's biometric prompt, Windows Hello, HarmonyOS user authentication) with a
-reason in the person's language, lets the device credential pass where the app allows it, and
-reports one answer: verified, or why not.
+Biometric authentication asks the device to verify the person using it before the app reveals
+protected content or permits an action. Depending on the device and app policy, a device credential
+can provide another way to authenticate.
+
+`day-part-biometrics` presents the platform’s authentication dialog with a localized reason: Touch
+ID, Face ID, Android’s biometric prompt, Windows Hello, or HarmonyOS user authentication. It accepts
+a device credential when app policy allows it and reports success or the reason authentication
+failed.
 
 To sign in to an account service or request a passkey, use
 [sign-in and passkeys](/docs/reference/auth). A local biometric check does not establish a

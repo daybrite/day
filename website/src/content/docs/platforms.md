@@ -11,9 +11,12 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-Day’s targets differ in testing coverage, packaging, and available features. The tables below
-summarize support tiers and CI checks; the [platform notes](#per-platform-notes) describe known
-limitations. Installation instructions are in [System requirements](/docs/reference/system-requirements).
+A Day target pairs an operating system with a UI toolkit. Comparing targets helps an app choose its
+platforms and account for differences in features, build requirements, and maintenance coverage.
+
+The tables below summarize support tiers and CI checks; the [platform notes](#per-platform-notes)
+describe known limitations. Installation instructions are in [System
+requirements](/docs/reference/system-requirements).
 
 ## Support tiers
 

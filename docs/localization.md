@@ -10,8 +10,9 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 # Localization
 
-Translate the app’s interface and update its text when the user changes language. Generated
-message accessors keep the Rust code connected to the app’s Fluent catalogs.
+Localization adapts an app's text and presentation to the languages and regional conventions of its
+audience. It lets people use familiar words and formats while preserving the meaning of the
+interface.
 
 Day embeds Fluent catalogs and generates Rust accessors for their messages. The runtime
 resolves each message using a shared locale signal and the catalog attached to the accessor.

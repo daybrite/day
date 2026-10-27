@@ -11,9 +11,13 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 # Persistent preferences
 
-`day::prefs` stores small string values between launches, such as a selected theme or volume.
-It is provided by [`day-part-preferences`](https://docs.rs/day-part-preferences/latest/day_part_preferences/index.html) and re-exported by `day` through the default-enabled `prefs`
-feature. Apps using the facade do not need a separate dependency.
+Preferences remember small choices, such as a theme or playback volume, between app sessions. They
+let people return to the settings they chose instead of configuring the app each time.
+
+`day::prefs` stores string values through
+[`day-part-preferences`](https://docs.rs/day-part-preferences/latest/day_part_preferences/index.html),
+re-exported by `day` through the default-enabled `prefs` feature. Apps using the facade do not need
+a separate dependency.
 
 ## Add to your app
 

@@ -11,9 +11,13 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 # Wake lock
 
-[`day-part-wakelock`](https://docs.rs/day-part-wakelock/latest/day_part_wakelock/index.html) keeps the screen on while something is showing, whatever the device's
-auto-lock setting: a timer counting down, a recipe beside the stove, a game round played with the
-phone held up. It is a headless part in `parts/`.
+A wake lock asks the system to keep the display active during an ongoing task. It is useful when
+people need to keep viewing content without touching the device, such as following a recipe or
+watching a timer.
+
+[`day-part-wakelock`](https://docs.rs/day-part-wakelock/latest/day_part_wakelock/index.html)
+provides this capability independently of the app’s UI. Availability and system policy vary by
+platform.
 
 ## Add to your app
 

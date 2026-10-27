@@ -10,13 +10,14 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 # Deep links
 
-How a URL outside the app becomes a [`navigate`](https://docs.rs/day-pieces/latest/day_pieces/fn.navigate.html) inside it. This document covers the OS side:
-scheme registration, delivery into the process, per-platform capabilities, and testing. The
-route grammar, absolute/relative addressing, query params, and how a pending link interacts
-with [`.restore`](https://docs.rs/day-pieces/latest/day_pieces/trait.NavBuilder.html#tymethod.restore) are specified in [docs/navigation](navigation.md#routes-the-string-route-adapter-deep-links--dayscript)
-and are not repeated here.
+A deep link opens a particular place in an app, such as a document or conversation. It lets people
+reach shared or bookmarked content without navigating from the app's starting page.
 
-Platform execution claims below are retained records and were not rerun during restructuring.
+This reference covers OS scheme registration, delivery into the process, per-platform capabilities,
+and testing. The [navigation
+reference](navigation.md#routes-the-string-route-adapter-deep-links--dayscript) defines route
+grammar, absolute and relative addressing, query parameters, and how a pending link interacts with
+[`.restore`](https://docs.rs/day-pieces/latest/day_pieces/trait.NavBuilder.html#tymethod.restore).
 
 ## The URL model
 

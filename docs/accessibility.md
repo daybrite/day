@@ -10,9 +10,13 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 # Accessibility
 
-Day starts with the accessibility behavior of its native controls. App code supplies the
-meaning those controls cannot infer: a label for an icon-only button, a summary for a chart,
-or the role and value of a custom drawing.
+Accessibility makes an app usable with different abilities, input methods, and assistive
+technologies. Meaningful labels and predictable interactions help people understand the interface
+and complete its tasks.
+
+Day starts with the accessibility behavior of its native controls. App code supplies the meaning
+those controls cannot infer: a label for an icon-only button, a summary for a chart, or the role and
+value of a custom drawing.
 
 `A11yProps` carries those annotations to the native accessibility APIs. The dayscript
 `a11y_audit` step checks the declared metadata against the native tree on Apple targets.

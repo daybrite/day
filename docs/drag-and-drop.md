@@ -7,8 +7,10 @@ description: "Native transfers, representation types, destination policy, and pl
 
 # Drag and drop
 
-Let people drag text, images, files, and other data between your app and other apps. Sources
-offer data in one or more formats; drop targets choose the formats they can accept.
+Drag and drop lets people move or copy content by carrying a selection to a destination. It connects
+the action to the content being moved, whether the destination is in the same app or another one.
+
+Sources offer data in one or more formats; drop targets choose the formats they can accept.
 
 `day::transfer` attaches native system transfers to pieces. A source supplies an owned
 `Offer` when the native drag starts. An offer contains separate `Item`s; each item's MIME

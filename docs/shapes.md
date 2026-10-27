@@ -10,9 +10,13 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 # Shapes
 
-Draw rectangles, circles, ellipses, capsules, arcs, lines, and polygons as pieces. Shapes size
-with their layout bounds and redraw when their reactive properties change. Use a shape group
-for a small illustration, or a [canvas](/docs/reference/canvas) for a dense drawing or arbitrary paths.
+Shapes describe simple geometry that an app can draw and style as part of its interface. They are
+useful for diagrams, indicators, and illustrations that need to resize with the layout.
+
+Day provides rectangles, circles, ellipses, capsules, arcs, lines, and polygons as pieces. Shapes
+size with their layout bounds and redraw when their reactive properties change. Use a shape group
+for a small illustration, or a [canvas](/docs/reference/canvas) for a dense drawing or arbitrary
+paths.
 
 ## Add to your app
 

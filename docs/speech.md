@@ -10,9 +10,11 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 # Speech
 
-Read a passage, announce an app event, or offer spoken playback of user-provided text.
-`day-part-speech` uses the operating system's speech engine. For short interface feedback,
-also consider [sound](/docs/reference/sound) and [accessibility](/docs/reference/accessibility).
+Text-to-speech turns written content into spoken output. It lets an app offer listening as another
+way to follow a passage or hear information while attention is elsewhere.
+
+`day-part-speech` uses the operating system's speech engine. For short interface feedback, also
+consider [sound](/docs/reference/sound) and [accessibility](/docs/reference/accessibility).
 
 ## Add to your app
 

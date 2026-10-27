@@ -11,11 +11,14 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 # Sound effects
 
-[`day-part-sound`](https://docs.rs/day-part-sound/latest/day_part_sound/index.html) plays short clips bundled with the app (a tap, a chime, a card sliding onto a
-pile) through each platform's low-latency engine, once or as a [loop](#loops) that repeats until
-it is stopped. It is a headless part, like
-[`day-part-haptics`](/docs/reference/haptics), and the two are meant to be used together: a game pairs each haptic phrase
-with a clip, and the player turns either off in its settings.
+Short sounds can acknowledge an action or signal an event without requiring someone to watch the
+screen. They work best alongside other feedback so the event remains apparent when sound is
+unavailable or muted.
+
+[`day-part-sound`](https://docs.rs/day-part-sound/latest/day_part_sound/index.html) plays bundled
+clips through each platform's low-latency engine, once or as a [loop](#loops) that repeats until
+stopped. It can be paired with [haptics](/docs/reference/haptics), with settings to control each
+form of feedback.
 
 ## Add to your app
 

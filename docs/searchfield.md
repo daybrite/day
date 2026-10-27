@@ -11,8 +11,11 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 # Search field
 
-Add a search input whose query stays in sync with app state. `day-pieces` uses
-the platform’s search control; the app uses the query to filter or fetch its results.
+A search field is a place to enter and refine the words used to find content. It suits filtering a
+visible collection or sending a query to a service.
+
+`day-pieces` uses the platform’s search control and keeps its query in sync with app state. The app
+uses that query to filter or fetch results.
 
 ## Add to your app
 

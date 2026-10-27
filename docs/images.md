@@ -8,11 +8,10 @@ description: "Raster images from bytes: decoding a PNG or JPEG the app already h
 
 # Images
 
-An [`image(res::images::logo)`](https://docs.rs/day-pieces/latest/day_pieces/fn.image.html) draws a picture the build staged. This page is about the other half:
-bytes the app already holds — a download, a file the user picked, a paste, a row out of a database
-— turned into the platform's own image type, drawn, measured, and written back out.
+Images show visual content such as photographs, previews, and illustrations. An app may display a
+bundled image or load one from a file, a download, or content supplied by the person using it.
 
-One currency covers both halves. [`ImageSource`] is what the [`image`](https://docs.rs/day-pieces/latest/day_pieces/fn.image.html) piece takes:
+[`ImageSource`] is what the [`image`](https://docs.rs/day-pieces/latest/day_pieces/fn.image.html) piece takes:
 
 ```rust
 image(res::images::logo)        // Named  — the staged asset, resolved per backend
@@ -20,8 +19,8 @@ image(bytes)                    // Bytes  — an encoded PNG/JPEG the app holds
 image(&bitmap)                  // Decoded — a handle from `day::decode_image`
 ```
 
-`Named` is unchanged from [docs/resources](resources.md). The other two are new, and the rest of
-this page is about them.
+`Named` uses [bundled resources](resources.md). The following sections cover encoded bytes
+and decoded bitmaps.
 
 ## Decoding
 

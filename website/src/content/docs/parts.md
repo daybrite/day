@@ -11,9 +11,11 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-A **part** exposes a platform capability without a UI, such as battery status, storage, or
-sensors. It provides a shared Rust API with an implementation selected at compile time for
-the target operating system. Parts are Cargo dependencies and require no runtime plugin registry.
+Parts give an app access to capabilities such as storage, networking, and device sensors through
+Rust APIs. They handle platform services independently of the app's visual controls.
+
+A part’s implementation is selected at compile time for the target operating system. Parts are Cargo
+dependencies and require no runtime plugin registry.
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
 [example messages](/docs/reference/localization#reference-example-messages) and [catalog setup](/docs/how-to/localization).

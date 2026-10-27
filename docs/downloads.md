@@ -10,9 +10,11 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 # Downloads
 
-Download large files with progress, pause, resume, retries, and integrity checks.
-`day-part-downloads` manages transfers through [HTTP](/docs/reference/http) or hands them to an
-OS download service when they need to continue while the app is suspended or closed.
+A download transfers a remote file to the device for later use. For large files, visible progress
+and ways to pause or resume help people manage the wait and interruptions to their connection.
+
+`day-part-downloads` manages transfers through [HTTP](/docs/reference/http) or hands them to an OS
+download service when they need to continue while the app is suspended or closed.
 
 ## Add to your app
 

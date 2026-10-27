@@ -8,9 +8,11 @@ description: "Native buttons with labels, icons, reactive state, and platform st
 
 # Buttons
 
-A Day button uses the platform's button control, including its keyboard handling, focus
-ring, accessibility role, and pressed and disabled states. Give it a title describing the
-action, then add an icon or style when that helps the user recognize it.
+A button gives people an explicit way to start an action, such as saving a document or sending a
+message. Its label or icon identifies the action before they activate it.
+
+A Day button uses the platform's button control, including its keyboard handling, focus ring,
+accessibility role, and pressed and disabled states.
 
 ## Add to your app
 

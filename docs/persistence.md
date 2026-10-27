@@ -5,9 +5,12 @@ description: Typed SQLite persistence for Day, maintained as a first-party exten
 
 # Persistence
 
-[day-persistence](https://github.com/daybrite/day-persistence) is the independently versioned,
-first-party SQLite persistence extension for Day. It builds on Day's public model and reactive
-APIs; apps that do not use it do not depend on it.
+A database stores related records so an app can retrieve and update them across launches. Day's
+persistence extension uses SQLite for structured data that needs queries and coordinated changes.
+
+[day-persistence](https://github.com/daybrite/day-persistence) is a separately versioned,
+first-party extension built on Day's public model and reactive APIs. Apps add it as an optional
+dependency.
 
 ## Add to your app
 

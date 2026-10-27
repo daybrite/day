@@ -10,10 +10,12 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 # Keychain
 
-A keychain keeps the small secrets an app cannot put in its preferences: a session token, a
-password, an API key. `day-part-keychain` stores one under a key of your choosing in the
-platform's own secure store and reads it back, with a protection level that says when the item
-may be read, including "only after the device verifies the person, every time".
+Secure credential storage keeps small secrets, such as passwords and session tokens, under the
+protection available on the device. It separates those secrets from ordinary app preferences and
+documents.
+
+`day-part-keychain` stores secrets under app-chosen keys. Protection levels control when an item can
+be read, including requiring verification of the person where the platform supports it.
 
 ## Add to your app
 

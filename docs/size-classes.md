@@ -10,11 +10,14 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 # Size classes and re-presenting navigation
 
-A window's width decides how much can be on screen at once. A [`nav`](https://docs.rs/day-pieces/latest/day_pieces/fn.nav.html) in a wide window shows
-its list beside the selected page; the same nav host in a narrow one shows the list, then pushes
-the page over it. Day resolves that from the window's **size class** and re-resolves it whenever
-the class changes, so one [`nav`](https://docs.rs/day-pieces/latest/day_pieces/fn.nav.html) is right on a desktop, a tablet, a phone, and a browser
-window someone is dragging narrower as they read.
+The space available to an app changes as windows resize, devices rotate, or another app shares the
+screen. Size classes group those changes into layout choices, such as showing related panes together
+or one at a time.
+
+Day resolves navigation layout from the window’s **size class** and updates it when the class
+changes. A [`nav`](https://docs.rs/day-pieces/latest/day_pieces/fn.nav.html) in a wide window shows
+its list beside the selected page; in a narrow window, it shows the list and then opens the selected
+page over it.
 
 ## The breakpoints
 

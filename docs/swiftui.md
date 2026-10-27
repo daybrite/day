@@ -11,9 +11,11 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 # SwiftUI embedding
 
-Reuse a SwiftUI view inside a Day app on macOS or iOS. `day-piece-swiftui` embeds the view,
-while the build tools compile its Swift package and generate typed Rust constructors. This
-integration requires the AppKit or UIKit toolkit.
+Embedding a SwiftUI view lets a Day app reuse an interface written for Apple's UI framework. It is
+useful when an existing SwiftUI component needs to appear alongside Day content on macOS or iOS.
+
+`day-piece-swiftui` embeds the view, while the build tools compile its Swift package and generate
+typed Rust constructors. This integration requires the AppKit or UIKit toolkit.
 
 ## Add to your app
 

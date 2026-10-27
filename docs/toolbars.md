@@ -11,8 +11,11 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 # Toolbars
 
-Put actions for the current window or page in its toolbar. Day places them in the platform’s
-own bar and keeps them present for as long as the declaring content is visible.
+A toolbar keeps frequently used actions close to the page or window they affect. It gives people
+quick access to those actions while leaving room for the main content.
+
+Day places actions in the platform’s toolbar and keeps them present for as long as the declaring
+content is visible.
 
 For an operation shared across surfaces, use a [reusable `Command`](commands.md) to define its
 title, availability, optional check state, icon, shortcut, and handler once.

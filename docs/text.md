@@ -11,9 +11,12 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 # Text & typography
 
-[`label(...)`](https://docs.rs/day-pieces/latest/day_pieces/fn.label.html) renders native text. Its font is chosen from a **semantic (logical) style** that maps to
-each platform's text styles, so a Day app matches the OS's typography and inherits its accessibility
-text scaling automatically.
+Text labels identify controls, explain actions, and present information for people to read.
+Consistent text styles distinguish headings from supporting content and make a page easier to scan.
+
+[`label(...)`](https://docs.rs/day-pieces/latest/day_pieces/fn.label.html) renders native text. Its
+font is chosen from a **semantic (logical) style** that maps to each platform's text styles, so a
+Day app matches the OS's typography and inherits its accessibility text scaling automatically.
 
 ```rust
 use day::prelude::*;

@@ -11,8 +11,13 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 # Text field
 
-Collect a single line of text, such as a name, email address, or password. [`text_field`](https://docs.rs/day-pieces/latest/day_pieces/fn.text_field.html) and
-[`secure_field`](https://docs.rs/day-pieces/latest/day_pieces/fn.secure_field.html) bind edits to app state and let you choose the keyboard purpose and submit action.
+A text field collects a short value such as a name, address, or search term. Its label and input
+behavior help people understand what to enter and when the entry is complete.
+
+[`text_field`](https://docs.rs/day-pieces/latest/day_pieces/fn.text_field.html) and
+[`secure_field`](https://docs.rs/day-pieces/latest/day_pieces/fn.secure_field.html) collect a single
+line of text, bind edits to app state, and let the app choose the keyboard purpose and submit
+action.
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
 [example messages](/docs/reference/localization#reference-example-messages) and [catalog setup](/docs/how-to/localization).

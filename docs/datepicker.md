@@ -10,9 +10,11 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 # Date & time pickers
 
-Let people choose dates and times using familiar platform controls. `day-pieces`
-provides separate date and time pickers, each bound to app state. Place them together when a
-form needs both.
+Date and time pickers help people enter calendar dates and clock times through structured choices.
+They suit scheduling and reminder forms where free text would leave the expected format unclear.
+
+`day-pieces` provides separate date and time pickers, each bound to app state. Place them together
+when a form needs both.
 
 ## Add to your app
 

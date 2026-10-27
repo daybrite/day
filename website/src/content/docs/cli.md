@@ -11,9 +11,10 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-The `day` command manages a project from creation through testing and packaging. The same
-commands work in a terminal, an editor, or CI. This reference covers the commands and the
-project settings they use.
+Day's command-line tools create, build, run, and package app projects. The same commands support
+interactive development and automated checks.
+
+This reference covers the `day` commands and the project settings they use.
 
 ## Defaults and errors
 

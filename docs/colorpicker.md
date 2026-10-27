@@ -11,9 +11,11 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 # Color picker
 
-Let people choose a color for a drawing, highlight, or theme. `day-pieces` binds the
-selection to app state and presents a native color control where available, with a picker built
-from Day pieces on the other targets.
+A color picker lets people assign a color to content, such as text, a drawing, or a highlight.
+Showing the selected color helps them connect the choice to its result.
+
+`day-pieces` binds the selection to app state and presents a native color control where available,
+with a picker built from Day pieces on the other targets.
 
 ## Add to your app
 

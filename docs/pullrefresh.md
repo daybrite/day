@@ -10,8 +10,11 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 # Pull-to-refresh
 
-Let people pull down on scrollable content to reload it. `day-pieces` wraps that
-content, starts the app’s refresh action, and displays the refreshing state until the work ends.
+Pull to refresh lets people request an update by pulling down on scrollable content. A refresh
+indicator shows that the request is being handled until the new content is ready.
+
+`day-pieces` wraps that content, starts the app’s refresh action, and displays the refreshing state
+until the work ends.
 
 ## Add to your app
 

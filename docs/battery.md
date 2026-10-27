@@ -10,7 +10,9 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 # Battery
 
-Read the battery level and charging state to show a charge indicator or adjust power-hungry work.
+Battery information describes the device's remaining charge and whether it is charging. An app can
+use it to display power status or postpone work that would consume substantial energy.
+
 `day-part-device` returns a snapshot through the platform battery API, without requiring a UI.
 
 ## Add to your app

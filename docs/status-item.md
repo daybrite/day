@@ -11,9 +11,12 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 # Status items, progress and the Dock
 
-These features put an app somewhere other than its windows: an icon in the macOS menu bar, the
-Windows notification area or a Linux tray; a progress bar on the Dock or taskbar icon; and, for an
-app that lives in its status item, no Dock icon at all.
+A status item keeps a small entry point to an app available in the desktop's menu bar or
+notification area. It suits quick status checks and actions people need while the app's windows are
+out of view.
+
+This reference also covers progress on the Dock or taskbar icon and hiding the Dock icon for an app
+that operates through its status item.
 
 ## A status item
 

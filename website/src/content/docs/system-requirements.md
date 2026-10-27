@@ -10,9 +10,9 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-Building a Day app requires Rust and the SDK or development libraries for each target.
-The requirements below are grouped by development host and target platform. `day doctor` can
-check the installed tools and report what is missing.
+Building a Day app requires Rust and the platform tools for its chosen targets. This reference lists
+those requirements by development host and target so developers can prepare a working build
+environment.
 
 ## Check with day doctor
 

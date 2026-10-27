@@ -10,8 +10,11 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 # Crash reporting
 
-`day-piece-crash-reporter` records crashes locally and provides a review-and-send interface for
-the next launch. Your app chooses the destination and when to request consent.
+A crash report records information about an unexpected app failure so developers can investigate it.
+A review-and-send step lets people decide whether to share that diagnostic information.
+
+`day-piece-crash-reporter` records crashes locally and provides a review-and-send interface for the
+next launch. Your app chooses the destination and when to request consent.
 
 ## Add to your app
 

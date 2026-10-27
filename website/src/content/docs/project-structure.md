@@ -11,9 +11,11 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-A Day project combines a Cargo package, a `Day.toml` app manifest, and platform host projects.
-Rust code defines the app’s shared behavior; the host projects provide the files needed by
-Xcode, Gradle, and other platform build tools. The CLI builds them from the layout below.
+A Day project keeps shared Rust code alongside the resources and host files needed by its target
+platforms. Its directory layout separates app behavior from the platform build and packaging setup.
+
+The project combines a Cargo package, a `Day.toml` app manifest, and platform host projects for
+Xcode, Gradle, and other build tools. The CLI builds them from the layout below.
 
 ## The conventional project
 

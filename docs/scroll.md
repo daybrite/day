@@ -11,11 +11,12 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 # Programmatic scrolling
 
-Scroll to an item, an edge, or an offset in response to an app action. The [`scroll`](https://docs.rs/day-pieces/latest/day_pieces/fn.scroll.html) piece
-keeps native gestures and scrolling behavior while letting code reveal content programmatically.
+Scrolling reveals parts of a page or collection that do not fit in the available space. It lets
+people explore more content without leaving the current page.
 
-The [`scroll`](https://docs.rs/day-pieces/latest/day_pieces/fn.scroll.html) piece stays gesture-first: the native widget owns the viewport, physics, and
-indicators. This document covers driving it from code and from dayscript.
+The [`scroll`](https://docs.rs/day-pieces/latest/day_pieces/fn.scroll.html) piece keeps native
+gestures, scrolling physics, and indicators. App code can scroll to an item, an edge, or an offset;
+this reference covers those operations from Rust and [DayScript](/docs/how-to/dayscript).
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
 [example messages](/docs/reference/localization#reference-example-messages) and [catalog setup](/docs/how-to/localization).

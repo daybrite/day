@@ -10,6 +10,9 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 # Window image: capturing the app's own window
 
+A window capture records the app's visible interface as an image. It can help people share what they
+are seeing or give developers a visual record for review and debugging.
+
 An app can capture its own window as a PNG:
 
 ```rust
@@ -17,8 +20,7 @@ let png: Vec<u8> = day::window_image().capture()?;
 ```
 
 The call is **synchronous** and returns PNG bytes. Nothing is written to disk and no permission is
-requested; an app photographing its own window is not a screen recording, and none of the nine
-toolkits treats it as one.
+requested. Capturing the app’s window does not use the system’s screen-recording permissions.
 
 Pair it with a save picker ([files](./files.md)) to let the user keep the result:
 

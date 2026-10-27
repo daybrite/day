@@ -10,9 +10,12 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 # HTTP through the platform stack
 
-Fetch data, upload files, and open WebSocket connections through the platform’s networking
-stack. `day-part-http` provides request functions and a reusable client for policies such as
-authentication, caching, redirects, and timeouts.
+HTTP carries requests and responses between an app and a remote service. It supports tasks such as
+retrieving a feed, uploading a file, or exchanging account data.
+
+`day-part-http` sends requests, uploads files, and opens WebSocket connections through the
+platform’s networking stack. It provides request functions and a reusable client for policies such
+as authentication, caching, redirects, and timeouts.
 
 ## Add to your app
 

@@ -10,9 +10,11 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 # Haptic feedback
 
-Haptic feedback uses brief vibrations or tactile pulses to acknowledge an action, mark a
-selection, or signal an outcome. `day-part-haptics` provides impact, selection, success, warning,
-and error effects. Calls have no effect on devices without a supported haptic engine.
+Haptic feedback uses a brief physical sensation to acknowledge an interaction or report an outcome.
+It can reinforce a visible or audible response, such as a selection change or a completed action.
+
+`day-part-haptics` provides impact, selection, success, warning, and error effects. Calls have no
+effect on devices without a supported haptic engine.
 
 ## Add to your app
 

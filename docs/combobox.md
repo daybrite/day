@@ -11,9 +11,11 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 # Combo box
 
-A combo box lets people type a value or choose a suggestion. `day-pieces` binds the text
-and suggestion list to app state. For a choice restricted to listed values, use a
-[picker](/docs/reference/picker).
+A combo box offers suggested values while allowing people to enter a value of their own. It suits
+fields where common choices save typing but the list cannot cover every valid answer.
+
+`day-pieces` binds the text and suggestion list to app state. For a choice restricted to listed
+values, use a [picker](/docs/reference/picker).
 
 ## Add to your app
 

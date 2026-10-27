@@ -11,8 +11,10 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 # Progress indicators
 
-Show how far a task has progressed, or indicate that work is still running when its duration
-is unknown. Day provides separate constructors for determinate progress and a busy indicator.
+A progress indicator tells people that an operation is underway. When the amount of work is known,
+it can also show how much has finished and how much remains.
+
+Day provides separate constructors for determinate progress and a busy indicator.
 
 ## Add to your app
 

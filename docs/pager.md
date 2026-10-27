@@ -8,8 +8,11 @@ SPDX-License-Identifier: CC-BY-SA-4.0 -->
 
 # Pager
 
-Use [`pager`](https://docs.rs/day-pieces/latest/day_pieces/pager/fn.pager.html) to keep a fixed set of
-page slots alive while changing which page is selected.
+A pager presents related content as separate pages within the same area. It suits collections where
+people move between distinct items or steps while keeping each page's content together.
+
+Use [`pager`](https://docs.rs/day-pieces/latest/day_pieces/pager/fn.pager.html) to keep a fixed set
+of page slots alive while changing which page is selected.
 
 ## Add to your app
 

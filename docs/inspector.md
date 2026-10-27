@@ -11,9 +11,12 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 # Inspector
 
-Show editable properties beside the selected content. An [`inspector`](https://docs.rs/day-pieces/latest/day_pieces/fn.inspector.html) puts the panel at the
-window’s trailing edge and presents it as a sheet in compact layouts. A shared visibility
-signal keeps toolbar, menu, and in-content controls in sync.
+An inspector groups details and editing controls for the current selection. Keeping those properties
+close to the content helps people make adjustments and see their effects.
+
+An [`inspector`](https://docs.rs/day-pieces/latest/day_pieces/fn.inspector.html) puts the panel at
+the window’s trailing edge and presents it as a sheet in compact layouts. A shared visibility signal
+keeps toolbar, menu, and in-content controls in sync.
 
 ```rust
 let show = Signal::global(false);

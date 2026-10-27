@@ -10,9 +10,11 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 # Files: native open & save pickers
 
-Day opens and saves files through each platform's native file-interaction UI, using the same
-imperative request→response model as [dialogs](./dialogs.md): an action opens a picker and
-`.await`s the result:
+A file picker lets people choose a file to open or a location for saving their work. The system's
+browsing interface connects that choice to the files and storage locations available on the device.
+
+Day uses each platform's native file picker. As with [dialogs](./dialogs.md), an action opens the
+picker and awaits its result:
 
 ```rust
 button(res::str::open()).action(move || {

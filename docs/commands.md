@@ -8,8 +8,12 @@ description: "Define an application operation once and present it in buttons, me
 
 # Reusable commands
 
-Define an action once and reuse it in menus, toolbars, and buttons. A `Command` keeps its
-label, availability, check state, shortcut, and handler consistent across those controls.
+An app command represents an action that may be available in several places, such as a menu,
+toolbar, or button. Sharing the command keeps those entry points consistent about what the action
+does and when it is available.
+
+A `Command` shares its label, availability, check state, shortcut, and handler across those
+controls.
 
 `day::Command` is an application operation: one id, one title, one availability, one handler.
 [`Command::new(id, label, action)`](https://docs.rs/day-pieces/latest/day_pieces/struct.Command.html#method.new) builds it, and clones share its behavior and presentation

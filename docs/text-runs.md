@@ -8,8 +8,11 @@ description: "Style labels with text runs and inline Markdown, including links a
 
 # Styled text and Markdown
 
-One label can carry several styles. This synthetic sentence demonstrates the run builder;
-it is not a pattern for splitting a translated UI message:
+Styled text gives parts of a passage different emphasis while keeping them in one readable flow. A
+text run marks a span with formatting, such as bold text or an inline code style.
+
+This synthetic sentence demonstrates the run builder; it is not a pattern for splitting a translated
+UI message:
 
 ```rust
 let (text, runs) = TextBuilder::new()

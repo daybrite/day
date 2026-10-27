@@ -9,8 +9,10 @@ description: "Cancellable native frame callbacks for canvas animations and other
 
 # Display frame callbacks
 
-Schedule animation or rendering work in step with the display. A frame clock runs callbacks
-on the UI thread and lets the app stop them by dropping their handle.
+A frame clock coordinates visual updates with opportunities to refresh the display. It gives
+animations and simulations a timing source for advancing what the app draws.
+
+A frame clock runs callbacks on the UI thread and lets the app stop them by dropping their handle.
 
 `day::frame` schedules UI-thread work at native display frame opportunities. It is independent
 of canvas and pieces: capture a [`FrameClock::current()`](https://docs.rs/day-core/latest/day_core/frame/struct.FrameClock.html#method.current) while building a page, or obtain one

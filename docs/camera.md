@@ -10,9 +10,12 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 # Camera
 
-Show a live viewfinder and capture JPEG photos for attachments, scanning, or a profile image.
-`day-piece-camera` exposes a [Piece](/docs/explanation/pieces) for the preview and observable
-state for the capture controls. It does not save to the system photo library or record video.
+A camera preview shows the scene before a photo is captured. It lets people frame an attachment,
+profile image, or document photo within the task they are already doing.
+
+`day-piece-camera` captures JPEG photos and exposes a [Piece](/docs/explanation/pieces) for the
+preview, with observable state for capture controls. It does not save to the system photo library or
+record video.
 
 ## Add to your app
 

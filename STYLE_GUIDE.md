@@ -16,8 +16,10 @@ Follow this whenever you write or edit that kind of text. Code comments follow t
 - Don't sell. Say what it does and what it costs; let the reader decide.
 - One idea per sentence. Prefer short sentences.
 - Cut the last paragraph when it just restates the first.
-- Begin reference pages with what the reader can do. Omit implementation-status banners;
-  explain concrete limitations beside the affected feature or platform.
+- Begin reference pages with one or two original sentences defining the topic and its useful
+  role. Follow with Day-specific setup and contracts. Keep the opening independent of an input
+  device or operating system unless the topic itself is platform-specific. Omit
+  implementation-status banners; explain concrete limitations beside the affected feature or platform.
 - Link native API names and platform-specific behavior to first-party documentation, including
   design guidance where useful. Verify the target and toolkit version. See the
   [documentation linking guidelines](website/authoring/style-guide.md#link-platform-guidance-and-native-apis).

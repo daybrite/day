@@ -10,6 +10,9 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 # Window chrome
 
+Window chrome is the frame and controls around a window's content, including its title bar. It helps
+people identify the window and use the system's ways of moving, resizing, or closing it.
+
 A window opens with the platform's title bar and frame unless its `WindowOptions` say otherwise.
 Four options shape the frame, and one decorator turns any piece into a title bar the user can drag:
 

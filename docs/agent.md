@@ -11,9 +11,11 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 # Agentic development
 
-How coding agents (Codex, Claude Code, VS Code agent mode, and other MCP clients) build, run, drive, and
-see Day apps. Every capability lives in the day CLI behind stable commands, so all agents and
-editors share one implementation; editor extensions only register it.
+Coding agents need ways to build an app, operate its controls, and inspect the result. Day exposes
+these tasks through CLI commands that agents and editors can use.
+
+Agents such as Codex, Claude Code, and other MCP clients use the same CLI implementation. Editor
+extensions register those capabilities rather than implementing their own versions.
 
 ## Fast functional walkthroughs
 

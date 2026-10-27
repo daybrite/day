@@ -10,9 +10,12 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 # Location
 
-Find the device’s position once or follow it as it moves. `day-part-location` provides location
-updates with selectable accuracy, so an app can balance precision and battery use. Request
-[location permission](/docs/reference/permissions) separately before starting.
+Location information places the device in the physical world. It can support nearby results,
+directions, or position tracking when the person grants access and the device can supply a location.
+
+`day-part-location` provides location updates with selectable accuracy, so an app can balance
+precision and battery use. Request [location permission](/docs/reference/permissions) separately
+before starting.
 
 ## Add to your app
 

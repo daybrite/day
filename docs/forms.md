@@ -10,9 +10,13 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 # Forms
 
-Group related inputs into sections with aligned labels. [`form`](https://docs.rs/day-pieces/latest/day_pieces/fn.form.html), [`section`](https://docs.rs/day-pieces/latest/day_pieces/fn.section.html), and [`labeled`](https://docs.rs/day-pieces/latest/day_pieces/fn.labeled.html)
-provide a shared layout for preferences, account details, and other forms, while the controls
-keep their native behavior.
+A form brings related inputs together so people can provide information or change settings. Clear
+labels and grouping make it easier to see what each field asks for and how the answers relate.
+
+[`form`](https://docs.rs/day-pieces/latest/day_pieces/fn.form.html),
+[`section`](https://docs.rs/day-pieces/latest/day_pieces/fn.section.html), and
+[`labeled`](https://docs.rs/day-pieces/latest/day_pieces/fn.labeled.html) provide a shared layout
+for preferences, account details, and other forms, while the controls keep their native behavior.
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
 [example messages](/docs/reference/localization#reference-example-messages) and [catalog setup](/docs/how-to/localization).

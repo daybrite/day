@@ -11,7 +11,10 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 # Network connectivity
 
-Show whether the device has a network connection and what kind it is, such as Wi-Fi or cellular.
+Connectivity information describes the network connection available to a device, such as Wi-Fi or
+cellular. It helps an app explain connection changes and choose when to attempt network work; it
+does not guarantee that a particular service is reachable.
+
 `day-part-connectivity` returns a connectivity snapshot. For sending requests, use
 [HTTP](/docs/reference/http).
 

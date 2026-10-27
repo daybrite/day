@@ -10,10 +10,15 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 # Tweaks: per-toolkit configuration of built-in pieces
 
-A **tweak** configures the native widget behind a Day-created piece: the extra [`NSButton`](https://developer.apple.com/documentation/appkit/nsbutton) or
-WinUI [`Button`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.button) method call that doesn't justify a whole custom piece. A piece with a tweak applied is
-a **Tweaked Piece**. Day keeps owning the widget's lifecycle, layout, and managed properties; the
-tweak reaches in through the same handle Day manages.
+A tweak adjusts a platform-specific property of a native control created by Day. It is useful when
+an app needs an option beyond the shared API while keeping the control's existing layout and
+lifetime management.
+
+For example, a tweak can call an additional
+[`NSButton`](https://developer.apple.com/documentation/appkit/nsbutton) or WinUI
+[`Button`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.button)
+method through the handle Day manages. A piece with a tweak applied is a **Tweaked Piece**; Day
+retains control of its managed properties.
 
 Tweaks slot between styling and native pieces in the extension ladder:
 

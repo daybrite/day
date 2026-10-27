@@ -11,11 +11,14 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 # Styled text editor
 
-Let people write and format rich text in the platform’s native editor.
-[`text_editor(doc)`](https://docs.rs/day-piece-text-editor/latest/day_piece_text_editor/fn.text_editor.html) edits a [`StyledText`](#document-and-selection), the same document a label renders and
-[`.markdown()`](https://docs.rs/day-spec/latest/day_spec/styled/struct.StyledText.html#method.markdown) produces, live in each platform's text editor: bold, italic, underline,
-strikethrough, relative size, text and highlight color, plus paragraph alignment, indent, spacing
-and list markers.
+A rich-text editor lets people write content and format its structure and emphasis. It suits
+documents and messages that need headings, lists, or styled passages alongside the words themselves.
+
+[`text_editor(doc)`](https://docs.rs/day-piece-text-editor/latest/day_piece_text_editor/fn.text_editor.html)
+edits a [`StyledText`](#document-and-selection), the same document a label renders and
+[`.markdown()`](https://docs.rs/day-spec/latest/day_spec/styled/struct.StyledText.html#method.markdown)
+produces, live in each platform's text editor: bold, italic, underline, strikethrough, relative
+size, text and highlight color, plus paragraph alignment, indent, spacing and list markers.
 
 ## Add to your app
 

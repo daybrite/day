@@ -10,8 +10,12 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 # Navigation
 
-Navigation state lives in signals. Selecting a tab or pressing Back updates the signal;
-changing the signal from app code updates the native container.
+Navigation connects the places in an app and gives people a way to return as they explore. Tabs,
+sidebars, and paths through successive pages organize those destinations according to the app's
+structure.
+
+Navigation state lives in signals. Selecting a tab or pressing Back updates the signal; changing the
+signal from app code updates the native container.
 
 - **[`nav`](https://docs.rs/day-pieces/latest/day_pieces/fn.nav.html)** selects one destination, such as a tab or sidebar item. Its signal holds the active key.
 - **[`nav_stack`](https://docs.rs/day-pieces/latest/day_pieces/fn.nav_stack.html)** holds a path of destinations in a `Signal<Vec<_>>`. Pushing or removing a key

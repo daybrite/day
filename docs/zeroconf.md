@@ -11,10 +11,12 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 # Local network discovery
 
-Find a printer, discover a nearby app, or advertise a service your app already hosts.
-`day-part-zeroconf` uses DNS-based service discovery (DNS-SD) to report service names,
-addresses, ports, and TXT attributes. Discovery supplies connection information; your app
-chooses whether and how to connect.
+Local network discovery finds services on the same network without asking people to enter an
+address. It helps apps locate resources such as printers or another app that is offering a service.
+
+`day-part-zeroconf` uses DNS-based service discovery (DNS-SD) to report service names, addresses,
+ports, and TXT attributes. It can also advertise a service the app hosts. Discovery supplies
+connection information; the app chooses whether and how to connect.
 
 ## Add to your app
 

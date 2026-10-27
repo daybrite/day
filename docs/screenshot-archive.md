@@ -11,8 +11,10 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 # Screenshot bundle
 
-Package app screenshots for a release or share captures from several targets. Day’s screenshot
-archives include checksums and can be extracted with standard archive tools.
+A screenshot archive keeps a set of app captures together for review or distribution. Grouping
+captures by target and device makes it easier to compare the same interface across platforms.
+
+Day’s screenshot archives include checksums and can be extracted with standard archive tools.
 
 A release carries its captures as `screenshots.tar.xz`, with one `screenshots-<target>[-<device>].tar.xz`
 per capture tree beside it. Each is a plain tar.xz file: `tar -xJf` extracts it anywhere, and

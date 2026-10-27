@@ -10,9 +10,12 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 # Charts
 
-Show comparisons, trends, distributions, and relationships with `day-piece-charts`. A chart
-combines marks such as bars or points with data values, scales, axes, and a coordinate system.
-The resulting [canvas](/docs/reference/canvas) drawing uses the same layout logic across toolkits.
+Charts turn data into visual comparisons that help people spot trends, differences, and
+relationships. The choice of marks and scales determines which patterns stand out.
+
+`day-piece-charts` combines marks such as bars or points with data values, scales, axes, and a
+coordinate system. The resulting [canvas](/docs/reference/canvas) drawing uses the same layout logic
+across toolkits.
 
 ## Add to your app
 

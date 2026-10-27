@@ -10,8 +10,8 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 # Menus
 
-Make app actions available in the menu bar or in a context menu beside the content they affect.
-Day uses each platform’s menu controls and action conventions.
+Menus group commands so people can find actions without keeping every control visible. A context
+menu narrows those choices to actions relevant to the selected content or area.
 
 Day renders menus with each toolkit's native menu machinery: [`NSMenu`](https://developer.apple.com/documentation/appkit/nsmenu), [`GtkPopoverMenu`](https://docs.gtk.org/gtk4/class.PopoverMenu.html) /
 [`GtkPopoverMenuBar`](https://docs.gtk.org/gtk4/class.PopoverMenuBar.html), [`QMenu`](https://doc.qt.io/qt-6/qmenu.html) / [`QMenuBar`](https://doc.qt.io/qt-6/qmenubar.html), [`UIMenu`](https://developer.apple.com/documentation/uikit/uimenu) (via [`UIContextMenuInteraction`](https://developer.apple.com/documentation/uikit/uicontextmenuinteraction)), Android

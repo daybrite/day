@@ -11,8 +11,10 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 # App icon badge
 
-Show an unread count or an attention marker on the app’s icon. Badge styles and permission
-requirements vary by platform.
+An app-icon badge draws attention to something waiting in the app, such as unread messages. It
+provides a brief signal when the app's windows are out of view.
+
+Badge styles and permission requirements vary by platform.
 
 Use [`day::set_app_badge(&AppBadge)`](https://docs.rs/day-app/latest/day/fn.set_app_badge.html) to set or clear the app icon badge. This is separate
 from a navigation item's badge. The function delegates to the running toolkit and returns `()`.

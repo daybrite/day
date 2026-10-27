@@ -11,7 +11,9 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 # OS permissions
 
-Check whether an app can use a protected capability and ask the user for access when needed.
+Permissions give people control over an app's access to protected data and device features. Asking
+in the context of a task helps them understand what access is needed and decide whether to allow it.
+
 `day-part-permissions` handles runtime permission checks and requests; `Day.toml` declares the
 capabilities and explanations required by each operating system.
 

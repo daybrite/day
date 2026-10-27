@@ -11,9 +11,12 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 # Cursor
 
-Change the mouse pointer to show what an area does: a link can use a pointing hand, a drawing
-surface a crosshair, and a divider a resize cursor. Apply [`.cursor(...)`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.cursor) to a piece; the pointer
-updates when its bound state changes.
+A cursor shows where pointer input will act and can indicate what an area allows. A resize cursor,
+for example, identifies a boundary people can drag to change a pane's size.
+
+Apply
+[`.cursor(...)`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.cursor) to
+a piece; the pointer updates when its bound state changes.
 
 ## Authoring
 

@@ -10,9 +10,11 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 # Device identity
 
-Read the device model, operating-system version, and simulator flag for an About screen or
-a diagnostic report. `day-part-device` returns a snapshot and uses a fallback when a platform
-cannot report a field.
+Device information describes the hardware and operating system running an app. It gives an About
+screen or diagnostic report the context needed to identify a device and investigate a problem.
+
+`day-part-device` returns a snapshot of the device model, operating-system version, and simulator
+flag. It uses a fallback when a platform cannot report a field.
 
 ## Add to your app
 

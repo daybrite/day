@@ -11,9 +11,15 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 # Fullscreen cover & the system-gesture shield
 
-Present a focused task over the current page, such as a game, editor, or settings form.
-A [`cover`](https://docs.rs/day-pieces/latest/day_pieces/fn.cover.html) fills the window; [`.sheet()`](https://docs.rs/day-pieces/latest/day_pieces/trait.CoverBuilder.html#tymethod.sheet) and [`.half_sheet()`](https://docs.rs/day-pieces/latest/day_pieces/trait.CoverBuilder.html#tymethod.half_sheet) keep some of the underlying page
-visible. An app-owned signal controls presentation and dismissal.
+A cover presents a separate task over the current page, giving it room while keeping a way back to
+the original context. A sheet uses a smaller presentation when the task can stay alongside some of
+that context.
+
+A [`cover`](https://docs.rs/day-pieces/latest/day_pieces/fn.cover.html) fills the window;
+[`.sheet()`](https://docs.rs/day-pieces/latest/day_pieces/trait.CoverBuilder.html#tymethod.sheet)
+and
+[`.half_sheet()`](https://docs.rs/day-pieces/latest/day_pieces/trait.CoverBuilder.html#tymethod.half_sheet)
+keep some of the underlying page visible. An app-owned signal controls presentation and dismissal.
 
 ```rust
 let open = Signal::new(None::<Section>);          // Section: any Route type

@@ -11,10 +11,12 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 # Sign-in and passkeys
 
-Sign-in connects an app to a person's account so it can retrieve their data and call services on
-their behalf. `day-part-auth` opens provider sign-in pages in the system browser, runs OAuth 2.0
-and OpenID Connect exchanges, and requests Apple, Google, and passkey credentials from native
-dialogs. The app remains responsible for its session, token storage, and server authorization.
+Sign-in connects an app to a person's account so it can access their content and services. It
+establishes an account identity, while a local device-unlock check serves a different purpose.
+
+`day-part-auth` opens provider sign-in pages in the system browser, runs OAuth 2.0 and OpenID
+Connect exchanges, and requests Apple, Google, and passkey credentials from native dialogs. The app
+remains responsible for its session, token storage, and server authorization.
 
 Use [biometrics](/docs/reference/biometrics) to ask whether the person at the device can unlock
 protected content. Use sign-in to establish an account identity with a service. A successful

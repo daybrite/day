@@ -10,9 +10,11 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 # Sensors
 
-Use motion and magnetic-field measurements for interactive controls, measurements, and live
-charts. `day-part-sensors` delivers new readings through callbacks and releases the sensor source
-when its last subscription ends.
+Sensors report physical measurements such as motion, orientation, or magnetic field strength. An app
+can use those readings to respond to movement or display measurements as they change.
+
+`day-part-sensors` delivers new readings through callbacks and releases the sensor source when its
+last subscription ends.
 
 ## Add to your app
 

@@ -6,11 +6,15 @@ title: Fonts
 
 # Fonts: the platform list, canvas fonts, and measurement
 
-Labels pick their type through [`FontSpec`](text.md) — semantic styles the reader's text-size
-setting scales. A drawing has different needs: it names a family from the machine's own list,
-sets an absolute size, and has to know how big the result is before it draws a frame around it.
-This is that surface: [`day::font_families()`](https://docs.rs/day-app/latest/day/fn.font_families.html), `CanvasFont` on canvas text, and
-[`day::measure_text()`](https://docs.rs/day-app/latest/day/fn.measure_text.html).
+A font's letter shapes, weight, and size affect both the appearance of text and the space it
+occupies. Font discovery and measurement let an app offer type choices or fit text into a custom
+drawing.
+
+For interface labels, use [semantic text styles](text.md), which follow the reader’s text-size
+setting. Custom drawings can choose a family and absolute size with `CanvasFont`.
+[`day::font_families()`](https://docs.rs/day-app/latest/day/fn.font_families.html) lists available
+families, and [`day::measure_text()`](https://docs.rs/day-app/latest/day/fn.measure_text.html)
+measures text before drawing.
 
 Text samples use generated Fluent accessors; see the [example catalog](/docs/reference/localization#reference-example-messages)
 and [localization setup](/docs/how-to/localization).

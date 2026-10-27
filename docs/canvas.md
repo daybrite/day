@@ -9,8 +9,11 @@ description: "The canvas piece records a display list each toolkit replays throu
 
 # Canvas
 
-Draw charts, diagrams, and custom controls with paths, text, images, and gradients. A [`canvas`](https://docs.rs/day-pieces/latest/day_pieces/fn.canvas.html)
-redraws when the state read by its drawing closure changes.
+A canvas is a drawing area for content an app constructs from shapes, text, and images. It suits
+diagrams, illustrations, and other graphics that need control over how each element is drawn.
+
+A [`canvas`](https://docs.rs/day-pieces/latest/day_pieces/fn.canvas.html) redraws when the state
+read by its drawing closure changes.
 
 The [`canvas`](https://docs.rs/day-pieces/latest/day_pieces/fn.canvas.html) piece records a display list (a `Vec<DrawOp>`) that each toolkit replays with its
 own native 2-D API: CoreGraphics on Apple, cairo on GTK, [`QPainter`](https://doc.qt.io/qt-6/qpainter.html) on Qt, `android.graphics` on
