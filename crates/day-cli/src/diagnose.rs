@@ -226,21 +226,10 @@ fn describes_this_run(text: &str, target: &'static Target, since: SystemTime) ->
 /// [`os_crash_findings`] uses instead.
 fn break_store_dir(project: &Project, target: &'static Target, app_id: &str) -> Option<PathBuf> {
     match target.kind {
+        // The app's data directory on this host, where day-piece-crash-reporter keeps its store
+        // (its src/store.rs `store_dir`): both resolve it through `day_spec::storage`.
         TargetKind::Desktop => {
-            // The same layout day-piece-crash-reporter computes (day-piece-crash-reporter/src/store.rs `store_dir`), for the
-            // host it is running on. Kept as a copy rather than a dependency: day-piece-crash-reporter pulls in
-            // day-pieces for its consent surface, which has no business inside the CLI.
-            let home = std::env::var_os("HOME").map(PathBuf::from)?;
-            let slug = slug(app_id);
-            if cfg!(target_os = "macos") {
-                Some(
-                    home.join("Library/Application Support")
-                        .join(slug)
-                        .join("day-break"),
-                )
-            } else {
-                Some(home.join(format!(".{slug}")).join("day-break"))
-            }
+            day_spec::storage::data_dir_for(app_id).map(|dir| dir.join("day-break"))
         }
         TargetKind::IosSim => {
             let out = crate::ops::output_within(

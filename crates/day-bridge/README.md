@@ -23,7 +23,7 @@ service crate instead of defining a bridge.
 - [Native-language bindings](https://github.com/daybrite/day/blob/main/docs/bridge.md/)
 - [Build a platform service](https://daybrite.dev/contributing/tutorials/part/)
 - [Using platform services](https://daybrite.dev/docs/reference/parts/)
-- [Rust API](https://daybrite.dev/api/day_bridge/index.html)
+- [Rust API](https://docs.rs/day-bridge/latest/day_bridge/index.html)
 
 [Source](https://github.com/daybrite/day/tree/main/crates/day-bridge) ·
 [Contributing](https://daybrite.dev/contributing/setup/) · [MPL-2.0

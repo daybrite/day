@@ -11,17 +11,16 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 # Wake lock
 
-[`day-part-wakelock`](https://daybrite.dev/api/day_part_wakelock/index.html) keeps the screen on while something is showing, whatever the device's
+[`day-part-wakelock`](https://docs.rs/day-part-wakelock/latest/day_part_wakelock/index.html) keeps the screen on while something is showing, whatever the device's
 auto-lock setting: a timer counting down, a recipe beside the stove, a game round played with the
 phone held up. It is a headless part in `parts/`.
 
 ## Add to your app
 
-Add [`day-part-wakelock`](https://github.com/daybrite/day/tree/main/crates/day-part-wakelock) to your app’s Cargo dependencies, using the same Day version as the rest of your app:
+Add [`day-part-wakelock`](https://github.com/daybrite/day/tree/main/crates/day-part-wakelock) to your app:
 
-```toml
-[dependencies]
-day-part-wakelock = "0.6"
+```sh
+cargo add day-part-wakelock
 ```
 
 The implementation is selected by the compilation target; no toolkit feature flags
@@ -31,7 +30,7 @@ or dependency entry in `Day.toml` are needed.
 | --- | --- |
 | macOS, iOS, Android, Windows, HarmonyOS | Keeps the display awake while the lock is held. |
 | Web | Requires the browser Screen Wake Lock API; the page must be visible. |
-| GTK / Qt (Linux) | Not implemented; [`is_supported()`](https://daybrite.dev/api/day_part_wakelock/fn.is_supported.html) returns false. |
+| GTK / Qt (Linux) | Not implemented; [`is_supported()`](https://docs.rs/day-part-wakelock/latest/day_part_wakelock/fn.is_supported.html) returns false. |
 
 ## Authoring
 
@@ -43,9 +42,9 @@ drop(lock);
 
 | Function | What it does |
 |---|---|
-| [`keep_screen_on()`](https://daybrite.dev/api/day_part_wakelock/fn.keep_screen_on.html) | keep the screen on until the returned [`ScreenLock`](https://daybrite.dev/api/day_part_wakelock/struct.ScreenLock.html) is dropped |
-| [`is_held()`](https://daybrite.dev/api/day_part_wakelock/fn.is_held.html) | whether any lock is alive in the app |
-| [`is_supported()`](https://daybrite.dev/api/day_part_wakelock/fn.is_supported.html) | whether this platform can keep the screen on |
+| [`keep_screen_on()`](https://docs.rs/day-part-wakelock/latest/day_part_wakelock/fn.keep_screen_on.html) | keep the screen on until the returned [`ScreenLock`](https://docs.rs/day-part-wakelock/latest/day_part_wakelock/struct.ScreenLock.html) is dropped |
+| [`is_held()`](https://docs.rs/day-part-wakelock/latest/day_part_wakelock/fn.is_held.html) | whether any lock is alive in the app |
+| [`is_supported()`](https://docs.rs/day-part-wakelock/latest/day_part_wakelock/fn.is_supported.html) | whether this platform can keep the screen on |
 
 Locks nest: the screen may sleep again once the last one is dropped, so two parts of an app can
 each hold one without coordinating. Tie a lock to the page that needs it, so closing the page
@@ -75,7 +74,7 @@ Platform guidance: [Android: keeping the screen on](https://developer.android.co
 | Android | [`FLAG_KEEP_SCREEN_ON`](https://developer.android.com/reference/android/view/WindowManager.LayoutParams#FLAG_KEEP_SCREEN_ON) on the activity's window, set on the UI thread |
 | HarmonyOS | [`Window.setWindowKeepScreenOn`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-arkui/arkts-apis-window-Window.md) on the app's window |
 | web | the Screen Wake Lock API, requested again each time the page becomes visible |
-| Linux (GTK, Qt) | none yet: [`is_supported()`](https://daybrite.dev/api/day_part_wakelock/fn.is_supported.html) is false |
+| Linux (GTK, Qt) | none yet: [`is_supported()`](https://docs.rs/day-part-wakelock/latest/day_part_wakelock/fn.is_supported.html) is false |
 
 None of these needs a permission. The web's wake lock needs a secure context (HTTPS or localhost),
 which `day launch` and a hosted build both provide.

@@ -81,9 +81,11 @@ test('main compatibility is explicit and never mutates the reader plan', () => {
   const before = JSON.stringify(plan);
   const main = mainCompatibility(plan, '/synthetic/checkout');
   assert.equal(JSON.stringify(plan), before);
-  assert.match(plan.find(s => s.path === 'Cargo.toml').body, /version = "0.6"/);
-  assert.match(main.find(s => s.path === 'Cargo.toml').body, /path = "\/synthetic\/checkout\/crates\/day"/);
-  assert.deepEqual(main.filter((s, i) => s.body !== plan[i].body).map(s => s.key), ['first-app/install', 'first-app/cargo']);
+  // The reader's manifest names no Day release: `cargo add` picks the newest one.
+  assert.doesNotMatch(plan.filter(s => s.path === 'Cargo.toml').map(s => s.body).join(''), /day-app|day-build/);
+  assert.match(plan.find(s => s.key === 'first-app/dependencies').body, /^cargo add day-app --rename day\n/);
+  assert.match(main.find(s => s.key === 'first-app/dependencies').body, /--path '\/synthetic\/checkout\/crates\/day'/);
+  assert.deepEqual(main.filter((s, i) => s.body !== plan[i].body).map(s => s.key), ['first-app/install', 'first-app/dependencies']);
   const ps = shellProgram(plan, "C:/Synthetic Fixture's path", 'powershell');
   assert.match(ps, /Fixture''s path/);
   assert.match(ps, /\$PSNativeCommandUseErrorActionPreference = \$true/);

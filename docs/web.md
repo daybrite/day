@@ -57,14 +57,14 @@ capabilities at runtime and provide an alternative when a feature is unavailable
 | Clipboard, location, and sensors | Depend on browser support, permissions, a secure context, and sometimes a live user gesture. |
 | Windows | The app runs within its page. Desktop window placement and additional OS windows are unavailable. |
 
-Use [`day::task`](https://daybrite.dev/api/day/fn.task.html) and
-[`day::sleep`](https://daybrite.dev/api/day/fn.sleep.html) for asynchronous work.
-[`day::spawn_blocking`](https://daybrite.dev/api/day/fn.spawn_blocking.html) runs inline on this
+Use [`day::task`](https://docs.rs/day-app/latest/day/fn.task.html) and
+[`day::sleep`](https://docs.rs/day-app/latest/day/fn.sleep.html) for asynchronous work.
+[`day::spawn_blocking`](https://docs.rs/day-app/latest/day/fn.spawn_blocking.html) runs inline on this
 target, so a long job still blocks the page. Prefer browser async APIs for long operations;
 see [Async work](/docs/explanation/async).
 
 Images and fonts are staged with the build. Synchronous
-[`resource()`](https://daybrite.dev/api/day_core/fn.resource.html) access to bundled data bytes
+[`resource()`](https://docs.rs/day-core/latest/day_core/fn.resource.html) access to bundled data bytes
 is unavailable in the browser. Check [Resources](/docs/reference/resources) when sharing data
 loading code with native targets.
 
@@ -86,7 +86,7 @@ day launch -t web-dom --locale ar
 
 The host also accepts `?locale=<language-tag>` and `?theme=light` or `?theme=dark`.
 `day launch --env KEY=VALUE` passes app configuration through query parameters, read with
-[`day::env`](https://daybrite.dev/api/day/fn.env.html). These values are visible in the URL;
+[`day::env`](https://docs.rs/day-app/latest/day/fn.env.html). These values are visible in the URL;
 use them for non-secret configuration. Avoid the reserved keys `theme`, `locale`, `dayscript`,
 `vw`, `vh`, `dpr`, `dark`, `locales`, `route`, `tz`, and `tzoffset`.
 

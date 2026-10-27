@@ -24,7 +24,7 @@ than integrating this engine yourself.
 
 - [Test an app with dayscript](https://daybrite.dev/docs/how-to/dayscript/)
 - [Automation and agent tools](https://daybrite.dev/docs/reference/for-agents/)
-- [Rust API](https://daybrite.dev/api/day_script/index.html)
+- [Rust API](https://docs.rs/day-script/latest/day_script/index.html)
 
 [Source](https://github.com/daybrite/day/tree/main/crates/day-script) ·
 [Contributing](https://daybrite.dev/contributing/setup/) · [MPL-2.0

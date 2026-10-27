@@ -16,11 +16,10 @@ cannot report a field.
 
 ## Add to your app
 
-Add [`day-part-device`](https://github.com/daybrite/day/tree/main/crates/day-part-device) to your app’s Cargo dependencies, using the same Day version as the rest of your app:
+Add [`day-part-device`](https://github.com/daybrite/day/tree/main/crates/day-part-device) to your app:
 
-```toml
-[dependencies]
-day-part-device = "0.6"
+```sh
+cargo add day-part-device
 ```
 
 The implementation is selected by the compilation target; no toolkit feature flags
@@ -39,7 +38,7 @@ println!("{} — {} {}{}", d.model, d.system_name, d.system_version,
     if d.is_simulator { " (simulator)" } else { "" });
 ```
 
-[`get() -> DeviceInfo`](https://daybrite.dev/api/day_part_device/info/fn.get.html) never panics and never returns an error: every platform yields something, and
+[`get() -> DeviceInfo`](https://docs.rs/day-part-device/latest/day_part_device/info/fn.get.html) never panics and never returns an error: every platform yields something, and
 fields a platform cannot report fall back to `"Unknown"` (or, for `system_name`, the OS family name). It
 is a point-in-time snapshot; device identity does not change at runtime, so there is no notification rail.
 

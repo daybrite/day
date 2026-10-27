@@ -52,7 +52,7 @@ contributions needs no Swift toolchain either way.
 
 - `day launch` runs a bare binary, not a bundle. Anything the OS gates on bundle identity
   (TCC permission prompts, some system services) only works from `day pack` output. Develop with
-  [`launch`](https://daybrite.dev/api/day/fn.launch.html), and verify permission flows against a packed build.
+  [`launch`](https://docs.rs/day-app/latest/day/fn.launch.html), and verify permission flows against a packed build.
 - `day-piece-lottie` ships UIKit and Android arms only.
 - Pull-to-refresh is emulated: the piece observes [`NSScrollView`](https://developer.apple.com/documentation/appkit/nsscrollview)'s elastic overscroll,
   because macOS has no native refresh control.
@@ -69,40 +69,40 @@ Pieces marked *external* live in separate crates and are only present when you d
 
 | Day piece | AppKit class |
 |---|---|
-| [`column`](https://daybrite.dev/api/day_pieces/fn.column.html) / [`row`](https://daybrite.dev/api/day_pieces/fn.row.html) / [`nav_stack`](https://daybrite.dev/api/day_pieces/fn.nav_stack.html) / [`section`](https://daybrite.dev/api/day_pieces/fn.section.html) | [`NSView`](https://developer.apple.com/documentation/appkit/nsview) (a flipped subclass, so Day's top-left origin applies directly) |
-| [`label`](https://daybrite.dev/api/day_pieces/fn.label.html) | [`NSTextField`](https://developer.apple.com/documentation/appkit/nstextfield) (`labelWithString:`) |
-| [`button`](https://daybrite.dev/api/day_pieces/fn.button.html) | [`NSButton`](https://developer.apple.com/documentation/appkit/nsbutton) |
-| [`toggle`](https://daybrite.dev/api/day_pieces/fn.toggle.html) | [`NSSwitch`](https://developer.apple.com/documentation/appkit/nsswitch) |
-| [`slider`](https://daybrite.dev/api/day_pieces/fn.slider.html) | [`NSSlider`](https://developer.apple.com/documentation/appkit/nsslider) |
-| [`text_field`](https://daybrite.dev/api/day_pieces/fn.text_field.html) | [`NSTextField`](https://developer.apple.com/documentation/appkit/nstextfield) (bezeled, editable) |
-| [`secure_field`](https://daybrite.dev/api/day_pieces/fn.secure_field.html) | [`NSSecureTextField`](https://developer.apple.com/documentation/appkit/nssecuretextfield) |
-| [`text_area`](https://daybrite.dev/api/day_pieces/fn.text_area.html) | [`NSTextView`](https://developer.apple.com/documentation/appkit/nstextview) inside an [`NSScrollView`](https://developer.apple.com/documentation/appkit/nsscrollview) |
-| [`picker`](https://daybrite.dev/api/day_pieces/fn.picker.html)`()`[`.menu`](https://daybrite.dev/api/day_pieces/trait.PickerBuilder.html#tymethod.menu)`()` | [`NSPopUpButton`](https://developer.apple.com/documentation/appkit/nspopupbutton) |
-| [`picker`](https://daybrite.dev/api/day_pieces/fn.picker.html)`()`[`.segmented`](https://daybrite.dev/api/day_pieces/trait.PickerBuilder.html#tymethod.segmented)`()` | [`NSSegmentedControl`](https://developer.apple.com/documentation/appkit/nssegmentedcontrol) |
-| [`picker`](https://daybrite.dev/api/day_pieces/fn.picker.html)`()`[`.inline`](https://daybrite.dev/api/day_pieces/trait.PickerBuilder.html#tymethod.inline)`()` | radio [`NSButton`](https://developer.apple.com/documentation/appkit/nsbutton)s in an [`NSStackView`](https://developer.apple.com/documentation/appkit/nsstackview) |
-| [`progress(f)`](https://daybrite.dev/api/day_pieces/fn.progress.html) | [`NSProgressIndicator`](https://developer.apple.com/documentation/appkit/nsprogressindicator) (bar) |
-| [`spinner()`](https://daybrite.dev/api/day_pieces/fn.spinner.html) | [`NSProgressIndicator`](https://developer.apple.com/documentation/appkit/nsprogressindicator) (spinning) |
-| [`divider`](https://daybrite.dev/api/day_pieces/fn.divider.html) | [`NSBox`](https://developer.apple.com/documentation/appkit/nsbox) (separator) |
-| [`scroll`](https://daybrite.dev/api/day_pieces/fn.scroll.html) | [`NSScrollView`](https://developer.apple.com/documentation/appkit/nsscrollview) |
-| [`list`](https://daybrite.dev/api/day_pieces/fn.list.html) | [`NSTableView`](https://developer.apple.com/documentation/appkit/nstableview) (headerless, single column) |
-| [`nav`](https://daybrite.dev/api/day_pieces/fn.nav.html) (split) | [`NSSplitView`](https://developer.apple.com/documentation/appkit/nssplitview); the sidebar sits in an [`NSVisualEffectView`](https://developer.apple.com/documentation/appkit/nsvisualeffectview) |
+| [`column`](https://docs.rs/day-pieces/latest/day_pieces/fn.column.html) / [`row`](https://docs.rs/day-pieces/latest/day_pieces/fn.row.html) / [`nav_stack`](https://docs.rs/day-pieces/latest/day_pieces/fn.nav_stack.html) / [`section`](https://docs.rs/day-pieces/latest/day_pieces/fn.section.html) | [`NSView`](https://developer.apple.com/documentation/appkit/nsview) (a flipped subclass, so Day's top-left origin applies directly) |
+| [`label`](https://docs.rs/day-pieces/latest/day_pieces/fn.label.html) | [`NSTextField`](https://developer.apple.com/documentation/appkit/nstextfield) (`labelWithString:`) |
+| [`button`](https://docs.rs/day-pieces/latest/day_pieces/fn.button.html) | [`NSButton`](https://developer.apple.com/documentation/appkit/nsbutton) |
+| [`toggle`](https://docs.rs/day-pieces/latest/day_pieces/fn.toggle.html) | [`NSSwitch`](https://developer.apple.com/documentation/appkit/nsswitch) |
+| [`slider`](https://docs.rs/day-pieces/latest/day_pieces/fn.slider.html) | [`NSSlider`](https://developer.apple.com/documentation/appkit/nsslider) |
+| [`text_field`](https://docs.rs/day-pieces/latest/day_pieces/fn.text_field.html) | [`NSTextField`](https://developer.apple.com/documentation/appkit/nstextfield) (bezeled, editable) |
+| [`secure_field`](https://docs.rs/day-pieces/latest/day_pieces/fn.secure_field.html) | [`NSSecureTextField`](https://developer.apple.com/documentation/appkit/nssecuretextfield) |
+| [`text_area`](https://docs.rs/day-pieces/latest/day_pieces/fn.text_area.html) | [`NSTextView`](https://developer.apple.com/documentation/appkit/nstextview) inside an [`NSScrollView`](https://developer.apple.com/documentation/appkit/nsscrollview) |
+| [`picker`](https://docs.rs/day-pieces/latest/day_pieces/fn.picker.html)`()`[`.menu`](https://docs.rs/day-pieces/latest/day_pieces/trait.PickerBuilder.html#tymethod.menu)`()` | [`NSPopUpButton`](https://developer.apple.com/documentation/appkit/nspopupbutton) |
+| [`picker`](https://docs.rs/day-pieces/latest/day_pieces/fn.picker.html)`()`[`.segmented`](https://docs.rs/day-pieces/latest/day_pieces/trait.PickerBuilder.html#tymethod.segmented)`()` | [`NSSegmentedControl`](https://developer.apple.com/documentation/appkit/nssegmentedcontrol) |
+| [`picker`](https://docs.rs/day-pieces/latest/day_pieces/fn.picker.html)`()`[`.inline`](https://docs.rs/day-pieces/latest/day_pieces/trait.PickerBuilder.html#tymethod.inline)`()` | radio [`NSButton`](https://developer.apple.com/documentation/appkit/nsbutton)s in an [`NSStackView`](https://developer.apple.com/documentation/appkit/nsstackview) |
+| [`progress(f)`](https://docs.rs/day-pieces/latest/day_pieces/fn.progress.html) | [`NSProgressIndicator`](https://developer.apple.com/documentation/appkit/nsprogressindicator) (bar) |
+| [`spinner()`](https://docs.rs/day-pieces/latest/day_pieces/fn.spinner.html) | [`NSProgressIndicator`](https://developer.apple.com/documentation/appkit/nsprogressindicator) (spinning) |
+| [`divider`](https://docs.rs/day-pieces/latest/day_pieces/fn.divider.html) | [`NSBox`](https://developer.apple.com/documentation/appkit/nsbox) (separator) |
+| [`scroll`](https://docs.rs/day-pieces/latest/day_pieces/fn.scroll.html) | [`NSScrollView`](https://developer.apple.com/documentation/appkit/nsscrollview) |
+| [`list`](https://docs.rs/day-pieces/latest/day_pieces/fn.list.html) | [`NSTableView`](https://developer.apple.com/documentation/appkit/nstableview) (headerless, single column) |
+| [`nav`](https://docs.rs/day-pieces/latest/day_pieces/fn.nav.html) (split) | [`NSSplitView`](https://developer.apple.com/documentation/appkit/nssplitview); the sidebar sits in an [`NSVisualEffectView`](https://developer.apple.com/documentation/appkit/nsvisualeffectview) |
 | `nav_menu` | [`NSOutlineView`](https://developer.apple.com/documentation/appkit/nsoutlineview) |
 | `tabs` | [`NSTabView`](https://developer.apple.com/documentation/appkit/nstabview) |
-| [`image`](https://daybrite.dev/api/day_pieces/fn.image.html) | [`NSImageView`](https://developer.apple.com/documentation/appkit/nsimageview) |
-| [`vector`](https://daybrite.dev/api/day_pieces/fn.vector.html) | [`NSImageView`](https://developer.apple.com/documentation/appkit/nsimageview) rendering the staged SVG ([`NSImage`](https://developer.apple.com/documentation/appkit/nsimage) draws SVG at display size on macOS 11+) |
-| [`cover()`](https://daybrite.dev/api/day_pieces/fn.cover.html) | emulated: a window-sized view re-homed onto the window's content view (no transition, programmatic dismissal only) |
-| [`canvas`](https://daybrite.dev/api/day_pieces/fn.canvas.html) | a custom [`NSView`](https://developer.apple.com/documentation/appkit/nsview) replaying the display list in `drawRect:` |
+| [`image`](https://docs.rs/day-pieces/latest/day_pieces/fn.image.html) | [`NSImageView`](https://developer.apple.com/documentation/appkit/nsimageview) |
+| [`vector`](https://docs.rs/day-pieces/latest/day_pieces/fn.vector.html) | [`NSImageView`](https://developer.apple.com/documentation/appkit/nsimageview) rendering the staged SVG ([`NSImage`](https://developer.apple.com/documentation/appkit/nsimage) draws SVG at display size on macOS 11+) |
+| [`cover()`](https://docs.rs/day-pieces/latest/day_pieces/fn.cover.html) | emulated: a window-sized view re-homed onto the window's content view (no transition, programmatic dismissal only) |
+| [`canvas`](https://docs.rs/day-pieces/latest/day_pieces/fn.canvas.html) | a custom [`NSView`](https://developer.apple.com/documentation/appkit/nsview) replaying the display list in `drawRect:` |
 | dialogs / alerts / prompts | [`NSAlert`](https://developer.apple.com/documentation/appkit/nsalert) (window-modal sheet) |
 | file dialogs | [`NSOpenPanel`](https://developer.apple.com/documentation/appkit/nsopenpanel) / [`NSSavePanel`](https://developer.apple.com/documentation/appkit/nssavepanel) |
 | menu bar & context menus | [`NSMenu`](https://developer.apple.com/documentation/appkit/nsmenu) |
-| *external* [`spinner()`](https://daybrite.dev/api/day_pieces/fn.spinner.html) | [`NSProgressIndicator`](https://developer.apple.com/documentation/appkit/nsprogressindicator) |
+| *external* [`spinner()`](https://docs.rs/day-pieces/latest/day_pieces/fn.spinner.html) | [`NSProgressIndicator`](https://developer.apple.com/documentation/appkit/nsprogressindicator) |
 | *external* `combobox()` | [`NSComboBox`](https://developer.apple.com/documentation/appkit/nscombobox) |
-| *external* [`search_field()`](https://daybrite.dev/api/day_pieces/searchfield/fn.search_field.html) | [`NSSearchField`](https://developer.apple.com/documentation/appkit/nssearchfield) |
-| *external* [`date_picker()`](https://daybrite.dev/api/day_pieces/datetime/fn.date_picker.html) / [`time_picker()`](https://daybrite.dev/api/day_pieces/datetime/fn.time_picker.html) | [`NSDatePicker`](https://developer.apple.com/documentation/appkit/nsdatepicker) |
+| *external* [`search_field()`](https://docs.rs/day-pieces/latest/day_pieces/searchfield/fn.search_field.html) | [`NSSearchField`](https://developer.apple.com/documentation/appkit/nssearchfield) |
+| *external* [`date_picker()`](https://docs.rs/day-pieces/latest/day_pieces/datetime/fn.date_picker.html) / [`time_picker()`](https://docs.rs/day-pieces/latest/day_pieces/datetime/fn.time_picker.html) | [`NSDatePicker`](https://developer.apple.com/documentation/appkit/nsdatepicker) |
 | *external* `webview()` | [`WKWebView`](https://developer.apple.com/documentation/webkit/wkwebview) |
 | *external* `media()` | [`AVPlayerView`](https://developer.apple.com/documentation/avkit/avplayerview) |
 
-[`toggle`](https://daybrite.dev/api/day_pieces/fn.toggle.html) is the only boolean control, radio behavior is [`picker`](https://daybrite.dev/api/day_pieces/fn.picker.html)`()`[`.inline`](https://daybrite.dev/api/day_pieces/trait.PickerBuilder.html#tymethod.inline)`()`, and [`list`](https://daybrite.dev/api/day_pieces/fn.list.html) is the only
+[`toggle`](https://docs.rs/day-pieces/latest/day_pieces/fn.toggle.html) is the only boolean control, radio behavior is [`picker`](https://docs.rs/day-pieces/latest/day_pieces/fn.picker.html)`()`[`.inline`](https://docs.rs/day-pieces/latest/day_pieces/trait.PickerBuilder.html#tymethod.inline)`()`, and [`list`](https://docs.rs/day-pieces/latest/day_pieces/fn.list.html) is the only
 collection; there is no checkbox, stepper, or table piece. See [pieces](/docs/explanation/pieces) for the full
 vocabulary.
 

@@ -22,11 +22,10 @@ server session.
 
 ## Add to your app
 
-Add [`day-part-biometrics`](https://github.com/daybrite/day/tree/main/crates/day-part-biometrics) to your app’s Cargo dependencies, using the same Day version as the rest of your app:
+Add [`day-part-biometrics`](https://github.com/daybrite/day/tree/main/crates/day-part-biometrics) to your app:
 
-```toml
-[dependencies]
-day-part-biometrics = "0.6"
+```sh
+cargo add day-part-biometrics
 ```
 
 The implementation is selected by the compilation target; no toolkit feature flags are needed. The
@@ -66,23 +65,23 @@ day::task(async move {
 });
 ```
 
-[`availability()`](https://daybrite.dev/api/day_part_biometrics/fn.availability.html) asks whether a prompt can succeed now ([`Availability`](https://daybrite.dev/api/day_part_biometrics/enum.Availability.html): `Available`, `NotEnrolled`,
+[`availability()`](https://docs.rs/day-part-biometrics/latest/day_part_biometrics/fn.availability.html) asks whether a prompt can succeed now ([`Availability`](https://docs.rs/day-part-biometrics/latest/day_part_biometrics/enum.Availability.html): `Available`, `NotEnrolled`,
 `NoHardware`, `PasscodeNotSet`, `Lockout`, `DisabledByPolicy`, `Busy`, `Unsupported`), and
-[`biometry()`](https://daybrite.dev/api/day_part_biometrics/fn.biometry.html) which sensor the device offers ([`Biometry`](https://daybrite.dev/api/day_part_biometrics/enum.Biometry.html): `Fingerprint`, `Face`, `Iris`, `Unknown`, `None`).
-Both are probes of the moment; [`support()`](https://daybrite.dev/api/day_part_biometrics/fn.support.html) is the fixed fact of whether this target has an API at
+[`biometry()`](https://docs.rs/day-part-biometrics/latest/day_part_biometrics/fn.biometry.html) which sensor the device offers ([`Biometry`](https://docs.rs/day-part-biometrics/latest/day_part_biometrics/enum.Biometry.html): `Fingerprint`, `Face`, `Iris`, `Unknown`, `None`).
+Both are probes of the moment; [`support()`](https://docs.rs/day-part-biometrics/latest/day_part_biometrics/fn.support.html) is the fixed fact of whether this target has an API at
 all.
 
-A [`Prompt`](https://daybrite.dev/api/day_part_biometrics/struct.Prompt.html) carries the reason the dialog shows (required; localize it), an optional
-[`fallback_title`](https://daybrite.dev/api/day_part_biometrics/struct.Prompt.html#method.fallback_title) for the button that leads away from the biometric, whether the
-[`device_credential`](https://daybrite.dev/api/day_part_biometrics/struct.Prompt.html#method.device_credential) (passcode, PIN, pattern, password) may pass the prompt (it may, by default),
-and a [`challenge`](https://daybrite.dev/api/day_part_biometrics/struct.Prompt.html#method.challenge) HarmonyOS binds its token to. [`authenticate(prompt, callback)`](https://daybrite.dev/api/day_part_biometrics/fn.authenticate.html) and
-[`authenticate_future(prompt)`](https://daybrite.dev/api/day_part_biometrics/fn.authenticate_future.html) show the dialog and answer exactly once with a [`Verified`](https://daybrite.dev/api/day_part_biometrics/struct.Verified.html)
-(how the person passed, and the platform token where one exists) or a [`BiometricError`](https://daybrite.dev/api/day_part_biometrics/enum.BiometricError.html).
-[`cancel()`](https://daybrite.dev/api/day_part_biometrics/fn.cancel.html) dismisses the dialog on screen.
+A [`Prompt`](https://docs.rs/day-part-biometrics/latest/day_part_biometrics/struct.Prompt.html) carries the reason the dialog shows (required; localize it), an optional
+[`fallback_title`](https://docs.rs/day-part-biometrics/latest/day_part_biometrics/struct.Prompt.html#method.fallback_title) for the button that leads away from the biometric, whether the
+[`device_credential`](https://docs.rs/day-part-biometrics/latest/day_part_biometrics/struct.Prompt.html#method.device_credential) (passcode, PIN, pattern, password) may pass the prompt (it may, by default),
+and a [`challenge`](https://docs.rs/day-part-biometrics/latest/day_part_biometrics/struct.Prompt.html#method.challenge) HarmonyOS binds its token to. [`authenticate(prompt, callback)`](https://docs.rs/day-part-biometrics/latest/day_part_biometrics/fn.authenticate.html) and
+[`authenticate_future(prompt)`](https://docs.rs/day-part-biometrics/latest/day_part_biometrics/fn.authenticate_future.html) show the dialog and answer exactly once with a [`Verified`](https://docs.rs/day-part-biometrics/latest/day_part_biometrics/struct.Verified.html)
+(how the person passed, and the platform token where one exists) or a [`BiometricError`](https://docs.rs/day-part-biometrics/latest/day_part_biometrics/enum.BiometricError.html).
+[`cancel()`](https://docs.rs/day-part-biometrics/latest/day_part_biometrics/fn.cancel.html) dismisses the dialog on screen.
 
 ### One prompt at a time
 
-Every platform shows one authentication dialog at a time. A second [`authenticate`](https://daybrite.dev/api/day_part_biometrics/fn.authenticate.html) while one is on
+Every platform shows one authentication dialog at a time. A second [`authenticate`](https://docs.rs/day-part-biometrics/latest/day_part_biometrics/fn.authenticate.html) while one is on
 screen fails at once with `BiometricError::Busy`. A prompt whose reason is empty fails with
 `InvalidPrompt` before reaching the platform (Apple aborts on an empty reason; the others show a
 blank dialog).
@@ -97,7 +96,7 @@ do the binding.
 
 ### Errors
 
-[`BiometricError`](https://daybrite.dev/api/day_part_biometrics/enum.BiometricError.html) distinguishes what the app should do next: `UserCancelled` and `SystemCancelled`
+[`BiometricError`](https://docs.rs/day-part-biometrics/latest/day_part_biometrics/enum.BiometricError.html) distinguishes what the app should do next: `UserCancelled` and `SystemCancelled`
 (nothing), `UserFallback` (the person chose the fallback button of a biometric-only prompt: show the
 app's own alternative), `Failed` (the attempt did not match and the dialog closed), `Lockout` and
 `LockoutPermanent` (the device credential clears them), `NotEnrolled`, `NoHardware`,
@@ -108,7 +107,7 @@ app's own alternative), `Failed` (the attempt did not match and the dialog close
 
 Completions run where the platform delivers them (a LocalAuthentication reply queue, an Android
 executor, a WinRT thread-pool thread, the HarmonyOS JS thread), which is why the callback is
-`Send`. [`authenticate_future`](https://daybrite.dev/api/day_part_biometrics/fn.authenticate_future.html) awaited under [`day::task`](https://daybrite.dev/api/day/fn.task.html) resumes on the UI thread, so the code after
+`Send`. [`authenticate_future`](https://docs.rs/day-part-biometrics/latest/day_part_biometrics/fn.authenticate_future.html) awaited under [`day::task`](https://docs.rs/day-app/latest/day/fn.task.html) resumes on the UI thread, so the code after
 the `.await` writes signals directly ([docs/async](/docs/explanation/async)). Nothing here posts to a main loop, so the
 crate works in a plain `main` and under `cargo test`.
 
@@ -121,16 +120,16 @@ Platform guidance: [Apple: Local Authentication](https://developer.apple.com/doc
 | iOS, macOS | [`LAContext`](https://developer.apple.com/documentation/localauthentication/lacontext): [`canEvaluatePolicy(_:error:)`](https://developer.apple.com/documentation/localauthentication/lacontext/canevaluatepolicy(_:error:)) and [`biometryType`](https://developer.apple.com/documentation/localauthentication/lacontext/biometrytype) for the probes, [`evaluatePolicy(_:localizedReason:reply:)`](https://developer.apple.com/documentation/localauthentication/lacontext/evaluatepolicy(_:localizedreason:reply:)) for the dialog, [`invalidate()`](https://developer.apple.com/documentation/localauthentication/lacontext/invalidate()) to cancel | `objc2`, `block2`, `objc2-foundation` |
 | Android | [`BiometricManager.canAuthenticate`](https://developer.android.com/reference/android/hardware/biometrics/BiometricManager#canAuthenticate(int)) for the probe, [`BiometricPrompt`](https://developer.android.com/reference/android/hardware/biometrics/BiometricPrompt) for the dialog, a [`CancellationSignal`](https://developer.android.com/reference/android/os/CancellationSignal) to cancel | a Java arm ([`day-bridge`](https://github.com/daybrite/day/blob/main/docs/bridge.md)) |
 | Windows | [`UserConsentVerifier.CheckAvailabilityAsync`](https://learn.microsoft.com/en-us/uwp/api/windows.security.credentials.ui.userconsentverifier.checkavailabilityasync) for the probe, [`IUserConsentVerifierInterop::RequestVerificationForWindowAsync`](https://learn.microsoft.com/en-us/windows/win32/api/userconsentverifierinterop/nf-userconsentverifierinterop-iuserconsentverifierinterop-requestverificationforwindowasync) for the dialog, owned by the active window | `windows` |
-| HarmonyOS | [`userAuth.getAvailableStatus`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-user-authentication-kit/js-apis-useriam-userauth.md#userauthgetavailablestatus9) for the probes, [`getUserAuthInstance(...).start()`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-user-authentication-kit/js-apis-useriam-userauth.md#userauthgetuserauthinstance10) for the dialog, [`cancel()`](https://daybrite.dev/api/day_part_biometrics/fn.cancel.html) to cancel | an ArkTS arm ([`day-bridge`](https://github.com/daybrite/day/blob/main/docs/bridge.md)) |
+| HarmonyOS | [`userAuth.getAvailableStatus`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-user-authentication-kit/js-apis-useriam-userauth.md#userauthgetavailablestatus9) for the probes, [`getUserAuthInstance(...).start()`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-user-authentication-kit/js-apis-useriam-userauth.md#userauthgetuserauthinstance10) for the dialog, [`cancel()`](https://docs.rs/day-part-biometrics/latest/day_part_biometrics/fn.cancel.html) to cancel | an ArkTS arm ([`day-bridge`](https://github.com/daybrite/day/blob/main/docs/bridge.md)) |
 | Linux, Web | — | none (`Unsupported`) |
 
 ## How each platform realizes the prompt
 
 - **iOS and macOS**: a fresh `LAContext` per prompt (one that has evaluated once answers the next
-  evaluation from its cache without showing anything), kept alive until the reply so [`cancel`](https://daybrite.dev/api/day_part_biometrics/fn.cancel.html) can
+  evaluation from its cache without showing anything), kept alive until the reply so [`cancel`](https://docs.rs/day-part-biometrics/latest/day_part_biometrics/fn.cancel.html) can
   invalidate it. `device_credential` selects the policy: `deviceOwnerAuthentication` falls back to
   the passcode or account password on its own; `deviceOwnerAuthenticationWithBiometrics` asks for
-  a biometric only and reports the fallback button as `UserFallback`. [`availability`](https://daybrite.dev/api/day_part_biometrics/fn.availability.html) always asks
+  a biometric only and reports the fallback button as `UserFallback`. [`availability`](https://docs.rs/day-part-biometrics/latest/day_part_biometrics/fn.availability.html) always asks
   about the biometric policy. A pass through the mixed policy reports `Method::Unknown`, because
   the reply does not say which credential passed.
 - **Android**: the platform prompt in `android.hardware.biometrics`, which takes an application
@@ -144,7 +143,7 @@ Platform guidance: [Apple: Local Authentication](https://developer.apple.com/doc
   credential does not fail, it waits. The dialog is owned by the window handle captured on the
   calling thread (the active window of a Day action) and the verification is awaited on a worker
   thread with its own apartment, so the UI keeps pumping. Hello never says which credential
-  passed, so a pass reports `Method::Unknown` and [`biometry()`](https://daybrite.dev/api/day_part_biometrics/fn.biometry.html) reports `Unknown` when anything is
+  passed, so a pass reports `Method::Unknown` and [`biometry()`](https://docs.rs/day-part-biometrics/latest/day_part_biometrics/fn.biometry.html) reports `Unknown` when anything is
   set up. The `device_credential` flag is ignored: Hello offers its PIN itself.
 - **HarmonyOS**: the dialog lists the modalities it is given and refuses one the device lacks, so
   the arm probes face, fingerprint and (when allowed) the PIN with `getAvailableStatus` and lists

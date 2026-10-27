@@ -16,15 +16,14 @@ model API for inspecting animation metadata without opening a player.
 
 ## Add to your app
 
-Add [`day-piece-lottie`](https://crates.io/crates/day-piece-lottie) to your app’s Cargo dependencies:
+Add [`day-piece-lottie`](https://crates.io/crates/day-piece-lottie) to your app:
 
-```toml
-[dependencies]
-day-piece-lottie = "0.4.4"
+```sh
+cargo add day-piece-lottie
 ```
 
 [Crate](https://crates.io/crates/day-piece-lottie) ·
-[API reference](https://docs.rs/day-piece-lottie/0.4.4/day_piece_lottie/) ·
+[API reference](https://docs.rs/day-piece-lottie/latest/day_piece_lottie/) ·
 [Source](https://github.com/daybrite/day-piece-lottie).
 Build with the [Day CLI](/docs/reference/cli), which selects the toolkit integration and stages
 the native player dependencies and web player assets.
@@ -44,7 +43,7 @@ pub fn animation_panel() -> impl Piece {
 }
 ```
 
-[`lottie()`](https://docs.rs/day-piece-lottie/0.4.4/day_piece_lottie/fn.lottie.html)
+[`lottie()`](https://docs.rs/day-piece-lottie/latest/day_piece_lottie/fn.lottie.html)
 accepts a name, a string signal, or a closure. The generated asset name includes the `.json`
 extension, which the player accepts. Give the piece an explicit size or a container that sizes it.
 
@@ -52,9 +51,9 @@ extension, which the player accepts. Give the piece an explicit size or a contai
 
 | Setting | Default and effect |
 | --- | --- |
-| Looping | Enabled; [`no_loop()`](https://docs.rs/day-piece-lottie/0.4.4/day_piece_lottie/struct.Lottie.html#method.no_loop) plays once. |
-| Autoplay | Enabled; [`no_autoplay()`](https://docs.rs/day-piece-lottie/0.4.4/day_piece_lottie/struct.Lottie.html#method.no_autoplay) starts paused. |
-| Speed | `1.0`; [`speed()`](https://docs.rs/day-piece-lottie/0.4.4/day_piece_lottie/struct.Lottie.html#method.speed) accepts a constant or reactive value. |
+| Looping | Enabled; [`no_loop()`](https://docs.rs/day-piece-lottie/latest/day_piece_lottie/struct.Lottie.html#method.no_loop) plays once. |
+| Autoplay | Enabled; [`no_autoplay()`](https://docs.rs/day-piece-lottie/latest/day_piece_lottie/struct.Lottie.html#method.no_autoplay) starts paused. |
+| Speed | `1.0`; [`speed()`](https://docs.rs/day-piece-lottie/latest/day_piece_lottie/struct.Lottie.html#method.speed) accepts a constant or reactive value. |
 | Animation | A bundled JSON file; changing a reactive name asks the player to load another animation. |
 
 Looping and autoplay are construction-time options. This release has no public seek command,
@@ -81,7 +80,7 @@ construction-time paused alternative can be more appropriate.
 
 ## Inspect an animation
 
-The [`LottieModel`](https://docs.rs/day-piece-lottie/0.4.4/day_piece_lottie/model/struct.LottieModel.html)
+The [`LottieModel`](https://docs.rs/day-piece-lottie/latest/day_piece_lottie/model/struct.LottieModel.html)
 API parses a JSON document without creating a player. This helper accepts caller-provided text:
 
 ```rust
@@ -93,10 +92,10 @@ pub fn animation_duration(json: &str) -> Result<f64, LottieError> {
 }
 ```
 
-[`verify()`](https://docs.rs/day-piece-lottie/0.4.4/day_piece_lottie/model/struct.LottieModel.html#method.verify)
+[`verify()`](https://docs.rs/day-piece-lottie/latest/day_piece_lottie/model/struct.LottieModel.html#method.verify)
 reports selected document problems. An empty issue list does not establish complete player
 compatibility. For a bundled document, open it through its generated asset constant and
-[`day::resource`](https://daybrite.dev/api/day/fn.resource.html).
+[`day::resource`](https://docs.rs/day-app/latest/day/fn.resource.html).
 
 ## Examples
 
@@ -105,13 +104,12 @@ Add an animation playground to an app without copying the example JSON files.
 
 ### Add the example library
 
-```toml
-[dependencies]
-day-piece-lottie-gallery = "0.1"
+```sh
+cargo add day-piece-lottie-gallery
 ```
 
 [Crate](https://crates.io/crates/day-piece-lottie-gallery) ·
-[API reference](https://docs.rs/day-piece-lottie-gallery/0.1.0/day_piece_lottie_gallery/) ·
+[API reference](https://docs.rs/day-piece-lottie-gallery/latest/day_piece_lottie_gallery/) ·
 [Source](https://github.com/daybrite/day-piece-lottie/tree/main/gallery).
 The [Day CLI](/docs/reference/cli) stages the library's animation assets and selects the
 underlying player's toolkit features.
@@ -127,13 +125,13 @@ pub fn animation_examples() -> impl Piece {
 }
 ```
 
-[`gallery()`](https://docs.rs/day-piece-lottie-gallery/0.1.0/day_piece_lottie_gallery/fn.gallery.html)
+[`gallery()`](https://docs.rs/day-piece-lottie-gallery/latest/day_piece_lottie_gallery/fn.gallery.html)
 shows a picker and the selected page. Use
-[`pages()`](https://docs.rs/day-piece-lottie-gallery/0.1.0/day_piece_lottie_gallery/fn.pages.html)
-for a list of [`Entry`](https://docs.rs/day-piece-lottie-gallery/0.1.0/day_piece_lottie_gallery/struct.Entry.html)
+[`pages()`](https://docs.rs/day-piece-lottie-gallery/latest/day_piece_lottie_gallery/fn.pages.html)
+for a list of [`Entry`](https://docs.rs/day-piece-lottie-gallery/latest/day_piece_lottie_gallery/struct.Entry.html)
 values when building your own sidebar, or
-[`page()`](https://docs.rs/day-piece-lottie-gallery/0.1.0/day_piece_lottie_gallery/fn.page.html)
-to mount a specific [`LottiePage`](https://docs.rs/day-piece-lottie-gallery/0.1.0/day_piece_lottie_gallery/enum.LottiePage.html).
+[`page()`](https://docs.rs/day-piece-lottie-gallery/latest/day_piece_lottie_gallery/fn.page.html)
+to mount a specific [`LottiePage`](https://docs.rs/day-piece-lottie-gallery/latest/day_piece_lottie_gallery/enum.LottiePage.html).
 Titles and descriptions come from the library's catalogs and follow the app locale.
 
 The animations belong to the library's resource bundle. Your app does not need to reconstruct

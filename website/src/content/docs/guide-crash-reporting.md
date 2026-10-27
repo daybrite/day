@@ -22,12 +22,11 @@ reference](/docs/reference/break).
 
 ## 1. Initialize reporting before launch
 
-Add the crate and call `init` as early as possible: before [`day::launch`](https://daybrite.dev/api/day/fn.launch.html), so a crash during
+Add the crate and call `init` as early as possible: before [`day::launch`](https://docs.rs/day-app/latest/day/fn.launch.html), so a crash during
 startup is still recorded:
 
-```toml
-[dependencies]
-day-piece-crash-reporter = "0.1"
+```sh
+cargo add day-piece-crash-reporter
 ```
 
 The showcase wraps it in a helper called from every entry point:
@@ -52,7 +51,7 @@ report rotation (5), `.keep_contained(false)` drops reports for panics day-core 
 (kept by default), `.signals(false)` turns off the native signal handlers (on by default), and
 `.redact(|msg| …)` scrubs secrets from panic messages before they are persisted, displayed, or
 uploaded. App identity (id, version, build) is baked in by `day build` from `Day.toml`;
-`.app_id(…)`, `.app_version(…)`, and `.app_build(…)` override it.
+[`.app_id(…)`](https://docs.rs/day-piece-crash-reporter/latest/day_piece_crash_reporter/struct.Config.html#method.app_id), [`.app_version(…)`](https://docs.rs/day-piece-crash-reporter/latest/day_piece_crash_reporter/struct.Config.html#method.app_version), and [`.app_build(…)`](https://docs.rs/day-piece-crash-reporter/latest/day_piece_crash_reporter/struct.Config.html#method.app_build) override it.
 
 ## 2. What gets captured
 
@@ -128,7 +127,7 @@ a failure.
 
 - Arm first. The hook can't record a crash that happens before `init` runs, and `init`
   also reconciles the previous session, so call it at the top of the app entry, before
-  [`day::launch`](https://daybrite.dev/api/day/fn.launch.html).
+  [`day::launch`](https://docs.rs/day-app/latest/day/fn.launch.html).
 - Release backtraces carry symbols, not lines. The release profile ships no debug info by
   default. For `file:line` in release reports, add `[profile.release] debug =
   "line-tables-only"` in your own workspace; [day-piece-crash-reporter](/docs/reference/break) doesn't change the global profile. For

@@ -324,23 +324,23 @@
   "website/src/content/docs/guide-crash-reporting.md": [
     {
       "code": "send(&meta, |result| …)",
-      "reason": "External day-part-break reporting API has no published Day Rustdoc bundle; the guide links its repository."
+      "reason": "External day-part-break reporting API is not in this workspace's checking build; the guide links its repository."
     },
     {
       "code": "RestReporter::new(url)",
-      "reason": "External day-part-break reporting API has no published Day Rustdoc bundle; the guide links its repository."
+      "reason": "External day-part-break reporting API is not in this workspace's checking build; the guide links its repository."
     },
     {
       "code": "GithubIssueReporter::new(owner, repo)",
-      "reason": "External day-part-break reporting API has no published Day Rustdoc bundle; the guide links its repository."
+      "reason": "External day-part-break reporting API is not in this workspace's checking build; the guide links its repository."
     },
     {
       "code": "EmailReporter::new(to)",
-      "reason": "External day-part-break reporting API has no published Day Rustdoc bundle; the guide links its repository."
+      "reason": "External day-part-break reporting API is not in this workspace's checking build; the guide links its repository."
     },
     {
       "code": "abort()",
-      "reason": "External day-part-break reporting API has no published Day Rustdoc bundle; the guide links its repository."
+      "reason": "External day-part-break reporting API is not in this workspace's checking build; the guide links its repository."
     }
   ],
   "website/src/content/docs/guide-desktop.md": [

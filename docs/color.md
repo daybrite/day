@@ -16,13 +16,13 @@ control's color unset when it should follow the platform's default appearance.
 
 ## Solid colors
 
-[`Color`](https://daybrite.dev/api/day_geometry/struct.Color.html) stores red, green, blue, and
+[`Color`](https://docs.rs/day-geometry/latest/day_geometry/struct.Color.html) stores red, green, blue, and
 alpha as floating-point sRGB components. Constructors include
-[`rgb`](https://daybrite.dev/api/day_geometry/struct.Color.html#method.rgb),
-[`rgba`](https://daybrite.dev/api/day_geometry/struct.Color.html#method.rgba),
-[`hex`](https://daybrite.dev/api/day_geometry/struct.Color.html#method.hex),
-[`hsl`](https://daybrite.dev/api/day_geometry/struct.Color.html#method.hsl), and
-[`hsv`](https://daybrite.dev/api/day_geometry/struct.Color.html#method.hsv).
+[`rgb`](https://docs.rs/day-geometry/latest/day_geometry/struct.Color.html#method.rgb),
+[`rgba`](https://docs.rs/day-geometry/latest/day_geometry/struct.Color.html#method.rgba),
+[`hex`](https://docs.rs/day-geometry/latest/day_geometry/struct.Color.html#method.hex),
+[`hsl`](https://docs.rs/day-geometry/latest/day_geometry/struct.Color.html#method.hsl), and
+[`hsv`](https://docs.rs/day-geometry/latest/day_geometry/struct.Color.html#method.hsv).
 All produce the same RGBA representation.
 
 ```rust
@@ -31,12 +31,12 @@ let translucent = accent.with_alpha(0.5);
 rectangle().fill(translucent).frame(80.0, 40.0)
 ```
 
-[`with_alpha`](https://daybrite.dev/api/day_geometry/struct.Color.html#method.with_alpha) changes
-opacity. [`parse`](https://daybrite.dev/api/day_geometry/struct.Color.html#method.parse) accepts
+[`with_alpha`](https://docs.rs/day-geometry/latest/day_geometry/struct.Color.html#method.with_alpha) changes
+opacity. [`parse`](https://docs.rs/day-geometry/latest/day_geometry/struct.Color.html#method.parse) accepts
 `#rgb`, `#rgba`, `#rrggbb`, `#rrggbbaa`, and the space-separated component form produced by
-`Display`. [`to_hex_string`](https://daybrite.dev/api/day_geometry/struct.Color.html#method.to_hex_string)
+`Display`. [`to_hex_string`](https://docs.rs/day-geometry/latest/day_geometry/struct.Color.html#method.to_hex_string)
 formats a hex value. For interpolation,
-[`lerp_hsl`](https://daybrite.dev/api/day_geometry/struct.Color.html#method.lerp_hsl) follows the
+[`lerp_hsl`](https://docs.rs/day-geometry/latest/day_geometry/struct.Color.html#method.lerp_hsl) follows the
 short hue arc rather than a straight line through RGB.
 
 ## Gradients
@@ -47,13 +47,13 @@ non-square bounds.
 
 | Surface | API |
 | --- | --- |
-| Canvas fill | [`Draw::fill`](https://daybrite.dev/api/day_pieces/struct.Draw.html#method.fill) accepts a solid color or gradient. |
-| Canvas styled stroke | [`Draw::stroke_styled`](https://daybrite.dev/api/day_pieces/struct.Draw.html#method.stroke_styled) accepts `Paint`. |
-| Shape fill | [`.fill_linear`](https://daybrite.dev/api/day_pieces/trait.ShapePieceBuilder.html#tymethod.fill_linear) and [`.fill_radial`](https://daybrite.dev/api/day_pieces/trait.ShapePieceBuilder.html#tymethod.fill_radial) accept their respective gradients. |
+| Canvas fill | [`Draw::fill`](https://docs.rs/day-pieces/latest/day_pieces/struct.Draw.html#method.fill) accepts a solid color or gradient. |
+| Canvas styled stroke | [`Draw::stroke_styled`](https://docs.rs/day-pieces/latest/day_pieces/struct.Draw.html#method.stroke_styled) accepts `Paint`. |
+| Shape fill | [`.fill_linear`](https://docs.rs/day-pieces/latest/day_pieces/trait.ShapePieceBuilder.html#tymethod.fill_linear) and [`.fill_radial`](https://docs.rs/day-pieces/latest/day_pieces/trait.ShapePieceBuilder.html#tymethod.fill_radial) accept their respective gradients. |
 | Ordinary background, text color, or tint | Takes a solid `Color`; does not accept a gradient. |
 
 For a gradient card, place a filled [shape](/docs/reference/shapes) behind its content in a
-[`zstack`](https://daybrite.dev/api/day_pieces/fn.zstack.html). Set the shape's bounds and corner
+[`zstack`](https://docs.rs/day-pieces/latest/day_pieces/fn.zstack.html). Set the shape's bounds and corner
 radius explicitly. See [Canvas](/docs/reference/canvas) for drawing and export support.
 
 ## Native appearance

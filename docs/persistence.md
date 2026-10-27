@@ -11,12 +11,11 @@ APIs; apps that do not use it do not depend on it.
 
 ## Add to your app
 
-Add these entries to your app’s `Cargo.toml`:
+Add both to your app:
 
-```toml
-[dependencies]
-day = { package = "day-app", version = "0.6", features = ["model"] }
-day-persistence = "0.1"
+```sh
+cargo add day-app --rename day --features model
+cargo add day-persistence
 ```
 
 The default features provide bundled SQLite and the live-list adapter. Other options include

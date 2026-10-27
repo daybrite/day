@@ -25,7 +25,7 @@ applications use the APIs exposed by [`day`](https://github.com/daybrite/day/tre
 - [Platform capabilities](https://daybrite.dev/docs/reference/platforms/)
 - [Framework architecture](https://daybrite.dev/contributing/architecture/)
 - [Writing Day extensions](https://daybrite.dev/contributing/extending/)
-- [Rust API](https://daybrite.dev/api/day_spec/index.html)
+- [Rust API](https://docs.rs/day-spec/latest/day_spec/index.html)
 
 [Source](https://github.com/daybrite/day/tree/main/crates/day-spec) ·
 [Contributing](https://daybrite.dev/contributing/setup/) · [MPL-2.0

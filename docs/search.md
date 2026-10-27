@@ -6,7 +6,7 @@ description: "searchable(Search): a declared search surface each platform presen
 # Search
 
 Let people filter a page or find a destination with a search field in the platform’s usual
-location. Bind the query to app state with [`.searchable()`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.searchable); the app decides which results to show.
+location. Bind the query to app state with [`.searchable()`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.searchable); the app decides which results to show.
 
 ```rust
 nav(section)
@@ -24,17 +24,17 @@ The UI snippets use generated `res::str` accessors from an app's Fluent catalog;
 
 | spelling | what it does |
 |---|---|
-| [`.searchable`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.searchable)`(`[`Search::new`](https://daybrite.dev/api/day_pieces/struct.Search.html#method.new)`(query))` | makes the surface searchable, bound two-way to `query` (a `Signal<String>` or any binding) |
-| [`Search::prompt(text)`](https://daybrite.dev/api/day_pieces/struct.Search.html#method.prompt) | the empty-state prompt; a localized string or closure follows the language and its signals |
-| [`Search::placement(p)`](https://daybrite.dev/api/day_pieces/struct.Search.html#method.placement) | a placement **preference** (see below) |
-| [`Search::reveal(SearchReveal)`](https://daybrite.dev/api/day_pieces/struct.Search.html#method.reveal) | how the field comes and goes on a phone (see below) |
-| [`Search::scopes(scope, titles)`](https://daybrite.dev/api/day_pieces/struct.Search.html#method.scopes) | scope selection metadata; see the rendering limit below |
-| [`Search::suggestions(f)`](https://daybrite.dev/api/day_pieces/struct.Search.html#method.suggestions) | completions for the current text |
+| [`.searchable`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.searchable)`(`[`Search::new`](https://docs.rs/day-pieces/latest/day_pieces/struct.Search.html#method.new)`(query))` | makes the surface searchable, bound two-way to `query` (a `Signal<String>` or any binding) |
+| [`Search::prompt(text)`](https://docs.rs/day-pieces/latest/day_pieces/struct.Search.html#method.prompt) | the empty-state prompt; a localized string or closure follows the language and its signals |
+| [`Search::placement(p)`](https://docs.rs/day-pieces/latest/day_pieces/struct.Search.html#method.placement) | a placement **preference** (see below) |
+| [`Search::reveal(SearchReveal)`](https://docs.rs/day-pieces/latest/day_pieces/struct.Search.html#method.reveal) | how the field comes and goes on a phone (see below) |
+| [`Search::scopes(scope, titles)`](https://docs.rs/day-pieces/latest/day_pieces/struct.Search.html#method.scopes) | scope selection metadata; see the rendering limit below |
+| [`Search::suggestions(f)`](https://docs.rs/day-pieces/latest/day_pieces/struct.Search.html#method.suggestions) | completions for the current text |
 
 ## Find commands
 
 Bind the app's localized Find command to
-[`day::focus_search()`](https://daybrite.dev/api/day/fn.focus_search.html), normally Cmd-F on
+[`day::focus_search()`](https://docs.rs/day-app/latest/day/fn.focus_search.html), normally Cmd-F on
 macOS or Ctrl-F elsewhere. It focuses the active searchable navigation surface and keeps its query.
 
 ## Placement and reveal
@@ -43,7 +43,7 @@ macOS or Ctrl-F elsewhere. It focuses the active searchable navigation surface a
 inline field on the navigation surface. `Toolbar` and `Inline` request a placement; the toolkit
 can fall back when it cannot honor the request. A narrow desktop window can retain toolbar search.
 
-[`Search::reveal`](https://daybrite.dev/api/day_pieces/struct.Search.html#method.reveal)
+[`Search::reveal`](https://docs.rs/day-pieces/latest/day_pieces/struct.Search.html#method.reveal)
 controls a navigation surface's search field:
 
 | Policy | Behavior |
@@ -59,13 +59,13 @@ collapses the search view. The query still belongs to the app.
 
 ## Search scopes
 
-[`Search::scopes`](https://daybrite.dev/api/day_pieces/struct.Search.html#method.scopes) accepts
+[`Search::scopes`](https://docs.rs/day-pieces/latest/day_pieces/struct.Search.html#method.scopes) accepts
 scope titles and a selection binding, but the toolkits do not currently render a scope bar.
 Use a separate [picker](/docs/reference/picker) when the app needs visible search filters.
 
 ## Suggestions complete the field
 
-On a navigation surface the list **is** the result set. So [`Search::suggestions`](https://daybrite.dev/api/day_pieces/struct.Search.html#method.suggestions) offers
+On a navigation surface the list **is** the result set. So [`Search::suggestions`](https://docs.rs/day-pieces/latest/day_pieces/struct.Search.html#method.suggestions) offers
 completions that fill the field; it does not open an overlay of results, which would cover the
 list it is narrowing.
 
@@ -87,13 +87,13 @@ for an app that wants to act on the choice itself.
 
 ## Searchable content
 
-A navigation surface ([`Nav::searchable`](https://daybrite.dev/api/day_pieces/struct.Nav.html#method.searchable)), and a [`nav_stack`](https://daybrite.dev/api/day_pieces/fn.nav_stack.html) page ([`Decorate::searchable`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.searchable), below).
+A navigation surface ([`Nav::searchable`](https://docs.rs/day-pieces/latest/day_pieces/struct.Nav.html#method.searchable)), and a [`nav_stack`](https://docs.rs/day-pieces/latest/day_pieces/fn.nav_stack.html) page ([`Decorate::searchable`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.searchable), below).
 For a field within ordinary content, use [Search field](/docs/reference/searchfield).
 
 ## Page search
 
 A page that lists something the user searches, such as a catalog or a mailbox, declares the field
-on itself, as it declares its [`.toolbar(…)`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.toolbar):
+on itself, as it declares its [`.toolbar(…)`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.toolbar):
 
 ```rust
 results_page(feed)
@@ -124,13 +124,13 @@ The desktops and the web draw one bar per window, so the field rides it while it
 of its stack; Android keeps an open field through repaints of its bar and brings it back open when
 its page returns with a query in force.
 
-[`Search::available`](https://daybrite.dev/api/day_pieces/struct.Search.html#method.available) offers the field only while it holds, for a page that learns whether it can be
+[`Search::available`](https://docs.rs/day-pieces/latest/day_pieces/struct.Search.html#method.available) offers the field only while it holds, for a page that learns whether it can be
 searched after it shows (a feed that loads first). A field withdrawn and offered again keeps its
 text. Scopes, reveal and placement belong to a surface's search and do not apply to a page's.
 
 ## Submitting
 
-[`Search::on_submit`](https://daybrite.dev/api/day_pieces/struct.Search.html#method.on_submit)
+[`Search::on_submit`](https://docs.rs/day-pieces/latest/day_pieces/struct.Search.html#method.on_submit)
 runs when the user presses Return or the keyboard's Search action. It receives the submitted
 text, and the query binding already contains that text. Use this for an explicit server search;
 for a live filter, derive the results from the changing query instead.

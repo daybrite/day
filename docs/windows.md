@@ -32,21 +32,21 @@ an existing window and does not call the new builder. Without a key, the call op
 The window is app-owned, so it can outlive the page that opened it; captured page-local signal
 handles do not acquire a longer lifetime. Create shared state in a suitable parent scope.
 
-| [`WindowOptions::default()`](https://daybrite.dev/api/day_spec/struct.WindowOptions.html#method.default) field | Default |
+| [`WindowOptions::default()`](https://docs.rs/day-spec/latest/day_spec/struct.WindowOptions.html#method.default) field | Default |
 | --- | --- |
-| [`size`](https://daybrite.dev/api/day_spec/struct.WindowOptions.html#method.size) | 480 × 640 logical points |
-| [`min_size`](https://daybrite.dev/api/day_spec/struct.WindowOptions.html#method.min_size), [`max_size`](https://daybrite.dev/api/day_spec/struct.WindowOptions.html#method.max_size) | `None` |
-| [`key`](https://daybrite.dev/api/day_spec/struct.WindowOptions.html#method.key), [`remember_frame`](https://daybrite.dev/api/day_spec/struct.WindowOptions.html#method.remember_frame) | `None` |
-| [`kind`](https://daybrite.dev/api/day_spec/struct.WindowOptions.html#method.kind) | `WindowKind::Normal` |
-| [`start_hidden`](https://daybrite.dev/api/day_spec/struct.WindowOptions.html#method.start_hidden), [`size_to_fit`](https://daybrite.dev/api/day_spec/struct.WindowOptions.html#method.size_to_fit) | false |
+| [`size`](https://docs.rs/day-spec/latest/day_spec/struct.WindowOptions.html#method.size) | 480 × 640 logical points |
+| [`min_size`](https://docs.rs/day-spec/latest/day_spec/struct.WindowOptions.html#method.min_size), [`max_size`](https://docs.rs/day-spec/latest/day_spec/struct.WindowOptions.html#method.max_size) | `None` |
+| [`key`](https://docs.rs/day-spec/latest/day_spec/struct.WindowOptions.html#method.key), [`remember_frame`](https://docs.rs/day-spec/latest/day_spec/struct.WindowOptions.html#method.remember_frame) | `None` |
+| [`kind`](https://docs.rs/day-spec/latest/day_spec/struct.WindowOptions.html#method.kind) | `WindowKind::Normal` |
+| [`start_hidden`](https://docs.rs/day-spec/latest/day_spec/struct.WindowOptions.html#method.start_hidden), [`size_to_fit`](https://docs.rs/day-spec/latest/day_spec/struct.WindowOptions.html#method.size_to_fit) | false |
 | `shadow`, `resizable` | true |
-| [`chrome`](https://daybrite.dev/api/day_spec/struct.WindowOptions.html#method.chrome), [`background`](https://daybrite.dev/api/day_spec/struct.WindowOptions.html#method.background), [`placement`](https://daybrite.dev/api/day_spec/struct.WindowOptions.html#method.placement) | Standard, Opaque, Automatic |
-| [`tabbing`](https://daybrite.dev/api/day_spec/struct.WindowOptions.html#method.tabbing) | Automatic |
-| [`locales`](https://daybrite.dev/api/day_spec/struct.WindowOptions.html#method.locales), [`title_fn`](https://daybrite.dev/api/day_spec/struct.WindowOptions.html#method.title_fn), [`app_name`](https://daybrite.dev/api/day_spec/struct.WindowOptions.html#method.app_name), [`version`](https://daybrite.dev/api/day_spec/struct.WindowOptions.html#method.version) | `None` |
+| [`chrome`](https://docs.rs/day-spec/latest/day_spec/struct.WindowOptions.html#method.chrome), [`background`](https://docs.rs/day-spec/latest/day_spec/struct.WindowOptions.html#method.background), [`placement`](https://docs.rs/day-spec/latest/day_spec/struct.WindowOptions.html#method.placement) | Standard, Opaque, Automatic |
+| [`tabbing`](https://docs.rs/day-spec/latest/day_spec/struct.WindowOptions.html#method.tabbing) | Automatic |
+| [`locales`](https://docs.rs/day-spec/latest/day_spec/struct.WindowOptions.html#method.locales), [`title_fn`](https://docs.rs/day-spec/latest/day_spec/struct.WindowOptions.html#method.title_fn), [`app_name`](https://docs.rs/day-spec/latest/day_spec/struct.WindowOptions.html#method.app_name), [`version`](https://docs.rs/day-spec/latest/day_spec/struct.WindowOptions.html#method.version) | `None` |
 
 The raw default title is `Day`; app examples must use generated `res::window_options()` so
-catalog, title, version, and manifest window dimensions are installed. [`.title(value)`](https://daybrite.dev/api/day_spec/struct.WindowOptions.html#method.title) clears
-an earlier [`title_fn`](https://daybrite.dev/api/day_spec/struct.WindowOptions.html#method.title_fn). [`start_hidden`](https://daybrite.dev/api/day_spec/struct.WindowOptions.html#method.start_hidden) is currently AppKit-only. A raw option's presence does
+catalog, title, version, and manifest window dimensions are installed. [`.title(value)`](https://docs.rs/day-spec/latest/day_spec/struct.WindowOptions.html#method.title) clears
+an earlier [`title_fn`](https://docs.rs/day-spec/latest/day_spec/struct.WindowOptions.html#method.title_fn). [`start_hidden`](https://docs.rs/day-spec/latest/day_spec/struct.WindowOptions.html#method.start_hidden) is currently AppKit-only. A raw option's presence does
 not establish native support everywhere. Detailed contracts below are integration fragments.
 
 Evidence: [window options](../crates/day-spec/src/lib.rs) and
@@ -77,9 +77,9 @@ windows.
 These rules keep that from happening:
 
 - A window opened by File ▸ New Window **inherits the app's launch `WindowOptions`** (the title,
-  minimum size, and display name the app handed [`launch`](https://daybrite.dev/api/day/fn.launch.html)). An app needs no code for this; a new
+  minimum size, and display name the app handed [`launch`](https://docs.rs/day-app/latest/day/fn.launch.html)). An app needs no code for this; a new
   window is another window of the same app and describes itself that way.
-- [`day::window_title(|| …)`](https://daybrite.dev/api/day/fn.window_title.html) binds the title of the window the calling piece is building into, so
+- [`day::window_title(|| …)`](https://docs.rs/day-app/latest/day/fn.window_title.html) binds the title of the window the calling piece is building into, so
   a window names itself after what it shows. It is reactive like any binding, and window-scoped:
   the target is resolved once, at build, exactly as a toolbar contribution resolves its own.
 
@@ -97,7 +97,7 @@ fn window_shell() -> impl Piece {
 
 Two windows sharing one title are two windows the user cannot tell apart in the Window menu, the
 tab bar, Mission Control, or the app switcher, so title them by content wherever there is content
-to name. [`WindowHandle::set_title`](https://daybrite.dev/api/day_core/windows/struct.WindowHandle.html#method.set_title) remains the imperative form for a window you hold a handle to.
+to name. [`WindowHandle::set_title`](https://docs.rs/day-core/latest/day_core/windows/struct.WindowHandle.html#method.set_title) remains the imperative form for a window you hold a handle to.
 
 **The platform places windows.** macOS staggers each new window from the last
 (`cascadeTopLeftFromPoint:`) rather than centering it, since two centered windows would hide each
@@ -127,27 +127,27 @@ win.close();                              // async: confirmed by the platform, T
 
 `WindowOptions` is built from `res::window_options()` (generated by `day::resources!`: the
 locale catalog, the localized `app_title`, the size and minimum size Day.toml `[window]`
-declares, and the version from Cargo.toml; it is what [`day::launch`](https://daybrite.dev/api/day/fn.launch.html) and `day_start!` take for
+declares, and the version from Cargo.toml; it is what [`day::launch`](https://docs.rs/day-app/latest/day/fn.launch.html) and `day_start!` take for
 the main window) or
-[`WindowOptions::default()`](https://daybrite.dev/api/day_spec/struct.WindowOptions.html#method.default), with builders for everything else: [`.size(w, h)`](https://daybrite.dev/api/day_spec/struct.WindowOptions.html#method.size), [`.min_size(w, h)`](https://daybrite.dev/api/day_spec/struct.WindowOptions.html#method.min_size),
-[`.max_size(w, h)`](https://daybrite.dev/api/day_spec/struct.WindowOptions.html#method.max_size), [`.title(..)`](https://daybrite.dev/api/day_spec/struct.WindowOptions.html#method.title), [`.app_name(..)`](https://daybrite.dev/api/day_spec/struct.WindowOptions.html#method.app_name), [`.start_hidden()`](https://daybrite.dev/api/day_spec/struct.WindowOptions.html#method.start_hidden), [`.size_to_fit()`](https://daybrite.dev/api/day_spec/struct.WindowOptions.html#method.size_to_fit),
-[`.fixed_size()`](https://daybrite.dev/api/day_spec/struct.WindowOptions.html#method.fixed_size), [`.no_shadow()`](https://daybrite.dev/api/day_spec/struct.WindowOptions.html#method.no_shadow), [`.tabbing(..)`](https://daybrite.dev/api/day_spec/struct.WindowOptions.html#method.tabbing), [`.chrome(..)`](https://daybrite.dev/api/day_spec/struct.WindowOptions.html#method.chrome), [`.background(..)`](https://daybrite.dev/api/day_spec/struct.WindowOptions.html#method.background),
-[`.placement(..)`](https://daybrite.dev/api/day_spec/struct.WindowOptions.html#method.placement), [`.remember_frame(key)`](https://daybrite.dev/api/day_spec/struct.WindowOptions.html#method.remember_frame), [`.key(..)`](https://daybrite.dev/api/day_spec/struct.WindowOptions.html#method.key), [`.kind(..)`](https://daybrite.dev/api/day_spec/struct.WindowOptions.html#method.kind).
+[`WindowOptions::default()`](https://docs.rs/day-spec/latest/day_spec/struct.WindowOptions.html#method.default), with builders for everything else: [`.size(w, h)`](https://docs.rs/day-spec/latest/day_spec/struct.WindowOptions.html#method.size), [`.min_size(w, h)`](https://docs.rs/day-spec/latest/day_spec/struct.WindowOptions.html#method.min_size),
+[`.max_size(w, h)`](https://docs.rs/day-spec/latest/day_spec/struct.WindowOptions.html#method.max_size), [`.title(..)`](https://docs.rs/day-spec/latest/day_spec/struct.WindowOptions.html#method.title), [`.app_name(..)`](https://docs.rs/day-spec/latest/day_spec/struct.WindowOptions.html#method.app_name), [`.start_hidden()`](https://docs.rs/day-spec/latest/day_spec/struct.WindowOptions.html#method.start_hidden), [`.size_to_fit()`](https://docs.rs/day-spec/latest/day_spec/struct.WindowOptions.html#method.size_to_fit),
+[`.fixed_size()`](https://docs.rs/day-spec/latest/day_spec/struct.WindowOptions.html#method.fixed_size), [`.no_shadow()`](https://docs.rs/day-spec/latest/day_spec/struct.WindowOptions.html#method.no_shadow), [`.tabbing(..)`](https://docs.rs/day-spec/latest/day_spec/struct.WindowOptions.html#method.tabbing), [`.chrome(..)`](https://docs.rs/day-spec/latest/day_spec/struct.WindowOptions.html#method.chrome), [`.background(..)`](https://docs.rs/day-spec/latest/day_spec/struct.WindowOptions.html#method.background),
+[`.placement(..)`](https://docs.rs/day-spec/latest/day_spec/struct.WindowOptions.html#method.placement), [`.remember_frame(key)`](https://docs.rs/day-spec/latest/day_spec/struct.WindowOptions.html#method.remember_frame), [`.key(..)`](https://docs.rs/day-spec/latest/day_spec/struct.WindowOptions.html#method.key), [`.kind(..)`](https://docs.rs/day-spec/latest/day_spec/struct.WindowOptions.html#method.kind).
 
-- [`.key(..)`](https://daybrite.dev/api/day_spec/struct.WindowOptions.html#method.key) names the logical window: opening an already-open key focuses it instead of
-  duplicating, which is how `day.preferences` stays a singleton. [`window_by_key`](https://daybrite.dev/api/day_core/windows/fn.window_by_key.html) finds it later.
+- [`.key(..)`](https://docs.rs/day-spec/latest/day_spec/struct.WindowOptions.html#method.key) names the logical window: opening an already-open key focuses it instead of
+  duplicating, which is how `day.preferences` stays a singleton. [`window_by_key`](https://docs.rs/day-core/latest/day_core/windows/fn.window_by_key.html) finds it later.
   Reopening a key after requesting a native window's close builds a new window; the closing
   window is excluded from key lookup while it waits for confirmation. On the cover tier,
   reopening reverses the hide transition and keeps the existing content.
-- [`.kind(WindowKind)`](https://daybrite.dev/api/day_spec/struct.WindowOptions.html#method.kind) shapes the chrome: `Normal` (the default) is resizable/miniaturizable
+- [`.kind(WindowKind)`](https://docs.rs/day-spec/latest/day_spec/struct.WindowOptions.html#method.kind) shapes the chrome: `Normal` (the default) is resizable/miniaturizable
   and joins the platform's tabbing group; `Preferences` drops resize/minimize and never tabs
   (macOS convention; other platforms map as fits).
 - The window's lifetime is app-owned: it survives the page that opened it. Its content
   builds in a fresh scope disposed at close.
 - Close is async everywhere: the title-bar close, a platform gesture, and
-  [`WindowHandle::close()`](https://daybrite.dev/api/day_core/windows/struct.WindowHandle.html#method.close) all route through the platform's confirm
+  [`WindowHandle::close()`](https://docs.rs/day-core/latest/day_core/windows/struct.WindowHandle.html#method.close) all route through the platform's confirm
   (`Event::WindowClosed` on the window's root), and day-core tears the subtree down on a
-  deferred hop, never inside the native close callback. [`on_close`](https://daybrite.dev/api/day_core/windows/struct.WindowHandle.html#method.on_close) runs after disposal.
+  deferred hop, never inside the native close callback. [`on_close`](https://docs.rs/day-core/latest/day_core/windows/struct.WindowHandle.html#method.on_close) runs after disposal.
   A programmatic close immediately excludes the window from focused-window state and command
   lookup, even while a native dialog or cover is still animating its dismissal.
 - Closing the last primary window quits the app, taking secondary windows with it; a settings
@@ -177,15 +177,15 @@ day::open_preferences();
 Registering a preferences piece enables the following, without any menu code in the app:
 
 - **macOS**: "Settings…" + ⌘, in the App menu, directly under About, in both the default
-  menu (apps that never call [`app_menu`](https://daybrite.dev/api/day_pieces/fn.app_menu.html)) and an installed one (the item is hoisted out of
+  menu (apps that never call [`app_menu`](https://docs.rs/day-pieces/latest/day_pieces/fn.app_menu.html)) and an installed one (the item is hoisted out of
   the model into its standard position).
 - **GTK/Qt/WinUI**: a Preferences item with the platform accelerator (Ctrl+comma; Qt's
   menu-role relocates it into the app menu on macOS, and macOS-gtk additionally enables the
   stock GTK app menu's *Settings…* through an `app.preferences` action). day-core injects it
-  into the first (File) menu when the app didn't place a [`menu_role(MenuRole::Preferences)`](https://daybrite.dev/api/day_pieces/fn.menu_role.html)
+  into the first (File) menu when the app didn't place a [`menu_role(MenuRole::Preferences)`](https://docs.rs/day-pieces/latest/day_pieces/fn.menu_role.html)
   itself.
 - The window opens under the singleton key `day.preferences` (`WindowKind::Preferences`);
-  reopening focuses. On cover-tier toolkits [`open_preferences`](https://daybrite.dev/api/day_core/windows/fn.open_preferences.html) presents the same piece
+  reopening focuses. On cover-tier toolkits [`open_preferences`](https://docs.rs/day-core/latest/day_core/windows/fn.open_preferences.html) presents the same piece
   fullscreen. The default title is the platform's word (`day_settings`).
 
 Apps rarely call these directly: [`day-piece-settings`](/docs/reference/settings) ([docs/settings](settings.md))
@@ -203,29 +203,29 @@ day::register_about(|| show_native_about_dialog()); // or: any action
 day::open_about();
 ```
 
-[`register_about`](https://daybrite.dev/api/day_core/windows/fn.register_about.html) names what the About command does; [`register_about_window`](https://daybrite.dev/api/day_core/windows/fn.register_about_window.html) is the common
+[`register_about`](https://docs.rs/day-core/latest/day_core/windows/fn.register_about.html) names what the About command does; [`register_about_window`](https://docs.rs/day-core/latest/day_core/windows/fn.register_about_window.html) is the common
 case, a Day window under the singleton key `day.about` as `WindowKind::About` (the same fixed,
 centered, untabbed panel chrome as Preferences, a dialog over the app window on GTK, a cover
 on mobile). With an About registered,
 `MenuRole::About` items lower to it: the macOS App menu's "About <App>" (replacing the stock
 Info.plist panel), Help ▸ About on the other desktops, in both the default bar and an installed
-[`app_menu`](https://daybrite.dev/api/day_pieces/fn.app_menu.html). [`day::register_check_for_updates(action)`](https://daybrite.dev/api/day/fn.register_check_for_updates.html) adds the updater's Check for Updates…
+[`app_menu`](https://docs.rs/day-pieces/latest/day_pieces/fn.app_menu.html). [`day::register_check_for_updates(action)`](https://docs.rs/day-app/latest/day/fn.register_check_for_updates.html) adds the updater's Check for Updates…
 command the same way (`MenuRole::CheckForUpdates`, under About on macOS, in Help elsewhere).
 
 ## New Window + the macOS Window menu
 
-[`day::register_new_window(|| shell())`](https://daybrite.dev/api/day/fn.register_new_window.html) names the builder behind [`menu_role(MenuRole::NewWindow)`](https://daybrite.dev/api/day_pieces/fn.menu_role.html)
+[`day::register_new_window(|| shell())`](https://docs.rs/day-app/latest/day/fn.register_new_window.html) names the builder behind [`menu_role(MenuRole::NewWindow)`](https://docs.rs/day-pieces/latest/day_pieces/fn.menu_role.html)
 (File ▸ New Window, ⌘N/Ctrl+N; lowers disabled when unregistered) and the macOS tab-bar "+"
 (`newWindowForTab:`). Each call opens an independent `Normal` window, and mark secondary shells'
-routed navs [`.local()`](https://daybrite.dev/api/day_pieces/trait.NavBuilder.html#tymethod.local) so [`navigate()`](https://daybrite.dev/api/day_pieces/fn.navigate.html) stays unambiguous (the showcase's `window_root(primary)`
+routed navs [`.local()`](https://docs.rs/day-pieces/latest/day_pieces/trait.NavBuilder.html#tymethod.local) so [`navigate()`](https://docs.rs/day-pieces/latest/day_pieces/fn.navigate.html) stays unambiguous (the showcase's `window_root(primary)`
 is the pattern). The starter uses one main window.
 
 Because the builder runs again per window, whatever state that shell reaches for decides whether
 the windows are independent; a `thread_local!` gives all of them one selection.
-[docs/state](state.md) covers this: [`T::scoped(…)`](https://daybrite.dev/api/day_core/trait.Ambient.html#method.scoped) for per-window state, [`T::ambient()`](https://daybrite.dev/api/day_core/trait.Ambient.html#method.ambient)
-to read it back anywhere below, and [`T::focused()`](https://daybrite.dev/api/day_core/trait.Ambient.html#method.focused) for the app-wide menu bar, whose items belong
+[docs/state](state.md) covers this: [`T::scoped(…)`](https://docs.rs/day-core/latest/day_core/trait.Ambient.html#method.scoped) for per-window state, [`T::ambient()`](https://docs.rs/day-core/latest/day_core/trait.Ambient.html#method.ambient)
+to read it back anywhere below, and [`T::focused()`](https://docs.rs/day-core/latest/day_core/trait.Ambient.html#method.focused) for the app-wide menu bar, whose items belong
 to no window and have to resolve the front one when they run. The same shell should call
-[`day::window_title`](https://daybrite.dev/api/day/fn.window_title.html) (above), so the windows it builds are distinguishable everywhere the system
+[`day::window_title`](https://docs.rs/day-app/latest/day/fn.window_title.html) (above), so the windows it builds are distinguishable everywhere the system
 lists them.
 
 > [!NOTE]
@@ -246,13 +246,13 @@ auto menu.
 
 ## Window properties
 
-Every window, the first one included, has a `WindowHandle`: [`day::initial_window()`](https://daybrite.dev/api/day/fn.initial_window.html),
-[`day::current_window()`](https://daybrite.dev/api/day/fn.current_window.html) (the window being built, else the focused one, else the first),
-[`open_window`](https://daybrite.dev/api/day_core/windows/fn.open_window.html)'s return value, or [`day::window_by_key`](https://daybrite.dev/api/day/fn.window_by_key.html).
+Every window, the first one included, has a `WindowHandle`: [`day::initial_window()`](https://docs.rs/day-app/latest/day/fn.initial_window.html),
+[`day::current_window()`](https://docs.rs/day-app/latest/day/fn.current_window.html) (the window being built, else the focused one, else the first),
+[`open_window`](https://docs.rs/day-core/latest/day_core/windows/fn.open_window.html)'s return value, or [`day::window_by_key`](https://docs.rs/day-app/latest/day/fn.window_by_key.html).
 
 ### Display state
 
-[`state()`](https://daybrite.dev/api/day_core/windows/struct.WindowHandle.html#method.state) is the window's display state as a two-way signal:
+[`state()`](https://docs.rs/day-core/latest/day_core/windows/struct.WindowHandle.html#method.state) is the window's display state as a two-way signal:
 
 ```rust
 use day::prelude::*;
@@ -282,7 +282,7 @@ Reading it follows what the user does: minimize, zoom, enter or leave fullscreen
 bar, the keyboard or a gesture. Writing it asks the platform for that state. The platform has the
 last word: the signal settles on the state the window actually reached, so a request the platform
 declines (a browser refusing fullscreen outside a click) reads back as the state the window kept.
-[`set_state(s)`](https://daybrite.dev/api/day_core/windows/struct.WindowHandle.html#method.set_state) is the same write spelled as an action. Wayland compositors do not tell an app
+[`set_state(s)`](https://docs.rs/day-core/latest/day_core/windows/struct.WindowHandle.html#method.set_state) is the same write spelled as an action. Wayland compositors do not tell an app
 when the user minimizes it, so under Wayland GTK and Qt report `Minimized` only for a minimize the
 app asked for, until the window is next activated.
 
@@ -293,7 +293,7 @@ app asked for, until the window is next activated.
 
 ### Content protection
 
-[`set_content_protected(true)`](https://daybrite.dev/api/day_core/windows/struct.WindowHandle.html#method.set_content_protected) keeps a window out of screenshots, screen recordings and screen
+[`set_content_protected(true)`](https://docs.rs/day-core/latest/day_core/windows/struct.WindowHandle.html#method.set_content_protected) keeps a window out of screenshots, screen recordings and screen
 sharing, for passwords, payment details and private messages (`Cap::ContentProtection`). macOS
 ([`NSWindowSharingNone`](https://developer.apple.com/documentation/appkit/nswindow/sharingtype-swift.enum/none)), Windows (`WDA_EXCLUDEFROMCAPTURE`), Android (`FLAG_SECURE`) and
 HarmonyOS (privacy mode) protect natively. HarmonyOS needs the app to opt in with
@@ -306,32 +306,32 @@ captures it. Linux and the web cannot protect a window.
 
 | Method | What it does | Cap |
 |---|---|---|
-| [`set_frame(origin, size)`](https://daybrite.dev/api/day_core/windows/struct.WindowHandle.html#method.set_frame) | Move the frame's top-left corner to `origin` (desktop points, top-left origin) and/or resize the content | `WindowPosition`, `WindowGeometry` |
-| [`frame()`](https://daybrite.dev/api/day_core/windows/struct.WindowHandle.html#method.frame) | The window's outer frame on the desktop, where the platform says | `WindowGeometry` |
-| [`set_limits(min, max)`](https://daybrite.dev/api/day_core/windows/struct.WindowHandle.html#method.set_limits) | The sizes the user can resize between | `WindowGeometry` |
-| [`set_resizable(bool)`](https://daybrite.dev/api/day_core/windows/struct.WindowHandle.html#method.set_resizable) | Whether the user can resize at all | `WindowGeometry` |
-| [`set_level(WindowLevel::Floating)`](https://daybrite.dev/api/day_core/windows/struct.WindowHandle.html#method.set_level) | Stay above other apps' windows | `WindowLevel` |
-| [`set_on_all_workspaces(bool)`](https://daybrite.dev/api/day_core/windows/struct.WindowHandle.html#method.set_on_all_workspaces) | Show on every Space or virtual desktop | `WindowLevel` |
-| [`set_skip_taskbar(bool)`](https://daybrite.dev/api/day_core/windows/struct.WindowHandle.html#method.set_skip_taskbar) | Leave the window out of the taskbar and window switcher (the Window menu on macOS) | `WindowLevel` |
-| [`set_minimizable`](https://daybrite.dev/api/day_core/windows/struct.WindowHandle.html#method.set_minimizable), [`set_maximizable`](https://daybrite.dev/api/day_core/windows/struct.WindowHandle.html#method.set_maximizable), [`set_closable`](https://daybrite.dev/api/day_core/windows/struct.WindowHandle.html#method.set_closable) | Offer or withhold the title-bar controls | `WindowStates` |
-| [`set_visible(bool)`](https://daybrite.dev/api/day_core/windows/struct.WindowHandle.html#method.set_visible) | Hide the window without closing it, or show it again | `WindowStates` |
-| [`set_appearance(Option<bool>)`](https://daybrite.dev/api/day_core/fn.set_appearance.html) | This window's own light or dark appearance, over the app-wide [`set_appearance`](https://daybrite.dev/api/day_core/fn.set_appearance.html) | `WindowAppearance` |
-| [`request_attention(Attention)`](https://daybrite.dev/api/day_core/windows/struct.WindowHandle.html#method.request_attention) | A Dock bounce, a flashing taskbar button | `RequestAttention` |
+| [`set_frame(origin, size)`](https://docs.rs/day-core/latest/day_core/windows/struct.WindowHandle.html#method.set_frame) | Move the frame's top-left corner to `origin` (desktop points, top-left origin) and/or resize the content | `WindowPosition`, `WindowGeometry` |
+| [`frame()`](https://docs.rs/day-core/latest/day_core/windows/struct.WindowHandle.html#method.frame) | The window's outer frame on the desktop, where the platform says | `WindowGeometry` |
+| [`set_limits(min, max)`](https://docs.rs/day-core/latest/day_core/windows/struct.WindowHandle.html#method.set_limits) | The sizes the user can resize between | `WindowGeometry` |
+| [`set_resizable(bool)`](https://docs.rs/day-core/latest/day_core/windows/struct.WindowHandle.html#method.set_resizable) | Whether the user can resize at all | `WindowGeometry` |
+| [`set_level(WindowLevel::Floating)`](https://docs.rs/day-core/latest/day_core/windows/struct.WindowHandle.html#method.set_level) | Stay above other apps' windows | `WindowLevel` |
+| [`set_on_all_workspaces(bool)`](https://docs.rs/day-core/latest/day_core/windows/struct.WindowHandle.html#method.set_on_all_workspaces) | Show on every Space or virtual desktop | `WindowLevel` |
+| [`set_skip_taskbar(bool)`](https://docs.rs/day-core/latest/day_core/windows/struct.WindowHandle.html#method.set_skip_taskbar) | Leave the window out of the taskbar and window switcher (the Window menu on macOS) | `WindowLevel` |
+| [`set_minimizable`](https://docs.rs/day-core/latest/day_core/windows/struct.WindowHandle.html#method.set_minimizable), [`set_maximizable`](https://docs.rs/day-core/latest/day_core/windows/struct.WindowHandle.html#method.set_maximizable), [`set_closable`](https://docs.rs/day-core/latest/day_core/windows/struct.WindowHandle.html#method.set_closable) | Offer or withhold the title-bar controls | `WindowStates` |
+| [`set_visible(bool)`](https://docs.rs/day-core/latest/day_core/windows/struct.WindowHandle.html#method.set_visible) | Hide the window without closing it, or show it again | `WindowStates` |
+| [`set_appearance(Option<bool>)`](https://docs.rs/day-core/latest/day_core/fn.set_appearance.html) | This window's own light or dark appearance, over the app-wide [`set_appearance`](https://docs.rs/day-core/latest/day_core/fn.set_appearance.html) | `WindowAppearance` |
+| [`request_attention(Attention)`](https://docs.rs/day-core/latest/day_core/windows/struct.WindowHandle.html#method.request_attention) | A Dock bounce, a flashing taskbar button | `RequestAttention` |
 
-`WindowOptions` sets the same things at open: [`min_size`](https://daybrite.dev/api/day_spec/struct.WindowOptions.html#method.min_size), [`max_size`](https://daybrite.dev/api/day_spec/struct.WindowOptions.html#method.max_size), `resizable`, [`placement`](https://daybrite.dev/api/day_spec/struct.WindowOptions.html#method.placement),
+`WindowOptions` sets the same things at open: [`min_size`](https://docs.rs/day-spec/latest/day_spec/struct.WindowOptions.html#method.min_size), [`max_size`](https://docs.rs/day-spec/latest/day_spec/struct.WindowOptions.html#method.max_size), `resizable`, [`placement`](https://docs.rs/day-spec/latest/day_spec/struct.WindowOptions.html#method.placement),
 and the frame options in [docs/window-chrome](window-chrome.md).
 
 | Toolkit | What it supports |
 |---|---|
 | AppKit | Everything above. Taskbar exclusion is the Window menu's, since macOS has no taskbar. |
 | Windows (WinUI) | Everything except showing a window on every virtual desktop. Compile-checked; the Windows runtime pass is pending. |
-| Qt | Everything except per-window appearance and every-desktop windows. Under Wayland the compositor places windows, so [`set_frame`](https://daybrite.dev/api/day_core/windows/struct.WindowHandle.html#method.set_frame)'s origin and `WindowPosition` are unsupported there. |
-| GTK | Size, minimum size, resizable, closable, visibility and the minimize/maximize controls. GTK 4 removed window positioning, stacking, the taskbar hint, the urgency hint and maximum sizes, and [`frame()`](https://daybrite.dev/api/day_core/windows/struct.WindowHandle.html#method.frame) answers `None`. On Linux the Qt toolkit covers those. |
+| Qt | Everything except per-window appearance and every-desktop windows. Under Wayland the compositor places windows, so [`set_frame`](https://docs.rs/day-core/latest/day_core/windows/struct.WindowHandle.html#method.set_frame)'s origin and `WindowPosition` are unsupported there. |
+| GTK | Size, minimum size, resizable, closable, visibility and the minimize/maximize controls. GTK 4 removed window positioning, stacking, the taskbar hint, the urgency hint and maximum sizes, and [`frame()`](https://docs.rs/day-core/latest/day_core/windows/struct.WindowHandle.html#method.frame) answers `None`. On Linux the Qt toolkit covers those. |
 | iOS | Per-window appearance (`overrideUserInterfaceStyle`). |
 | Android, HarmonyOS, web | None: the platform sizes and places the app's window. The web follows the app-wide appearance per page. |
 
-[`set_frame`](https://daybrite.dev/api/day_core/windows/struct.WindowHandle.html#method.set_frame)'s size is the size Day lays the content out at, the size `WindowResized` reports;
-the toolkit adds the title bar, the frame and any menu bar around it. [`frame()`](https://daybrite.dev/api/day_core/windows/struct.WindowHandle.html#method.frame) reports the
+[`set_frame`](https://docs.rs/day-core/latest/day_core/windows/struct.WindowHandle.html#method.set_frame)'s size is the size Day lays the content out at, the size `WindowResized` reports;
+the toolkit adds the title bar, the frame and any menu bar around it. [`frame()`](https://docs.rs/day-core/latest/day_core/windows/struct.WindowHandle.html#method.frame) reports the
 outer frame, chrome included.
 
 GTK reports the content wrapper's allocated size, excluding the header and client-side
@@ -340,7 +340,7 @@ system on X11 (including headless Xvfb), Wayland and other GTK window systems.
 
 ### Monitors
 
-[`day::monitors()`](https://daybrite.dev/api/day/fn.monitors.html) lists the displays: an id, a name, the frame, the work area (the frame minus
+[`day::monitors()`](https://docs.rs/day-app/latest/day/fn.monitors.html) lists the displays: an id, a name, the frame, the work area (the frame minus
 the menu bar, Dock, taskbar or panels), the scale, and which one is primary, all in desktop
 points (`Cap::Monitors`). A phone or the web reports its one screen. GTK 4 exposes no work area or
 primary display, so there the work area is the whole display and the first one is primary.
@@ -351,10 +351,11 @@ primary display, so there the work area is the whole display and the first one i
 res::window_options().remember_frame("library")
 ```
 
-A window with [`.remember_frame(key)`](https://daybrite.dev/api/day_spec/struct.WindowOptions.html#method.remember_frame) reopens at the size, position and maximized state it had when it
+A window with [`.remember_frame(key)`](https://docs.rs/day-spec/latest/day_spec/struct.WindowOptions.html#method.remember_frame) reopens at the size, position and maximized state it had when it
 last closed. The frame is saved when the window closes and when the app quits, in
-`day-windows.txt` under the app's configuration directory (`$XDG_CONFIG_HOME/<app id>/` when that
-is set, else `~/.config`, `~/Library/Application Support` or `%APPDATA%`). A saved position that
+`day-windows.txt` in the app's
+[`configuration directory`](https://docs.rs/day-app/latest/day/storage/fn.config_dir.html).
+See [storage locations](fs.md#where-files-live) for platform paths and overrides. A saved position that
 no attached display shows any more is dropped, so a window never reopens off-screen; the size is
 kept. A minimized or fullscreen window keeps the last ordinary frame it had.
 
@@ -370,20 +371,20 @@ tabbing` puts a window in a tab group of its own:
 | `Preferred(id)` | Always open as a tab of a window in the group. |
 | `Disallowed` | Never become a tab. |
 
-[`register_new_window_for(group, build)`](https://daybrite.dev/api/day_core/windows/fn.register_new_window_for.html) is the builder behind the tab bar's "+" in that group's
-windows. A group without one falls back to the app's [`register_new_window`](https://daybrite.dev/api/day_core/windows/fn.register_new_window.html) builder. AppKit and
+[`register_new_window_for(group, build)`](https://docs.rs/day-core/latest/day_core/windows/fn.register_new_window_for.html) is the builder behind the tab bar's "+" in that group's
+windows. A group without one falls back to the app's [`register_new_window`](https://docs.rs/day-core/latest/day_core/windows/fn.register_new_window.html) builder. AppKit and
 Qt on macOS (through `crates/day-platform-macos`) answer `Cap::WindowTabbing`; every other
 platform has no system window tabs and ignores the option.
 
 ## Keeping the app running
 
-A status item keeps an app running after its last window closes, and [`day::set_keep_running`](https://daybrite.dev/api/day/fn.set_keep_running.html)
+A status item keeps an app running after its last window closes, and [`day::set_keep_running`](https://docs.rs/day-app/latest/day/fn.set_keep_running.html)
 chooses that for any app: see [docs/status-item](status-item.md#keeping-the-app-running).
 
 ## The debug title tag
 
 A **debug** build appends `(<version>/<toolkit>[/<script>])` to every window title it sets
-(the primary window's, each secondary window's, and every [`WindowHandle::set_title`](https://daybrite.dev/api/day_core/windows/struct.WindowHandle.html#method.set_title)):
+(the primary window's, each secondary window's, and every [`WindowHandle::set_title`](https://docs.rs/day-core/latest/day_core/windows/struct.WindowHandle.html#method.set_title)):
 
 ```text
 Day Showcase (1.1.0/gtk/walkthrough.yaml)
@@ -391,7 +392,7 @@ Day News (0.1.0/appkit)
 ```
 
 With several apps, several toolkits and a scripted run open at once, the title bar is the only
-place that says which window is which. Release builds get none of it: [`day_core::debug_title_tag`](https://daybrite.dev/api/day_core/fn.debug_title_tag.html)
+place that says which window is which. Release builds get none of it: [`day_core::debug_title_tag`](https://docs.rs/day-core/latest/day_core/fn.debug_title_tag.html)
 returns `None` outside `debug_assertions`, so the decoration can never ship.
 
 The version and script name arrive as `DAY_APP_VERSION` and `DAY_SCRIPT`, which `day launch` sets
@@ -404,8 +405,8 @@ untitled does not grow a bar of build metadata. And an already-tagged title is l
 the same window can be retitled many times.
 
 The tag is on the window title only. The macOS App menu, the About panel and the process name
-read the app's *name*, so [`launch_with`](https://daybrite.dev/api/day_core/fn.launch_with.html) pins [`WindowOptions::app_name`](https://daybrite.dev/api/day_spec/struct.WindowOptions.html#method.app_name) to the undecorated title
-before tagging; an app that sets only [`title`](https://daybrite.dev/api/day_spec/struct.WindowOptions.html#method.title) still shows "Day News" in its App menu.
+read the app's *name*, so [`launch_with`](https://docs.rs/day-core/latest/day_core/fn.launch_with.html) pins [`WindowOptions::app_name`](https://docs.rs/day-spec/latest/day_spec/struct.WindowOptions.html#method.app_name) to the undecorated title
+before tagging; an app that sets only [`title`](https://docs.rs/day-spec/latest/day_spec/struct.WindowOptions.html#method.title) still shows "Day News" in its App menu.
 
 ## Toolkit implementations
 
@@ -426,7 +427,7 @@ and capture behavior can differ.
 
 ## Document-window tabs
 
-[`document_tabs`](https://daybrite.dev/api/day_pieces/fn.document_tabs.html) can present resident
+[`document_tabs`](https://docs.rs/day-pieces/latest/day_pieces/fn.document_tabs.html) can present resident
 documents in OS window groups on AppKit and macOS Qt. GTK uses
 [AdwTabView](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/class.TabView.html).
 Document content retains its reactive state when moved between presentations.
@@ -434,9 +435,9 @@ Document content retains its reactive state when moved between presentations.
 Native activation selects the document. Native order changes are observed on focus and close
 events; a reorder that emits neither is reflected at the next such event.
 
-[`WindowHandle::on_close_request`](https://daybrite.dev/api/day_core/windows/struct.WindowHandle.html#method.on_close_request)
+[`WindowHandle::on_close_request`](https://docs.rs/day-core/latest/day_core/windows/struct.WindowHandle.html#method.on_close_request)
 lets the owner ask about unsaved edits before removing a document. Programmatic
-[`WindowHandle::close()`](https://daybrite.dev/api/day_core/windows/struct.WindowHandle.html#method.close)
+[`WindowHandle::close()`](https://docs.rs/day-core/latest/day_core/windows/struct.WindowHandle.html#method.close)
 bypasses that request hook. See [Navigation](/docs/reference/navigation#document-tabs) for the
 document-tab declaration and state model.
 

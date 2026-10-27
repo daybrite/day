@@ -24,7 +24,7 @@ start with the dayscript guide.
 
 - [Dayscript testing](https://daybrite.dev/docs/how-to/dayscript/)
 - [Automation tools](https://daybrite.dev/docs/reference/for-agents/)
-- [Rust API](https://daybrite.dev/api/day_script_protocol/index.html)
+- [Rust API](https://docs.rs/day-script-protocol/latest/day_script_protocol/index.html)
 
 [Source](https://github.com/daybrite/day/tree/main/crates/day-script-protocol) ·
 [Contributing](https://daybrite.dev/contributing/setup/) · [MPL-2.0

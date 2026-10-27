@@ -104,10 +104,10 @@ vector(res::vectors::home)
     .frame(24.0, 24.0)
 ```
 
-Vector modifiers control appearance: [`.tint(color)`](https://daybrite.dev/api/day_pieces/trait.VectorBuilder.html#tymethod.tint) recolors a monochrome glyph
-where the backend can, [`.weight(VectorWeight::Light | Bold)`](https://daybrite.dev/api/day_pieces/trait.VectorBuilder.html#tymethod.weight) selects a weight variant, and
-[`.decorative()`](https://daybrite.dev/api/day_pieces/trait.VectorBuilder.html#tymethod.decorative) hides the glyph from accessibility. Navigation items, tabs,
-[`toolbar_button`](https://daybrite.dev/api/day_pieces/fn.toolbar_button.html)`(…)`[`.image`](https://daybrite.dev/api/day_pieces/struct.ToolbarEntry.html#method.image)`(…)`, and `bar_action` also accept `res::vectors::` constants as image names.
+Vector modifiers control appearance: [`.tint(color)`](https://docs.rs/day-pieces/latest/day_pieces/trait.VectorBuilder.html#tymethod.tint) recolors a monochrome glyph
+where the backend can, [`.weight(VectorWeight::Light | Bold)`](https://docs.rs/day-pieces/latest/day_pieces/trait.VectorBuilder.html#tymethod.weight) selects a weight variant, and
+[`.decorative()`](https://docs.rs/day-pieces/latest/day_pieces/trait.VectorBuilder.html#tymethod.decorative) hides the glyph from accessibility. Navigation items, tabs,
+[`toolbar_button`](https://docs.rs/day-pieces/latest/day_pieces/fn.toolbar_button.html)`(…)`[`.image`](https://docs.rs/day-pieces/latest/day_pieces/struct.ToolbarEntry.html#method.image)`(…)`, and `bar_action` also accept `res::vectors::` constants as image names.
 
 <span id="pitfalls"></span>
 
@@ -125,7 +125,7 @@ at build time.
 - Tint has coverage limits. AppKit, UIKit, Android, GTK, and ArkUI recolor; Qt, WinUI, and
   web draw the authored colors. Use authored colors when the color must match across backends.
 - Weights need template sources. A plain SVG aliases Light and Bold to the same glyph, so
-  [`.weight(…)`](https://daybrite.dev/api/day_pieces/trait.VectorBuilder.html#tymethod.weight) degrades to Regular rather than to a missing asset. True weight variants come
+  [`.weight(…)`](https://docs.rs/day-pieces/latest/day_pieces/trait.VectorBuilder.html#tymethod.weight) degrades to Regular rather than to a missing asset. True weight variants come
   from SF template exports and `.symbolset` bundles.
 
 ## Reference

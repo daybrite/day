@@ -73,7 +73,7 @@ Use the guide for a capability or crate reference; use Rustdoc for an exact func
 method, or variant. Keep explicit links to source files when discussing their implementation.
 
 Use root-relative destinations for guides, such as `/docs/reference/battery`. Use absolute
-Rustdoc links, such as `https://daybrite.dev/api/day_part_haptics/fn.is_supported.html`, so local
+Rustdoc links, such as `https://docs.rs/day-part-haptics/latest/day_part_haptics/fn.is_supported.html`, so local
 previews open the published API documentation. Preserve
 query strings and heading fragments. External projects with no Day guide may link to their
 repository or documentation; do not invent a local destination. Do not link a page's own name

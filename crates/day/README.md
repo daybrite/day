@@ -21,7 +21,7 @@ guides explain their setup.
 - [Start with a Day app](https://daybrite.dev/docs/tutorials/first-app/)
 - [UI components and composition](https://daybrite.dev/docs/explanation/pieces/)
 - [Supported targets](https://daybrite.dev/docs/reference/platforms/)
-- [Rust API](https://daybrite.dev/api/day/index.html)
+- [Rust API](https://docs.rs/day-app/latest/day/index.html)
 
 [Source](https://github.com/daybrite/day/tree/main/crates/day) ·
 [Contributing](https://daybrite.dev/contributing/setup/) · [MPL-2.0

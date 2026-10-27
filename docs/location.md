@@ -16,11 +16,10 @@ updates with selectable accuracy, so an app can balance precision and battery us
 
 ## Add to your app
 
-Add [`day-part-location`](https://github.com/daybrite/day/tree/main/crates/day-part-location) to your app’s Cargo dependencies, using the same Day version as the rest of your app:
+Add [`day-part-location`](https://github.com/daybrite/day/tree/main/crates/day-part-location) to your app:
 
-```toml
-[dependencies]
-day-part-location = "0.6"
+```sh
+cargo add day-part-location
 ```
 
 The implementation is selected by the compilation target; no toolkit feature flags
@@ -47,9 +46,9 @@ let watch = day_part_location::watch(Accuracy::Balanced, |fix| match fix {
 
 | Function | Behavior |
 |---|---|
-| [`is_available() -> bool`](https://daybrite.dev/api/day_part_location/fn.is_available.html) | whether this target has a location API Day can reach (a platform statement, not a permission one) |
-| [`current(acc, cb)`](https://daybrite.dev/api/day_part_location/fn.current.html) / [`current_future(acc)`](https://daybrite.dev/api/day_part_location/fn.current_future.html) | one fix |
-| [`watch(acc, cb) -> Watch`](https://daybrite.dev/api/day_part_location/fn.watch.html) | a live stream; dropping the handle stops the platform's updates |
+| [`is_available() -> bool`](https://docs.rs/day-part-location/latest/day_part_location/fn.is_available.html) | whether this target has a location API Day can reach (a platform statement, not a permission one) |
+| [`current(acc, cb)`](https://docs.rs/day-part-location/latest/day_part_location/fn.current.html) / [`current_future(acc)`](https://docs.rs/day-part-location/latest/day_part_location/fn.current_future.html) | one fix |
+| [`watch(acc, cb) -> Watch`](https://docs.rs/day-part-location/latest/day_part_location/fn.watch.html) | a live stream; dropping the handle stops the platform's updates |
 
 `Fix` carries `latitude`, `longitude`, and `Option`s for `altitude`, `accuracy_m`,
 `vertical_accuracy_m`, `speed_mps`, `course_deg` and `timestamp_ms`. **A field the platform did not
@@ -95,7 +94,7 @@ Platform guidance: [Apple: Core Location](https://developer.apple.com/documentat
 | Linux | none; GeoClue2 would need a D-Bus dependency this tree does not have | — |
 | Windows | none yet; [`Windows.Devices.Geolocation`](https://learn.microsoft.com/en-us/uwp/api/windows.devices.geolocation) is the future impl | — |
 
-An unsupported target reports itself: [`is_available()`](https://daybrite.dev/api/day_part_location/fn.is_available.html) answers `false` and a [`watch`](https://daybrite.dev/api/day_part_location/fn.watch.html) reports
+An unsupported target reports itself: [`is_available()`](https://docs.rs/day-part-location/latest/day_part_location/fn.is_available.html) answers `false` and a [`watch`](https://docs.rs/day-part-location/latest/day_part_location/fn.watch.html) reports
 `LocationError::Unavailable` **once**, so an app waiting for its first fix is never left hanging.
 
 ### Why not FusedLocationProviderClient on Android
@@ -121,7 +120,7 @@ fix back as one line, a field the platform left out as `NaN`. The switch being o
 
 CoreLocation delivers to the run loop of the thread the manager was created on. In a Day app that is
 the UI thread, and everything works. In a plain `main` or under `cargo test` there is no run loop, so
-no fix is ever delivered; [`is_available()`](https://daybrite.dev/api/day_part_location/fn.is_available.html) still answers `true`, because CoreLocation exists. The
+no fix is ever delivered; [`is_available()`](https://docs.rs/day-part-location/latest/day_part_location/fn.is_available.html) still answers `true`, because CoreLocation exists. The
 example file says so at the top.
 
 Apple reports "not measured" as a negative accuracy and `-1` for speed and course; those become

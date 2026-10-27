@@ -15,11 +15,10 @@ operating system and hardware; callers must handle unavailable information.
 
 ## Use
 
-Add this entry to your app’s `Cargo.toml`, at the same Day version as the rest of the app:
+Add it to your app:
 
-```toml
-[dependencies]
-day-part-device = "0.6"
+```sh
+cargo add day-part-device
 ```
 
 ## Documentation
@@ -27,7 +26,7 @@ day-part-device = "0.6"
 - [Usage and platform limits](https://daybrite.dev/docs/reference/deviceinfo/)
 - [Battery information](https://daybrite.dev/docs/reference/battery/)
 - [Using platform services](https://daybrite.dev/docs/reference/parts/)
-- [Rust API](https://daybrite.dev/api/day_part_device/index.html)
+- [Rust API](https://docs.rs/day-part-device/latest/day_part_device/index.html)
 
 [Source](https://github.com/daybrite/day/tree/main/crates/day-part-device) ·
 [Contributing](https://daybrite.dev/contributing/setup/) · [MPL-2.0

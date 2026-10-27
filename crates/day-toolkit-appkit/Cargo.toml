@@ -7,6 +7,11 @@ description.workspace = true
 repository.workspace = true
 license.workspace = true
 
+# AppKit compiles for macOS only; docs.rs builds on Linux unless told otherwise.
+[package.metadata.docs.rs]
+default-target = "aarch64-apple-darwin"
+targets = ["aarch64-apple-darwin"]
+
 [[test]]
 name = "native_links"
 harness = false # AppKit must be exercised on the process's main thread.

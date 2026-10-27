@@ -52,16 +52,16 @@ controls fall back to vertical centering.
 
 ## Containers and decorators
 
-A container answers on behalf of its content, through [`Layout::baseline`](https://daybrite.dev/api/day_core/trait.Layout.html#method.baseline):
+A container answers on behalf of its content, through [`Layout::baseline`](https://docs.rs/day-core/latest/day_core/trait.Layout.html#method.baseline):
 
 - a **row** reports the line its children were aligned to;
 - a **column** reports its first baseline-bearing child's, offset by where that child sits;
-- a **[`labeled`](https://daybrite.dev/api/day_pieces/fn.labeled.html) row** reports the line its label and control now share, so a form row nested in
+- a **[`labeled`](https://docs.rs/day-pieces/latest/day_pieces/fn.labeled.html) row** reports the line its label and control now share, so a form row nested in
   another baseline-aligned row joins the same line;
-- every **single-child wrapper** ([`.width()`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.width), [`.frame()`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.frame), [`.padding()`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.padding), [`.grow()`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.grow),
-  [`.max_width()`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.max_width), [`.min_width()`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.min_width), [`.background()`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.background)) forwards its child's, offset by where it places it.
+- every **single-child wrapper** ([`.width()`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.width), [`.frame()`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.frame), [`.padding()`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.padding), [`.grow()`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.grow),
+  [`.max_width()`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.max_width), [`.min_width()`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.min_width), [`.background()`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.background)) forwards its child's, offset by where it places it.
 
-Grid cells are **not** baseline-aligned; [`grid_row`](https://daybrite.dev/api/day_pieces/fn.grid_row.html)`(..)`[`.align`](https://daybrite.dev/api/day_pieces/trait.GridRowBuilder.html#tymethod.align)`(VAlign::FirstBaseline)` reads as
+Grid cells are **not** baseline-aligned; [`grid_row`](https://docs.rs/day-pieces/latest/day_pieces/fn.grid_row.html)`(..)`[`.align`](https://docs.rs/day-pieces/latest/day_pieces/trait.GridRowBuilder.html#tymethod.align)`(VAlign::FirstBaseline)` reads as
 `Center`. See [docs/grid](grid.md).
 
 ## Row height

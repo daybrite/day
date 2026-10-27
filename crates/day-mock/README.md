@@ -23,7 +23,7 @@ dayscript tests on the intended target for those checks.
 - [Component testing contracts](https://daybrite.dev/docs/how-to/testing/)
 - [Test a running app](https://daybrite.dev/docs/how-to/dayscript/)
 - [Writing Day extensions](https://daybrite.dev/contributing/extending/)
-- [Rust API](https://daybrite.dev/api/day_mock/index.html)
+- [Rust API](https://docs.rs/day-mock/latest/day_mock/index.html)
 
 [Source](https://github.com/daybrite/day/tree/main/crates/day-mock) ·
 [Contributing](https://daybrite.dev/contributing/setup/) · [MPL-2.0

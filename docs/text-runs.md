@@ -26,13 +26,13 @@ label(text).runs(runs)
 
 > [!TIP]
 > **Keep translated sentences whole.** For app-owned instructions, put the complete sentence
-> and its emphasis in Fluent, then use [`label`](https://daybrite.dev/api/day_pieces/fn.label.html)`(res::str::save_instructions())`[`.markdown`](https://daybrite.dev/api/day_pieces/trait.LabelBuilder.html#tymethod.markdown)`()`.
+> and its emphasis in Fluent, then use [`label`](https://docs.rs/day-pieces/latest/day_pieces/fn.label.html)`(res::str::save_instructions())`[`.markdown`](https://docs.rs/day-pieces/latest/day_pieces/trait.LabelBuilder.html#tymethod.markdown)`()`.
 > Translators can reorder it without changing byte ranges or assembling English fragments.
 > Use `TextBuilder` for structured user-authored content or styles that Markdown cannot express.
 > See [Localization](/docs/how-to/localization).
 
 `TextBuilder` returns the plain string and the runs that style it, which is exactly what
-[`label`](https://daybrite.dev/api/day_pieces/fn.label.html)`()`[`.runs`](https://daybrite.dev/api/day_pieces/trait.LabelBuilder.html#tymethod.runs)`()` takes. [`.runs_from(builder)`](https://daybrite.dev/api/day_pieces/trait.LabelBuilder.html#tymethod.runs_from) does both in one call.
+[`label`](https://docs.rs/day-pieces/latest/day_pieces/fn.label.html)`()`[`.runs`](https://docs.rs/day-pieces/latest/day_pieces/trait.LabelBuilder.html#tymethod.runs)`()` takes. [`.runs_from(builder)`](https://docs.rs/day-pieces/latest/day_pieces/trait.LabelBuilder.html#tymethod.runs_from) does both in one call.
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
 [example messages](/docs/reference/localization#reference-example-messages) and [catalog setup](/docs/how-to/localization).
@@ -71,7 +71,7 @@ means something against a particular string; patching one without the other woul
 next edit.
 
 `FontSpec::monospace` asks for the platform's fixed-pitch face. It rides the ordinary font path,
-so it works on a whole label ([`label`](https://daybrite.dev/api/day_pieces/fn.label.html)`(res::str::loading())`[`.monospace`](https://daybrite.dev/api/day_pieces/trait.LabelBuilder.html#tymethod.monospace)`()`) as well as on a run.
+so it works on a whole label ([`label`](https://docs.rs/day-pieces/latest/day_pieces/fn.label.html)`(res::str::loading())`[`.monospace`](https://docs.rs/day-pieces/latest/day_pieces/trait.LabelBuilder.html#tymethod.monospace)`()`) as well as on a run.
 
 `FontSpec::scale` is a **relative** size: it multiplies whatever the semantic style resolves to, so
 a run at `1.4` still tracks the reader's text-size setting. `Font::System(pt)` is the absolute form
@@ -79,25 +79,25 @@ and does not, which is why an editor's size control moves `scale` and an importe
 `font-size: 14px` lands in `Font::System`.
 
 A label's runs are the character half of [`StyledText`](texteditor.md), the document type
-[`.markdown()`](https://daybrite.dev/api/day_pieces/trait.LabelBuilder.html#tymethod.markdown) produces and [`day-piece-text-editor`](texteditor.md) edits. The same runs render in
+[`.markdown()`](https://docs.rs/day-pieces/latest/day_pieces/trait.LabelBuilder.html#tymethod.markdown) produces and [`day-piece-text-editor`](texteditor.md) edits. The same runs render in
 both places.
 
 ## Builder vocabulary
 
 | Method | Run |
 | --- | --- |
-| [`.text(s)`](https://daybrite.dev/api/day_pieces/struct.TextBuilder.html#method.text) | unstyled, at the base font |
-| [`.strong(s)`](https://daybrite.dev/api/day_pieces/struct.TextBuilder.html#method.strong) | bold |
-| [`.emphasis(s)`](https://daybrite.dev/api/day_pieces/struct.TextBuilder.html#method.emphasis) | italic |
-| [`.code(s)`](https://daybrite.dev/api/day_pieces/struct.TextBuilder.html#method.code) | the fixed-pitch face |
-| [`.colored(s, c)`](https://daybrite.dev/api/day_pieces/struct.TextBuilder.html#method.colored) | a color |
-| [`.underline(s)`](https://daybrite.dev/api/day_pieces/struct.TextBuilder.html#method.underline) | underlined |
-| [`.highlight(s, c)`](https://daybrite.dev/api/day_pieces/struct.TextBuilder.html#method.highlight) | a background, with a readable foreground over it |
-| [`.sized(s, k)`](https://daybrite.dev/api/day_pieces/struct.TextBuilder.html#method.sized) | `k` times the base size (relative, so it still scales) |
-| [`.strikethrough(s)`](https://daybrite.dev/api/day_pieces/struct.TextBuilder.html#method.strikethrough) | struck through |
-| [`.link(s, url)`](https://daybrite.dev/api/day_pieces/struct.TextBuilder.html#method.link) | drawn as a link (see below) |
+| [`.text(s)`](https://docs.rs/day-pieces/latest/day_pieces/struct.TextBuilder.html#method.text) | unstyled, at the base font |
+| [`.strong(s)`](https://docs.rs/day-pieces/latest/day_pieces/struct.TextBuilder.html#method.strong) | bold |
+| [`.emphasis(s)`](https://docs.rs/day-pieces/latest/day_pieces/struct.TextBuilder.html#method.emphasis) | italic |
+| [`.code(s)`](https://docs.rs/day-pieces/latest/day_pieces/struct.TextBuilder.html#method.code) | the fixed-pitch face |
+| [`.colored(s, c)`](https://docs.rs/day-pieces/latest/day_pieces/struct.TextBuilder.html#method.colored) | a color |
+| [`.underline(s)`](https://docs.rs/day-pieces/latest/day_pieces/struct.TextBuilder.html#method.underline) | underlined |
+| [`.highlight(s, c)`](https://docs.rs/day-pieces/latest/day_pieces/struct.TextBuilder.html#method.highlight) | a background, with a readable foreground over it |
+| [`.sized(s, k)`](https://docs.rs/day-pieces/latest/day_pieces/struct.TextBuilder.html#method.sized) | `k` times the base size (relative, so it still scales) |
+| [`.strikethrough(s)`](https://docs.rs/day-pieces/latest/day_pieces/struct.TextBuilder.html#method.strikethrough) | struck through |
+| [`.link(s, url)`](https://docs.rs/day-pieces/latest/day_pieces/struct.TextBuilder.html#method.link) | drawn as a link (see below) |
 
-[`.base(font)`](https://daybrite.dev/api/day_pieces/struct.TextBuilder.html#method.base) sets the font the runs vary from; without it, runs sit on the label's own font.
+[`.base(font)`](https://docs.rs/day-pieces/latest/day_pieces/struct.TextBuilder.html#method.base) sets the font the runs vary from; without it, runs sit on the label's own font.
 
 ## Toolkit implementations
 
@@ -141,9 +141,9 @@ Link activation is `Cap::TextLinks`, and it is narrower than rendering:
 | ArkUI | native `NODE_ON_CLICK` on each link's `SPAN` |
 
 Every one of these reports the target to the app rather than opening it itself, so a label's
-[`.on_link()`](https://daybrite.dev/api/day_pieces/trait.LabelBuilder.html#tymethod.on_link) decides. Its default calls [`open_link`](https://daybrite.dev/api/day_pieces/fn.open_link.html): a leading `#` navigates to the route after
-the hash, and other targets open through [`Toolkit::open_url`](https://daybrite.dev/api/day_spec/trait.Toolkit.html#method.open_url). This also applies to links made
-with [`TextBuilder::link`](https://daybrite.dev/api/day_pieces/struct.TextBuilder.html#method.link); see [markdown links](./text-runs.md#links) for the route contract and
+[`.on_link()`](https://docs.rs/day-pieces/latest/day_pieces/trait.LabelBuilder.html#tymethod.on_link) decides. Its default calls [`open_link`](https://docs.rs/day-pieces/latest/day_pieces/fn.open_link.html): a leading `#` navigates to the route after
+the hash, and other targets open through [`Toolkit::open_url`](https://docs.rs/day-spec/latest/day_spec/trait.Toolkit.html#method.open_url). This also applies to links made
+with [`TextBuilder::link`](https://docs.rs/day-pieces/latest/day_pieces/struct.TextBuilder.html#method.link); see [markdown links](./text-runs.md#links) for the route contract and
 custom-handler behavior. Where activation is missing the run still draws as a link; the tap does
 nothing.
 
@@ -175,15 +175,15 @@ markup with its tags stripped, and measuring it would size every run at the base
 proportional), so the fixed face comes from `<code>` instead.
 
 **A label with a link on iOS is a [`UITextView`](https://developer.apple.com/documentation/uikit/uitextview).** UIKit reserves both selection and link hit
-testing for text-input views, so [`.selectable()`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.selectable) rebuilds the label as a read-only text view, and
+testing for text-input views, so [`.selectable()`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.selectable) rebuilds the label as a read-only text view, and
 a label that arrives with a link run is built as one from the start. That swap carries the
 attributed text across rather than the plain string. A link that first appears in a later patch
 cannot upgrade the backing, since `patch` has no way to hand back a new handle: seed the text with
-its link, or mark the label [`.selectable()`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.selectable).
+its link, or mark the label [`.selectable()`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.selectable).
 
 ## Markdown
 
-Add emphasis, links, and inline code to labels with Markdown. The [`.markdown()`](https://daybrite.dev/api/day_pieces/trait.LabelBuilder.html#tymethod.markdown) modifier
+Add emphasis, links, and inline code to labels with Markdown. The [`.markdown()`](https://docs.rs/day-pieces/latest/day_pieces/trait.LabelBuilder.html#tymethod.markdown) modifier
 turns the label’s text into styled runs and updates them when that text changes.
 
 ```rust
@@ -192,7 +192,7 @@ label(res::str::release_note()).markdown()          // a translated string
 label(move || draft.get()).markdown()         // live, as the user types
 ```
 
-[`.markdown()`](https://daybrite.dev/api/day_pieces/trait.LabelBuilder.html#tymethod.markdown) reads a label's text as inline markdown: the markers are stripped and what they
+[`.markdown()`](https://docs.rs/day-pieces/latest/day_pieces/trait.LabelBuilder.html#tymethod.markdown) reads a label's text as inline markdown: the markers are stripped and what they
 marked becomes styled runs in the one label.
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
@@ -222,7 +222,7 @@ Anything unrecognized is text. An unclosed `**`, a stray `_` inside a word, or a
 string in a live editor from flickering between readings on every keystroke.
 
 **Block constructs are not parsed.** Headings, lists, quotes, tables and paragraph breaks are
-layout, and layout in Day is [`column`](https://daybrite.dev/api/day_pieces/fn.column.html), [`form`](https://daybrite.dev/api/day_pieces/fn.form.html), [`list`](https://daybrite.dev/api/day_pieces/fn.list.html). A label is one paragraph; this is the
+layout, and layout in Day is [`column`](https://docs.rs/day-pieces/latest/day_pieces/fn.column.html), [`form`](https://docs.rs/day-pieces/latest/day_pieces/fn.form.html), [`list`](https://docs.rs/day-pieces/latest/day_pieces/fn.list.html). A label is one paragraph; this is the
 markup that fits inside one.
 
 ### Links
@@ -235,18 +235,18 @@ label(res::str::terms_blurb()).markdown().on_link(|url| route(url)) // or handle
 label(res::str::navigation_links()).markdown()
 ```
 
-Without [`.on_link()`](https://daybrite.dev/api/day_pieces/trait.LabelBuilder.html#tymethod.on_link), a target beginning with `#` navigates to the route after the hash:
-`#settings` calls [`navigate("settings")`](https://daybrite.dev/api/day_pieces/fn.navigate.html). This uses the existing [navigation](./navigation.md)
+Without [`.on_link()`](https://docs.rs/day-pieces/latest/day_pieces/trait.LabelBuilder.html#tymethod.on_link), a target beginning with `#` navigates to the route after the hash:
+`#settings` calls [`navigate("settings")`](https://docs.rs/day-pieces/latest/day_pieces/fn.navigate.html). This uses the existing [navigation](./navigation.md)
 rules, including paths and query parameters (`#mail/inbox?filter=unread`), percent escapes,
 and the empty route (`#`, which pops the innermost stack to its root). Unknown routes are
 ignored; they never open externally. Other targets open in the platform's default handler,
 including URLs with a fragment such as `https://daybrite.dev/#docs`.
 
-The [`link`](./text.md) piece and [`TextBuilder::link`](https://daybrite.dev/api/day_pieces/struct.TextBuilder.html#method.link) use the same behavior. A custom
-[`.on_link()`](https://daybrite.dev/api/day_pieces/trait.LabelBuilder.html#tymethod.on_link) receives the original target and overrides both navigation and external opening.
-Call [`open_link(target)`](https://daybrite.dev/api/day_pieces/fn.open_link.html) from the handler to use the default for targets you do not handle.
+The [`link`](./text.md) piece and [`TextBuilder::link`](https://docs.rs/day-pieces/latest/day_pieces/struct.TextBuilder.html#method.link) use the same behavior. A custom
+[`.on_link()`](https://docs.rs/day-pieces/latest/day_pieces/trait.LabelBuilder.html#tymethod.on_link) receives the original target and overrides both navigation and external opening.
+Call [`open_link(target)`](https://docs.rs/day-pieces/latest/day_pieces/fn.open_link.html) from the handler to use the default for targets you do not handle.
 The route must belong to a registered navigation surface; a separate Settings window, for
-example, needs an app handler that calls [`day::open_preferences()`](https://daybrite.dev/api/day/fn.open_preferences.html).
+example, needs an app handler that calls [`day::open_preferences()`](https://docs.rs/day-app/latest/day/fn.open_preferences.html).
 
 Activation is `Cap::TextLinks`, which is narrower than run rendering. Where it is missing the
 link still draws; the tap does nothing. See [platform support](#toolkit-implementations) for the
@@ -254,7 +254,7 @@ per-toolkit table.
 
 ### Escaping user text
 
-[`.markdown()`](https://daybrite.dev/api/day_pieces/trait.LabelBuilder.html#tymethod.markdown) on a string a user supplied means their asterisks become emphasis. When the text is
+[`.markdown()`](https://docs.rs/day-pieces/latest/day_pieces/trait.LabelBuilder.html#tymethod.markdown) on a string a user supplied means their asterisks become emphasis. When the text is
 data rather than markup, leave the modifier off — a plain label never interprets anything.
 
 ## What `Cap` answers

@@ -23,7 +23,7 @@ on this crate directly.
 - [Reactive state](https://daybrite.dev/docs/explanation/reactivity/)
 - [State reference](https://daybrite.dev/docs/explanation/state/)
 - [Background work](https://daybrite.dev/docs/explanation/async/)
-- [Rust API](https://daybrite.dev/api/day_reactive/index.html)
+- [Rust API](https://docs.rs/day-reactive/latest/day_reactive/index.html)
 
 [Source](https://github.com/daybrite/day/tree/main/crates/day-reactive) ·
 [Contributing](https://daybrite.dev/contributing/setup/) · [MPL-2.0

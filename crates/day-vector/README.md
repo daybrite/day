@@ -23,7 +23,7 @@ the CLI. Direct use is useful for tools that need the underlying conversion func
 
 - [Vector resources](https://daybrite.dev/docs/reference/vectors/)
 - [Create app icons](https://daybrite.dev/docs/how-to/icons/)
-- [Rust API](https://daybrite.dev/api/day_vector/index.html)
+- [Rust API](https://docs.rs/day-vector/latest/day_vector/index.html)
 
 [Source](https://github.com/daybrite/day/tree/main/crates/day-vector) ·
 [Contributing](https://daybrite.dev/contributing/setup/) · [MPL-2.0

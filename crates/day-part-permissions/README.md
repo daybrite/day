@@ -16,11 +16,10 @@ app.
 
 ## Use
 
-Add this entry to your app’s `Cargo.toml`, at the same Day version as the rest of the app:
+Add it to your app:
 
-```toml
-[dependencies]
-day-part-permissions = "0.6"
+```sh
+cargo add day-part-permissions
 ```
 
 Day apps can also enable the `permissions` feature of
@@ -31,7 +30,7 @@ Day apps can also enable the `permissions` feature of
 - [Usage and platform limits](https://daybrite.dev/docs/reference/permissions/)
 - [Configure permissions](https://daybrite.dev/docs/how-to/guide-permissions/)
 - [Using platform services](https://daybrite.dev/docs/reference/parts/)
-- [Rust API](https://daybrite.dev/api/day_part_permissions/index.html)
+- [Rust API](https://docs.rs/day-part-permissions/latest/day_part_permissions/index.html)
 
 [Source](https://github.com/daybrite/day/tree/main/crates/day-part-permissions) ·
 [Contributing](https://daybrite.dev/contributing/setup/) · [MPL-2.0

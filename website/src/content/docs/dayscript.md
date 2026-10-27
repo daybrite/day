@@ -31,7 +31,7 @@ button(res::str::add_one())
     .id(id!(increment_button)),
 ```
 
-Keep these two pieces inside the existing [`column`](https://daybrite.dev/api/day_pieces/fn.column.html). Save this script as
+Keep these two pieces inside the existing [`column`](https://docs.rs/day-pieces/latest/day_pieces/fn.column.html). Save this script as
 `dayscript/counter.yaml`:
 
 ```yaml
@@ -327,8 +327,8 @@ action even if the app is killed. Because it's an ordinary dayscript, you replay
 day launch -t android-material --script recording.yaml
 ```
 
-Or record and replay inside the app. [`day::record::start_into(buffer)`](https://daybrite.dev/api/day/record/fn.start_into.html) streams the script into a
-`Signal<String>` you can bind a [`text_area`](https://daybrite.dev/api/day_pieces/fn.text_area.html) to; [`day::play_script(&yaml)`](https://daybrite.dev/api/day/fn.play_script.html) replays one in-process
+Or record and replay inside the app. [`day::record::start_into(buffer)`](https://docs.rs/day-app/latest/day/record/fn.start_into.html) streams the script into a
+`Signal<String>` you can bind a [`text_area`](https://docs.rs/day-pieces/latest/day_pieces/fn.text_area.html) to; [`day::play_script(&yaml)`](https://docs.rs/day-app/latest/day/fn.play_script.html) replays one in-process
 through the same engine `--script` drives. The showcase's **Scripting** page is a working example
 (Record, move around, Stop, edit, Play). `exclude_prefix` keeps a UI's own record and stop controls
 out of its recording.
@@ -339,7 +339,7 @@ is a starting point you edit rather than a pixel-exact replay.
 
 ### Logging actions without recording
 
-The same observer can log instead of capture. [`day::record::log_actions(true)`](https://daybrite.dev/api/day/record/fn.log_actions.html), or
+The same observer can log instead of capture. [`day::record::log_actions(true)`](https://docs.rs/day-app/latest/day/record/fn.log_actions.html), or
 `DAY_LOG_ACTIONS=1` on any Day app without a rebuild, echoes every action to stdout in the same
 vocabulary and keeps nothing:
 

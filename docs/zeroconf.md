@@ -18,15 +18,14 @@ chooses whether and how to connect.
 
 ## Add to your app
 
-Add [`day-part-zeroconf`](https://crates.io/crates/day-part-zeroconf) to your app’s Cargo dependencies:
+Add [`day-part-zeroconf`](https://crates.io/crates/day-part-zeroconf) to your app:
 
-```toml
-[dependencies]
-day-part-zeroconf = "0.1"
+```sh
+cargo add day-part-zeroconf
 ```
 
 [Crate](https://crates.io/crates/day-part-zeroconf) ·
-[API reference](https://docs.rs/day-part-zeroconf/0.1.0/day_part_zeroconf/) ·
+[API reference](https://docs.rs/day-part-zeroconf/latest/day_part_zeroconf/) ·
 [Source](https://github.com/daybrite/day-part-zeroconf).
 Use the [Day CLI](/docs/reference/cli) to include mobile bridge code and permission metadata.
 No toolkit feature is required. Native service libraries and app permissions are described below.
@@ -53,34 +52,34 @@ pub async fn first_http_service() -> Result<Option<Service>> {
 }
 ```
 
-[`browse()`](https://docs.rs/day-part-zeroconf/0.1.0/day_part_zeroconf/fn.browse.html)
-returns an [`Operation`](https://docs.rs/day-part-zeroconf/0.1.0/day_part_zeroconf/struct.Operation.html).
+[`browse()`](https://docs.rs/day-part-zeroconf/latest/day_part_zeroconf/fn.browse.html)
+returns an [`Operation`](https://docs.rs/day-part-zeroconf/latest/day_part_zeroconf/struct.Operation.html).
 Keep it alive for continuing updates. Dropping it requests cancellation; its
-[`cancellation()`](https://docs.rs/day-part-zeroconf/0.1.0/day_part_zeroconf/struct.Operation.html#method.cancellation)
+[`cancellation()`](https://docs.rs/day-part-zeroconf/latest/day_part_zeroconf/struct.Operation.html#method.cancellation)
 handle lets a UI action cancel without blocking. The synchronous
-[`recv_timeout()`](https://docs.rs/day-part-zeroconf/0.1.0/day_part_zeroconf/struct.Operation.html#method.recv_timeout)
-and joining [`stop()`](https://docs.rs/day-part-zeroconf/0.1.0/day_part_zeroconf/struct.Operation.html#method.stop)
+[`recv_timeout()`](https://docs.rs/day-part-zeroconf/latest/day_part_zeroconf/struct.Operation.html#method.recv_timeout)
+and joining [`stop()`](https://docs.rs/day-part-zeroconf/latest/day_part_zeroconf/struct.Operation.html#method.stop)
 belong on a worker thread.
 
 | Operation | Use |
 | --- | --- |
-| [`BrowseOptions::service(type)`](https://docs.rs/day-part-zeroconf/0.1.0/day_part_zeroconf/struct.BrowseOptions.html#method.service) | Browse a known `_name._tcp` or `_name._udp` service in the local domain. |
-| [`BrowseOptions::all()`](https://docs.rs/day-part-zeroconf/0.1.0/day_part_zeroconf/struct.BrowseOptions.html#method.all) | Enumerate types and browse them. An empty scan does not establish that no services exist. |
-| [`resolve(id)`](https://docs.rs/day-part-zeroconf/0.1.0/day_part_zeroconf/fn.resolve.html) | Resolve an identity already known to the app. |
-| [`advertise(service)`](https://docs.rs/day-part-zeroconf/0.1.0/day_part_zeroconf/fn.advertise.html) | Advertise an existing listener's port and attributes. It does not start a server. |
+| [`BrowseOptions::service(type)`](https://docs.rs/day-part-zeroconf/latest/day_part_zeroconf/struct.BrowseOptions.html#method.service) | Browse a known `_name._tcp` or `_name._udp` service in the local domain. |
+| [`BrowseOptions::all()`](https://docs.rs/day-part-zeroconf/latest/day_part_zeroconf/struct.BrowseOptions.html#method.all) | Enumerate types and browse them. An empty scan does not establish that no services exist. |
+| [`resolve(id)`](https://docs.rs/day-part-zeroconf/latest/day_part_zeroconf/fn.resolve.html) | Resolve an identity already known to the app. |
+| [`advertise(service)`](https://docs.rs/day-part-zeroconf/latest/day_part_zeroconf/fn.advertise.html) | Advertise an existing listener's port and attributes. It does not start a server. |
 
 ## Identity, updates, and TXT data
 
-A [`ServiceId`](https://docs.rs/day-part-zeroconf/0.1.0/day_part_zeroconf/struct.ServiceId.html)
+A [`ServiceId`](https://docs.rs/day-part-zeroconf/latest/day_part_zeroconf/struct.ServiceId.html)
 includes the name, type, domain, and interface. Keep the whole identity when updating a list:
 the same instance can appear on several interfaces. Resolved events can repeat as addresses
 arrive; a removed event invalidates that observation. Preserve scope IDs on IPv6 link-local
 addresses. A service name or TXT record is not proof of a peer's identity.
 
-[`TxtRecord`](https://docs.rs/day-part-zeroconf/0.1.0/day_part_zeroconf/struct.TxtRecord.html)
+[`TxtRecord`](https://docs.rs/day-part-zeroconf/latest/day_part_zeroconf/struct.TxtRecord.html)
 values are bytes. A key without a value differs from a key with an empty value. Publication
 rejects duplicate keys and limits each item to 255 bytes and the whole record to 1300 bytes.
-Check [`capabilities()`](https://docs.rs/day-part-zeroconf/0.1.0/day_part_zeroconf/fn.capabilities.html)
+Check [`capabilities()`](https://docs.rs/day-part-zeroconf/latest/day_part_zeroconf/fn.capabilities.html)
 for binary values, key-only values, and explicit interface selection. On event-queue overflow,
 stop the operation and restart with a narrower type.
 
@@ -105,7 +104,7 @@ also needs the network client/server entitlements appropriate to its operations.
 capability does not grant an entitlement or user permission.
 
 Android and HarmonyOS contribute network permissions through the crate's metadata. Check
-[`requires_explicit_permission()`](https://docs.rs/day-part-zeroconf/0.1.0/day_part_zeroconf/fn.requires_explicit_permission.html)
+[`requires_explicit_permission()`](https://docs.rs/day-part-zeroconf/latest/day_part_zeroconf/fn.requires_explicit_permission.html)
 and the [crate's host setup](https://github.com/daybrite/day-part-zeroconf/blob/main/docs/host-setup.md)
 for the additional runtime permission requirements of the selected OS and target SDK.
 

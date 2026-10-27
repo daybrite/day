@@ -22,8 +22,8 @@ Rust controls cfg/features, so offline lint does not reproduce Cargo's target ev
 `day lint` tokenizes macro calls to provide advisory shape-conflict diagnostics; it does not
 expand custom macros or evaluate cfg. The runtime catalog is authoritative for scripts.
 
-The full canonical locator remains the tree/accessibility/DOM identifier. [`.id`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.id) still names
-the semantic piece node independent of wrapper order; [`.wrapper_id`](https://daybrite.dev/api/day_pieces/struct.DocumentTabs.html#method.wrapper_id) explicitly names the
+The full canonical locator remains the tree/accessibility/DOM identifier. [`.id`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.id) still names
+the semantic piece node independent of wrapper order; [`.wrapper_id`](https://docs.rs/day-pieces/latest/day_pieces/struct.DocumentTabs.html#method.wrapper_id) explicitly names the
 current wrapper. IDs do not replace localized accessibility labels.
 
 ## Validation and limits

@@ -324,7 +324,7 @@ resolving Day 0.4.3 dependencies. Codex read the project instructions, changed a
 built and launched the app through MCP, passed a text assertion, inspected the returned screenshot,
 and stopped the app. The shell used the workspace-write sandbox; Day ran as a local MCP process.
 
-The test exposed a scaffold mismatch (`selector` had been renamed to [`nav`](https://daybrite.dev/api/day_pieces/fn.nav.html)), which Codex corrected
+The test exposed a scaffold mismatch (`selector` had been renamed to [`nav`](https://docs.rs/day-pieces/latest/day_pieces/fn.nav.html)), which Codex corrected
 in the test app. The first unattended attempt also required explicit MCP tool approval. These are
 separate from the transport connection, which worked without changes to Day’s MCP server.
 This verifies the edit–build–inspect workflow on macOS; it does not validate the weather example

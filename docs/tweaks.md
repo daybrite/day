@@ -88,7 +88,7 @@ the accessor hands you that widget's concrete class name:
 - **Typed tiers** (AppKit/UIKit/GTK) report the *live* widget's runtime class: objc
   `object_getClass` (`"NSSlider"`, `"UILabel"`), GTK's GType name (`"GtkScale"`). Because it reads
   the real object, it stays correct even when a piece has a **conditional backing**, which is no
-  longer hypothetical: a [`.selectable()`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.selectable) label on UIKit is realized as a read-only [`UITextView`](https://developer.apple.com/documentation/uikit/uitextview),
+  longer hypothetical: a [`.selectable()`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.selectable) label on UIKit is realized as a read-only [`UITextView`](https://developer.apple.com/documentation/uikit/uitextview),
   because [`UILabel`](https://developer.apple.com/documentation/uikit/uilabel) has no selection support to switch on ([docs/text](text.md)). The class tells you
   which one you got, and a `downcast_ref` you'd have guessed wrong is avoided:
 
@@ -113,7 +113,7 @@ kinds whose stored handle is a container rather than a single leaf widget.
 
 The native class behind a piece is **not part of Day's API**. Day picks the best class for the
 piece's current modifiers on each platform, and that choice can change with a modifier (a
-[`.selectable()`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.selectable) label on UIKit), with a platform version, or with a Day release. SwiftUI works
+[`.selectable()`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.selectable) label on UIKit), with a platform version, or with a Day release. SwiftUI works
 the same way underneath: when iOS 16 moved `List` from [`UITableView`](https://developer.apple.com/documentation/uikit/uitableview) to [`UICollectionView`](https://developer.apple.com/documentation/uikit/uicollectionview),
 hardcoded [`UITableView`](https://developer.apple.com/documentation/uikit/uitableview) casts stopped matching, and swiftui-introspect handles that with
 per-OS-version pins on every view type. Day owns realization, so the accessor reports the
@@ -124,10 +124,10 @@ and no version pinning is needed. Three rules keep a tweak on the right side of 
    `downcast_ref`) as in the example above. An unrecognized class must fall through to a no-op;
    that is also how a tweak stays quiet on a Day release that changes a backing.
 2. **Order tweaks after rebuilding modifiers.** Decorators run in chain order at mount, and
-   [`.selectable()`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.selectable) may *rebuild* the widget (UIKit). A tweak chained before it runs against the
+   [`.selectable()`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.selectable) may *rebuild* the widget (UIKit). A tweak chained before it runs against the
    widget the rebuild discards, and Day logs a warning when that happens; chained after, the tweak
    sees the widget that ships. When in doubt, tweaks go last in the chain. This ordering rule is
-   the tweak's alone: [`.id`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.id) names the piece's own node wherever it sits
+   the tweak's alone: [`.id`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.id) names the piece's own node wherever it sits
    ([docs/api-style](api-style.md) "Modifier classes"), so an id need not move to make room.
 3. **Prefer the widest surface that expresses the intent.** A mutation on the common superclass
    ([`UIView`](https://developer.apple.com/documentation/uikit/uiview)/[`NSView`](https://developer.apple.com/documentation/appkit/nsview) alpha, layers, tooltips) lands identically on every backing and survives a
@@ -190,8 +190,8 @@ extern "C" void my_ticks(void* w, const char* cls, int interval) {
 **WinUI.** `with_native_raw` hands you a *borrowed* ABI pointer via the shim's `day_xaml_unbox`
 function, plus the class. In your C++/WinRT (compiled with `cc`; mirror
 `crates/day-tweak-slider-tick-marks/build.rs`, which adds
-[`day_toolchain::winappsdk::shim_includes(&cppwinrt)`](https://daybrite.dev/api/day_toolchain/winappsdk/fn.shim_includes.html) and defines `DAY_WINUI` when
-[`day_toolchain::winappsdk::shim_is_winui()`](https://daybrite.dev/api/day_toolchain/winappsdk/fn.shim_is_winui.html)). For `windows-winui`, use `Microsoft.UI.Xaml`:
+[`day_toolchain::winappsdk::shim_includes(&cppwinrt)`](https://docs.rs/day-toolchain/latest/day_toolchain/winappsdk/fn.shim_includes.html) and defines `DAY_WINUI` when
+[`day_toolchain::winappsdk::shim_is_winui()`](https://docs.rs/day-toolchain/latest/day_toolchain/winappsdk/fn.shim_is_winui.html)). For `windows-winui`, use `Microsoft.UI.Xaml`:
 
 ```cpp
 #include <cstring>
@@ -215,15 +215,15 @@ The crate also declares a `winui` feature (`winui = ["xaml", "day-toolkit-winui/
 
 ## Rules
 
-- **Main thread only:** Tweaks run at mount (already on the main thread); [`NativeRef::with`](https://daybrite.dev/api/day_pieces/struct.NativeRef.html#method.with) from
+- **Main thread only:** Tweaks run at mount (already on the main thread); [`NativeRef::with`](https://docs.rs/day-pieces/latest/day_pieces/struct.NativeRef.html#method.with) from
   anywhere else is a checked no-op on Apple (`MainThreadMarker`) and undefined elsewhere; don't.
 - **Tweaks go last in the chain**, after any modifier that can rebuild the backing widget
-  (today [`.selectable()`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.selectable), see "Conditional backings" above). A tweak chained before the rebuild
+  (today [`.selectable()`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.selectable), see "Conditional backings" above). A tweak chained before the rebuild
   pokes a widget that gets discarded, and Day warns at runtime.
 - **Never destroy or reparent** the widget; Day owns its lifecycle. Don't hold raw pointers or
   handle clones past the call; hold a `NativeRef` and re-resolve.
 - **Never set a delegate or data source** on a widget Day drives. Day's object makes
-  the piece work ([`list`](https://daybrite.dev/api/day_pieces/fn.list.html) and the sidebar's [`NSOutlineView`](https://developer.apple.com/documentation/appkit/nsoutlineview) both install one), so replacing it
+  the piece work ([`list`](https://docs.rs/day-pieces/latest/day_pieces/fn.list.html) and the sidebar's [`NSOutlineView`](https://developer.apple.com/documentation/appkit/nsoutlineview) both install one), so replacing it
   tears the data out from under the piece. Pieces whose native widget decides things through a
   delegate expose those decisions as their own hooks instead (see
   [docs/tree](tree.md) for the worked example).
@@ -231,7 +231,7 @@ The crate also declares a `winui` feature (`winui = ["xaml", "day-toolkit-winui/
   frame, a11y) on its next patch of that node. Unmanaged properties (bezel styles, tick marks,
   selectability) are stable. If you must re-assert, do it from an `Effect` or event handler via
   `NativeRef`.
-- **Size changes need [`invalidate_size(node)`](https://daybrite.dev/api/day_core/fn.invalidate_size.html)**: Day cannot see native mutations it didn't make.
+- **Size changes need [`invalidate_size(node)`](https://docs.rs/day-core/latest/day_core/fn.invalidate_size.html)**: Day cannot see native mutations it didn't make.
 - **Document coverage:** a packaged tweak lists its per-toolkit coverage (and quirks like
   "Material sliders always snap when stepped"); where it has no coverage
   it must be a silent, safe no-op.
@@ -244,7 +244,7 @@ The crate also declares a `winui` feature (`winui = ["xaml", "day-toolkit-winui/
 handle type. The **class name** rides alongside with no new trait method: typed tiers introspect
 the downcast handle directly (objc `object_getClass`, GTK `type_().name()`), and raw tiers read the
 node's semantic kind from the same interface (`node_kind`) and map it to the native class Day realized
-for it. [`.tweak`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.tweak) is an ordinary decorator: build the piece, hand the node to the closure, by which
+for it. [`.tweak`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.tweak) is an ordinary decorator: build the piece, hand the node to the closure, by which
 point `realize` has already run. `NativeRef` is a `Cell<Option<RNode>>` plus a reactive `Trigger`,
 set at build and cleared by the piece's scope cleanup; slotmap generations make a stale node a
 clean `None` rather than a dangling pointer.

@@ -82,19 +82,6 @@ lessons:
 
           [lib]
           name = "dayapp"
-
-          [features]
-          default = ["mock"]
-          mock = ["day/mock"]
-          appkit = ["day/appkit"]
-          gtk = ["day/gtk"]
-          winui = ["day/winui"]
-
-          [dependencies]
-          day = { package = "day-app", version = "0.6" }
-
-          [build-dependencies]
-          day-build = "0.6"
       - id: manifest
         kind: file
         cwd: first-app
@@ -161,6 +148,27 @@ lessons:
           fn main() {
               day::launch(dayapp::res::window_options(), dayapp::root);
           }
+      - id: dependencies
+        kind: run
+        cwd: first-app
+        command: |
+          cargo add day-app --rename day
+          cargo add --build day-build
+        compatibility: dependencies
+      - id: features
+        kind: file
+        cwd: first-app
+        path: Cargo.toml
+        mode: append
+        language: toml
+        content: |
+
+          [features]
+          default = ["mock"]
+          mock = ["day/mock"]
+          appkit = ["day/appkit"]
+          gtk = ["day/gtk"]
+          winui = ["day/winui"]
       - id: host
         kind: run
         cwd: first-app

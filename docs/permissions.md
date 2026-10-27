@@ -17,11 +17,10 @@ capabilities and explanations required by each operating system.
 
 ## Add to your app
 
-Add [`day-part-permissions`](https://github.com/daybrite/day/tree/main/crates/day-part-permissions) to your app’s Cargo dependencies, using the same Day version as the rest of your app:
+Add [`day-part-permissions`](https://github.com/daybrite/day/tree/main/crates/day-part-permissions) to your app:
 
-```toml
-[dependencies]
-day-part-permissions = "0.6"
+```sh
+cargo add day-part-permissions
 ```
 
 The implementation is selected by the compilation target; no toolkit feature flags
@@ -98,14 +97,14 @@ if status(Permission::Camera) != Status::Granted {
 
 | Function | Answers |
 |---|---|
-| [`gate(perm) -> Gate`](https://daybrite.dev/api/day_part_permissions/fn.gate.html) | whether this target gates the capability at all |
-| [`status(perm) -> Status`](https://daybrite.dev/api/day_part_permissions/fn.status.html) | what the OS will do if you use it now (never blocks) |
-| [`status_async`](https://daybrite.dev/api/day_part_permissions/fn.status_async.html) / [`status_future`](https://daybrite.dev/api/day_part_permissions/fn.status_future.html) | the same, but authoritative where the platform is async |
-| [`can_prompt(perm) -> bool`](https://daybrite.dev/api/day_part_permissions/fn.can_prompt.html) | whether [`request`](https://daybrite.dev/api/day_part_permissions/fn.request.html) would show a dialog |
-| [`should_show_rationale(perm)`](https://daybrite.dev/api/day_part_permissions/fn.should_show_rationale.html) | Android's "explain first" signal; `false` elsewhere |
-| [`request`](https://daybrite.dev/api/day_part_permissions/fn.request.html) / [`request_future`](https://daybrite.dev/api/day_part_permissions/fn.request_future.html) | ask the OS |
-| [`request_many`](https://daybrite.dev/api/day_part_permissions/fn.request_many.html) / [`request_many_future`](https://daybrite.dev/api/day_part_permissions/fn.request_many_future.html) | ask for several in one prompt sequence |
-| [`open_settings(perm) -> bool`](https://daybrite.dev/api/day_part_permissions/fn.open_settings.html) | the remedy when the answer is already final |
+| [`gate(perm) -> Gate`](https://docs.rs/day-part-permissions/latest/day_part_permissions/fn.gate.html) | whether this target gates the capability at all |
+| [`status(perm) -> Status`](https://docs.rs/day-part-permissions/latest/day_part_permissions/fn.status.html) | what the OS will do if you use it now (never blocks) |
+| [`status_async`](https://docs.rs/day-part-permissions/latest/day_part_permissions/fn.status_async.html) / [`status_future`](https://docs.rs/day-part-permissions/latest/day_part_permissions/fn.status_future.html) | the same, but authoritative where the platform is async |
+| [`can_prompt(perm) -> bool`](https://docs.rs/day-part-permissions/latest/day_part_permissions/fn.can_prompt.html) | whether [`request`](https://docs.rs/day-part-permissions/latest/day_part_permissions/fn.request.html) would show a dialog |
+| [`should_show_rationale(perm)`](https://docs.rs/day-part-permissions/latest/day_part_permissions/fn.should_show_rationale.html) | Android's "explain first" signal; `false` elsewhere |
+| [`request`](https://docs.rs/day-part-permissions/latest/day_part_permissions/fn.request.html) / [`request_future`](https://docs.rs/day-part-permissions/latest/day_part_permissions/fn.request_future.html) | ask the OS |
+| [`request_many`](https://docs.rs/day-part-permissions/latest/day_part_permissions/fn.request_many.html) / [`request_many_future`](https://docs.rs/day-part-permissions/latest/day_part_permissions/fn.request_many_future.html) | ask for several in one prompt sequence |
+| [`open_settings(perm) -> bool`](https://docs.rs/day-part-permissions/latest/day_part_permissions/fn.open_settings.html) | the remedy when the answer is already final |
 
 The crate has no cargo features: platform selection is purely `#[cfg(target_os)]`, since consent
 depends on the OS, not on which widget toolkit is in use.
@@ -114,7 +113,7 @@ framework at all.
 
 ## Two questions, two vocabularies
 
-[`gate()`](https://daybrite.dev/api/day_part_permissions/fn.gate.html) answers a structural question and [`status()`](https://daybrite.dev/api/day_part_permissions/fn.status.html) a live one, and keeping them apart
+[`gate()`](https://docs.rs/day-part-permissions/latest/day_part_permissions/fn.gate.html) answers a structural question and [`status()`](https://docs.rs/day-part-permissions/latest/day_part_permissions/fn.status.html) a live one, and keeping them apart
 lets an ungated platform answer accurately:
 
 | `Gate` | meaning |
@@ -126,29 +125,29 @@ lets an ungated platform answer accurately:
 | `Status` | meaning |
 |---|---|
 | `Granted` | go ahead |
-| `Prompt` | nobody has decided; [`request`](https://daybrite.dev/api/day_part_permissions/fn.request.html) will show a dialog |
-| `Denied` | the user said no; [`can_prompt`](https://daybrite.dev/api/day_part_permissions/fn.can_prompt.html) says whether asking again can help |
+| `Prompt` | nobody has decided; [`request`](https://docs.rs/day-part-permissions/latest/day_part_permissions/fn.request.html) will show a dialog |
+| `Denied` | the user said no; [`can_prompt`](https://docs.rs/day-part-permissions/latest/day_part_permissions/fn.can_prompt.html) says whether asking again can help |
 | `Restricted` | policy forbids it, or it is missing from the merged manifest; neither asking nor Settings helps |
 | `Unsupported` | `Gate::Absent` |
 | `Unknown` | the platform answers only asynchronously and hasn't yet (web, and Apple notifications) |
 
-On desktop Linux the camera has no permission gate, so [`status`](https://daybrite.dev/api/day_part_permissions/fn.status.html) answers **`Granted`**: an app
+On desktop Linux the camera has no permission gate, so [`status`](https://docs.rs/day-part-permissions/latest/day_part_permissions/fn.status.html) answers **`Granted`**: an app
 asking "may I use the camera?" should proceed, and the real failure belongs at `open("/dev/video0")`.
-The structural fact moves to [`gate() == Ungated`](https://daybrite.dev/api/day_part_permissions/fn.gate.html). Two invariants are unit-tested:
+The structural fact moves to [`gate() == Ungated`](https://docs.rs/day-part-permissions/latest/day_part_permissions/fn.gate.html). Two invariants are unit-tested:
 `Ungated ⟹ Granted`, and `Absent ⟹ Unsupported`.
 
 `Granted` is not a promise that the hardware exists. A laptop with no camera still answers
 `Granted`, because no permission stands in the way; ask the capability's own part (e.g.
-[`day_part_sensors::is_available`](https://daybrite.dev/api/day_part_sensors/fn.is_available.html)) about hardware.
+[`day_part_sensors::is_available`](https://docs.rs/day-part-sensors/latest/day_part_sensors/fn.is_available.html)) about hardware.
 
 ## Reasons are not a runtime parameter
 
-[`request(perm, reason)`](https://daybrite.dev/api/day_part_permissions/fn.request.html) is the natural API guess, but no platform accepts a reason at request time.
+[`request(perm, reason)`](https://docs.rs/day-part-permissions/latest/day_part_permissions/fn.request.html) is the natural API guess, but no platform accepts a reason at request time.
 iOS and macOS read `NS…UsageDescription` from `Info.plist`; `requestPermissions(String[], int)` and
 `requestPermissionsFromUser(context, string[])` take no text, and neither does `getUserMedia` or
 `Notification.requestPermission`. The reason therefore lives in the declaration, where it reaches
 the OS, and the runtime hands your app the two bits it needs to draw its own priming UI:
-[`should_show_rationale`](https://daybrite.dev/api/day_part_permissions/fn.should_show_rationale.html) and [`can_prompt`](https://daybrite.dev/api/day_part_permissions/fn.can_prompt.html).
+[`should_show_rationale`](https://docs.rs/day-part-permissions/latest/day_part_permissions/fn.should_show_rationale.html) and [`can_prompt`](https://docs.rs/day-part-permissions/latest/day_part_permissions/fn.can_prompt.html).
 
 As a consequence, no user-facing string crosses this crate's boundary, so the layering rule that
 keeps `IntoText`/`LocalizedText` out of parts ([extension model](extending.md)) never has to be worked around.
@@ -168,11 +167,11 @@ Platform guidance: [Apple: privacy](https://developer.apple.com/design/human-int
 
 Two platform facts apply everywhere:
 
-- **[`request`](https://daybrite.dev/api/day_part_permissions/fn.request.html) is callback-and-future only; there is no blocking form.** The OS prompt is drawn by
+- **[`request`](https://docs.rs/day-part-permissions/latest/day_part_permissions/fn.request.html) is callback-and-future only; there is no blocking form.** The OS prompt is drawn by
   the very thread a blocking call would park, so it would deadlock by construction on every platform.
 - **Dropping a `StatusFuture` does not dismiss the prompt.** No platform can dismiss its own
   permission dialog programmatically. Dropping stops you listening; the user's answer is still
-  recorded, so the next [`status()`](https://daybrite.dev/api/day_part_permissions/fn.status.html) is correct. Aborting a [`day::task`](https://daybrite.dev/api/day/fn.task.html) that awaits one therefore
+  recorded, so the next [`status()`](https://docs.rs/day-part-permissions/latest/day_part_permissions/fn.status.html) is correct. Aborting a [`day::task`](https://docs.rs/day-app/latest/day/fn.task.html) that awaits one therefore
   leaves the dialog on screen.
 
 ### Android cannot tell "never asked" from "permanently denied"
@@ -180,7 +179,7 @@ Two platform facts apply everywhere:
 It cannot without app-side state, and **Day keeps none**. A denied-but-declared permission with no
 rationale flag is reported as `Prompt` either way. That is safe (asking after a permanent refusal
 shows no dialog and resolves `Denied` immediately), but if your app needs the distinction, record it
-yourself when you call [`request`](https://daybrite.dev/api/day_part_permissions/fn.request.html):
+yourself when you call [`request`](https://docs.rs/day-part-permissions/latest/day_part_permissions/fn.request.html):
 
 ```rust
 day_part_permissions::request(perm, move |s| {
@@ -212,7 +211,7 @@ unbundled aborts the process.
 | `biometrics` | `USE_BIOMETRIC` (install-time, no dialog) | [`NSFaceIDUsageDescription`](https://developer.apple.com/documentation/bundleresources/information-property-list/nsfaceidusagedescription) | none (Touch ID and the account password need no key) | `ACCESS_BIOMETRIC` (granted at install) |
 
 `screen-privacy = true` is how a HarmonyOS app opts into content protection
-([`WindowHandle::set_content_protected`](https://daybrite.dev/api/day_core/windows/struct.WindowHandle.html#method.set_content_protected), [docs/windows](windows.md)): the window's privacy mode needs this
+([`WindowHandle::set_content_protected`](https://docs.rs/day-core/latest/day_core/windows/struct.WindowHandle.html#method.set_content_protected), [docs/windows](windows.md)): the window's privacy mode needs this
 permission, and `Cap::ContentProtection` answers `Native` there only when the app declared it. No
 other platform needs a permission for it, and nothing prompts, so it takes no reason.
 
@@ -285,7 +284,7 @@ Day.toml is a **hard build error** on iOS and HarmonyOS, naming the crate and th
 
 A dayscript drives Day's own views and nothing else; the consent dialog is the system's window,
 out of its reach ([docs/testing](testing.md)), so a walkthrough that needs the camera or the
-microphone stops at the first [`request`](https://daybrite.dev/api/day_part_permissions/fn.request.html). Rather than drive the prompt, avoid it:
+microphone stops at the first [`request`](https://docs.rs/day-part-permissions/latest/day_part_permissions/fn.request.html). Rather than drive the prompt, avoid it:
 
 ```sh
 day launch -t android-material --grant camera --script dayscript/capture.yaml
@@ -295,7 +294,7 @@ day launch -t android-material --grant camera --script dayscript/capture.yaml
 the device between the install and the start, with the platform's own tool: `pm grant` for
 each Android runtime permission the name maps to (minus any whose `maxSdkVersion` the device
 has passed, which the installed app never requested), and `simctl privacy grant` for the iOS
-Simulator's service. The app's first [`status`](https://daybrite.dev/api/day_part_permissions/fn.status.html) then reads `Granted`, and a reinstall of the same
+Simulator's service. The app's first [`status`](https://docs.rs/day-part-permissions/latest/day_part_permissions/fn.status.html) then reads `Granted`, and a reinstall of the same
 build keeps the marks.
 
 Where no tool exists the flag is refused before anything is built, since a grant that quietly

@@ -16,22 +16,21 @@ also consider [sound](/docs/reference/sound) and [accessibility](/docs/reference
 
 ## Add to your app
 
-Add [`day-part-speech`](https://crates.io/crates/day-part-speech) to your app’s Cargo dependencies:
+Add [`day-part-speech`](https://crates.io/crates/day-part-speech) to your app:
 
-```toml
-[dependencies]
-day-part-speech = "0.4.2"
+```sh
+cargo add day-part-speech
 ```
 
 Build with the [Day CLI](/docs/reference/cli) so its native bridge code is packaged. This
 [part](/docs/reference/parts) needs no toolkit feature or extra `Day.toml` entry.
-[API reference](https://docs.rs/day-part-speech/0.4.2/day_part_speech/) ·
+[API reference](https://docs.rs/day-part-speech/latest/day_part_speech/) ·
 [Source](https://github.com/daybrite/day-part-speech).
 
 ## Speak and observe completion
 
 This helper accepts text from the caller and returns the utterance's outcome. Call it from a
-UI action under [`day::task`](https://daybrite.dev/api/day/fn.task.html).
+UI action under [`day::task`](https://docs.rs/day-app/latest/day/fn.task.html).
 For app-authored announcements, format a generated `res::str` message before passing it in;
 user-supplied text can be passed directly.
 
@@ -45,20 +44,20 @@ pub async fn read_aloud(text: String) -> Result<SpeechEnd, Error> {
 
 | Entry point | Behavior |
 | --- | --- |
-| [`available()`](https://docs.rs/day-part-speech/0.4.2/day_part_speech/fn.available.html) | Reports `Native`, `Emulated`, or `Unsupported` for the host. |
-| [`speak(text)`](https://docs.rs/day-part-speech/0.4.2/day_part_speech/fn.speak.html) | Accepts an utterance and interrupts the previous one; success does not mean playback finished. |
-| [`speak_future(text)`](https://docs.rs/day-part-speech/0.4.2/day_part_speech/fn.speak_future.html) | Resolves when the engine reports completion, interruption, or failure. |
-| [`speak_until_done(text, callback)`](https://docs.rs/day-part-speech/0.4.2/day_part_speech/fn.speak_until_done.html) | Calls the callback once, including when the initial request fails. The callback may run on an engine thread. |
-| [`stop()`](https://docs.rs/day-part-speech/0.4.2/day_part_speech/fn.stop.html) | Stops the current utterance; does nothing when speech is unavailable. |
+| [`available()`](https://docs.rs/day-part-speech/latest/day_part_speech/fn.available.html) | Reports `Native`, `Emulated`, or `Unsupported` for the host. |
+| [`speak(text)`](https://docs.rs/day-part-speech/latest/day_part_speech/fn.speak.html) | Accepts an utterance and interrupts the previous one; success does not mean playback finished. |
+| [`speak_future(text)`](https://docs.rs/day-part-speech/latest/day_part_speech/fn.speak_future.html) | Resolves when the engine reports completion, interruption, or failure. |
+| [`speak_until_done(text, callback)`](https://docs.rs/day-part-speech/latest/day_part_speech/fn.speak_until_done.html) | Calls the callback once, including when the initial request fails. The callback may run on an engine thread. |
+| [`stop()`](https://docs.rs/day-part-speech/latest/day_part_speech/fn.stop.html) | Stops the current utterance; does nothing when speech is unavailable. |
 
-[`SpeechEnd`](https://docs.rs/day-part-speech/0.4.2/day_part_speech/enum.SpeechEnd.html)
+[`SpeechEnd`](https://docs.rs/day-part-speech/latest/day_part_speech/enum.SpeechEnd.html)
 distinguishes finished playback, interruption, and an accepted utterance whose completion the
 engine cannot observe. Starting another utterance replaces the current one; this API does not
 provide an app-owned queue. Dropping the future stops observing it but does not stop the voice.
 Stop playback explicitly when that is the intended behavior on navigation or cancellation.
 
 Prefer the future form for UI code. If using the callback form, send data through a
-[`Setter`](https://daybrite.dev/api/day_reactive/struct.Setter.html) and format localized
+[`Setter`](https://docs.rs/day-reactive/latest/day_reactive/struct.Setter.html) and format localized
 messages on the UI thread. See [async ownership](/docs/explanation/async).
 
 ## Platform support

@@ -87,6 +87,11 @@ pub use day_spec::applications::{
 /// this is how an app asks for it. For derived files an app can rebuild: rendered documents,
 /// thumbnails, export staging.
 pub use day_spec::present::app_temp_dir;
+/// The app's own data, cache and configuration directories, each a folder named after the app
+/// id where its platform keeps that kind of file (docs/fs.md "Where files live"):
+/// `day::storage::data_dir()` for a database or documents, `cache_dir()` for what can be fetched
+/// again, `config_dir()` for a small settings file.
+pub use day_spec::storage;
 pub use day_spec::{
     BitmapId, BitmapInfo, EncodeSpec, ImageError, ImageFormat, ImageProperties, ImageSource,
 };

@@ -19,9 +19,8 @@ Day apps normally use the default-enabled `prefs` feature of
 [`day`](https://github.com/daybrite/day/tree/main/crates/day); a separate dependency is optional.
 For direct use:
 
-```toml
-[dependencies]
-day-part-preferences = "0.6"
+```sh
+cargo add day-part-preferences
 ```
 
 ## Documentation
@@ -29,7 +28,7 @@ day-part-preferences = "0.6"
 - [Usage and platform limits](https://daybrite.dev/docs/reference/prefs/)
 - [Choose app storage](https://daybrite.dev/docs/how-to/guide-storage/)
 - [Using platform services](https://daybrite.dev/docs/reference/parts/)
-- [Rust API](https://daybrite.dev/api/day_part_preferences/index.html)
+- [Rust API](https://docs.rs/day-part-preferences/latest/day_part_preferences/index.html)
 
 [Source](https://github.com/daybrite/day/tree/main/crates/day-part-preferences) ·
 [Contributing](https://daybrite.dev/contributing/setup/) · [MPL-2.0

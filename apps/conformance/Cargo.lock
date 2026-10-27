@@ -355,6 +355,7 @@ dependencies = [
  "day-core",
  "day-platform-android",
  "day-reactive",
+ "day-spec",
  "log",
  "objc2",
  "objc2-foundation",

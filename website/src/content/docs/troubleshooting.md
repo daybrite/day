@@ -356,7 +356,7 @@ These emulator failures have specific causes:
   Older versions of `day` re-added the dayscript forward on every drive; hdc refuses a duplicate
   with `[Fail]TCP Port listen failed`, and `day` recycled the hdc server in response, which
   dropped every forward and ended the launch's log stream. Update `day`, then relaunch.
-- **The network status reading is unavailable on the emulator.** [`day_part_connectivity::status()`](https://daybrite.dev/api/day_part_connectivity/fn.status.html)
+- **The network status reading is unavailable on the emulator.** [`day_part_connectivity::status()`](https://docs.rs/day-part-connectivity/latest/day_part_connectivity/fn.status.html)
   returns `None`, and Day-Showcase reads "Connectivity unavailable". The device log (`hdc shell
   hilog -x`) shows `IPCObjectStub: OnRemoteRequest: unknown code:12 desc:*.INetConnService`
   at the same moment. The emulator image's network-management service does not answer the
@@ -417,7 +417,7 @@ placeholder on a desktop target may mean its optional engine was not included; s
 [web view requirements](/docs/reference/system-requirements#optional-web-views). Camera and other protected
 features may also need [permission configuration](/docs/how-to/guide-permissions).
 
-Two [`.searchable()`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.searchable) symptoms come from older Day releases and are fixed by updating `day` and the
+Two [`.searchable()`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.searchable) symptoms come from older Day releases and are fixed by updating `day` and the
 app's Day dependency:
 
 - **The toolbar search field loses focus after one letter, or clearing it leaves the list
@@ -459,7 +459,7 @@ again) gives the app the GPU.
 [`day-part-sound`](/docs/reference/sound) reaches the sound server through libpulse, which serves PulseAudio and
 PipeWire alike. Three things can leave it silent:
 
-- **libpulse is not installed.** [`day_part_sound::is_supported()`](https://daybrite.dev/api/day_part_sound/fn.is_supported.html) is false. This is usual in a
+- **libpulse is not installed.** [`day_part_sound::is_supported()`](https://docs.rs/day-part-sound/latest/day_part_sound/fn.is_supported.html) is false. This is usual in a
   minimal container. Install `libpulse0` (Debian, Ubuntu) or `pulseaudio-libs` (Fedora).
 - **No sound server is running.** The library loads but nothing answers, which is the case on
   a CI runner. `pactl info` reports the server when there is one. On a PipeWire desktop the
@@ -502,9 +502,9 @@ newly created app fails too; that helps distinguish machine setup from a project
 | --- | --- |
 | A label stays at its initial value | Pass a signal or tracked closure instead of a value read during construction |
 | Read of disposed signal | Move shared state above the page/window scope or cancel the callback that outlives it |
-| `Signal` fails a `Send` bound | Use `Setter` for worker delivery; [`on_main`](https://daybrite.dev/api/day_reactive/fn.on_main.html) also requires a `Send` closure |
+| `Signal` fails a `Send` bound | Use `Setter` for worker delivery; [`on_main`](https://docs.rs/day-reactive/latest/day_reactive/fn.on_main.html) also requires a `Send` closure |
 | A request succeeds but returns an error page | Check `Response::status`; HTTP 4xx/5xx are responses, not transport failures |
-| Leaving a page does not stop work | [`day::task`](https://daybrite.dev/api/day/fn.task.html) is not scope-owned; abort its handle or use a `Resource` |
+| Leaving a page does not stop work | [`day::task`](https://docs.rs/day-app/latest/day/fn.task.html) is not scope-owned; abort its handle or use a `Resource` |
 | Permission status is `Unknown` | Await `status_future` instead of relying on the first synchronous cache read |
 | A generated resource name exists but loading fails | Check staging and runtime resource availability separately from code generation |
 

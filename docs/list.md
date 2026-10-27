@@ -11,18 +11,18 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 # Lists
 
-Display large collections as scrollable rows without building every row at once. A [`list`](https://daybrite.dev/api/day_pieces/fn.list.html)
+Display large collections as scrollable rows without building every row at once. A [`list`](https://docs.rs/day-pieces/latest/day_pieces/fn.list.html)
 reuses native cells as they enter and leave the viewport.
 
-[`list`](https://daybrite.dev/api/day_pieces/fn.list.html) drives the platform's recycling list ([`NSTableView`](https://developer.apple.com/documentation/appkit/nstableview) / [`UITableView`](https://developer.apple.com/documentation/uikit/uitableview) /
+[`list`](https://docs.rs/day-pieces/latest/day_pieces/fn.list.html) drives the platform's recycling list ([`NSTableView`](https://developer.apple.com/documentation/appkit/nstableview) / [`UITableView`](https://developer.apple.com/documentation/uikit/uitableview) /
 [`RecyclerView`](https://developer.android.com/reference/androidx/recyclerview/widget/RecyclerView) / [`GtkListView`](https://docs.gtk.org/gtk4/class.ListView.html) / [`QListView`](https://doc.qt.io/qt-6/qlistview.html) / WinUI [`ItemsRepeater`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.itemsrepeater)), so large collections get native
 virtualization, scroll physics, and platform behaviors. It is the one place Day's
 build-once model meets cell reuse, and the resolution is the same model: a row subtree is
 built once per physical cell and *rebound* (a single slot-write into its `ItemSlot`) every
 time that cell is recycled for a new item.
 
-Contrast with [`each`](../crates/day-pieces): [`each`](https://daybrite.dev/api/day_pieces/fn.each.html) builds every row eagerly under one
-anchor (fine for a dozen items; ten thousand would all be built up front). [`list`](https://daybrite.dev/api/day_pieces/fn.list.html) builds only
+Contrast with [`each`](../crates/day-pieces): [`each`](https://docs.rs/day-pieces/latest/day_pieces/fn.each.html) builds every row eagerly under one
+anchor (fine for a dozen items; ten thousand would all be built up front). [`list`](https://docs.rs/day-pieces/latest/day_pieces/fn.list.html) builds only
 the rows the native widget currently shows.
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
@@ -47,10 +47,10 @@ own context menu. Action callbacks validate the row token and cell generation be
 `list-shrink-and-regrow` checks emptying and repopulating a scrolled list. Run them with the
 other list cases using `day test --project apps/conformance -t windows-winui 'list-*'`.
 
-[`list(source, row)`](https://daybrite.dev/api/day_pieces/fn.list.html) and [`each(source, row)`](https://daybrite.dev/api/day_pieces/fn.each.html) take a **`RowSource`** (where the rows come from)
+[`list(source, row)`](https://docs.rs/day-pieces/latest/day_pieces/fn.list.html) and [`each(source, row)`](https://docs.rs/day-pieces/latest/day_pieces/fn.each.html) take a **`RowSource`** (where the rows come from)
 and one row builder. Two sources ship:
 
-**Plain data**: an items closure and a key function, wrapped in [`items(…)`](https://daybrite.dev/api/day_pieces/fn.items.html):
+**Plain data**: an items closure and a key function, wrapped in [`items(…)`](https://docs.rs/day-pieces/latest/day_pieces/fn.items.html):
 
 ```rust
 list(
@@ -69,12 +69,12 @@ list(
 ```
 
 > [!TIP]
-> **A recycled row needs a reactive ID.** Use [`.id_of`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.id_of)`(move || id!(message_row, row`[`.key`](https://daybrite.dev/api/day_pieces/struct.ItemSlot.html#method.key)`()))`
-> so the ID follows the item occupying the cell. An eager [`.id`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.id)`(id!(message_row, row`[`.key`](https://daybrite.dev/api/day_pieces/struct.ItemSlot.html#method.key)`()))`
+> **A recycled row needs a reactive ID.** Use [`.id_of`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.id_of)`(move || id!(message_row, row`[`.key`](https://docs.rs/day-pieces/latest/day_pieces/struct.ItemSlot.html#method.key)`()))`
+> so the ID follows the item occupying the cell. An eager [`.id`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.id)`(id!(message_row, row`[`.key`](https://docs.rs/day-pieces/latest/day_pieces/struct.ItemSlot.html#method.key)`()))`
 > would retain its first item's ID. Sender names and message previews are user content;
 > app-owned actions and empty states belong in the [Fluent catalog](/docs/how-to/localization).
 
-The row builder receives an `ItemSlot<T, K>` (Copy handle, tracked [`get()`](https://daybrite.dev/api/day_pieces/struct.ItemSlot.html#method.get), memoised [`field()`](https://daybrite.dev/api/day_pieces/struct.ItemSlot.html#method.field)
+The row builder receives an `ItemSlot<T, K>` (Copy handle, tracked [`get()`](https://docs.rs/day-pieces/latest/day_pieces/struct.ItemSlot.html#method.get), memoised [`field()`](https://docs.rs/day-pieces/latest/day_pieces/struct.ItemSlot.html#method.field)
 projections). Because cells are recycled, the builder must read through the slot rather than
 move the item in, so a surviving cell can be fed a new `&T` with one write.
 
@@ -100,9 +100,9 @@ projection reads re-runs only the projection; and a cell scrolled
 across the whole collection leaves no observation claims behind
 (`day-pieces/tests/model_rows.rs` measures all three).
 
-Builder options: [`.row_height(RowHeight)`](https://daybrite.dev/api/day_pieces/trait.ListBuilder.html#tymethod.row_height), [`.on_select(Fn(Ref))`](https://daybrite.dev/api/day_pieces/trait.ListBuilder.html#tymethod.on_select) (the key for a plain source,
-the row's `Elem` for a store source), [`.multi_select()`](https://daybrite.dev/api/day_pieces/trait.ListBuilder.html#tymethod.multi_select), [`.on_selection(Fn(Vec<Ref>))`](https://daybrite.dev/api/day_pieces/trait.ListBuilder.html#tymethod.on_selection),
-[`.selected_rows(Fn() -> Vec<usize>)`](https://daybrite.dev/api/day_pieces/trait.ListBuilder.html#tymethod.selected_rows), [`.selection(binding)`](https://daybrite.dev/api/day_pieces/trait.ListBuilder.html#tymethod.selection) (store sources, below), and
+Builder options: [`.row_height(RowHeight)`](https://docs.rs/day-pieces/latest/day_pieces/trait.ListBuilder.html#tymethod.row_height), [`.on_select(Fn(Ref))`](https://docs.rs/day-pieces/latest/day_pieces/trait.ListBuilder.html#tymethod.on_select) (the key for a plain source,
+the row's `Elem` for a store source), [`.multi_select()`](https://docs.rs/day-pieces/latest/day_pieces/trait.ListBuilder.html#tymethod.multi_select), [`.on_selection(Fn(Vec<Ref>))`](https://docs.rs/day-pieces/latest/day_pieces/trait.ListBuilder.html#tymethod.on_selection),
+[`.selected_rows(Fn() -> Vec<usize>)`](https://docs.rs/day-pieces/latest/day_pieces/trait.ListBuilder.html#tymethod.selected_rows), [`.selection(binding)`](https://docs.rs/day-pieces/latest/day_pieces/trait.ListBuilder.html#tymethod.selection) (store sources, below), and
 (reserved, unshipped) `.row_kind` mapping to native reuse pools.
 
 ### Asynchronous row images
@@ -118,7 +118,7 @@ result with the requested URL or item key. Check that identity before displaying
 an older request must not populate a newer row. Clear or replace the previous pixels before
 waiting for the network, and dispose the task with the row's scope.
 
-A two-axis [`.frame(width, height)`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.frame) keeps rows stable while loading. It is a measurement
+A two-axis [`.frame(width, height)`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.frame) keeps rows stable while loading. It is a measurement
 boundary, not a placement barrier: both image-source updates and conditional children inside
 it are laid out when they change, including in detached native list and tree cells.
 List cells parked by `recycle` retain their contents and pending layout dirt, but skip both
@@ -140,19 +140,19 @@ list(items(move || messages.get(), |m| m.id), row_builder)
 follow.notify();
 ```
 
-- [`.scroll_to_end(Trigger)`](https://daybrite.dev/api/day_pieces/trait.ListBuilder.html#tymethod.scroll_to_end): a [`watch`](https://daybrite.dev/api/day_reactive/fn.watch.html) on the trigger applies a new `ListPatch::ScrollToEnd`, which
+- [`.scroll_to_end(Trigger)`](https://docs.rs/day-pieces/latest/day_pieces/trait.ListBuilder.html#tymethod.scroll_to_end): a [`watch`](https://docs.rs/day-reactive/latest/day_reactive/fn.watch.html) on the trigger applies a new `ListPatch::ScrollToEnd`, which
   each toolkit maps to its native "make the last row visible" call
   ([`NSTableView::scrollRowToVisible`](https://developer.apple.com/documentation/appkit/nstableview) · [`UITableView::scrollToRowAtIndexPath(.bottom)`](https://developer.apple.com/documentation/uikit/uitableview) ·
   [`GtkScrolledWindow`](https://docs.gtk.org/gtk4/class.ScrolledWindow.html) vadjustment→max · [`QScrollArea`](https://doc.qt.io/qt-6/qscrollarea.html) scrollbar→max ·
   `ListView::smoothScrollToPosition`). day-core guards the
   empty-list case (no patch is sent), and building the list never auto-scrolls.
-- [`.stick_to_bottom()`](https://daybrite.dev/api/day_pieces/trait.ListBuilder.html#tymethod.stick_to_bottom): best-effort convenience that scrolls to the end after each data reload.
+- [`.stick_to_bottom()`](https://docs.rs/day-pieces/latest/day_pieces/trait.ListBuilder.html#tymethod.stick_to_bottom): best-effort convenience that scrolls to the end after each data reload.
   It does not check whether the user is already near the bottom (no cross-toolkit scroll-position
-  read exists yet); for that finer behavior drive [`scroll_to_end`](https://daybrite.dev/api/day_pieces/trait.ListBuilder.html#tymethod.scroll_to_end) from your own logic instead.
+  read exists yet); for that finer behavior drive [`scroll_to_end`](https://docs.rs/day-pieces/latest/day_pieces/trait.ListBuilder.html#tymethod.scroll_to_end) from your own logic instead.
 
 ### Sections
 
-[`.sections(key, header)`](https://daybrite.dev/api/day_pieces/trait.ListBuilder.html#tymethod.sections)
+[`.sections(key, header)`](https://docs.rs/day-pieces/latest/day_pieces/trait.ListBuilder.html#tymethod.sections)
 groups the rows under section headers. `key` runs with each row index when the rows change and
 names that row's section. A header starts every run of rows with the same key, so sort the rows
 by section first. `header` builds the header from the slot of the section's first row, the same
@@ -174,13 +174,13 @@ header pushes it up.
 - Row indices everywhere count rows only: selection reports, `selected_rows`, `scroll_to_row`,
   swipe offers, `first_visible_row` and dayscript's `select`, `swipe_row`, `reorder` and
   `delete_row`.
-- A header sizes to its content, even in a [`Uniform`](https://daybrite.dev/api/day_spec/props/enum.RowHeight.html)
+- A header sizes to its content, even in a [`Uniform`](https://docs.rs/day-spec/latest/day_spec/props/enum.RowHeight.html)
   list, and takes the platform's side insets but not its vertical insets or minimum row height.
 - A row drags only within its own section, the rule
   [`UITableView`](https://developer.apple.com/documentation/uikit/uitableviewdelegate/tableview(_:targetindexpathformoveatindexpath:toproposedindexpath:))
   apps follow for grouped tables. A header never lifts, and a drop past either end of the row's
   section lands at that end, through the same retarget the
-  [`reorderable`](https://daybrite.dev/api/day_pieces/trait.ListBuilder.html#tymethod.reorderable)
+  [`reorderable`](https://docs.rs/day-pieces/latest/day_pieces/trait.ListBuilder.html#tymethod.reorderable)
   guard uses. The guard sees row indices, and dayscript's `reorder` keeps to the same rule. A
   move between sections is a change to the row's data: update its section key, and the list
   regroups.
@@ -212,7 +212,7 @@ toolkit needs no section logic beyond drawing headers and keeping them out of se
 
 ### First visible row
 
-[`.first_visible_row(Signal<usize>)`](https://daybrite.dev/api/day_pieces/trait.ListBuilder.html#tymethod.first_visible_row)
+[`.first_visible_row(Signal<usize>)`](https://docs.rs/day-pieces/latest/day_pieces/trait.ListBuilder.html#tymethod.first_visible_row)
 receives the first actually visible row, excluding overscan and counting rows only (a header
 reports its section's first row). It is opt-in and event-driven: native callbacks enqueue a
 deduplicated report, and the event pump updates the signal when the tree is available (a report
@@ -254,8 +254,8 @@ Toolkit-specific selection, swipe, and reorder behavior is described with each f
 
 A row reads at the platform's size without the app padding it. day-core lays each row inside
 the margins the toolkit's own list gives a row and keeps it at least that list's row height,
-content centered ([`Toolkit::list_row_metrics`](https://daybrite.dev/api/day_spec/trait.Toolkit.html#method.list_row_metrics), asked of the list when a cell is first used), so
-a row piece holds only its content: [`row((icon, label))`](https://daybrite.dev/api/day_pieces/fn.row.html), not [`row`](https://daybrite.dev/api/day_pieces/fn.row.html)`(..)`[`.padding`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.padding)`(..)`.
+content centered ([`Toolkit::list_row_metrics`](https://docs.rs/day-spec/latest/day_spec/trait.Toolkit.html#method.list_row_metrics), asked of the list when a cell is first used), so
+a row piece holds only its content: [`row((icon, label))`](https://docs.rs/day-pieces/latest/day_pieces/fn.row.html), not [`row`](https://docs.rs/day-pieces/latest/day_pieces/fn.row.html)`(..)`[`.padding`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.padding)`(..)`.
 
 | Toolkit | Margins (top, sides) | Minimum height | Source |
 |---|---|---|---|
@@ -273,7 +273,7 @@ or, where the row is too short for them, centered in the whole row.
 
 ## List items
 
-[`list_item(title)`](https://daybrite.dev/api/day_pieces/fn.list_item.html) is a row's standard content drawn as the platform draws its own list rows:
+[`list_item(title)`](https://docs.rs/day-pieces/latest/day_pieces/fn.list_item.html) is a row's standard content drawn as the platform draws its own list rows:
 a leading icon, the title, an optional subtitle and trailing detail, and a check mark. Every part
 takes a constant, a signal or a closure, and changes in place, so a recycled row follows its item.
 
@@ -297,7 +297,7 @@ row takes the platform's fonts, icon size, spacing, secondary colors and check m
 | Android | a Material 3 list item (`DayListItem`): 24dp leading icon, body-large headline, body-medium supporting text, label-small trailing text, a primary-colored check; 56dp, 72dp with a supporting line |
 | AppKit | an image-and-text table cell's parts: a 16pt template image, the system font, a smaller secondary subtitle, the accent checkmark; at least 28pt |
 | GTK | a row box: a 16px icon, the title over a dim caption, a dim value, `object-select-symbolic` in the accent color; at least 44px |
-| Qt, web, ArkUI, WinUI | composed from [`vector`](https://daybrite.dev/api/day_pieces/fn.vector.html), [`label`](https://daybrite.dev/api/day_pieces/fn.label.html) and [`image`](https://daybrite.dev/api/day_pieces/fn.image.html) with the same parts |
+| Qt, web, ArkUI, WinUI | composed from [`vector`](https://docs.rs/day-pieces/latest/day_pieces/fn.vector.html), [`label`](https://docs.rs/day-pieces/latest/day_pieces/fn.label.html) and [`image`](https://docs.rs/day-pieces/latest/day_pieces/fn.image.html) with the same parts |
 
 A native list item is the platform's whole row (`Flex::whole_row`): the list gives it the side
 margins from the table above, which line up with the separators, and the item sizes its own
@@ -335,7 +335,7 @@ OpenHarmony 7.0 phone emulator.
 
 ### A text size change while the app runs
 
-[`day_core::note_text_size_changed()`](https://daybrite.dev/api/day_core/fn.note_text_size_changed.html) forgets every measurement Day holds and re-lays every
+[`day_core::note_text_size_changed()`](https://docs.rs/day-core/latest/day_core/fn.note_text_size_changed.html) forgets every measurement Day holds and re-lays every
 bound row, so labels everywhere, and content-sized rows with them, take the new size. UIKit
 calls it after `UIContentSizeCategoryDidChangeNotification`, and again when a page that was
 off screen then (another tab) is shown with the new size in its traits. Android recreates the
@@ -347,28 +347,28 @@ new size applies from the next launch.
 
 Rows report selection through two events: `Event::SelectionChanged(row)` (single) and, in
 multi-select mode, `Event::SelectionSet(rows)`, the full set of selected indices on every
-change. [`.on_selection(Fn(Vec<K>))`](https://daybrite.dev/api/day_pieces/trait.ListBuilder.html#tymethod.on_selection) receives the selected keys either way (a single-selection
+change. [`.on_selection(Fn(Vec<K>))`](https://docs.rs/day-pieces/latest/day_pieces/trait.ListBuilder.html#tymethod.on_selection) receives the selected keys either way (a single-selection
 report arrives as a one-element set), so an app tracking the whole selection works on every
-toolkit. [`.selected_rows(Fn() -> Vec<usize>)`](https://daybrite.dev/api/day_pieces/trait.ListBuilder.html#tymethod.selected_rows) reactively syncs app state back into the native
+toolkit. [`.selected_rows(Fn() -> Vec<usize>)`](https://docs.rs/day-pieces/latest/day_pieces/trait.ListBuilder.html#tymethod.selected_rows) reactively syncs app state back into the native
 selection (`ListPatch::Selected`; empty clears) without a selection-event echo; drive it from
-the same signal [`on_selection`](https://daybrite.dev/api/day_pieces/trait.ListBuilder.html#tymethod.on_selection) writes to get a two-way binding and a "clear selection" action.
+the same signal [`on_selection`](https://docs.rs/day-pieces/latest/day_pieces/trait.ListBuilder.html#tymethod.on_selection) writes to get a two-way binding and a "clear selection" action.
 The binding also applies its initial value after mounting, deferred until row-source updates
 settle. AppKit preserves the selected tokens across content reloads and reorders; deleting a
 selected token clears it instead of selecting whichever item inherits its index.
 
 A list of [day-model](/docs/explanation/model) store rows can bind single selection by key instead:
-[`.selection(binding)`](https://daybrite.dev/api/day_pieces/trait.ListBuilder.html#tymethod.selection) takes any `Binding<Option<u64>>` holding the selected row's key. A row the
+[`.selection(binding)`](https://docs.rs/day-pieces/latest/day_pieces/trait.ListBuilder.html#tymethod.selection) takes any `Binding<Option<u64>>` holding the selected row's key. A row the
 user picks writes its key (clearing writes `None`) without an echo back to the native list; a
 key the app writes selects that row through the same `ListPatch::Selected` sync and scrolls it
 into view (`list_scroll_to_row`) once the row is in the snapshot, so an app that inserts a row
 and selects it in one turn sees it revealed after the reload that brings it. The selection
 follows its row through inserts, moves and reloads, and the initial key selects without
-scrolling. The `day new` starter binds its list this way ([`.selection(scene.selected)`](https://daybrite.dev/api/day_pieces/trait.ListBuilder.html#tymethod.selection)),
-with the same signal driving [`ContentList::detail_for`](https://daybrite.dev/api/day_pieces/struct.ContentList.html#method.detail_for) ([navigation](navigation.md)).
+scrolling. The `day new` starter binds its list this way ([`.selection(scene.selected)`](https://docs.rs/day-pieces/latest/day_pieces/trait.ListBuilder.html#tymethod.selection)),
+with the same signal driving [`ContentList::detail_for`](https://docs.rs/day-pieces/latest/day_pieces/struct.ContentList.html#method.detail_for) ([navigation](navigation.md)).
 
 Support matrix: **AppKit** (native [`NSTableView`](https://developer.apple.com/documentation/appkit/nstableview) multi-selection), **Qt** and
 **Web** (the emulated lists: a per-cell press hook, a highlight treatment on the cell's
-background, ctrl/cmd toggles, shift extends) honor [`multi_select`](https://daybrite.dev/api/day_pieces/trait.ListBuilder.html#tymethod.multi_select) and `ListPatch::Selected`.
+background, ctrl/cmd toggles, shift extends) honor [`multi_select`](https://docs.rs/day-pieces/latest/day_pieces/trait.ListBuilder.html#tymethod.multi_select) and `ListPatch::Selected`.
 **Android** and **ArkUI** report single selection (a tap replaces, the touch idiom) but do
 honor `ListPatch::Selected`: the sync paints the visible cells (the theme accent at 20%
 alpha as the cell background) and newly bound cells inherit their row's state, which is what
@@ -376,10 +376,10 @@ lets the composed tree's selection follow the canvas ([docs/tree](tree.md)). **G
 reapplying the requested row after model reloads without an event echo. Empty sync clears
 selection, and out-of-range rows remain unselected. The sync does not take keyboard focus.
 The remaining toolkits report single selection (`SelectionChanged`) and ignore the multi flag and the
-programmatic sync; the one-element [`on_selection`](https://daybrite.dev/api/day_pieces/trait.ListBuilder.html#tymethod.on_selection) contract still holds there.
+programmatic sync; the one-element [`on_selection`](https://docs.rs/day-pieces/latest/day_pieces/trait.ListBuilder.html#tymethod.on_selection) contract still holds there.
 
-AppKit separates selection from keyboard focus. [`.selected_rows`](https://daybrite.dev/api/day_pieces/trait.ListBuilder.html#tymethod.selected_rows) uses native selection but
-never steals focus from search or other panes. Bind [`.focused(signal)`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.focused) and set the signal to
+AppKit separates selection from keyboard focus. [`.selected_rows`](https://docs.rs/day-pieces/latest/day_pieces/trait.ListBuilder.html#tymethod.selected_rows) uses native selection but
+never steals focus from search or other panes. Bind [`.focused(signal)`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.focused) and set the signal to
 `true` for explicit reading commands that should make the table the first responder (and
 therefore give its selected row the active blue highlight). The native table reports focus
 loss and gain back to the binding; the surrounding scroll view is not the responder.
@@ -388,10 +388,10 @@ loss and gain back to the binding; the surrounding scroll view is not the respon
 
 A selectable list is a tab stop, and the arrow keys walk it: ↑/↓ move one row, Home and End jump
 to the first and last, and the row that lands is scrolled into view by the edge it left, so a
-held arrow scrolls a line at a time rather than recentering on every step. On a [`multi_select`](https://daybrite.dev/api/day_pieces/trait.ListBuilder.html#tymethod.multi_select)
+held arrow scrolls a line at a time rather than recentering on every step. On a [`multi_select`](https://docs.rs/day-pieces/latest/day_pieces/trait.ListBuilder.html#tymethod.multi_select)
 list, shift moves the far end of a range while the near end stays put, so `shift+↓ ↓ ↑` grows
 twice and shrinks once instead of restarting from wherever the last press ended. A press reports
-exactly what a click on the same row reports, so [`on_select`](https://daybrite.dev/api/day_pieces/trait.ListBuilder.html#tymethod.on_select)/[`on_selection`](https://daybrite.dev/api/day_pieces/trait.ListBuilder.html#tymethod.on_selection) need no keyboard case.
+exactly what a click on the same row reports, so [`on_select`](https://docs.rs/day-pieces/latest/day_pieces/trait.ListBuilder.html#tymethod.on_select)/[`on_selection`](https://docs.rs/day-pieces/latest/day_pieces/trait.ListBuilder.html#tymethod.on_selection) need no keyboard case.
 
 On the desktops this is the native widget's own behavior: nothing in Day sits ahead of the
 responder chain, so a focused table, outline or [`QListView`](https://doc.qt.io/qt-6/qlistview.html) gets its arrow keys the way it
@@ -408,10 +408,10 @@ Reloads are deferred outside the tree borrow: UIKit may retire cells synchronous
 
 ## Programmatic scrolling
 
-[`.scroll_to_end(Trigger)`](https://daybrite.dev/api/day_pieces/trait.ListBuilder.html#tymethod.scroll_to_end) follows the last row (above); [`.scroll_to_row(Signal<Option<usize>>)`](https://daybrite.dev/api/day_pieces/trait.ListBuilder.html#tymethod.scroll_to_row)
+[`.scroll_to_end(Trigger)`](https://docs.rs/day-pieces/latest/day_pieces/trait.ListBuilder.html#tymethod.scroll_to_end) follows the last row (above); [`.scroll_to_row(Signal<Option<usize>>)`](https://docs.rs/day-pieces/latest/day_pieces/trait.ListBuilder.html#tymethod.scroll_to_row)
 jumps to any row: set the signal to `Some(row)` and the native list scrolls it into view,
 realizing it if it was virtualized away (`ListPatch::ScrollToRow`, clamped to the count). The
-signal is the row rail's counterpart to [`scroll`](https://daybrite.dev/api/day_pieces/fn.scroll.html)`(...)`[`.scroll_target`](https://daybrite.dev/api/day_pieces/trait.ScrollBuilder.html#tymethod.scroll_target)`(...)`. Toolkits without a native
+signal is the row rail's counterpart to [`scroll`](https://docs.rs/day-pieces/latest/day_pieces/fn.scroll.html)`(...)`[`.scroll_target`](https://docs.rs/day-pieces/latest/day_pieces/trait.ScrollBuilder.html#tymethod.scroll_target)`(...)`. Toolkits without a native
 scroll-to-index (GTK, web) position by uniform row pitch; prefer
 `RowHeight::Uniform` when jumping programmatically there.
 
@@ -434,18 +434,18 @@ list(source, row)
 
 A list is reorderable exactly when it carries a `Reorder` value; the value holds the commit
 handler, an optional guard and an optional availability, so the feature cannot be half
-configured. [`reorderable`](https://daybrite.dev/api/day_pieces/trait.ListBuilder.html#tymethod.reorderable) turns on the platform's drag mechanism; probe `Cap::ListReorder` for
-support. [`Reorder::new(moved)`](https://daybrite.dev/api/day_pieces/struct.Reorder.html#method.new) is the commit: row `from` landed at row `to`; apply the identical
+configured. [`reorderable`](https://docs.rs/day-pieces/latest/day_pieces/trait.ListBuilder.html#tymethod.reorderable) turns on the platform's drag mechanism; probe `Cap::ListReorder` for
+support. [`Reorder::new(moved)`](https://docs.rs/day-pieces/latest/day_pieces/struct.Reorder.html#method.new) is the commit: row `from` landed at row `to`; apply the identical
 rotation to the backing data (`let it = v.remove(from); v.insert(to, it);`) and persist it if
 the order should survive a relaunch. It runs at the next event drain, never inside the native
 drop callback.
 
-[`Reorder::guard`](https://daybrite.dev/api/day_pieces/struct.Reorder.html#method.guard) vets every proposed drop **synchronously, while the drag is live**: the native
+[`Reorder::guard`](https://docs.rs/day-pieces/latest/day_pieces/struct.Reorder.html#method.guard) vets every proposed drop **synchronously, while the drag is live**: the native
 affordance (the macOS gap, the no-drop cursor) reflects the answer before the user releases.
 `ReorderVerdict::Deny` refuses the drop (the row springs back); `ReorderVerdict::Retarget(i)`
 accepts it at a different index, the "pinned rows" pattern (the Showcase pins its first row
 this way). Keep the guard pure: it runs inside the platform's drag callback, so read state and
-return without mutating UI. [`Reorder::enabled`](https://daybrite.dev/api/day_pieces/struct.Reorder.html#method.enabled) takes a constant or a reactive `bool` and is read
+return without mutating UI. [`Reorder::enabled`](https://docs.rs/day-pieces/latest/day_pieces/struct.Reorder.html#method.enabled) takes a constant or a reactive `bool` and is read
 when the platform asks whether a drag may begin, so an edit mode or a loading state can withhold
 the gesture without rebuilding the list.
 
@@ -477,7 +477,7 @@ Per-toolkit affordances:
 | WinUI | WinRT drag events on recycled `ItemContainer` rows | system drag visuals + live no-drop cursor | live (DragOver); target is the actual row, including variable heights |
 | ArkUI | `SetNodeDraggable` + `NODE_ON_DROP` | system drag preview; denied drops spring back | at drop (`SetDragResult`) |
 | Web | pointer-tracked (emulated — no native list reorder in the browser) | lifted cell + animated CSS gap, long-press on touch | live (every hovered slot) |
-| mock | [`MockProbe::list_can_move`](https://daybrite.dev/api/day_mock/struct.MockProbe.html#method.list_can_move) / `list_move` | op log | live |
+| mock | [`MockProbe::list_can_move`](https://docs.rs/day-mock/latest/day_mock/struct.MockProbe.html#method.list_can_move) / `list_move` | op log | live |
 
 ## Swipe-to-delete
 
@@ -491,18 +491,18 @@ list(source, row)
 ```
 
 A list is deletable exactly when it carries a `Delete` value: the commit handler, an optional
-label, an optional per-row guard and an optional [`.enabled(..)`](https://daybrite.dev/api/day_pieces/struct.Reorder.html#method.enabled) availability. [`deletable`](https://daybrite.dev/api/day_pieces/trait.ListBuilder.html#tymethod.deletable) turns
-on the platform's delete gesture; probe `Cap::ListDelete` for support. [`Delete::new(deleted)`](https://daybrite.dev/api/day_pieces/struct.Delete.html#method.new) is
+label, an optional per-row guard and an optional [`.enabled(..)`](https://docs.rs/day-pieces/latest/day_pieces/struct.Reorder.html#method.enabled) availability. [`deletable`](https://docs.rs/day-pieces/latest/day_pieces/trait.ListBuilder.html#tymethod.deletable) turns
+on the platform's delete gesture; probe `Cap::ListDelete` for support. [`Delete::new(deleted)`](https://docs.rs/day-pieces/latest/day_pieces/struct.Delete.html#method.new) is
 the commit: row `index` is gone; apply the identical removal to the backing data
 (`v.remove(index)`) and persist it if the change should survive a relaunch. It runs at the next
 event drain, never inside the native swipe callback.
 
-[`Delete::guard`](https://daybrite.dev/api/day_pieces/struct.Delete.html#method.guard) is consulted **before the affordance is offered**, not after the gesture: a row
+[`Delete::guard`](https://docs.rs/day-pieces/latest/day_pieces/struct.Delete.html#method.guard) is consulted **before the affordance is offered**, not after the gesture: a row
 that answers `false` shows no delete action at all, rather than one that fails on use. Keep it
 pure; it runs inside the platform's swipe callback.
 
-[`Delete::label`](https://daybrite.dev/api/day_pieces/struct.Delete.html#method.label) carries the app's own word for the action; it takes the same text sources as a
-label (`res::str::delete()` directly, no [`.format()`](https://daybrite.dev/api/day_localization_ui/struct.LocalizedText.html#method.format)), resolved in the locale current when the
+[`Delete::label`](https://docs.rs/day-pieces/latest/day_pieces/struct.Delete.html#method.label) carries the app's own word for the action; it takes the same text sources as a
+label (`res::str::delete()` directly, no [`.format()`](https://docs.rs/day-localization-ui/latest/day_localization_ui/struct.LocalizedText.html#method.format)), resolved in the locale current when the
 list builds. A toolkit has no access to the app's Fluent catalog and so cannot translate
 anything itself; left unset, each toolkit falls back to its platform's wordless idiom (a trash
 glyph), which needs no translation.
@@ -517,7 +517,7 @@ answer for the shorter list while the native removal animates, and defers the ap
 toolkits answer `Unsupported` for the delete affordance: GTK and Qt have
 no swipe idiom at all, and macOS's row actions (the swipe-actions section below rides them) do
 not carry the delete affordance yet. A list that must be editable everywhere pairs
-[`.deletable(..)`](https://daybrite.dev/api/day_pieces/trait.ListBuilder.html#tymethod.deletable) with an explicit control (a menu item, a per-row button) and lets the mobile
+[`.deletable(..)`](https://docs.rs/day-pieces/latest/day_pieces/trait.ListBuilder.html#tymethod.deletable) with an explicit control (a menu item, a per-row button) and lets the mobile
 toolkits add the gesture on top.
 
 The dayscript step `delete_row: { id, row }` drives the same guard → commit path without a
@@ -563,7 +563,7 @@ platform's swipe callback. The `action` handlers run later, at the event drain, 
 the native gesture. When an activation drains, the provider is invoked again and the action
 looked up by position, so the handler always closes over the row's current state.
 
-[`symbol`](https://daybrite.dev/api/day_pieces/struct.SwipeAction.html#method.symbol) puts a glyph on the button where the platform draws one: above the label on macOS
+[`symbol`](https://docs.rs/day-pieces/latest/day_pieces/struct.SwipeAction.html#method.symbol) puts a glyph on the button where the platform draws one: above the label on macOS
 (Mail's row-action look), in place of it on iOS (the label stays the accessibility name). The
 platforms without a glyph slot show the label alone.
 
@@ -608,18 +608,18 @@ list(source, row)
     .editing(move || editing.get())   // or .editing(true) for a page that is always editing
 ```
 
-[`editing`](https://daybrite.dev/api/day_pieces/trait.ListBuilder.html#tymethod.editing) puts the list in the platform's own editing mode, the one an Edit button enters on
+[`editing`](https://docs.rs/day-pieces/latest/day_pieces/trait.ListBuilder.html#tymethod.editing) puts the list in the platform's own editing mode, the one an Edit button enters on
 iOS: each row the `Delete` offers shows the red delete control at its leading edge, each row
 the `Reorder` moves shows a grip at its trailing edge, and a tap still activates the row, so a
 list of things to configure can open each one from the same screen. The value is reactive; a
 change animates the controls in or out. The delete control commits through the same
-[`Delete::guard`](https://daybrite.dev/api/day_pieces/struct.Delete.html#method.guard) → handler path as the swipe, and the grip through the same [`Reorder::guard`](https://daybrite.dev/api/day_pieces/struct.Reorder.html#method.guard) →
+[`Delete::guard`](https://docs.rs/day-pieces/latest/day_pieces/struct.Delete.html#method.guard) → handler path as the swipe, and the grip through the same [`Reorder::guard`](https://docs.rs/day-pieces/latest/day_pieces/struct.Reorder.html#method.guard) →
 handler path as a long-press drag.
 
 Probe `Cap::ListEditing`. Only UIKit has a separate editing mode: on the other toolkits a
-list's rows already drag, swipe, and open their menus as they are, so [`editing`](https://daybrite.dev/api/day_pieces/trait.ListBuilder.html#tymethod.editing) is ignored
+list's rows already drag, swipe, and open their menus as they are, so [`editing`](https://docs.rs/day-pieces/latest/day_pieces/trait.ListBuilder.html#tymethod.editing) is ignored
 there and the list renders as it would without it. A screen that manages a list everywhere
-uses [`.editing(true)`](https://daybrite.dev/api/day_pieces/trait.ListBuilder.html#tymethod.editing) for iOS and keeps its explicit controls for the toolkits that answer
+uses [`.editing(true)`](https://docs.rs/day-pieces/latest/day_pieces/trait.ListBuilder.html#tymethod.editing) for iOS and keeps its explicit controls for the toolkits that answer
 `Unsupported` for `ListDelete`.
 
 | Toolkit | Mechanism |
@@ -645,7 +645,7 @@ swipe-action reveal slides the row past it. The host's separator sits at the bou
 none of those apply.
 
 Left unset, each platform keeps its own default: iOS draws separators, the desktops don't.
-[`.separators()`](https://daybrite.dev/api/day_pieces/trait.ListBuilder.html#tymethod.separators) forces them on, [`.no_separators()`](https://daybrite.dev/api/day_pieces/trait.ListBuilder.html#tymethod.no_separators) off (an iOS list whose rows draw their own
+[`.separators()`](https://docs.rs/day-pieces/latest/day_pieces/trait.ListBuilder.html#tymethod.separators) forces them on, [`.no_separators()`](https://docs.rs/day-pieces/latest/day_pieces/trait.ListBuilder.html#tymethod.no_separators) off (an iOS list whose rows draw their own
 separation turns the native line off rather than showing both).
 
 | Toolkit | Mechanism |
@@ -678,7 +678,7 @@ list(stations, station_row)
 Desktop lists activate on double-click or Enter; Qt follows the platform's activation
 preference. UIKit, Android, and ArkUI activate on a tap. The browser uses double-click or
 Enter for a mouse and a single tap for touch. Arrow-key
-selection and programmatic selection do not activate rows. [`on_activate`](https://daybrite.dev/api/day_pieces/trait.ListBuilder.html#tymethod.on_activate) receives the row's
+selection and programmatic selection do not activate rows. [`on_activate`](https://docs.rs/day-pieces/latest/day_pieces/trait.ListBuilder.html#tymethod.on_activate) receives the row's
 key or model reference from the current list snapshot, so reordering does not leave it pointing
 to an old index. An explicit button within a row can offer the same action separately.
 

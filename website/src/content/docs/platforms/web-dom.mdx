@@ -46,25 +46,25 @@ this table adds links and notes.
 
 | Day piece | HTML |
 |---|---|
-| [`column`](https://daybrite.dev/api/day_pieces/fn.column.html) / [`row`](https://daybrite.dev/api/day_pieces/fn.row.html) / [`nav_stack`](https://daybrite.dev/api/day_pieces/fn.nav_stack.html) / [`section`](https://daybrite.dev/api/day_pieces/fn.section.html) | [`<div>`](https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/div) |
-| [`label`](https://daybrite.dev/api/day_pieces/fn.label.html) | [`<div>`](https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/div) (not a `<label>`) |
-| [`button`](https://daybrite.dev/api/day_pieces/fn.button.html) | [`<button type="button">`](https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/button) |
-| [`toggle`](https://daybrite.dev/api/day_pieces/fn.toggle.html) | [`<input type="checkbox">`](https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/input/checkbox) styled as a switch |
-| [`slider`](https://daybrite.dev/api/day_pieces/fn.slider.html) | [`<input type="range">`](https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/input/range) |
-| [`text_field`](https://daybrite.dev/api/day_pieces/fn.text_field.html) | [`<input type="text">`](https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/input/text) |
-| [`secure_field`](https://daybrite.dev/api/day_pieces/fn.secure_field.html) | [`<input type="password">`](https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/input/password) |
-| [`text_area`](https://daybrite.dev/api/day_pieces/fn.text_area.html) | [`<textarea>`](https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/textarea) |
-| [`picker`](https://daybrite.dev/api/day_pieces/fn.picker.html)`()`[`.menu`](https://daybrite.dev/api/day_pieces/trait.PickerBuilder.html#tymethod.menu)`()` | [`<select>`](https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/select) with `<option>`s |
-| [`picker`](https://daybrite.dev/api/day_pieces/fn.picker.html)`()`[`.segmented`](https://daybrite.dev/api/day_pieces/trait.PickerBuilder.html#tymethod.segmented)`()` / [`.inline()`](https://daybrite.dev/api/day_pieces/trait.PickerBuilder.html#tymethod.inline) | a `<div>` of `<button>`s |
-| [`progress(f)`](https://daybrite.dev/api/day_pieces/fn.progress.html) | [`<progress max="1">`](https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/progress) |
-| [`spinner()`](https://daybrite.dev/api/day_pieces/fn.spinner.html) | a CSS-animated `<div>` |
-| [`divider`](https://daybrite.dev/api/day_pieces/fn.divider.html) | `<div>` |
-| [`scroll`](https://daybrite.dev/api/day_pieces/fn.scroll.html) | `<div>` with `overflow:auto` |
-| [`list`](https://daybrite.dev/api/day_pieces/fn.list.html) | scrolling `<div>` of absolutely positioned cells |
-| [`nav`](https://daybrite.dev/api/day_pieces/fn.nav.html) / `nav_menu` / `tabs` | `<div>`s (with `<button>`s for the tab strip and back control) |
-| [`image`](https://daybrite.dev/api/day_pieces/fn.image.html) | [`<img>`](https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/img) |
-| [`vector`](https://daybrite.dev/api/day_pieces/fn.vector.html) | [`<img>`](https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/img) loading the staged SVG: day-toolkit-dom requests `.svg` for names in the page's vector list, and the browser renders it at display size; the raster PNG sits beside it as the older-host fallback |
-| [`canvas`](https://daybrite.dev/api/day_pieces/fn.canvas.html) | [`<canvas>`](https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/canvas), display list replayed on a 2-D context |
+| [`column`](https://docs.rs/day-pieces/latest/day_pieces/fn.column.html) / [`row`](https://docs.rs/day-pieces/latest/day_pieces/fn.row.html) / [`nav_stack`](https://docs.rs/day-pieces/latest/day_pieces/fn.nav_stack.html) / [`section`](https://docs.rs/day-pieces/latest/day_pieces/fn.section.html) | [`<div>`](https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/div) |
+| [`label`](https://docs.rs/day-pieces/latest/day_pieces/fn.label.html) | [`<div>`](https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/div) (not a `<label>`) |
+| [`button`](https://docs.rs/day-pieces/latest/day_pieces/fn.button.html) | [`<button type="button">`](https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/button) |
+| [`toggle`](https://docs.rs/day-pieces/latest/day_pieces/fn.toggle.html) | [`<input type="checkbox">`](https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/input/checkbox) styled as a switch |
+| [`slider`](https://docs.rs/day-pieces/latest/day_pieces/fn.slider.html) | [`<input type="range">`](https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/input/range) |
+| [`text_field`](https://docs.rs/day-pieces/latest/day_pieces/fn.text_field.html) | [`<input type="text">`](https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/input/text) |
+| [`secure_field`](https://docs.rs/day-pieces/latest/day_pieces/fn.secure_field.html) | [`<input type="password">`](https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/input/password) |
+| [`text_area`](https://docs.rs/day-pieces/latest/day_pieces/fn.text_area.html) | [`<textarea>`](https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/textarea) |
+| [`picker`](https://docs.rs/day-pieces/latest/day_pieces/fn.picker.html)`()`[`.menu`](https://docs.rs/day-pieces/latest/day_pieces/trait.PickerBuilder.html#tymethod.menu)`()` | [`<select>`](https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/select) with `<option>`s |
+| [`picker`](https://docs.rs/day-pieces/latest/day_pieces/fn.picker.html)`()`[`.segmented`](https://docs.rs/day-pieces/latest/day_pieces/trait.PickerBuilder.html#tymethod.segmented)`()` / [`.inline()`](https://docs.rs/day-pieces/latest/day_pieces/trait.PickerBuilder.html#tymethod.inline) | a `<div>` of `<button>`s |
+| [`progress(f)`](https://docs.rs/day-pieces/latest/day_pieces/fn.progress.html) | [`<progress max="1">`](https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/progress) |
+| [`spinner()`](https://docs.rs/day-pieces/latest/day_pieces/fn.spinner.html) | a CSS-animated `<div>` |
+| [`divider`](https://docs.rs/day-pieces/latest/day_pieces/fn.divider.html) | `<div>` |
+| [`scroll`](https://docs.rs/day-pieces/latest/day_pieces/fn.scroll.html) | `<div>` with `overflow:auto` |
+| [`list`](https://docs.rs/day-pieces/latest/day_pieces/fn.list.html) | scrolling `<div>` of absolutely positioned cells |
+| [`nav`](https://docs.rs/day-pieces/latest/day_pieces/fn.nav.html) / `nav_menu` / `tabs` | `<div>`s (with `<button>`s for the tab strip and back control) |
+| [`image`](https://docs.rs/day-pieces/latest/day_pieces/fn.image.html) | [`<img>`](https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/img) |
+| [`vector`](https://docs.rs/day-pieces/latest/day_pieces/fn.vector.html) | [`<img>`](https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/img) loading the staged SVG: day-toolkit-dom requests `.svg` for names in the page's vector list, and the browser renders it at display size; the raster PNG sits beside it as the older-host fallback |
+| [`canvas`](https://docs.rs/day-pieces/latest/day_pieces/fn.canvas.html) | [`<canvas>`](https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/canvas), display list replayed on a 2-D context |
 | dialogs / alerts / prompts | [`<dialog>`](https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/dialog) via `showModal()` |
 | *external* `media()` | [`<video>`](https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/video) |
 

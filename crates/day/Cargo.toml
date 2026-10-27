@@ -7,6 +7,11 @@ description.workspace = true
 repository.workspace = true
 license.workspace = true
 
+# docs.rs documents the headless `mock` backend and the optional integrations the guides link
+# to (https://docs.rs/day-app). scripts/build-api-docs.sh builds the same set to check those links.
+[package.metadata.docs.rs]
+features = ["mock", "model", "settings", "text-editor", "swiftui", "http-image", "fs", "permissions"]
+
 [lib]
 name = "day"
 

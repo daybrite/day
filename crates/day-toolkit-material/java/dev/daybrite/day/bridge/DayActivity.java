@@ -116,6 +116,11 @@ public class DayActivity extends androidx.fragment.app.FragmentActivity {
         final String autodrive = getIntent().getStringExtra("day.autodrive");
         final String locale = getIntent().getStringExtra("day.locale");
         StringBuilder blob = new StringBuilder();
+        // The app's private files and cache directories: Day's data and cache directories here
+        // (day_spec::storage, docs/fs.md "Where files live"). First, so a `day launch --env`
+        // value below, a test's scratch directory inside the sandbox, replaces them.
+        blob.append("DAY_DATA_DIR=").append(getFilesDir().getAbsolutePath()).append('\n');
+        blob.append("DAY_CACHE_DIR=").append(getCacheDir().getAbsolutePath()).append('\n');
         android.os.Bundle extras = getIntent().getExtras();
         if (extras != null) {
             for (String key : extras.keySet()) {
@@ -125,9 +130,6 @@ public class DayActivity extends androidx.fragment.app.FragmentActivity {
                 }
             }
         }
-        // The app's private files directory, for day-part-filesystem (docs/fs.md): the part roots its
-        // storage at DAY_DATA_DIR when a host provides one.
-        blob.append("DAY_DATA_DIR=").append(getFilesDir().getAbsolutePath()).append('\n');
         // Cold-start deep link (docs/navigation.md): the launch URI's host+path is the route.
         android.net.Uri data = getIntent().getData();
         if (data != null && !isDocumentIntent(getIntent())) {

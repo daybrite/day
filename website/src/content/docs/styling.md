@@ -15,12 +15,12 @@ the platform’s appearance, including focus rings, slider tracks, and selection
 The sections below describe which properties an app can set and how each toolkit interprets them.
 
 The Rust blocks are integration fragments; `CARD_BG`, `Palette`, and app functions stand for
-application definitions. In [`Modifier::apply`](https://daybrite.dev/api/day_pieces/trait.Modifier.html#tymethod.apply), erase the decorated result with [`.any()`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.any) to meet
+application definitions. In [`Modifier::apply`](https://docs.rs/day-pieces/latest/day_pieces/trait.Modifier.html#tymethod.apply), erase the decorated result with [`.any()`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.any) to meet
 its return type. See [decorators](https://github.com/daybrite/day/blob/main/crates/day-pieces/src/decorators.rs)
 for the checked-out contract. Native appearance still needs target-specific visual verification.
 
 The Rust blocks are integration fragments; `CARD_BG`, `Palette`, and app functions stand for
-application definitions. In [`Modifier::apply`](https://daybrite.dev/api/day_pieces/trait.Modifier.html#tymethod.apply), erase the decorated result with [`.any()`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.any) to meet
+application definitions. In [`Modifier::apply`](https://docs.rs/day-pieces/latest/day_pieces/trait.Modifier.html#tymethod.apply), erase the decorated result with [`.any()`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.any) to meet
 its return type. See [decorators](https://github.com/daybrite/day/blob/main/crates/day-pieces/src/decorators.rs)
 for the checked-out contract. Native appearance still needs target-specific visual verification.
 
@@ -42,7 +42,7 @@ label(res::str::legalese()).italic()
 The semantic roles (`LargeTitle`, `Title`, `Title2`, `Title3`, `Headline`, `Subheadline`,
 `Body`, `Callout`, `Footnote`, `Caption`, `Caption2`) resolve to the platform's typography
 scale, so text matches the platform's native controls. Use `Font::System(18.0)` when
-you need an exact size. Use [`Font::custom(res::fonts::family, 18.0)`](https://daybrite.dev/api/day_spec/enum.Font.html#method.custom) for a font bundled
+you need an exact size. Use [`Font::custom(res::fonts::family, 18.0)`](https://docs.rs/day-spec/latest/day_spec/enum.Font.html#method.custom) for a font bundled
 in the project's `resource/fonts/` directory ([resources guide](/docs/how-to/resources)).
 
 ## Color, backgrounds, shape
@@ -54,8 +54,8 @@ column((avatar, name, bio))
     .corner_radius(12.0)
 ```
 
-`Color` is a plain sRGB value ([`Color::rgb`](https://daybrite.dev/api/day_geometry/struct.Color.html#method.rgb), [`Color::rgba`](https://daybrite.dev/api/day_geometry/struct.Color.html#method.rgba), [`Color::hex(0xRRGGBB)`](https://daybrite.dev/api/day_geometry/struct.Color.html#method.hex), plus `BLACK`,
-`WHITE`, `CLEAR`). [`.background()`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.background) accepts a static color or a [reactive](/docs/reference/glossary#reactive) one (a closure or
+`Color` is a plain sRGB value ([`Color::rgb`](https://docs.rs/day-geometry/latest/day_geometry/struct.Color.html#method.rgb), [`Color::rgba`](https://docs.rs/day-geometry/latest/day_geometry/struct.Color.html#method.rgba), [`Color::hex(0xRRGGBB)`](https://docs.rs/day-geometry/latest/day_geometry/struct.Color.html#method.hex), plus `BLACK`,
+`WHITE`, `CLEAR`). [`.background()`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.background) accepts a static color or a [reactive](/docs/reference/glossary#reactive) one (a closure or
 [signal](/docs/reference/glossary#signal)), so appearance can follow state:
 
 ```rust
@@ -68,7 +68,7 @@ controls, separators, and window grounds take the platform's dynamic colors insi
 [backend](/docs/reference/glossary#backend) (`NSColor.labelColor`, Material surface attributes, QPalette
 roles), so dark/light tracking needs no app-side tokens. The semantic roles that must cross the spec
 do so as typed values: `SurfaceRole` for grouped-card surfaces, `Font` for typography. Colors *you*
-specify are applied as given: a hardcoded [`Color::hex(0xFFFFFF)`](https://daybrite.dev/api/day_geometry/struct.Color.html#method.hex) background is white in both modes,
+specify are applied as given: a hardcoded [`Color::hex(0xFFFFFF)`](https://docs.rs/day-geometry/latest/day_geometry/struct.Color.html#method.hex) background is white in both modes,
 so an app that wants dark-mode-aware custom colors carries its own palette and switches it itself.
 Avoid custom colors on large surfaces where you can, since the platform defaults follow appearance
 changes. For screenshots and CI, `DAY_THEME=light|dark` forces the appearance on every backend.
@@ -115,8 +115,8 @@ let pad = if cfg!(feature = "uikit") || cfg!(feature = "material") { 16.0 } else
 content.padding(pad)
 ```
 
-Piece-specific style hooks exist where a control has real variants ([`button`](https://daybrite.dev/api/day_pieces/fn.button.html)`(...)`[`.style`](https://daybrite.dev/api/day_pieces/trait.NavBuilder.html#tymethod.style)`(...)`
-takes a `ButtonStyle`, [`nav`](https://daybrite.dev/api/day_pieces/fn.nav.html)`(...)`[`.style`](https://daybrite.dev/api/day_pieces/trait.NavBuilder.html#tymethod.style)`(NavStyle::Sidebar)` picks [sidebar](/docs/reference/glossary#sidebar) vs. tab
+Piece-specific style hooks exist where a control has real variants ([`button`](https://docs.rs/day-pieces/latest/day_pieces/fn.button.html)`(...)`[`.style`](https://docs.rs/day-pieces/latest/day_pieces/trait.NavBuilder.html#tymethod.style)`(...)`
+takes a `ButtonStyle`, [`nav`](https://docs.rs/day-pieces/latest/day_pieces/fn.nav.html)`(...)`[`.style`](https://docs.rs/day-pieces/latest/day_pieces/trait.NavBuilder.html#tymethod.style)`(NavStyle::Sidebar)` picks [sidebar](/docs/reference/glossary#sidebar) vs. tab
 presentation), and these map to native variants, not custom drawing.
 
 ## What you can't restyle

@@ -11,7 +11,7 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 # Split
 
-A [`split`](https://daybrite.dev/api/day_pieces/fn.split.html) puts two panes in the space it is given with a divider between them that the user
+A [`split`](https://docs.rs/day-pieces/latest/day_pieces/fn.split.html) puts two panes in the space it is given with a divider between them that the user
 drags, the editor-beside-preview shape. The pane sizes follow app-owned state.
 
 ## Add to your app
@@ -29,17 +29,17 @@ split(request_form(), response_view())
     .fraction(share)
 ```
 
-- [`.axis(..)`](https://daybrite.dev/api/day_pieces/trait.SplitBuilder.html#tymethod.axis) takes a `SplitAxis` constant, a signal or a closure: `Horizontal` (the default)
+- [`.axis(..)`](https://docs.rs/day-pieces/latest/day_pieces/trait.SplitBuilder.html#tymethod.axis) takes a `SplitAxis` constant, a signal or a closure: `Horizontal` (the default)
   puts the panes side by side, first leading; `Vertical` stacks them, first on top. The name
   says where the panes go, which is what an app's "layout" toggle means; the divider runs
   the other way. A live axis turns the split in place and keeps the share.
-- [`.fraction(signal)`](https://daybrite.dev/api/day_pieces/trait.SplitBuilder.html#tymethod.fraction) binds the first pane's share, `0.0..=1.0`, two-way: a dragged divider
+- [`.fraction(signal)`](https://docs.rs/day-pieces/latest/day_pieces/trait.SplitBuilder.html#tymethod.fraction) binds the first pane's share, `0.0..=1.0`, two-way: a dragged divider
   writes it, and writing it moves the divider. Unbound, the split keeps a share of its own,
   starting at a half. An app that persists the share stores one number per split.
-- [`.min_pane(points)`](https://daybrite.dev/api/day_pieces/trait.SplitBuilder.html#tymethod.min_pane) is the least length either pane can be dragged to (default 80).
+- [`.min_pane(points)`](https://docs.rs/day-pieces/latest/day_pieces/trait.SplitBuilder.html#tymethod.min_pane) is the least length either pane can be dragged to (default 80).
 
 The split is greedy: it takes whatever its parent proposes on both axes, the way a nav host
-does, so it goes where a [`.grow()`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.grow) child would.
+does, so it goes where a [`.grow()`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.grow) child would.
 
 ## Native and composed
 
@@ -63,6 +63,6 @@ divider without re-emitting the report (the from-native echo rule), and the axis
 
 Everywhere else the piece composes: Day's layout places the first pane, a 9-point divider
 and the second pane by the share; the divider is a canvas drawing a hairline down its middle,
-carrying a [`.cursor()`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.cursor) (column- or row-resize) and an [`.on_drag()`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.on_drag) that moves the share by the
+carrying a [`.cursor()`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.cursor) (column- or row-resize) and an [`.on_drag()`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.on_drag) that moves the share by the
 pointer's travel as a fraction of the split's length. The behavior is the same on every target; only the divider's
 look is the toolkit's where there is one.

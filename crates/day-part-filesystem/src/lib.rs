@@ -248,19 +248,20 @@ pub fn list_future(dir: &str) -> FsFuture<ListResult> {
     })
 }
 
-/// The app's data directory on native targets: `DAY_DATA_DIR` when the host sets it, else the
-/// platform's app-data convention (Application Support on Apple, `APPDATA` on Windows, XDG data
-/// elsewhere). This part's own files live in its `day-fs/` subdirectory; other parts that keep
+/// The app's data directory on native targets, [`day_spec::storage::data_dir`]: `DAY_DATA_DIR`
+/// when a host or a test sets it, else the platform's folder for this app (Application Support
+/// on Apple platforms, `%LOCALAPPDATA%` on Windows, `$XDG_DATA_HOME` on Linux, each followed by
+/// the app id). This part's own files live in its `day-fs/` subdirectory; other parts that keep
 /// files, such as a download manager's journal, take a sibling. The web has no such directory.
 #[cfg(not(target_arch = "wasm32"))]
 pub fn data_dir() -> Result<std::path::PathBuf, FsError> {
     imp::data_dir()
 }
 
-/// The platform's application-data directory itself, the parent [`data_dir`] is the `day/`
-/// child of: `~/Library/Application Support` on Apple, `%APPDATA%` on Windows, `$XDG_DATA_HOME`
-/// (else `~/.local/share`) elsewhere. For an app that opens a store another application keeps
-/// there, the way a CLI companion of a desktop app reads that app's database. `DAY_DATA_DIR`
+/// The platform's shared application-data directory, the one other applications keep their own
+/// folders in: `~/Library/Application Support` on Apple, the roaming `%APPDATA%` on Windows
+/// (where Electron and Tauri apps keep theirs), `$XDG_DATA_HOME` (else `~/.local/share`)
+/// elsewhere. For an app that opens a store another application keeps there, the way a CLI companion of a desktop app reads that app's database. `DAY_DATA_DIR`
 /// does not redirect it: a host that names the app's own directory says nothing about where
 /// other applications keep theirs.
 #[cfg(not(target_arch = "wasm32"))]

@@ -11,7 +11,7 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 # Text area
 
-Let people write messages, notes, or other multi-line text. [`text_area`](https://daybrite.dev/api/day_pieces/fn.text_area.html) binds the text to app
+Let people write messages, notes, or other multi-line text. [`text_area`](https://docs.rs/day-pieces/latest/day_pieces/fn.text_area.html) binds the text to app
 state and grows with its content up to a chosen height, then scrolls within the editor.
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
@@ -39,12 +39,12 @@ text_area(body)
     .id(id!(compose))
 ```
 
-[`text_area(text)`](https://daybrite.dev/api/day_pieces/fn.text_area.html) binds a `Signal<String>` two-way: keystrokes write the signal, and setting the
+[`text_area(text)`](https://docs.rs/day-pieces/latest/day_pieces/fn.text_area.html) binds a `Signal<String>` two-way: keystrokes write the signal, and setting the
 signal replaces the editor's text (echo-guarded, so a programmatic set that matches the last typed
-value doesn't loop). [`.placeholder(_)`](https://daybrite.dev/api/day_pieces/trait.TextAreaBuilder.html#tymethod.placeholder) sets the empty-state prompt (evaluated once, not reactive).
-The height auto-grows with content between [`.min_lines(_)`](https://daybrite.dev/api/day_pieces/trait.TextAreaBuilder.html#tymethod.min_lines) (default 1) and [`.max_lines(_)`](https://daybrite.dev/api/day_pieces/trait.TextAreaBuilder.html#tymethod.max_lines) (default
+value doesn't loop). [`.placeholder(_)`](https://docs.rs/day-pieces/latest/day_pieces/trait.TextAreaBuilder.html#tymethod.placeholder) sets the empty-state prompt (evaluated once, not reactive).
+The height auto-grows with content between [`.min_lines(_)`](https://docs.rs/day-pieces/latest/day_pieces/trait.TextAreaBuilder.html#tymethod.min_lines) (default 1) and [`.max_lines(_)`](https://docs.rs/day-pieces/latest/day_pieces/trait.TextAreaBuilder.html#tymethod.max_lines) (default
 `0` = unbounded, never scrolls); a non-zero max is floored to min. `TextArea` implements `Piece`, so
-[`.id()`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.id)/[`.a11y()`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.a11y)/[`.frame()`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.frame) chain via `Decorate`.
+[`.id()`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.id)/[`.a11y()`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.a11y)/[`.frame()`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.frame) chain via `Decorate`.
 
 ### Attributes
 
@@ -58,15 +58,15 @@ text_area(report)
     .spellcheck(false)    // no spell-correction squiggles (default true)
 ```
 
-- **[`.editable(v)`](https://daybrite.dev/api/day_pieces/trait.TextAreaBuilder.html#tymethod.editable)** — `false` makes the editor read-only.
-- **[`.selectable(v)`](https://daybrite.dev/api/day_pieces/trait.TextAreaBuilder.html#tymethod.selectable)** — whether the text can be selected and copied (useful with [`.editable(false)`](https://daybrite.dev/api/day_pieces/trait.TextAreaBuilder.html#tymethod.editable)
+- **[`.editable(v)`](https://docs.rs/day-pieces/latest/day_pieces/trait.TextAreaBuilder.html#tymethod.editable)** — `false` makes the editor read-only.
+- **[`.selectable(v)`](https://docs.rs/day-pieces/latest/day_pieces/trait.TextAreaBuilder.html#tymethod.selectable)** — whether the text can be selected and copied (useful with [`.editable(false)`](https://docs.rs/day-pieces/latest/day_pieces/trait.TextAreaBuilder.html#tymethod.editable)
   for a read-only-but-copyable display).
-- **[`.spellcheck(v)`](https://daybrite.dev/api/day_pieces/trait.TextAreaBuilder.html#tymethod.spellcheck)** — the spell-check / autocorrect highlighting.
+- **[`.spellcheck(v)`](https://docs.rs/day-pieces/latest/day_pieces/trait.TextAreaBuilder.html#tymethod.spellcheck)** — the spell-check / autocorrect highlighting.
 
 Native support varies; a toolkit that can't honor an attribute answers the matching capability with
 `Support::Unsupported`, so an app can gray out a control that would do nothing. `Emulated` means the
 attribute IS honored, just not by one native property, so the test to gray a control is
-[`capability(…) == Support::Unsupported`](https://daybrite.dev/api/day_core/fn.capability.html), not `!= Support::Native` (the showcase's Text Areas page
+[`capability(…) == Support::Unsupported`](https://docs.rs/day-core/latest/day_core/fn.capability.html), not `!= Support::Native` (the showcase's Text Areas page
 gates its three toggles that way):
 
 | attribute | Cap | AppKit | UIKit | GTK | Qt | Android | WinUI | ArkUI |
@@ -80,7 +80,7 @@ spell-checker (that needs libspelling/gspell or Hunspell).
 
 **WinUI** honors editable and spell-check with the plain [`TextBox`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.textbox) properties `IsReadOnly` and
 `IsSpellCheckEnabled`. Selection is the odd one out: `IsTextSelectionEnabled` is a [`TextBlock`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.textblock) /
-[`RichTextBlock`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.richtextblock) property and [`TextBox`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.textbox) carries no equivalent, so [`.selectable(false)`](https://daybrite.dev/api/day_pieces/trait.TextAreaBuilder.html#tymethod.selectable) is EMULATED:
+[`RichTextBlock`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.richtextblock) property and [`TextBox`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.textbox) carries no equivalent, so [`.selectable(false)`](https://docs.rs/day-pieces/latest/day_pieces/trait.TextAreaBuilder.html#tymethod.selectable) is EMULATED:
 the shim collapses each selection as `SelectionChanged` reports it and suppresses the context menu,
 which is the other route to Copy / Select All.
 
@@ -89,21 +89,21 @@ API 18 C interface has no persistent read-only or selection-enable property: `ED
 only ends the current editing session. Day vetoes native insert/delete callbacks while read-only,
 suppresses keyboard activation/autofill, and restores the held text if an input path bypasses the
 veto. Rejected changes never reach the binding; programmatic writes update the held value.
-Read-only text remains selectable and copyable when [`.selectable(true)`](https://daybrite.dev/api/day_pieces/trait.TextAreaBuilder.html#tymethod.selectable).
+Read-only text remains selectable and copyable when [`.selectable(true)`](https://docs.rs/day-pieces/latest/day_pieces/trait.TextAreaBuilder.html#tymethod.selectable).
 
-With [`.selectable(false)`](https://daybrite.dev/api/day_pieces/trait.TextAreaBuilder.html#tymethod.selectable), Day hides the native selection menu, collapses selection-change events
+With [`.selectable(false)`](https://docs.rs/day-pieces/latest/day_pieces/trait.TextAreaBuilder.html#tymethod.selectable), Day hides the native selection menu, collapses selection-change events
 to a caret, and intercepts Select All/Copy/Cut shortcuts before the IME. Typing remains enabled
-when [`.editable(true)`](https://daybrite.dev/api/day_pieces/trait.TextAreaBuilder.html#tymethod.editable). Both policies apply at creation and reactively, without replacing the
+when [`.editable(true)`](https://docs.rs/day-pieces/latest/day_pieces/trait.TextAreaBuilder.html#tymethod.editable). Both policies apply at creation and reactively, without replacing the
 editor. They report `Support::Emulated`; spell-check remains `Unsupported`.
 
-It is the multi-line sibling of [`text_field`](https://daybrite.dev/api/day_pieces/fn.text_field.html) ([docs/forms](forms.md)): a field is one line and submits on
+It is the multi-line sibling of [`text_field`](https://docs.rs/day-pieces/latest/day_pieces/fn.text_field.html) ([docs/forms](forms.md)): a field is one line and submits on
 Return; a text area keeps newlines. Both raise the soft keyboard through the focus system
 ([docs/focus](focus.md)), and keyboard avoidance (the focused editor scrolling clear of the keyboard) applies
 to both.
 
 ### Submission
 
-[`.on_submit(f)`](https://daybrite.dev/api/day_pieces/trait.TextAreaBuilder.html#tymethod.on_submit) turns a text area into a composer: Enter calls `f` with the bound text already
+[`.on_submit(f)`](https://docs.rs/day-pieces/latest/day_pieces/trait.TextAreaBuilder.html#tymethod.on_submit) turns a text area into a composer: Enter calls `f` with the bound text already
 current, rather than inserting a newline. The callback can read or clear the signal. Without
 this modifier, Enter keeps its ordinary multiline behavior.
 

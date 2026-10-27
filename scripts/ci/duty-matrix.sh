@@ -60,7 +60,7 @@ lines = [
 ]
 for name, required in duties:
     anchor = "tymethod" if required else "method"
-    row = [f"[`{name}`](https://daybrite.dev/api/day_spec/trait.Toolkit.html#{anchor}.{name})", "yes" if required else "·"]
+    row = [f"[`{name}`](https://docs.rs/day-spec/latest/day_spec/trait.Toolkit.html#{anchor}.{name})", "yes" if required else "·"]
     pat = re.compile(r"\bfn " + re.escape(name) + r"\s*(<[^>]*>)?\s*\(\s*&(mut\s+)?self")
     for bname, _ in backends:
         row.append("✓" if pat.search(sources[bname]) else "·")

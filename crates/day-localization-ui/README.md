@@ -26,7 +26,7 @@ generated string accessors.
 
 - [Localize an app](https://daybrite.dev/docs/how-to/localization/)
 - [Localization reference](https://daybrite.dev/docs/reference/localization/)
-- [Rust API](https://daybrite.dev/api/day_localization_ui/index.html)
+- [Rust API](https://docs.rs/day-localization-ui/latest/day_localization_ui/index.html)
 
 [Source](https://github.com/daybrite/day/tree/main/crates/day-localization-ui) ·
 [Contributing](https://daybrite.dev/contributing/setup/) · [MPL-2.0

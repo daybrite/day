@@ -25,7 +25,7 @@ direct use by extension crates.
 - [Setup and component reference](https://daybrite.dev/docs/reference/swiftui/)
 - [SwiftUI integration guide](https://daybrite.dev/docs/how-to/guide-swiftui/)
 - [Compose an interface](https://daybrite.dev/docs/explanation/pieces/)
-- [Rust API](https://daybrite.dev/api/day_piece_swiftui/index.html)
+- [Rust API](https://docs.rs/day-piece-swiftui/latest/day_piece_swiftui/index.html)
 
 [Source](https://github.com/daybrite/day/tree/main/crates/day-piece-swiftui) ·
 [Contributing](https://daybrite.dev/contributing/setup/) · [MPL-2.0

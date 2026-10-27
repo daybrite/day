@@ -25,7 +25,7 @@ rendering tree.
 - [How pieces work](https://daybrite.dev/docs/explanation/pieces/)
 - [Layout](https://daybrite.dev/docs/explanation/layout/)
 - [Framework architecture](https://daybrite.dev/contributing/architecture/)
-- [Rust API](https://daybrite.dev/api/day_core/index.html)
+- [Rust API](https://docs.rs/day-core/latest/day_core/index.html)
 
 [Source](https://github.com/daybrite/day/tree/main/crates/day-core) ·
 [Contributing](https://daybrite.dev/contributing/setup/) · [MPL-2.0

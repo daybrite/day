@@ -23,7 +23,7 @@ debug!("hit test at {x},{y} -> {hit:?}");
 trace!("frame {n}");
 ```
 
-There is nothing to initialize. [`day::launch`](https://daybrite.dev/api/day/fn.launch.html) installs a logger before the first line can be
+There is nothing to initialize. [`day::launch`](https://docs.rs/day-app/latest/day/fn.launch.html) installs a logger before the first line can be
 emitted, so the framework's own diagnostics and yours land in the same place, in the same format.
 
 ## Why not `println!`
@@ -130,12 +130,12 @@ DAY_LOG=debug day launch -t macos-appkit
 
 The web has no process environment, so the launch server forwards it as a query parameter on the
 page URL; `day launch -t web-dom --env DAY_LOG=debug` is the same thing. An app can also move the
-level at runtime with [`day::set_log_level(log::LevelFilter::Trace)`](https://daybrite.dev/api/day/fn.set_log_level.html).
+level at runtime with [`day::set_log_level(log::LevelFilter::Trace)`](https://docs.rs/day-app/latest/day/fn.set_log_level.html).
 
 ## Using a different logger
 
 Day's logger is only a default. `log` allows exactly one logger per process and the first
-registration wins, so **install yours before [`day::launch`](https://daybrite.dev/api/day/fn.launch.html)** and Day steps aside:
+registration wins, so **install yours before [`day::launch`](https://docs.rs/day-app/latest/day/fn.launch.html)** and Day steps aside:
 
 ```rust
 fn main() {
@@ -201,7 +201,7 @@ pub fn console_sink(level: log::Level, line: &str) {
 ```
 
 A toolkit that needs its own destination installs a **sink**, a `fn(log::Level, &str)` that
-receives the already-formatted line, through [`day_core::set_log_sink`](https://daybrite.dev/api/day_core/fn.set_log_sink.html) instead of replacing the
+receives the already-formatted line, through [`day_core::set_log_sink`](https://docs.rs/day-core/latest/day_core/fn.set_log_sink.html) instead of replacing the
 logger. That keeps the format and the level filtering in one place. The facade wires Web's in
 `day::web::start`.
 

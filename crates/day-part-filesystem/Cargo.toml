@@ -9,7 +9,8 @@ license.workspace = true
 
 # A headless day-ecosystem crate (no UI Piece): app-local file storage with one API on every
 # target (docs/fs.md). Native targets read and write real files under a per-platform app-data
-# directory (DAY_DATA_DIR from the mobile hosts, else the OS convention); web-dom stores files
+# directory (`day_spec::storage::data_dir()`: DAY_DATA_DIR from the mobile hosts, else the
+# OS convention, in a folder named for the app); web-dom stores files
 # in the browser's Origin Private File System through the day-toolkit-dom shim. Paths are relative and
 # sandboxed to that root; an absolute path or a `..` segment is rejected. Platform selection is by
 # `#[cfg(target_arch)]` (storage is an OS concern, not a widget-toolkit one), so there are no
@@ -18,3 +19,5 @@ license.workspace = true
 
 [dependencies]
 day-async = { workspace = true }
+# `storage::data_dir()`: the one per-app data directory every Day crate resolves.
+day-spec = { workspace = true }

@@ -14,13 +14,13 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 Show an unread count or an attention marker on the app’s icon. Badge styles and permission
 requirements vary by platform.
 
-Use [`day::set_app_badge(&AppBadge)`](https://daybrite.dev/api/day/fn.set_app_badge.html) to set or clear the app icon badge. This is separate
+Use [`day::set_app_badge(&AppBadge)`](https://docs.rs/day-app/latest/day/fn.set_app_badge.html) to set or clear the app icon badge. This is separate
 from a navigation item's badge. The function delegates to the running toolkit and returns `()`.
 
 ## API boundary
 
 `AppBadge` has `None`, `Count(u32)`, `Text(String)`, and `Dot` variants. Probe
-`Cap::AppBadgeCount`, `Cap::AppBadgeText`, or `Cap::AppBadgeDot` through [`capability`](https://daybrite.dev/api/day_core/fn.capability.html) before
+`Cap::AppBadgeCount`, `Cap::AppBadgeText`, or `Cap::AppBadgeDot` through [`capability`](https://docs.rs/day-core/latest/day_core/fn.capability.html) before
 choosing a payload. Unsupported payloads are ignored rather than converted to another kind.
 Localize app-owned text before constructing `AppBadge::Text`.
 
@@ -46,7 +46,7 @@ badge when its information is no longer relevant. A `WillTerminate` handler can 
 an orderly exit, but iOS can terminate a suspended app without that callback; update it on the
 next launch as well. See [lifecycle events](lifecycle.md).
 
-Android derives launcher badges from notifications. Use [`Notification::badge(n)`](https://daybrite.dev/api/day_part_local_notify/struct.Notification.html#method.badge) from
+Android derives launcher badges from notifications. Use [`Notification::badge(n)`](https://docs.rs/day-part-local-notify/latest/day_part_local_notify/struct.Notification.html#method.badge) from
 [local notifications](notify.md); the launcher determines whether a count or dot appears.
 
 GTK and Qt on Linux emit the same Unity launcher signal. Stock GNOME Shell ignores it;

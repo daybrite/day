@@ -51,18 +51,18 @@ See [accessibility](/docs/reference/accessibility).
 
 | Constructor | Geometry |
 | --- | --- |
-| [`rectangle()`](https://daybrite.dev/api/day_pieces/fn.rectangle.html) | Fills the assigned rectangle. |
-| [`rounded_rectangle(corner)`](https://daybrite.dev/api/day_pieces/fn.rounded_rectangle.html) | Rectangle with a fixed corner radius in points, or a `Corner` value. |
-| [`circle()`](https://daybrite.dev/api/day_pieces/fn.circle.html) | Centered circle whose diameter is the shorter side. |
-| [`ellipse()`](https://daybrite.dev/api/day_pieces/fn.ellipse.html) | Ellipse filling the bounds. |
-| [`capsule()`](https://daybrite.dev/api/day_pieces/fn.capsule.html) | Rounded rectangle with a radius of half the shorter side. |
-| [`arc(start_deg, sweep_deg)`](https://daybrite.dev/api/day_pieces/fn.arc.html) | Arc of the bounds' ellipse; zero degrees points right and positive angles run clockwise. |
-| [`line(from, to)`](https://daybrite.dev/api/day_pieces/fn.line.html) | Segment between fractional `(x, y)` points; requires a stroke. |
-| [`polygon(points)`](https://daybrite.dev/api/day_pieces/fn.polygon.html) | Closed polygon through fractional `(x, y)` points. |
+| [`rectangle()`](https://docs.rs/day-pieces/latest/day_pieces/fn.rectangle.html) | Fills the assigned rectangle. |
+| [`rounded_rectangle(corner)`](https://docs.rs/day-pieces/latest/day_pieces/fn.rounded_rectangle.html) | Rectangle with a fixed corner radius in points, or a `Corner` value. |
+| [`circle()`](https://docs.rs/day-pieces/latest/day_pieces/fn.circle.html) | Centered circle whose diameter is the shorter side. |
+| [`ellipse()`](https://docs.rs/day-pieces/latest/day_pieces/fn.ellipse.html) | Ellipse filling the bounds. |
+| [`capsule()`](https://docs.rs/day-pieces/latest/day_pieces/fn.capsule.html) | Rounded rectangle with a radius of half the shorter side. |
+| [`arc(start_deg, sweep_deg)`](https://docs.rs/day-pieces/latest/day_pieces/fn.arc.html) | Arc of the bounds' ellipse; zero degrees points right and positive angles run clockwise. |
+| [`line(from, to)`](https://docs.rs/day-pieces/latest/day_pieces/fn.line.html) | Segment between fractional `(x, y)` points; requires a stroke. |
+| [`polygon(points)`](https://docs.rs/day-pieces/latest/day_pieces/fn.polygon.html) | Closed polygon through fractional `(x, y)` points. |
 
-[`shape(kind)`](https://daybrite.dev/api/day_pieces/fn.shape.html) accepts a constant or reactive
+[`shape(kind)`](https://docs.rs/day-pieces/latest/day_pieces/fn.shape.html) accepts a constant or reactive
 `ShapeKind`. Shapes grow to fill available space; use
-[`.frame(width, height)`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.frame)
+[`.frame(width, height)`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.frame)
 or a bounded parent to give them a useful size.
 
 Line and polygon coordinates are fractions of the bounds and are not clamped to 0–1.
@@ -70,14 +70,14 @@ Line and polygon coordinates are fractions of the bounds and are not clamped to 
 
 ## Fills and strokes
 
-[`.fill(color)`](https://daybrite.dev/api/day_pieces/trait.ShapePieceBuilder.html#tymethod.fill)
+[`.fill(color)`](https://docs.rs/day-pieces/latest/day_pieces/trait.ShapePieceBuilder.html#tymethod.fill)
 sets a solid fill. Use
-[`.fill_linear(gradient)`](https://daybrite.dev/api/day_pieces/trait.ShapePieceBuilder.html#tymethod.fill_linear)
-or [`.fill_radial(gradient)`](https://daybrite.dev/api/day_pieces/trait.ShapePieceBuilder.html#tymethod.fill_radial)
+[`.fill_linear(gradient)`](https://docs.rs/day-pieces/latest/day_pieces/trait.ShapePieceBuilder.html#tymethod.fill_linear)
+or [`.fill_radial(gradient)`](https://docs.rs/day-pieces/latest/day_pieces/trait.ShapePieceBuilder.html#tymethod.fill_radial)
 for gradients. These accept values, signals, or closures. If several fill types are set,
 radial takes precedence over linear, then solid; call order does not change that precedence.
 
-[`.stroke(color, width)`](https://daybrite.dev/api/day_pieces/trait.ShapePieceBuilder.html#tymethod.stroke)
+[`.stroke(color, width)`](https://docs.rs/day-pieces/latest/day_pieces/trait.ShapePieceBuilder.html#tymethod.stroke)
 adds a solid outline. Shapes have no fill or stroke by default. A line ignores fills.
 For gradient strokes, dash patterns, and arbitrary paths, use the canvas drawing API.
 
@@ -89,11 +89,11 @@ an edge may clip. See [Colors](/docs/reference/color) for color and gradient val
 
 | Modifier | Effect |
 | --- | --- |
-| [`.at(x, y, width, height)`](https://daybrite.dev/api/day_pieces/trait.ShapePieceBuilder.html#tymethod.at) | Places the shape in a fractional subrectangle of its bounds. |
-| [`.inset(points)`](https://daybrite.dev/api/day_pieces/trait.ShapePieceBuilder.html#tymethod.inset) | Insets that rectangle before resolving the geometry. |
-| [`.rotate(degrees)`](https://daybrite.dev/api/day_pieces/trait.ShapePieceBuilder.html#tymethod.rotate) | Rotates the drawing around its center. |
-| [`.scale(factor)`](https://daybrite.dev/api/day_pieces/trait.ShapePieceBuilder.html#tymethod.scale) | Scales the drawing uniformly around its center. |
-| [`.offset(x, y)`](https://daybrite.dev/api/day_pieces/trait.ShapePieceBuilder.html#tymethod.offset) | Translates the drawing within its layout frame. |
+| [`.at(x, y, width, height)`](https://docs.rs/day-pieces/latest/day_pieces/trait.ShapePieceBuilder.html#tymethod.at) | Places the shape in a fractional subrectangle of its bounds. |
+| [`.inset(points)`](https://docs.rs/day-pieces/latest/day_pieces/trait.ShapePieceBuilder.html#tymethod.inset) | Insets that rectangle before resolving the geometry. |
+| [`.rotate(degrees)`](https://docs.rs/day-pieces/latest/day_pieces/trait.ShapePieceBuilder.html#tymethod.rotate) | Rotates the drawing around its center. |
+| [`.scale(factor)`](https://docs.rs/day-pieces/latest/day_pieces/trait.ShapePieceBuilder.html#tymethod.scale) | Scales the drawing uniformly around its center. |
+| [`.offset(x, y)`](https://docs.rs/day-pieces/latest/day_pieces/trait.ShapePieceBuilder.html#tymethod.offset) | Translates the drawing within its layout frame. |
 
 Drawing transforms do not change the shape's allocated layout size. Inset, rotation, scale,
 and offset can read reactive values. Use [animation](/docs/reference/tween) to interpolate
@@ -101,9 +101,9 @@ those values over time.
 
 ## Shape groups
 
-[`shape_group(shapes)`](https://daybrite.dev/api/day_pieces/fn.shape_group.html) draws shapes in
+[`shape_group(shapes)`](https://docs.rs/day-pieces/latest/day_pieces/fn.shape_group.html) draws shapes in
 order in a single canvas view. Each child's reactive properties still update the drawing.
-[`shape_group_fn(f)`](https://daybrite.dev/api/day_pieces/fn.shape_group_fn.html) receives the
+[`shape_group_fn(f)`](https://docs.rs/day-pieces/latest/day_pieces/fn.shape_group_fn.html) receives the
 laid-out size and returns a vector of shapes, for geometry that depends on available space.
 
 A group has one identity and accessibility node. Child gesture handlers are not connected;
@@ -112,12 +112,12 @@ children need independent focus, actions, or labels.
 
 ## Gestures
 
-[`.on_tap(f)`](https://daybrite.dev/api/day_pieces/trait.ShapePieceBuilder.html#tymethod.on_tap)
+[`.on_tap(f)`](https://docs.rs/day-pieces/latest/day_pieces/trait.ShapePieceBuilder.html#tymethod.on_tap)
 on a shape checks the tap in its transformed local coordinates. Circles and ellipses use
 ellipse containment; polygons use polygon containment. Rectangles, rounded rectangles,
 arcs, and lines use rectangular bounds, so hit testing does not follow every visible contour.
 
-[`.on_drag(f)`](https://daybrite.dev/api/day_pieces/trait.ShapePieceBuilder.html#tymethod.on_drag)
+[`.on_drag(f)`](https://docs.rs/day-pieces/latest/day_pieces/trait.ShapePieceBuilder.html#tymethod.on_drag)
 reports a `Drag` with phase, local pointer location, and cumulative translation. The press
 location is `location - translation`; the first reported drag event may arrive after the
 pointer has already moved. Drag handling does not use the tap containment test.

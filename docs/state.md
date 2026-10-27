@@ -17,9 +17,9 @@ window. A login session may belong to the whole app.
 
 | Scope | Lifetime | API | Typical use |
 |---|---|---|---|
-| Piece | Until its owning scope is disposed | [`Signal::new`](https://daybrite.dev/api/day_reactive/struct.Signal.html#method.new) | Input or expanded state within a component |
-| Window | Until the window closes | [`T::scoped(…)`](https://daybrite.dev/api/day_core/trait.Ambient.html#method.scoped), then [`T::ambient()`](https://daybrite.dev/api/day_core/trait.Ambient.html#method.ambient) | A document’s selection and current page |
-| App | Until the process exits | [`T::app()`](https://daybrite.dev/api/day_core/trait.Ambient.html#method.app) | A session or cache shared by windows |
+| Piece | Until its owning scope is disposed | [`Signal::new`](https://docs.rs/day-reactive/latest/day_reactive/struct.Signal.html#method.new) | Input or expanded state within a component |
+| Window | Until the window closes | [`T::scoped(…)`](https://docs.rs/day-core/latest/day_core/trait.Ambient.html#method.scoped), then [`T::ambient()`](https://docs.rs/day-core/latest/day_core/trait.Ambient.html#method.ambient) | A document’s selection and current page |
+| App | Until the process exits | [`T::app()`](https://docs.rs/day-core/latest/day_core/trait.Ambient.html#method.app) | A session or cache shared by windows |
 
 For window state, use `Ambient` as shown below. This uses Day’s reactive scopes and window
 registry, so the ownership rules are shared by all backends. The `Ambient` tests in
@@ -79,18 +79,18 @@ fn my_page() -> impl Piece {
 }
 ```
 
-Pass `Scene` as an argument when the function allows it. Use [`Scene::ambient()`](https://daybrite.dev/api/day_core/trait.Ambient.html#method.ambient) when a
+Pass `Scene` as an argument when the function allows it. Use [`Scene::ambient()`](https://docs.rs/day-core/latest/day_core/trait.Ambient.html#method.ambient) when a
 callback signature cannot accept state, such as a navigation page builder. It finds the
 `Scene` provided by the enclosing scope.
 
 For state that belongs to the whole app rather than to a window (a login session, a
-sync engine, a document cache several windows share), use [`T::app()`](https://daybrite.dev/api/day_core/trait.Ambient.html#method.app) instead. It creates the value
+sync engine, a document cache several windows share), use [`T::app()`](https://docs.rs/day-core/latest/day_core/trait.Ambient.html#method.app) instead. It creates the value
 on the reactive root scope the first time anything asks and returns that instance for the rest of the process,
 from any window, any menu action, and any task.
 
 ### Two rules
 
-**[`ambient()`](https://daybrite.dev/api/day_core/trait.Ambient.html#method.ambient) resolves while a piece builds.** Read it in the piece's body and capture the value;
+**[`ambient()`](https://docs.rs/day-core/latest/day_core/trait.Ambient.html#method.ambient) resolves while a piece builds.** Read it in the piece's body and capture the value;
 calling it inside a reactive closure works on the first run and panics on the next, because a
 re-running reaction is no longer inside the scope that provided the value.
 
@@ -102,8 +102,8 @@ label(move || format!("{:?}", scene.selected.get()))
 label(move || format!("{:?}", Scene::ambient().selected.get()))        // ❌ panics when the label re-runs
 ```
 
-**Per-window state must be created at build time.** [`T::scoped`](https://daybrite.dev/api/day_core/trait.Ambient.html#method.scoped) does this for you (it defers
-through [`piece_fn`](https://daybrite.dev/api/day_core/fn.piece_fn.html)). Writing it by hand with [`with_environment(Scene::create(), …)`](https://daybrite.dev/api/day_pieces/fn.with_environment.html) creates the
+**Per-window state must be created at build time.** [`T::scoped`](https://docs.rs/day-core/latest/day_core/trait.Ambient.html#method.scoped) does this for you (it defers
+through [`piece_fn`](https://docs.rs/day-core/latest/day_core/fn.piece_fn.html)). Writing it by hand with [`with_environment(Scene::create(), …)`](https://docs.rs/day-pieces/latest/day_pieces/fn.with_environment.html) creates the
 value in the caller's scope instead, and since a piece's construction runs before its build, every
 window would get the first one's.
 
@@ -111,7 +111,7 @@ window would get the first one's.
 
 App-wide menu actions need to act on the window that is focused when the command runs.
 Capturing one window’s `Scene` when installing the menu would keep targeting that window.
-Use [`Scene::focused()`](https://daybrite.dev/api/day_core/trait.Ambient.html#method.focused) inside the action instead:
+Use [`Scene::focused()`](https://docs.rs/day-core/latest/day_core/trait.Ambient.html#method.focused) inside the action instead:
 
 ```rust
 fn front(f: impl Fn(Scene) + 'static) -> impl Fn() + 'static {
@@ -127,7 +127,7 @@ menu_item(res::str::new_item())
     .action(front(|s| s.new_item()))
 ```
 
-[`T::focused()`](https://daybrite.dev/api/day_core/trait.Ambient.html#method.focused) (SwiftUI's `@FocusedValue`) resolves through the key window's own scope, falling
+[`T::focused()`](https://docs.rs/day-core/latest/day_core/trait.Ambient.html#method.focused) (SwiftUI's `@FocusedValue`) resolves through the key window's own scope, falling
 back to the primary window when no secondary one is key, which is the steady state on macOS,
 where the primary window's delegate reports no focus events of its own. A window is marked key
 the moment it is registered, so a command fired immediately after File ▸ New Window already
@@ -152,11 +152,11 @@ A thread-local selection is shared by every window on the UI thread. That may go
 until a second window opens and selecting a row in one window changes the other. Put the
 selection in `Scene` when each window should have its own value.
 
-The exception is state that really is process-wide and really has no owner: [`Signal::global`](https://daybrite.dev/api/day_reactive/struct.Signal.html#method.global) is
-still the right tool for, say, a network-reachability flag that the whole app observes. [`T::app()`](https://daybrite.dev/api/day_core/trait.Ambient.html#method.app)
+The exception is state that really is process-wide and really has no owner: [`Signal::global`](https://docs.rs/day-reactive/latest/day_reactive/struct.Signal.html#method.global) is
+still the right tool for, say, a network-reachability flag that the whole app observes. [`T::app()`](https://docs.rs/day-core/latest/day_core/trait.Ambient.html#method.app)
 is the typed version of the same idea, and is preferable when the state has more than one field.
 
-## Subtrees that follow state: [`keyed`](https://daybrite.dev/api/day_pieces/fn.keyed.html) and [`switch`](https://daybrite.dev/api/day_pieces/fn.switch.html)
+## Subtrees that follow state: [`keyed`](https://docs.rs/day-pieces/latest/day_pieces/fn.keyed.html) and [`switch`](https://docs.rs/day-pieces/latest/day_pieces/fn.switch.html)
 
 A subtree that depends on a value is declared with the value, not rebuilt by hand:
 
@@ -168,14 +168,14 @@ switch(move || tab.get(), |t| match t {                       // one arm per val
 })
 ```
 
-[`keyed(key, build)`](https://daybrite.dev/api/day_pieces/fn.keyed.html) rebuilds its subtree when the key changes (compared with `PartialEq`) and
+[`keyed(key, build)`](https://docs.rs/day-pieces/latest/day_pieces/fn.keyed.html) rebuilds its subtree when the key changes (compared with `PartialEq`) and
 leaves it alone while it does not, so focus and local state survive; `None` builds nothing. The
 outgoing subtree's scope is disposed before the incoming one builds, which aborts its pending
-tasks and subscriptions, exactly as [`when`](https://daybrite.dev/api/day_pieces/fn.when.html) does. [`switch(selector, arm)`](https://daybrite.dev/api/day_pieces/fn.switch.html) is [`keyed`](https://daybrite.dev/api/day_pieces/fn.keyed.html) over a value
+tasks and subscriptions, exactly as [`when`](https://docs.rs/day-pieces/latest/day_pieces/fn.when.html) does. [`switch(selector, arm)`](https://docs.rs/day-pieces/latest/day_pieces/fn.switch.html) is [`keyed`](https://docs.rs/day-pieces/latest/day_pieces/fn.keyed.html) over a value
 that is always present: one tracked read, one arm per value, where a run of sibling
-[`when`](https://daybrite.dev/api/day_pieces/fn.when.html)`(move || tab`[`.get`](https://daybrite.dev/api/day_reactive/struct.Signal.html#method.get)`() == …, …)` would read each signal once per arm. Revisiting a value builds
+[`when`](https://docs.rs/day-pieces/latest/day_pieces/fn.when.html)`(move || tab`[`.get`](https://docs.rs/day-reactive/latest/day_reactive/struct.Signal.html#method.get)`() == …, …)` would read each signal once per arm. Revisiting a value builds
 its arm afresh; state that must survive a switch belongs in the model, not the subtree. For an
-either/or on a `bool`, [`when`](https://daybrite.dev/api/day_pieces/fn.when.html)`(..)`[`.otherwise`](https://daybrite.dev/api/day_pieces/trait.WhenBuilder.html#tymethod.otherwise)`(..)` reads better.
+either/or on a `bool`, [`when`](https://docs.rs/day-pieces/latest/day_pieces/fn.when.html)`(..)`[`.otherwise`](https://docs.rs/day-pieces/latest/day_pieces/trait.WhenBuilder.html#tymethod.otherwise)`(..)` reads better.
 
 ## The primitives underneath
 
@@ -183,12 +183,12 @@ either/or on a `bool`, [`when`](https://daybrite.dev/api/day_pieces/fn.when.html
 
 | | |
 |---|---|
-| [`with_environment(value, \|\| content)`](https://daybrite.dev/api/day_pieces/fn.with_environment.html) | provide `value` to a subtree |
-| [`environment::<T>()`](https://daybrite.dev/api/day_pieces/fn.environment.html) | the nearest provided `T`, or `None` |
-| [`focused_environment::<T>()`](https://daybrite.dev/api/day_pieces/fn.focused_environment.html) | the `T` provided by the focused window |
-| [`app_environment::<T>(make)`](https://daybrite.dev/api/day_pieces/fn.app_environment.html) | the app-wide `T`, created once |
+| [`with_environment(value, \|\| content)`](https://docs.rs/day-pieces/latest/day_pieces/fn.with_environment.html) | provide `value` to a subtree |
+| [`environment::<T>()`](https://docs.rs/day-pieces/latest/day_pieces/fn.environment.html) | the nearest provided `T`, or `None` |
+| [`focused_environment::<T>()`](https://docs.rs/day-pieces/latest/day_pieces/fn.focused_environment.html) | the `T` provided by the focused window |
+| [`app_environment::<T>(make)`](https://docs.rs/day-pieces/latest/day_pieces/fn.app_environment.html) | the app-wide `T`, created once |
 
-All four sit on `day-reactive`'s scope context ([`Scope::provide`](https://daybrite.dev/api/day_reactive/struct.Scope.html#method.provide) / [`Scope::use_context`](https://daybrite.dev/api/day_reactive/struct.Scope.html#method.use_context)), which
+All four sit on `day-reactive`'s scope context ([`Scope::provide`](https://docs.rs/day-reactive/latest/day_reactive/struct.Scope.html#method.provide) / [`Scope::use_context`](https://docs.rs/day-reactive/latest/day_reactive/struct.Scope.html#method.use_context)), which
 walks a scope's ancestors, so "ambient" means *provided by an ancestor of the scope this piece is
 building in*.
 
@@ -196,4 +196,4 @@ building in*.
 
 - [docs/windows](windows.md) — opening windows, the New Window menu role, the cover fallback
 - [docs/model](model.md) — `Store` and per-property observability
-- [docs/navigation](navigation.md) — why a secondary window's nav is [`.local()`](https://daybrite.dev/api/day_pieces/trait.NavBuilder.html#tymethod.local)
+- [docs/navigation](navigation.md) — why a secondary window's nav is [`.local()`](https://docs.rs/day-pieces/latest/day_pieces/trait.NavBuilder.html#tymethod.local)

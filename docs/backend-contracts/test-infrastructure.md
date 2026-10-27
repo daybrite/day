@@ -30,8 +30,8 @@ pub(crate) mod conformance {
 - **Declare each test once**, with the attribute. There is no per-module roster or startup
   registration call. `crates/day-pieces/src/conformance.rs` holds the cases that belong to no
   piece and the conformance app's browsing page.
-- **What a case proves** is declared with [`.proves(kinds::X)`](https://daybrite.dev/api/day_core/conformance/struct.Case.html#method.proves), [`.proves_modifier("padding")`](https://daybrite.dev/api/day_core/conformance/struct.Case.html#method.proves_modifier),
-  [`.proves_cap(Cap::X)`](https://daybrite.dev/api/day_core/conformance/struct.Case.html#method.proves_cap) and [`.proves_duty("x")`](https://daybrite.dev/api/day_core/conformance/struct.Case.html#method.proves_duty). `scripts/ci/conformance-coverage.py` reads
+- **What a case proves** is declared with [`.proves(kinds::X)`](https://docs.rs/day-core/latest/day_core/conformance/struct.Case.html#method.proves), [`.proves_modifier("padding")`](https://docs.rs/day-core/latest/day_core/conformance/struct.Case.html#method.proves_modifier),
+  [`.proves_cap(Cap::X)`](https://docs.rs/day-core/latest/day_core/conformance/struct.Case.html#method.proves_cap) and [`.proves_duty("x")`](https://docs.rs/day-core/latest/day_core/conformance/struct.Case.html#method.proves_duty). `scripts/ci/conformance-coverage.py` reads
   those and reports, per family, what is proven and what is not. Its `lint.sh` leg gates the
   families already complete (`--require kinds,pieces`: every built-in kind and every piece crate
   has a case, so a new one without one fails lint) and reports the rest; `--check` gates them all once every family is
@@ -53,7 +53,7 @@ its test build turns on.
 slice; WASM uses `inventory` constructors. A crate below `day` uses
 `#[day_macros::test(day_core)]`. Public case names still replace underscores with hyphens;
 discovery identities also include the package, version and module path. Duplicate compiled
-case names fail before filtering. The runtime [`register`](https://daybrite.dev/api/day_core/conformance/fn.register.html) API is for synthetic harness cases.
+case names fail before filtering. The runtime [`register`](https://docs.rs/day-core/latest/day_core/conformance/fn.register.html) API is for synthetic harness cases.
 
 On WASM the attribute emits a descriptor export. Its address references the descriptor, so
 rustc requires the object's inclusion. The Day CLI acts as the final linker driver, records
@@ -63,7 +63,7 @@ source scanners, archive parsing, a second compilation, or handwritten test name
 export contract and runtime inventory are independent: a retained descriptor does not hide
 an omitted registration constructor.
 
-The DOM host installs the manifest and invokes constructors once before app startup. [`tests`](https://daybrite.dev/api/day_core/conformance/fn.tests.html)
+The DOM host installs the manifest and invokes constructors once before app startup. [`tests`](https://docs.rs/day-core/latest/day_core/conformance/fn.tests.html)
 and `run_tests` compare exact compiled identities before any filter or capability skip. Missing,
 unexpected or duplicate entries fail nonretryably, with the missing names and no executed tests.
 Absent/malformed expectations fail closed, including when a packaging tool strips the custom
@@ -104,19 +104,19 @@ entire provider. The loss cases must fail; a green run of the surviving tests is
 app's content and runs every registered case through the real engine. A case's page builds,
 its drive runs, its assertions read the same probe a script reads.
 
-The harness turns on the mock's native behavior ([`MockProbe::set_native_behavior`](https://daybrite.dev/api/day_mock/struct.MockProbe.html#method.set_native_behavior)): what a
+The harness turns on the mock's native behavior ([`MockProbe::set_native_behavior`](https://docs.rs/day-mock/latest/day_mock/struct.MockProbe.html#method.set_native_behavior)): what a
 native toolkit does unasked, which a unit test otherwise drives by hand. Lists and trees bind a
 window of rows (on attach, after a reload, around a scrolled-to row), a cover reports its
 size when presented and that it is hidden once dismissed, and the mock claims `Cap::Toolbar` and
 `Cap::Dialogs`, whose edits and presentations it records. Those binds and reports happen at
-the next [`sleep`](https://daybrite.dev/api/day_core/fn.sleep.html), where Day's tree is free, so an op that looks for a row too early finds it on
+the next [`sleep`](https://docs.rs/day-core/latest/day_core/fn.sleep.html), where Day's tree is free, so an op that looks for a row too early finds it on
 its retry.
 
 
 ## The conformance app
 
 `apps/conformance` is the app `day test` runs Day's own cases in. It is almost empty: its
-root is a test host around a [`nav`](https://daybrite.dev/api/day_pieces/fn.nav.html) over every registered GUI case, one route per case, so a
+root is a test host around a [`nav`](https://docs.rs/day-pieces/latest/day_pieces/fn.nav.html) over every registered GUI case, one route per case, so a
 person can open any case on any toolkit and look at it, while a run shows each case alone. It
 depends on `day` by path with the `conformance` feature, so it is built against the commit it
 sits in and never against a published Day.
@@ -171,7 +171,7 @@ remains visible afterwards.
 
 The portable `confirm-native-*`, `prompt-native-*`, and `alert-sheet-preserves-button-indices`
 cases run in the regular conformance suite on targets with `Cap::Dialogs`. They explicitly
-select native presentation and answer through [`respond`](https://daybrite.dev/api/day_core/conformance/struct.Drive.html#method.respond) / [`respond_text`](https://daybrite.dev/api/day_core/conformance/struct.Drive.html#method.respond_text), exercising the
+select native presentation and answer through [`respond`](https://docs.rs/day-core/latest/day_core/conformance/struct.Drive.html#method.respond) / [`respond_text`](https://docs.rs/day-core/latest/day_core/conformance/struct.Drive.html#method.respond_text), exercising the
 public future and toolkit dismissal contract. Those assertions inspect pending Day requests;
 they do not prove a native button was drawn or clicked. The separate Python suite supplies
 that evidence and is currently an explicit local/emulator check, not a shared CI step.
@@ -195,7 +195,7 @@ Run this separately from other drivers for the same app. It leaves the fixture v
 checks content preservation through policy changes on supporting backends. This native-input
 suite supplies the OS-input evidence and is an explicit emulator check, not a shared CI step.
 
-For TextArea [`.on_submit(...)`](https://daybrite.dev/api/day_pieces/trait.TextAreaBuilder.html#tymethod.on_submit), run the companion suite:
+For TextArea [`.on_submit(...)`](https://docs.rs/day-pieces/latest/day_pieces/trait.TextAreaBuilder.html#tymethod.on_submit), run the companion suite:
 
 ```sh
 python3 apps/conformance/scripts/harmony-textarea-submit.py
@@ -261,7 +261,7 @@ A pass says the toolkit realized the pieces, the drive's events reached the app'
 assertions held on day-core's state, and the native widget reports the same text, value and
 state, except for the fields `conformance.json` lists as `native_unread`. It does not say native
 INPUT would have produced the same: the drive's events are injected, as a script's are. The
-native reads are [`assert_native`](https://daybrite.dev/api/day_core/conformance/struct.Drive.html#method.assert_native), [`a11y_audit`](https://daybrite.dev/api/day_core/conformance/struct.Drive.html#method.a11y_audit) (where the toolkit reads its accessibility tree
+native reads are [`assert_native`](https://docs.rs/day-core/latest/day_core/conformance/struct.Drive.html#method.assert_native), [`a11y_audit`](https://docs.rs/day-core/latest/day_core/conformance/struct.Drive.html#method.a11y_audit) (where the toolkit reads its accessibility tree
 back), `assert_no_placeholders`, and the captures. Captures are illustration; a case asserts
 effects, never looks.
 
@@ -273,11 +273,11 @@ What a pass does not yet cover, so a skip or an unread field reads as recorded:
   (shapes, backgrounds, opacity, transforms, overlays) skip there. Reading the computed styles
   through `read_native` instead is the planned answer.
 - **No accessibility group on GTK and ArkUI**: GTK 4 has no public getters for an accessible's
-  label and value, and ArkUI's accessibility text is empty unless Day set it, so [`a11y_audit`](https://daybrite.dev/api/day_core/conformance/struct.Drive.html#method.a11y_audit)
+  label and value, and ArkUI's accessibility text is empty unless Day set it, so [`a11y_audit`](https://docs.rs/day-core/latest/day_core/conformance/struct.Drive.html#method.a11y_audit)
   skips their nodes.
 - **ArkUI's menu and segmented pickers** are built in ArkTS and report no text.
-- **Where Day's content sits in a capture**: [`sample_pixel`](https://daybrite.dev/api/day_core/conformance/struct.Drive.html#method.sample_pixel) maps a node's frame into the
-  in-app capture through [`Toolkit::snapshot_origin`](https://daybrite.dev/api/day_spec/trait.Toolkit.html#method.snapshot_origin). Android answers it (its content capture
+- **Where Day's content sits in a capture**: [`sample_pixel`](https://docs.rs/day-core/latest/day_core/conformance/struct.Drive.html#method.sample_pixel) maps a node's frame into the
+  in-app capture through [`Toolkit::snapshot_origin`](https://docs.rs/day-spec/latest/day_spec/trait.Toolkit.html#method.snapshot_origin). Android answers it (its content capture
   runs under the status and navigation bars); elsewhere, rows beyond Day's content are taken to
   be above it, true of AppKit's title bar and the mobile status bar.
 - **Input is injected, by design.** Every input op delivers Day's own event, the stream a
@@ -286,8 +286,8 @@ What a pass does not yet cover, so a skip or an unread field reads as recorded:
   input from a run (posted events, `adb input`, Playwright) was considered and set aside: each
   platform needs its own driver, and those drivers are the flakiest part of any UI test
   harness.
-- **Dialogs** are answered through [`respond`](https://daybrite.dev/api/day_core/conformance/struct.Drive.html#method.respond), which resolves the request and has the toolkit
-  dismiss the dialog it showed: a pass proves [`present`](https://daybrite.dev/api/day_core/fn.present.html) and `dismiss` ran on the toolkit and the
+- **Dialogs** are answered through [`respond`](https://docs.rs/day-core/latest/day_core/conformance/struct.Drive.html#method.respond), which resolves the request and has the toolkit
+  dismiss the dialog it showed: a pass proves [`present`](https://docs.rs/day-core/latest/day_core/fn.present.html) and `dismiss` ran on the toolkit and the
   answer came back, not that the dialog drew. A system dialog is its own window, out of reach of
   the in-app capture on several platforms.
 - **Context menus and toolbars** are driven through Day's own model of them, the dispatch a

@@ -142,40 +142,51 @@ npm --prefix website run linkcheck
 
 The build checks MDX and Astro output and generates the Pagefind search index. Force a rebuild
 after Markdown plugin edits. The rendered audit checks metadata, headings, IDs, image alt
-attributes, and sitemap membership. The link checker excludes external URLs and Rustdoc.
+attributes, and sitemap membership. The link checker excludes external URLs, including docs.rs.
 
-The full build includes Rustdoc and validates guide-to-API links and internal API links.
-Follow [the artifact assembly procedure](maintenance.md#assemble-and-review-a-publication-artifact)
-when running the separate `build:site` and `build:api` steps. To repeat the API link check:
+The site publishes no API reference of its own; every API link goes to docs.rs. To check those
+links after a site build, build rustdoc the way docs.rs does and run both API checks (from
+`website/`):
 
 ```sh
-python3 -B scripts/docs/check-api-links.py
+npm run docs:api
 ```
+
+That runs `scripts/build-api-docs.sh`, which documents this checkout with docs.rs's default target
+and each crate's `[package.metadata.docs.rs]` features into `target/api-check/`, then
+`scripts/docs/check-api-links.py` and `docs:api-references` against it. The build is never
+published.
 
 Both Python rendered checkers accept an optional path to another built site directory. They
 create their own result directory and require no prior validation session. Review responsive
 layout, search, keyboard focus, themes, and navigation when shared templates change.
 
-Link API names in prose and function tables directly to their generated item page, for example
-[`is_supported()`](https://daybrite.dev/api/day_part_haptics/fn.is_supported.html). Use absolute `https://daybrite.dev/api/` links so local previews open published Rustdoc
-and link methods and variants to their specific anchors. Link references to other capabilities
+Link API names in prose and function tables directly to their item page on docs.rs, for example
+[`is_supported()`](https://docs.rs/day-part-haptics/latest/day_part_haptics/fn.is_supported.html):
+`https://docs.rs/<package>/latest/<library>/…`, where the umbrella crate's package is `day-app`
+and its library `day`. Link methods and variants to their specific anchors. Link references to other capabilities
 to their internal guides, following the [cross-reference rules](style-guide.md#link-related-documentation). Keep code fences
 copyable Rust, with the corresponding API links in the explanation beside the example. Verify
-the destination in the combined build rather than guessing a Rustdoc path. Check the receiver's
+the destination in the checking build rather than guessing a Rustdoc path. Check the receiver's
 actual type: identical method names such as `on_submit` and `header` can have different owners.
-External crates use versioned `https://docs.rs/<package>/<version>/<library>/` item links.
-Keep their released versions, guide URLs, and API destinations in
+External crates link the same way. Keep their guide URLs and API destinations in
 [external-crates.json](../src/data/external-crates.json). Do not add them to `api-crates.json`:
-that catalog builds APIs from this workspace. When updating an external guide, check the actual
-published source and verify its docs.rs item pages and fragments; the local API checker only
-covers the bundled Rustdoc. Exclude unpublished packages and empty placeholder releases.
+that catalog lists this workspace's crates. When updating an external guide, check the actual
+published source and verify its docs.rs item pages and fragments; the local API checker covers
+this workspace's crates only. Exclude unpublished packages and empty placeholder releases.
+
+docs.rs documents each crate's newest release, so a link to an API added on `main` since then
+resolves once the next release is published; the check accepts it, because the checking build is
+this checkout. A link the checking build cannot find would fail on docs.rs for good: a typo, or
+an item that exists only on a platform or behind a feature docs.rs does not build. Leave such an
+item unlinked, or add the feature to the crate's `[package.metadata.docs.rs]`.
 
 The site marks item links with a dashed underline; keep ordinary
 Markdown links in the source rather than adding presentation markup.
 
-After assembling Rustdoc, `npm run docs:api-references` (from `website/`) checks every published
+After the checking build, `npm run docs:api-references` (from `website/`) checks every published
 Markdown and MDX source for unlinked calls, dot-methods, and qualified method references whose
-names occur in the bundle. CI and `build:api` run it automatically. It reports missing links;
+names occur in it. CI and `docs:api` run it automatically. It reports missing links;
 it never guesses an owner or inserts a link. Bare words without callable syntax still need
 editorial review because they can also name fields, CSS values, commands, or concepts.
 
@@ -204,22 +215,25 @@ set `CARGO_NET_OFFLINE=false` to permit third-party dependency downloads on a fr
 Record wider example-review gaps in the maintenance ledger, not as repeated notices on app
 documentation pages.
 
-## Dependency versions in examples
+## Versions in examples
 
-`npm run docs:versions` checks published documentation, crate READMEs, authoring guides, and
-machine-readable tutorial recipes. Every Astro production build runs this check before rendering;
-`docs:architecture` runs it in CI too. A stale Day dependency fails with its source location.
+Documentation names no Day release, because every Day crate releases often and a version in an
+example goes stale with the next one:
 
-Core crate versions come from the workspace manifests. Examples may use the current minor
-release line or the full workspace version. External crate versions come from
-`src/data/external-crates.json`; additional documented dependencies live in
-`src/data/doc-dependencies.json`. Update those catalogs when adopting a verified release.
-External examples use the catalog's full version, or its minor shorthand when the patch is zero.
-The check runs offline; it does not infer releases from crates.io during a build.
+- Install a crate with `cargo add <crate>`, which takes the newest release. The umbrella crate is
+  `cargo add day-app --rename day`, a build dependency `cargo add --build day-build`, and a
+  feature `--features <name>`. A manifest example shows the rest of `Cargo.toml` without the Day
+  dependencies.
+- Write `--day-version latest` or `main`, or an `X.Y.Z` placeholder where the text means a release
+  the reader picks.
+- Link docs.rs pages through `latest`.
 
-The check covers Cargo dependency entries, explicit `--day-version` arguments, and versioned
-Day API links. Unpublished historical records and synthetic validator test inputs may retain
-older versions. Path and workspace dependencies have no registry requirement to compare.
+`npm run docs:versions` checks published documentation, crate READMEs, authoring guides, the
+external crate catalog, and machine-readable tutorial recipes, and fails on a Day dependency that
+names a release, a `--day-version` with a release number, or a docs.rs link to one. Every Astro
+production build runs it before rendering, and `docs:architecture` runs it in CI. Path, git, and
+workspace dependencies name no release and pass. Unpublished historical records keep the
+versions they recorded.
 
 Shared reference messages live in `public/examples/reference-messages.ftl`. Localization links
 to that downloadable file, and the excerpt compiler reads it directly. The unpublished

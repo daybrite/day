@@ -17,11 +17,10 @@ integration requires the AppKit or UIKit toolkit.
 
 ## Add to your app
 
-Add [`day-piece-swiftui`](https://github.com/daybrite/day/tree/main/crates/day-piece-swiftui) to your app’s Cargo dependencies, using the same Day version as the rest of your app:
+Add [`day-piece-swiftui`](https://github.com/daybrite/day/tree/main/crates/day-piece-swiftui) to your app:
 
-```toml
-[dependencies]
-day-piece-swiftui = "0.6"
+```sh
+cargo add day-piece-swiftui
 ```
 
 `day build -t <target>` enables this direct dependency’s matching toolkit feature
@@ -46,13 +45,14 @@ swiftui/
   Tests/…
 ```
 
-Declare it once in the app's `Cargo.toml`, add the piece dependency, and surface the generated
+Add the piece, declare the package once in the app's `Cargo.toml`, and surface the generated
 module in lib.rs:
 
-```toml
-[dependencies]
-day-piece-swiftui = "0.6"
+```sh
+cargo add day-piece-swiftui
+```
 
+```toml
 [package.metadata.day.ios]
 swift-packages = [{ path = "swiftui", products = ["MyViews"] }]
 platform = "16.0"          # optional: raise the deployment floor for newer SwiftUI APIs
@@ -86,7 +86,7 @@ contract the generated `res::str`/`res::images` constants give resources.
 
 ### The scanned subset
 
-The scan is a text parse (day-build [`swiftui::scan_package`](https://daybrite.dev/api/day_build/swiftui/fn.scan_package.html)), shared verbatim by the Rust-binding
+The scan is a text parse (day-build [`swiftui::scan_package`](https://docs.rs/day-build/latest/day_build/swiftui/fn.scan_package.html)), shared verbatim by the Rust-binding
 and Swift-glue generators. A view is exported when all of these hold; anything else is skipped
 with a build warning naming the reason:
 
@@ -127,7 +127,7 @@ swiftui("hello")                  // resolves @objc(DayView_hello) — dots beco
 into the generated `DayPieces` module (`platform/apple/swift/DaySwiftUI.swift`). Resolution is one
 [`NSClassFromString`](https://developer.apple.com/documentation/foundation/nsclassfromstring(_:)) call at mount, so nothing registers at startup. The same string contract lets
 a future Jetpack Compose leg resolve with `Class.forName`, which is why the naming carries no
-Apple-specific structure. [`day_piece_swiftui::support()`](https://daybrite.dev/api/day_piece_swiftui/fn.support.html) reports `Native` only on macos-appkit and
+Apple-specific structure. [`day_piece_swiftui::support()`](https://docs.rs/day-piece-swiftui/latest/day_piece_swiftui/fn.support.html) reports `Native` only on macos-appkit and
 ios-uikit; gate UI on it (never on toolkit-feature `cfg`s: `target_os = "macos"` also covers
 macos-gtk and macos-qt, which have no AppKit view tree).
 
@@ -141,9 +141,9 @@ SwiftUI reconciles that like any parent-driven update: state owned by the view (
 generated glue always does; hand-written providers must (return `AnyView(MyView(…))` every call,
 not different types per branch).
 
-## State retention across unmount ([`.state_key`](https://daybrite.dev/api/day_piece_swiftui/trait.SwiftUiBuilder.html#tymethod.state_key))
+## State retention across unmount ([`.state_key`](https://docs.rs/day-piece-swiftui/latest/day_piece_swiftui/trait.SwiftUiBuilder.html#tymethod.state_key))
 
-Leaving the piece's branch (a tab switch, a [`when()`](https://daybrite.dev/api/day_pieces/fn.when.html) going false, a page navigation) disposes
+Leaving the piece's branch (a tab switch, a [`when()`](https://docs.rs/day-pieces/latest/day_pieces/fn.when.html) going false, a page navigation) disposes
 the node, and with it the hosting view and every `@State` it owned; the next mount starts fresh.
 When the view should hold its state instead, give it a key:
 
@@ -177,7 +177,7 @@ Platform guidance: [Apple: integrating SwiftUI](https://developer.apple.com/docu
 | build | generated SwiftPM package at `build/day/macos/DayPieces`, referenced by the `platform/macos/` scaffold and built by its xcodebuild | the existing `build/day/ios/DayPieces` package, built by the scaffold's xcodebuild |
 
 The hosting view is an ordinary native handle to Day: framed, measured (`fill_measure`: it fills
-what it is offered; constrain with [`.frame`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.frame)), snapshotted, and disposed like a built-in.
+what it is offered; constrain with [`.frame`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.frame)), snapshotted, and disposed like a built-in.
 [`UIHostingController`](https://developer.apple.com/documentation/swiftui/uihostingcontroller) is not parented to a view controller in v1, so UIKit appearance
 callbacks do not fire inside the hosted view.
 
@@ -233,7 +233,7 @@ exports; see [the opt-in policy](extending.md#apple-build-dependency-tools). Che
   app-defined channel for now.
 - The scan takes the first public init only, and no default arguments.
 - The hosted view has no [`UIViewController`](https://developer.apple.com/documentation/uikit/uiviewcontroller) parent on iOS.
-- [`.state_key`](https://daybrite.dev/api/day_piece_swiftui/trait.SwiftUiBuilder.html#tymethod.state_key) retention has no eviction: each key holds its hosting view until the app exits.
+- [`.state_key`](https://docs.rs/day-piece-swiftui/latest/day_piece_swiftui/trait.SwiftUiBuilder.html#tymethod.state_key) retention has no eviction: each key holds its hosting view until the app exits.
 
 ## Compose (planned, not built)
 

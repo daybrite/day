@@ -18,9 +18,8 @@ macOS-specific button treatment is needed.
 Add this crate to the app’s dependencies and forward the matching toolkit feature as described in
 the tweak guide:
 
-```toml
-[dependencies]
-day-tweak-button-bezel = "0.6"
+```sh
+cargo add day-tweak-button-bezel
 ```
 
 ## Documentation

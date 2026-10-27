@@ -52,8 +52,8 @@ scalar locators; no tagged object schema is required:
 - assert_text: { id: camera_state, key: camera_running }
 ```
 
-Retain [`.id_of`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.id_of) for recycled rows. A one-time [`.id`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.id) would keep identifying the old item after
-rebinding. A tree's [`.row_id`](https://daybrite.dev/api/day_pieces/trait.TreeBuilder.html#tymethod.row_id) also takes a closure returning ElementId; its canonical string
+Retain [`.id_of`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.id_of) for recycled rows. A one-time [`.id`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.id) would keep identifying the old item after
+rebinding. A tree's [`.row_id`](https://docs.rs/day-pieces/latest/day_pieces/trait.TreeBuilder.html#tymethod.row_id) also takes a closure returning ElementId; its canonical string
 is used in `expand.row` and `tree_move.row/parent` references.
 
 Composite controls declare their distinct targets explicitly:
@@ -67,7 +67,7 @@ legend(entries).entry_id(|key| id!(series_legend, key))
 
 Framework-owned settings children use declared families such as `pref:<preference-key>`,
 `pref_increment:<encoded-control-id>`, `prefs_group:<group-key>` and `about_link:<index>`.
-Document strips accept [`.strip_id(id!(documents))`](https://daybrite.dev/api/day_pieces/struct.DocumentTabs.html#method.strip_id); library-owned tab, close and new buttons
+Document strips accept [`.strip_id(id!(documents))`](https://docs.rs/day-pieces/latest/day_pieces/struct.DocumentTabs.html#method.strip_id); library-owned tab, close and new buttons
 use `document_tab`, `document_close`, and `document_new` families with encoded host/row keys.
 Route, model, and preference keys are separate from element IDs.
 
@@ -80,9 +80,9 @@ features. The compiled app validates the declarations used on the selected targe
 
 IDs identify controls in Day's tree, accessibility tree, and DOM. They do not replace
 localized accessibility labels. See [accessibility](accessibility.md).
-[`.id`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.id) names the piece
+[`.id`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.id) names the piece
 independently of wrapper order. Document tabs also offer
-[`.wrapper_id`](https://daybrite.dev/api/day_pieces/struct.DocumentTabs.html#method.wrapper_id)
+[`.wrapper_id`](https://docs.rs/day-pieces/latest/day_pieces/struct.DocumentTabs.html#method.wrapper_id)
 to name the current wrapper.
 
 ## Reports and gates

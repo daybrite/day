@@ -30,7 +30,7 @@ The UI snippets use generated `res::str` accessors from an app's Fluent catalog;
 ## Check an authoritative status
 
 Start with [`day-part-permissions`](/docs/reference/permissions) at the same revision as `day` and the manifest declaration
-below. Use [`status_future`](https://daybrite.dev/api/day_part_permissions/fn.status_future.html) where a cached `Unknown` is insufficient. This module asks only
+below. Use [`status_future`](https://docs.rs/day-part-permissions/latest/day_part_permissions/fn.status_future.html) where a cached `Unknown` is insufficient. This module asks only
 when the current answer is `Prompt`, or is `Denied` and the backend allows another prompt; it does not open Settings for a granted or unsupported
 permission. Request consent from a user action, and offer a separate Settings action after denial.
 
@@ -105,10 +105,10 @@ permission_settings = Open notification settings
 permission_settings_unavailable = Open your system settings to change notification access.
 ```
 
-Await this from [`day::task`](https://daybrite.dev/api/day/fn.task.html); handle all `Status` variants, including a fallback for this
+Await this from [`day::task`](https://docs.rs/day-app/latest/day/fn.task.html); handle all `Status` variants, including a fallback for this
 non-exhaustive enum. `Granted` means permission, not hardware availability or delivery.
 Format `res::str::permission_denied()` on the UI thread when the result requires that message.
-Dropping the future stops listening; it does not dismiss the OS prompt. [`open_settings`](https://daybrite.dev/api/day_part_permissions/fn.open_settings.html) returns
+Dropping the future stops listening; it does not dismiss the OS prompt. [`open_settings`](https://docs.rs/day-part-permissions/latest/day_part_permissions/fn.open_settings.html) returns
 whether an attempt could be made, so retain an explanation if it returns false.
 
 The remaining snippets are integration fragments, not complete app files. Platform mappings
@@ -136,35 +136,35 @@ permission_location_when_in_use = Show stations near you.
 The build reads these `permission_<id>` messages when generating platform usage descriptions.
 Use their generated accessors for the same text in your UI. Do not put untranslated reason
 sentences into application code. From these declarations and catalogs, `day build` writes the Android manifest permissions, the `NS…UsageDescription` keys in
-`Info.plist`, and the HarmonyOS `module.json5` entries. The reason belongs to the app’s metadata, so [`request()`](https://daybrite.dev/api/day_part_permissions/fn.request.html) does not take a reason string. For permissions outside the portable set, `[permissions.raw]` passes
+`Info.plist`, and the HarmonyOS `module.json5` entries. The reason belongs to the app’s metadata, so [`request()`](https://docs.rs/day-part-permissions/latest/day_part_permissions/fn.request.html) does not take a reason string. For permissions outside the portable set, `[permissions.raw]` passes
 platform-native names through. `day lint` flags a permission your code requests but `Day.toml`
 doesn't declare, so the mismatch is caught in CI.
 
 ## 2. Check, request, react
 
-The runtime half is `day_part_permissions`. [`status(perm)`](https://daybrite.dev/api/day_part_permissions/fn.status.html) answers what the OS will do right now,
-never blocking; [`request(perm, on_done)`](https://daybrite.dev/api/day_part_permissions/fn.request.html) asks, showing the system prompt when one would appear.
-For an authoritative result on async-only platforms, await [`status_future`](https://daybrite.dev/api/day_part_permissions/fn.status_future.html) as in the module above.
+The runtime half is `day_part_permissions`. [`status(perm)`](https://docs.rs/day-part-permissions/latest/day_part_permissions/fn.status.html) answers what the OS will do right now,
+never blocking; [`request(perm, on_done)`](https://docs.rs/day-part-permissions/latest/day_part_permissions/fn.request.html) asks, showing the system prompt when one would appear.
+For an authoritative result on async-only platforms, await [`status_future`](https://docs.rs/day-part-permissions/latest/day_part_permissions/fn.status_future.html) as in the module above.
 
 The complete `notification_controls` module above keeps requesting access and opening Settings
 as separate actions. `Granted` allows the operation; `Restricted` and `Unsupported` need an
 explanation, not another prompt. `Denied` may permit another request on some targets, so check
-[`can_prompt`](https://daybrite.dev/api/day_part_permissions/fn.can_prompt.html) before retrying.
+[`can_prompt`](https://docs.rs/day-part-permissions/latest/day_part_permissions/fn.can_prompt.html) before retrying.
 
 - The callback runs on an unspecified thread, possibly the UI thread, so it delivers into UI state
-  through a `Setter`, not by touching a `Signal` directly. There is no blocking [`request`](https://daybrite.dev/api/day_part_permissions/fn.request.html), because
-  the prompt is drawn by the very thread a blocking call would park. [`request_future`](https://daybrite.dev/api/day_part_permissions/fn.request_future.html) and
-  [`status_future`](https://daybrite.dev/api/day_part_permissions/fn.status_future.html) exist for async code.
-- [`can_prompt`](https://daybrite.dev/api/day_part_permissions/fn.can_prompt.html) tells you whether to offer a request button. Apple never re-prompts after a denial and Android may stop, so
-  once [`can_prompt`](https://daybrite.dev/api/day_part_permissions/fn.can_prompt.html) is false a "grant access" button is a control that does nothing; offer
-  [`open_settings`](https://daybrite.dev/api/day_part_permissions/fn.open_settings.html) instead. [`should_show_rationale`](https://daybrite.dev/api/day_part_permissions/fn.should_show_rationale.html) is Android's "explain first" signal for drawing
+  through a `Setter`, not by touching a `Signal` directly. There is no blocking [`request`](https://docs.rs/day-part-permissions/latest/day_part_permissions/fn.request.html), because
+  the prompt is drawn by the very thread a blocking call would park. [`request_future`](https://docs.rs/day-part-permissions/latest/day_part_permissions/fn.request_future.html) and
+  [`status_future`](https://docs.rs/day-part-permissions/latest/day_part_permissions/fn.status_future.html) exist for async code.
+- [`can_prompt`](https://docs.rs/day-part-permissions/latest/day_part_permissions/fn.can_prompt.html) tells you whether to offer a request button. Apple never re-prompts after a denial and Android may stop, so
+  once [`can_prompt`](https://docs.rs/day-part-permissions/latest/day_part_permissions/fn.can_prompt.html) is false a "grant access" button is a control that does nothing; offer
+  [`open_settings`](https://docs.rs/day-part-permissions/latest/day_part_permissions/fn.open_settings.html) instead. [`should_show_rationale`](https://docs.rs/day-part-permissions/latest/day_part_permissions/fn.should_show_rationale.html) is Android's "explain first" signal for drawing
   your own priming UI before the real prompt.
-- [`status`](https://daybrite.dev/api/day_part_permissions/fn.status.html) can answer `Unknown` on first call where the platform is async-only (the web, and Apple
-  notifications). [`status_async`](https://daybrite.dev/api/day_part_permissions/fn.status_async.html) and [`status_future`](https://daybrite.dev/api/day_part_permissions/fn.status_future.html) wait for the platform’s answer instead of returning
+- [`status`](https://docs.rs/day-part-permissions/latest/day_part_permissions/fn.status.html) can answer `Unknown` on first call where the platform is async-only (the web, and Apple
+  notifications). [`status_async`](https://docs.rs/day-part-permissions/latest/day_part_permissions/fn.status_async.html) and [`status_future`](https://docs.rs/day-part-permissions/latest/day_part_permissions/fn.status_future.html) wait for the platform’s answer instead of returning
   `Unknown`.
 
 Concurrent requests for the same permission coalesce into one prompt, and
-[`request_many`](https://daybrite.dev/api/day_part_permissions/fn.request_many.html) batches several into one prompt sequence. The permission this example requests is
+[`request_many`](https://docs.rs/day-part-permissions/latest/day_part_permissions/fn.request_many.html) batches several into one prompt sequence. The permission this example requests is
 put to work in [Local notifications](/docs/how-to/guide-notifications).
 
 ## 3. Permissions a library crate uses
@@ -189,8 +189,8 @@ The [reference](/docs/reference/permissions) carries the full matrix. Apple plat
 through each framework's authorization API and ask the user once; after a denial, only
 Settings can change the answer. Android shows its dialog via `requestPermissions`
 and cannot tell "never asked" from "permanently denied" without app-side state, which Day
-does not keep, so record it yourself in the [`request`](https://daybrite.dev/api/day_part_permissions/fn.request.html) callback if you need the distinction.
-HarmonyOS can check but not yet prompt from Day, so [`can_prompt`](https://daybrite.dev/api/day_part_permissions/fn.can_prompt.html) is false there. The web
+does not keep, so record it yourself in the [`request`](https://docs.rs/day-part-permissions/latest/day_part_permissions/fn.request.html) callback if you need the distinction.
+HarmonyOS can check but not yet prompt from Day, so [`can_prompt`](https://docs.rs/day-part-permissions/latest/day_part_permissions/fn.can_prompt.html) is false there. The web
 answers through `navigator.permissions` and the per-API request calls. Desktop Linux and
 Windows resolve immediately as `Granted`.
 
@@ -201,8 +201,8 @@ Windows resolve immediately as `Granted`.
   `Status::Restricted`: the request resolves denied in the same frame, with no dialog, and Settings
   offers nothing. HarmonyOS refuses the request outright. Step 1 is required, and `day lint` catches
   the mismatch.
-- Where the capability doesn't exist, [`gate()`](https://daybrite.dev/api/day_part_permissions/fn.gate.html) answers `Absent` and [`status()`](https://daybrite.dev/api/day_part_permissions/fn.status.html) answers
-  `Unsupported`; a [`request`](https://daybrite.dev/api/day_part_permissions/fn.request.html) resolves immediately with `Unsupported` and no prompt. The reverse case
+- Where the capability doesn't exist, [`gate()`](https://docs.rs/day-part-permissions/latest/day_part_permissions/fn.gate.html) answers `Absent` and [`status()`](https://docs.rs/day-part-permissions/latest/day_part_permissions/fn.status.html) answers
+  `Unsupported`; a [`request`](https://docs.rs/day-part-permissions/latest/day_part_permissions/fn.request.html) resolves immediately with `Unsupported` and no prompt. The reverse case
   also exists: `Granted` on an ungated desktop is not a promise the hardware exists; ask the
   capability's own part about that.
 - The current `macos-appkit` build/launch path uses an Xcode host app bundle. Verify its generated
@@ -210,14 +210,14 @@ Windows resolve immediately as `Granted`.
   binary is a different environment and cannot establish the bundle's permission behavior.
 - Dropping a `StatusFuture` does not dismiss the prompt. No platform can take its own
   permission dialog off the screen. Dropping stops you listening; the user's answer is still
-  recorded, and the next [`status()`](https://daybrite.dev/api/day_part_permissions/fn.status.html) reflects it.
+  recorded, and the next [`status()`](https://docs.rs/day-part-permissions/latest/day_part_permissions/fn.status.html) reflects it.
 
 ## Testing past the prompt
 
 A dayscript drives Day's own views; the consent dialog is the system's window, out of its
 reach. Avoid it rather than drive it: `--grant` marks the permission allowed on the device
 between the install and the start, with the platform's own tool (`pm grant` on Android, `simctl
-privacy grant` on the iOS Simulator), so the app's first [`status`](https://daybrite.dev/api/day_part_permissions/fn.status.html) already reads `Granted`.
+privacy grant` on the iOS Simulator), so the app's first [`status`](https://docs.rs/day-part-permissions/latest/day_part_permissions/fn.status.html) already reads `Granted`.
 
 ```sh
 day launch -t android-material --grant camera --script dayscript/capture.yaml

@@ -38,7 +38,7 @@ The tree has no shadow copy for diffing; it is the only representation of the UI
 
 ## Mounting
 
-When a Piece's [`build`](https://daybrite.dev/api/day_core/trait.Piece.html#tymethod.build) runs, the node is created, and (for native kinds) the backend is asked
+When a Piece's [`build`](https://docs.rs/day-core/latest/day_core/trait.Piece.html#tymethod.build) runs, the node is created, and (for native kinds) the backend is asked
 to realize it:
 
 ```text
@@ -56,7 +56,7 @@ button(res::str::save()) → Piece::build (conceptual flow)
 
 The index computation is subtle because Day's tree has structure (columns, padding wrappers)
 that the native view hierarchy doesn't, so native children of a container are the *flattened*
-in-order native descendants. Keeping those indices right during [`each`](https://daybrite.dev/api/day_pieces/fn.each.html) reorders is one of the
+in-order native descendants. Keeping those indices right during [`each`](https://docs.rs/day-pieces/latest/day_pieces/fn.each.html) reorders is one of the
 jobs the mock-toolkit golden tests pin down.
 
 ## Updates are patches
@@ -123,7 +123,7 @@ and toolkit work can still run while the app has no user input.
 
 ## Drawing: canvas as a display list
 
-[`canvas(|d, size| …)`](https://daybrite.dev/api/day_pieces/fn.canvas.html) doesn't hand you a native graphics context; the closure records into a
+[`canvas(|d, size| …)`](https://docs.rs/day-pieces/latest/day_pieces/fn.canvas.html) doesn't hand you a native graphics context; the closure records into a
 `Vec<DrawOp>` (fill/stroke shape, text run, transform, clip…), and the backend replays the ops
 through the platform's 2D API: Core Graphics, `android.graphics.Canvas`, cairo, `QPainter`.
 The closure is itself a binding, so a signal it reads re-records and replays just that node; the
@@ -144,7 +144,7 @@ establishes shared behavior with deterministic measurement, not native rendering
 
 ## Teardown
 
-When structure changes ([`when`](https://daybrite.dev/api/day_pieces/fn.when.html) flips, an [`each`](https://daybrite.dev/api/day_pieces/fn.each.html) row leaves), the subtree's scope is disposed
+When structure changes ([`when`](https://docs.rs/day-pieces/latest/day_pieces/fn.when.html) flips, an [`each`](https://docs.rs/day-pieces/latest/day_pieces/fn.each.html) row leaves), the subtree's scope is disposed
 (bindings and handlers die with it), and the nodes go onto a release queue drained at the turn
 boundary, where the backend frees the native widgets (with toolkit-appropriate deferral, like Qt's
 `deleteLater`). Writes to a disposed signal are ignored; reads can panic. A task that reads after scope

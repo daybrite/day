@@ -12,18 +12,17 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 # Persistent preferences
 
 `day::prefs` stores small string values between launches, such as a selected theme or volume.
-It is provided by [`day-part-preferences`](https://daybrite.dev/api/day_part_preferences/index.html) and re-exported by `day` through the default-enabled `prefs`
+It is provided by [`day-part-preferences`](https://docs.rs/day-part-preferences/latest/day_part_preferences/index.html) and re-exported by `day` through the default-enabled `prefs`
 feature. Apps using the facade do not need a separate dependency.
 
 ## Add to your app
 
 The default-enabled `day::prefs` re-export needs no additional dependency.
-For direct use, the API is defined in [`day-part-preferences`](https://github.com/daybrite/day/tree/main/crates/day-part-preferences). Add this optional dependency to your app’s `Cargo.toml`
-`[dependencies]` table, at the same Day version as the rest of your app:
+For direct use, the API is defined in [`day-part-preferences`](https://github.com/daybrite/day/tree/main/crates/day-part-preferences). Add it to your app
+when you need it directly:
 
-```toml
-[dependencies]
-day-part-preferences = "0.6"
+```sh
+cargo add day-part-preferences
 ```
 
 The implementation is selected by the compilation target; no toolkit feature flags
@@ -33,10 +32,10 @@ or dependency entry in `Day.toml` are needed.
 | --- | --- |
 | macOS, iOS, Android, Windows, Linux (GTK / Qt), HarmonyOS, Web | Small string values; native stores or files on native targets, localStorage on Web. This is not encrypted secret storage. |
 
-Use [`bind`](https://daybrite.dev/api/day_part_preferences/fn.bind.html) to restore a signal’s saved value and persist later changes. For files, use
+Use [`bind`](https://docs.rs/day-part-preferences/latest/day_part_preferences/fn.bind.html) to restore a signal’s saved value and persist later changes. For files, use
 [app-local file storage](fs.md). Neither API is an encrypted store for passwords or tokens.
 
-A direct [`day-part-preferences`](https://daybrite.dev/api/day_part_preferences/index.html) dependency remains available. The `day::prefs` and `day_part_preferences`
+A direct [`day-part-preferences`](https://docs.rs/day-part-preferences/latest/day_part_preferences/index.html) dependency remains available. The `day::prefs` and `day_part_preferences`
 paths expose the same API. Disabling the facade’s default features removes its preferences
 dependency; enable any other default features your app still needs explicitly.
 
@@ -51,13 +50,13 @@ day::prefs::remove("greeting");                      // delete it
 
 | Function | Behavior |
 |---|---|
-| [`set(key, value) -> bool`](https://daybrite.dev/api/day_part_preferences/fn.set.html) | Persist `value` under `key`, overwriting. `true` when the write committed. |
-| [`get(key) -> Option<String>`](https://daybrite.dev/api/day_part_preferences/fn.get.html) | The stored string, or `None` if absent. A stored `""` is `Some("")`. |
-| [`remove(key) -> bool`](https://daybrite.dev/api/day_part_preferences/fn.remove.html) | Delete the value; `true` only if it existed and was removed. |
-| [`contains(key) -> bool`](https://daybrite.dev/api/day_part_preferences/fn.contains.html) | Whether a value is currently stored under `key`. |
-| [`bind(key, signal)`](https://daybrite.dev/api/day_part_preferences/fn.bind.html) | Two-way-bind a `Signal<T>` to a stored value: seed from the store now, persist every later change. `T` round-trips through `FromStr`/`ToString`. Call it right after creating the signal; the write-back stops with the creating scope. |
-| [`bind_json(key, store)`](https://daybrite.dev/api/day/prefs/fn.bind_json.html) | (`day::prefs`, with the `model` feature.) Keep a keyed [day-model](/docs/explanation/model) store (`Store<Keyed<T>>`, `T: Serialize + DeserializeOwned`) under `key` as one JSON array: seed it from the saved rows now, then save every later change, a field edit as well as an insert, removal or move. An unreadable value leaves the store as it is and logs a warning. Suits a small list; larger documents belong in [day-persistence](persistence.md). |
-| [`install_nav_store()`](https://daybrite.dev/api/day_part_preferences/fn.install_nav_store.html) | Install this store as day-core's navigation-persistence sink, so a [`nav`](https://daybrite.dev/api/day_pieces/fn.nav.html)/[`nav_stack`](https://daybrite.dev/api/day_pieces/fn.nav_stack.html) marked [`.restore(key)`](https://daybrite.dev/api/day_pieces/trait.NavBuilder.html#tymethod.restore) remembers its state across launches (and an Android process death). [`day::launch`](https://daybrite.dev/api/day/fn.launch.html) calls it when the app has installed no store of its own, so an app calls it only when it boots without the facade. Nav keys are namespaced under `day.nav.`. See [navigation](navigation.md). |
+| [`set(key, value) -> bool`](https://docs.rs/day-part-preferences/latest/day_part_preferences/fn.set.html) | Persist `value` under `key`, overwriting. `true` when the write committed. |
+| [`get(key) -> Option<String>`](https://docs.rs/day-part-preferences/latest/day_part_preferences/fn.get.html) | The stored string, or `None` if absent. A stored `""` is `Some("")`. |
+| [`remove(key) -> bool`](https://docs.rs/day-part-preferences/latest/day_part_preferences/fn.remove.html) | Delete the value; `true` only if it existed and was removed. |
+| [`contains(key) -> bool`](https://docs.rs/day-part-preferences/latest/day_part_preferences/fn.contains.html) | Whether a value is currently stored under `key`. |
+| [`bind(key, signal)`](https://docs.rs/day-part-preferences/latest/day_part_preferences/fn.bind.html) | Two-way-bind a `Signal<T>` to a stored value: seed from the store now, persist every later change. `T` round-trips through `FromStr`/`ToString`. Call it right after creating the signal; the write-back stops with the creating scope. |
+| [`bind_json(key, store)`](https://docs.rs/day-app/latest/day/prefs/fn.bind_json.html) | (`day::prefs`, with the `model` feature.) Keep a keyed [day-model](/docs/explanation/model) store (`Store<Keyed<T>>`, `T: Serialize + DeserializeOwned`) under `key` as one JSON array: seed it from the saved rows now, then save every later change, a field edit as well as an insert, removal or move. An unreadable value leaves the store as it is and logs a warning. Suits a small list; larger documents belong in [day-persistence](persistence.md). |
+| [`install_nav_store()`](https://docs.rs/day-part-preferences/latest/day_part_preferences/fn.install_nav_store.html) | Install this store as day-core's navigation-persistence sink, so a [`nav`](https://docs.rs/day-pieces/latest/day_pieces/fn.nav.html)/[`nav_stack`](https://docs.rs/day-pieces/latest/day_pieces/fn.nav_stack.html) marked [`.restore(key)`](https://docs.rs/day-pieces/latest/day_pieces/trait.NavBuilder.html#tymethod.restore) remembers its state across launches (and an Android process death). [`day::launch`](https://docs.rs/day-app/latest/day/fn.launch.html) calls it when the app has installed no store of its own, so an app calls it only when it boots without the facade. Nav keys are namespaced under `day.nav.`. See [navigation](navigation.md). |
 
 Values persist across launches. Platform selection is purely `#[cfg(target_os)]` (plus
 `#[cfg(target_arch = "wasm32")]` for the web), since persistence depends on the OS, not on which
@@ -81,8 +80,8 @@ Platform guidance: [Apple: settings](https://developer.apple.com/design/human-in
 | macOS | [`NSUserDefaults.standard`](https://developer.apple.com/documentation/foundation/nsuserdefaults) | `objc2` + `objc2-foundation`, shared `apple.rs` |
 | iOS | [`NSUserDefaults.standard`](https://developer.apple.com/documentation/foundation/nsuserdefaults) | `objc2` + `objc2-foundation`, shared `apple.rs` |
 | Android | [`SharedPreferences`](https://developer.android.com/reference/android/content/SharedPreferences) (`MODE_PRIVATE`) via a Java shim | `day-toolkit-material` + `[package.metadata.day.android]` |
-| Linux | per-app file store under [`$XDG_CONFIG_HOME/day`](https://specifications.freedesktop.org/basedir/latest/) (or `~/.config/day`) | std only, shared `file.rs` |
-| Windows | per-app file store under `%APPDATA%\day` | std only, shared `file.rs` |
+| Linux | file store in the app's [`$XDG_CONFIG_HOME/<app id>`](https://specifications.freedesktop.org/basedir/latest/) (or `~/.config/<app id>`) | std only, shared `file.rs` |
+| Windows | file store in `%APPDATA%\<app id>` | std only, shared `file.rs` |
 | HarmonyOS | file store, best-effort in the app sandbox (`target_env = "ohos"`) | std only, shared `file.rs` |
 | Web | `localStorage` (per origin, `day.pref.` namespace) via the day-toolkit-dom shim | the `web-dom` host page ([docs/web](web.md)), `web.rs` |
 
@@ -93,37 +92,34 @@ Platform guidance: [Apple: settings](https://developer.apple.com/design/human-in
   (no [`NSApplication`](https://developer.apple.com/documentation/appkit/nsapplication)/[`UIApplication`](https://developer.apple.com/documentation/uikit/uiapplication), run loop, or window), so the crate works in `day-toolkit-qt` binaries
   and plain `cargo test` processes as well as under `day-toolkit-appkit`/`day-toolkit-uikit`. `setObject:forKey:` is
   the only `unsafe` objc2 call (the value must be a property-list type, and we always pass a real
-  [`NSString`](https://developer.apple.com/documentation/foundation/nsstring)); writes are immediately readable and flushed to disk by the system. [`set`](https://daybrite.dev/api/day_part_preferences/fn.set.html) always
+  [`NSString`](https://developer.apple.com/documentation/foundation/nsstring)); writes are immediately readable and flushed to disk by the system. [`set`](https://docs.rs/day-part-preferences/latest/day_part_preferences/fn.set.html) always
   returns `true`.
 - **Android**: an app-private [`SharedPreferences`](https://developer.android.com/reference/android/content/SharedPreferences) file named `day_part_preferences`, opened with
   `Context.MODE_PRIVATE` from `day-toolkit-material`'s cached `Context` (`DayBridge.ctx`). Writes use
-  `Editor.commit()` (synchronous), so [`set`](https://daybrite.dev/api/day_part_preferences/fn.set.html)/[`remove`](https://daybrite.dev/api/day_part_preferences/fn.remove.html) return the true commit result. No manifest
+  `Editor.commit()` (synchronous), so [`set`](https://docs.rs/day-part-preferences/latest/day_part_preferences/fn.set.html)/[`remove`](https://docs.rs/day-part-preferences/latest/day_part_preferences/fn.remove.html) return the true commit result. No manifest
   permission is required; [`SharedPreferences`](https://developer.android.com/reference/android/content/SharedPreferences) is private storage. Like the UI pieces, the crate
   stages its own Java shim through `[package.metadata.day.android]` and rides the Day runtime (it
   needs the app's JVM + `Context`).
-- **Linux / Windows / HarmonyOS**: a file-backed store, one flat `String -> String` map serialized
-  under `<config-dir>/day/<app-id>.store`, where the app id is `Day.toml`'s `[app].id` as
-  `day build`/`day launch` export it (`DAY_APP_ID`; a binary built outside the CLI shares
-  `day-part-preferences.store`). The file is new per app: nothing is read from the
-  shared file earlier builds wrote, by design (apps started over when the store became
-  per-app, 2026-10). `config-dir` is `$XDG_CONFIG_HOME` (else `~/.config`)
-  on Linux, `%APPDATA%` (else `%USERPROFILE%\AppData\Roaming`) on Windows, and a best-effort app files
-  dir on HarmonyOS. Each entry is a line `escaped_key=escaped_value`; the escaper removes every raw
-  `=`, newline, and carriage return (`\` → `\\`, newline → `\n`, CR → `\r`, `=` → `\e`), so the first
-  raw `=` on a line is unambiguously the separator and a value may contain anything. Writes are
-  best-effort atomic (write a sibling temp file, then rename over the target); a process-wide mutex
-  serializes load-modify-save cycles. Every read tolerates a missing, unreadable, or corrupt file
-  by treating the store as empty, so a partial write or a hand-edit can never panic a caller. [`set`](https://daybrite.dev/api/day_part_preferences/fn.set.html)
-  returns `false` only when the store file could not be written (e.g. a read-only home). It depends
-  on `std` only.
+- **Linux / Windows / HarmonyOS:** settings use `preferences.store` in the app's
+  [`configuration directory`](https://docs.rs/day-app/latest/day/storage/fn.config_dir.html).
+  See [storage locations](fs.md#where-files-live) for defaults and overrides. A missing or
+  unreadable file is treated as an empty store. Writes replace the file through a temporary
+  sibling file; [`set`](https://docs.rs/day-part-preferences/latest/day_part_preferences/fn.set.html)
+  returns `false` if saving fails.
 - **Web**: `localStorage`, reached through the day-toolkit-dom host shim's `day_dom_pref_*`
   imports under a `day.pref.` key namespace. Values survive reloads and browser restarts,
   scoped per origin. `localStorage` can throw (private browsing, storage pressure); failures
   report as uncommitted/absent, matching the contract everywhere else. The showcase's Controls
   page binds its state through this store, so a reload keeps the counter ([docs/web](web.md)). On
   wasm outside a day-toolkit-dom host page the imports are unresolved and instantiation fails.
-- **Any other platform**: a no-op store: [`set`](https://daybrite.dev/api/day_part_preferences/fn.set.html)/[`remove`](https://daybrite.dev/api/day_part_preferences/fn.remove.html)/[`contains`](https://daybrite.dev/api/day_part_preferences/fn.contains.html) return `false`, [`get`](https://daybrite.dev/api/day_part_preferences/fn.get.html) returns
+- **Any other platform**: a no-op store: [`set`](https://docs.rs/day-part-preferences/latest/day_part_preferences/fn.set.html)/[`remove`](https://docs.rs/day-part-preferences/latest/day_part_preferences/fn.remove.html)/[`contains`](https://docs.rs/day-part-preferences/latest/day_part_preferences/fn.contains.html) return `false`, [`get`](https://docs.rs/day-part-preferences/latest/day_part_preferences/fn.get.html) returns
   `None`.
+
+> [!WARNING]
+> **Linux / Windows / HarmonyOS: preference migration.**
+> Preferences stored at the previous `<config-dir>/day/<app-id>.store` location are not migrated
+> automatically. Apps upgrading from that layout must migrate existing settings to
+> `preferences.store` in the app's configuration directory.
 
 ## Extension integration
 
@@ -146,7 +142,7 @@ persistence by hand on macOS, unbundled binaries store under the process-name de
 
 `bind<T>` requires `FromStr + ToString + Clone + 'static`. Invalid saved text leaves the initial
 signal value unchanged. It persists later watched changes, not the initial default. Its callback
-ignores [`set`](https://daybrite.dev/api/day_part_preferences/fn.set.html)'s boolean result; use explicit writes when the UI must report a failure. Keep UI
+ignores [`set`](https://docs.rs/day-part-preferences/latest/day_part_preferences/fn.set.html)'s boolean result; use explicit writes when the UI must report a failure. Keep UI
 messages in generated accessors and treat stored strings as data.
 
 The example values above are synthetic fixtures, not UI translations. Compile-designated code
@@ -156,7 +152,7 @@ is in the [storage recipe](/docs/how-to/guide-storage). See the
 
 ## Typed preferences without a settings surface
 
-[`Pref<T>`](https://daybrite.dev/api/day_part_preferences/struct.Pref.html), `PrefValue`, `Store`,
+[`Pref<T>`](https://docs.rs/day-part-preferences/latest/day_part_preferences/struct.Pref.html), `PrefValue`, `Store`,
 `NativeStore`, `MemoryStore`, `install_store`, `persistence_failures`, and `pref_enum!` belong
 to `day-part-preferences`. The default facade exposes them through `day::prefs`. These APIs depend
 on the reactive runtime, but do not pull in the settings UI or a widget toolkit.
@@ -169,7 +165,7 @@ static SHOW_GRID: day::prefs::Pref<bool> = day::prefs::Pref::new("editor.grid", 
 
 The first read seeds one process-lived signal per key. Writes update that signal and persist
 through the installed store; writing the default removes the stored override. Store failures
-leave the in-memory value intact and appear in [`persistence_failures()`](https://daybrite.dev/api/day_part_preferences/fn.persistence_failures.html). Install a custom
+leave the in-memory value intact and appear in [`persistence_failures()`](https://docs.rs/day-part-preferences/latest/day_part_preferences/fn.persistence_failures.html). Install a custom
 store before reading preferences. Replacing the store does not reseed existing signals.
 
 The optional [settings surface](/docs/reference/settings) re-exports these types and adds

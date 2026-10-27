@@ -1,14 +1,9 @@
 {
-  "//": "Single source of truth for the generated Rust API reference. Consumed by BOTH the CI doc",
-  "//2": "generator (scripts/build-api-docs.sh, via jq) and the /docs/reference/api bridge page.",
-  "//3": "`pkg` is the package name; its rustdoc directory is `lib` when given (the library name, for a",
-  "//3b": "package that renames it, as `day-app` does to `day`), else pkg with '-' replaced by '_'. `features`",
-  "//4": "(optional) is passed to `cargo doc --features` for crates that need one backend to compile",
-  "//5": "(the `day-app` umbrella uses headless `mock`; `model` exposes optional model integrations).",
-  "//6": "`repo`/`branch` point rustdoc's Source links at GitHub (see scripts/rustdoc-github-source.py).",
-  "outDir": "api",
-  "repo": "https://github.com/daybrite/day",
-  "branch": "main",
+  "//": "The Day crates whose API the site links on docs.rs, as https://docs.rs/<pkg>/latest/<lib>/.",
+  "//2": "Read by the /docs/reference/api page, by scripts/build-api-docs.sh (the docs.rs-equivalent",
+  "//3": "build the link checks read), and by scripts/docs/check-api-links.py. `lib` is the library name",
+  "//4": "when the package renames it, as `day-app` does to `day`; otherwise it is pkg with '-' as '_'.",
+  "//5": "docs.rs features come from each crate's [package.metadata.docs.rs], not from here.",
   "groups": [
     {
       "name": "Core",
@@ -17,29 +12,27 @@
         {
           "pkg": "day-app",
           "lib": "day",
-          "features": "mock,model,settings,text-editor,swiftui,http-image,fs,permissions",
-          "blurb": "The umbrella crate your app depends on \u2014 re-exports the core API plus one native backend."
+          "blurb": "The app dependency that re-exports Day APIs and selects the UI toolkit."
         },
         {
           "pkg": "day-core",
-          "blurb": "The Piece model: the realized view tree, the mounter, the layout engine, and event routing."
+          "blurb": "Piece construction, layout, and event routing."
         },
         {
           "pkg": "day-reactive",
-          "blurb": "The Copy-signal reactive core \u2014 signals, memos, and effects that keep a built-once tree live."
+          "blurb": "Signals, memos, and effects for reactive state."
         },
         {
           "pkg": "day-pieces",
-          "features": "model",
-          "blurb": "The built-in piece library (text, stacks, controls, list\u2026) and the renderer! extension macro."
+          "blurb": "Built-in controls, layouts, drawing, and the renderer! extension macro."
         },
         {
           "pkg": "day-geometry",
-          "blurb": "Plain Copy value types \u2014 points, sizes, rects, and affine transforms \u2014 shared across backends."
+          "blurb": "Points, sizes, rectangles, and affine transforms shared across toolkits."
         },
         {
           "pkg": "day-spec",
-          "blurb": "The backend-neutral toolkit specification that pieces emit and each toolkit renders."
+          "blurb": "The UI specification shared by pieces and toolkits."
         },
         {
           "pkg": "day-localization-ui",
@@ -51,11 +44,11 @@
         },
         {
           "pkg": "day-script",
-          "blurb": "The embedded dayscript engine that drives scripted UI walkthroughs and tests."
+          "blurb": "DayScript execution for UI walkthroughs and tests."
         },
         {
           "pkg": "day-mock",
-          "blurb": "The headless toolkit \u2014 a backend with no native UI, for tests and documentation."
+          "blurb": "A headless toolkit for tests and documentation."
         },
         {
           "pkg": "day-async",
@@ -93,7 +86,7 @@
     },
     {
       "name": "Pieces",
-      "blurb": "Optional native widgets you add to an app \u00e0 la carte.",
+      "blurb": "Optional UI components for your app.",
       "crates": [
         {
           "pkg": "day-piece-settings",
@@ -111,7 +104,7 @@
     },
     {
       "name": "Parts",
-      "blurb": "Headless native capabilities \u2014 no UI; any Rust code can depend on them.",
+      "blurb": "Platform capabilities usable from Rust code without a UI.",
       "crates": [
         {
           "pkg": "day-part-device",
@@ -127,7 +120,7 @@
         },
         {
           "pkg": "day-part-sensors",
-          "blurb": "Motion sensors \u2014 accelerometer, gyroscope, and friends."
+          "blurb": "Read motion sensors, including the accelerometer and gyroscope."
         },
         {
           "pkg": "day-part-clipboard",

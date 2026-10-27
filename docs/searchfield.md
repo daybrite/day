@@ -18,7 +18,7 @@ the platform’s search control; the app uses the query to filter or fetch its r
 
 This control is included in [`day-pieces`](https://github.com/daybrite/day/tree/main/crates/day-pieces)
 and re-exported through `day::prelude::*`. No additional crate or control feature is required.
-The selected toolkit supplies its native implementation; [`day::searchfield::support()`](https://daybrite.dev/api/day_pieces/searchfield/fn.support.html) reports
+The selected toolkit supplies its native implementation; [`day::searchfield::support()`](https://docs.rs/day-pieces/latest/day_pieces/searchfield/fn.support.html) reports
 its availability after the Day runtime starts.
 
 | Platforms / toolkits | Availability |
@@ -40,13 +40,13 @@ search_field(query)
     .id(id!(search))
 ```
 
-[`search_field(query)`](https://daybrite.dev/api/day_pieces/searchfield/fn.search_field.html) takes a `Signal<String>` bound two-way: every native edit writes the text back
-to the signal, and setting the signal (e.g. a Clear button doing [`query.set(String::new())`](https://daybrite.dev/api/day_reactive/struct.Signal.html#method.set)) patches the
-control. [`.placeholder(impl IntoText)`](https://daybrite.dev/api/day_pieces/searchfield/trait.SearchFieldBuilder.html#tymethod.placeholder) sets the empty-state prompt; it accepts a constant,
+[`search_field(query)`](https://docs.rs/day-pieces/latest/day_pieces/searchfield/fn.search_field.html) takes a `Signal<String>` bound two-way: every native edit writes the text back
+to the signal, and setting the signal (e.g. a Clear button doing [`query.set(String::new())`](https://docs.rs/day-reactive/latest/day_reactive/struct.Signal.html#method.set)) patches the
+control. [`.placeholder(impl IntoText)`](https://docs.rs/day-pieces/latest/day_pieces/searchfield/trait.SearchFieldBuilder.html#tymethod.placeholder) sets the empty-state prompt; it accepts a constant,
 `Signal<String>`, or closure, read once for the initial value (the placeholder is fixed at build).
-`SearchField` implements `Piece`, so [`.id()`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.id)/[`.a11y()`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.a11y)/[`.frame()`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.frame) chain via `Decorate`. Like day-core's
-[`text_field`](https://daybrite.dev/api/day_pieces/fn.text_field.html) it is a **width-growing leaf** (`grow_w = true`, natural single-line height): a search
-field fills its row, so constrain it with [`.frame(w, h)`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.frame) if you need a fixed width.
+`SearchField` implements `Piece`, so [`.id()`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.id)/[`.a11y()`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.a11y)/[`.frame()`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.frame) chain via `Decorate`. Like day-core's
+[`text_field`](https://docs.rs/day-pieces/latest/day_pieces/fn.text_field.html) it is a **width-growing leaf** (`grow_w = true`, natural single-line height): a search
+field fills its row, so constrain it with [`.frame(w, h)`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.frame) if you need a fixed width.
 
 ## Toolkit implementations
 

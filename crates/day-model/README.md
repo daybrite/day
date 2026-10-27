@@ -22,7 +22,7 @@ observation is useful.
 
 - [Observable models](https://daybrite.dev/docs/explanation/model/)
 - [Reactive state](https://daybrite.dev/docs/explanation/state/)
-- [Rust API](https://daybrite.dev/api/day_model/index.html)
+- [Rust API](https://docs.rs/day-model/latest/day_model/index.html)
 
 [Source](https://github.com/daybrite/day/tree/main/crates/day-model) ·
 [Contributing](https://daybrite.dev/contributing/setup/) · [MPL-2.0

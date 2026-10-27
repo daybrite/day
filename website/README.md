@@ -84,13 +84,9 @@ scripts/website.sh preview  # build, then serve the production output
 
 Or directly with npm inside `website/`: `npm install`, then `npm run dev` / `npm run build`.
 
-`npm run build` and `npm run build:force` include the Rust API reference and validate links into
-it. They require the Rust toolchain, jq, and Python 3 in addition to Node.js. `npm run build:site`
-builds only the guide site, for a quick content check. To browse API links from the development
-server, run `npm run api:dev` before `npm run dev`; rerun it after changing Rust APIs.
-This builds the combined site and stages Rustdoc, its shared compiled styles, and the guide
-search index in ignored `public/` directories. Guide API links still open the published site;
-visit `/api/` directly to inspect the local Rustdoc pages.
+`npm run build` builds the site. It publishes no Rust API reference: every API link goes to
+docs.rs. After a build, `npm run docs:api` checks those links against rustdoc built the way docs.rs
+builds it; that needs the Rust toolchain, jq, and Python 3 in addition to Node.js.
 
 > Builds assemble the apps’ published gallery indexes and Day Showcase release metadata. A warm
 > checkout can reuse gallery indexes and hero images offline; unavailable release metadata produces
@@ -111,7 +107,7 @@ website/
 │   ├── content/repository/# symlinks to contributor instructions and standards
 │   ├── content.config.ts   # docs collection schema
 │   ├── layouts/            # BaseLayout, DocsLayout
-│   ├── pages/              # landing, examples/, shared [...slug], API bridge, sitemap
+│   ├── pages/              # landing, examples/, shared [...slug], API reference page, sitemap
 │   └── lib/site.ts         # site metadata + base-path URL helper
 └── public/                 # favicon and static assets
 ```
@@ -217,24 +213,17 @@ and embedded app UI still require generated localization and resource accessors.
 The `website` and `website-deploy` jobs in [ci.yml](../.github/workflows/ci.yml) build and deploy
 `website/dist` to GitHub Pages. The website build runs on non-tag workflow runs; deployment is
 restricted to the canonical repository and excludes pull requests. The workflow includes push,
-pull-request, scheduled, manual, and repository-dispatch triggers. The website job builds the
-Rustdoc bundle into `dist/api` **after** the Astro build, because Astro clears `dist` and Pages
-deploys one combined artifact. `node website/scripts/check-api-bundle.mjs` (from the repository
-root) checks the site, API bridge, and all crate entry pages before upload. A separate Python check validates item-level Rustdoc links, and Rustdoc builds with warnings
-denied. A local validation build does not run these deployment jobs.
+pull-request, scheduled, manual, and repository-dispatch triggers. After the Astro build, the
+website job builds rustdoc as docs.rs does (`scripts/build-api-docs.sh`, into
+`target/api-check/`, with warnings denied) and checks every API link and its fragment against it
+(`scripts/docs/check-api-links.py`) before upload. That build is never uploaded: API links go to
+docs.rs. A local validation build does not run these deployment jobs.
 
-Rustdoc reuses the API bridge's rendered header/footer and the same compiled CSS files as the
-guides. `public/styles/rustdoc.css` maps Rustdoc's layout and colors to those shared design
-tokens. Both use `public/scripts/theme.js` for the saved light/system/dark preference.
-The API generator requires the site build first; use `--site-dir <built-site>` when the Astro
-output lives outside `website/dist`. Native Rustdoc search covers API items; header search
-covers the guides.
-
-To preview that combined artifact, run `npm --prefix website run build`, then
-`npm --prefix website run linkcheck` from the repository root. Serve with
-`npm --prefix website run preview`; `scripts/website.sh preview` rebuilds the combined site
-and API reference before serving. The API generator clears `target/doc` and can resolve Cargo dependencies; use
-an isolated copy for preservation-sensitive reviews. See the
+To preview the artifact, run `npm --prefix website run build`, then
+`npm --prefix website run linkcheck` and `npm --prefix website run docs:api` from the repository
+root. Serve with `npm --prefix website run preview`; `scripts/website.sh preview` rebuilds the site
+before serving. The API check can resolve Cargo dependencies; use an isolated copy for
+preservation-sensitive reviews. See the
 [maintenance procedure](../website/authoring/maintenance.md#assemble-and-review-a-publication-artifact)
 for the full command sequence and evidence limits.
 

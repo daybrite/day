@@ -21,7 +21,7 @@ The UI snippets use generated `res::str` accessors from an app's Fluent catalog;
 
 ## A first app
 
-[`launch`](https://daybrite.dev/api/day/fn.launch.html) takes window options and a `root` closure that returns a Piece. Entry points and loop
+[`launch`](https://docs.rs/day-app/latest/day/fn.launch.html) takes window options and a `root` closure that returns a Piece. Entry points and loop
 ownership vary by toolkit; mobile/web hosts can own the loop. The desktop fragment below needs
 a manifest, build script, and resource catalog as shown in the first-app tutorial.
 
@@ -93,7 +93,7 @@ column((
 .padding(Space::L)
 ```
 
-Wrap any subtree in [`scroll(...)`](https://daybrite.dev/api/day_pieces/fn.scroll.html) to make it scroll natively.
+Wrap any subtree in [`scroll(...)`](https://docs.rs/day-pieces/latest/day_pieces/fn.scroll.html) to make it scroll natively.
 
 ## Inputs
 
@@ -143,20 +143,20 @@ column((
 ))
 ```
 
-[`picker`](https://daybrite.dev/api/day_pieces/fn.picker.html) is one-of-N over a typed value (`size` is a `Signal<Size>` here, any `Clone + PartialEq`
-type works) with three native stylings ([`.menu()`](https://daybrite.dev/api/day_pieces/trait.PickerBuilder.html#tymethod.menu), [`.segmented()`](https://daybrite.dev/api/day_pieces/trait.PickerBuilder.html#tymethod.segmented), [`.inline()`](https://daybrite.dev/api/day_pieces/trait.PickerBuilder.html#tymethod.inline));
-[`text_area`](https://daybrite.dev/api/day_pieces/fn.text_area.html) is the multi-line counterpart of [`text_field`](https://daybrite.dev/api/day_pieces/fn.text_field.html).
+[`picker`](https://docs.rs/day-pieces/latest/day_pieces/fn.picker.html) is one-of-N over a typed value (`size` is a `Signal<Size>` here, any `Clone + PartialEq`
+type works) with three native stylings ([`.menu()`](https://docs.rs/day-pieces/latest/day_pieces/trait.PickerBuilder.html#tymethod.menu), [`.segmented()`](https://docs.rs/day-pieces/latest/day_pieces/trait.PickerBuilder.html#tymethod.segmented), [`.inline()`](https://docs.rs/day-pieces/latest/day_pieces/trait.PickerBuilder.html#tymethod.inline));
+[`text_area`](https://docs.rs/day-pieces/latest/day_pieces/fn.text_area.html) is the multi-line counterpart of [`text_field`](https://docs.rs/day-pieces/latest/day_pieces/fn.text_field.html).
 
-Keyboard focus is a binding too: [`.focused(editing)`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.focused) ties a control to a `Signal<bool>`, or
-[`.focused((field, Field::Name))`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.focused) binds one control of a form sharing a `Signal<Option<Field>>`:
+Keyboard focus is a binding too: [`.focused(editing)`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.focused) ties a control to a `Signal<bool>`, or
+[`.focused((field, Field::Name))`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.focused) binds one control of a form sharing a `Signal<Option<Field>>`:
 native focus changes write the signal, writing the signal moves focus (and `None` dismisses the
-soft keyboard on mobile). [`text_field`](https://daybrite.dev/api/day_pieces/fn.text_field.html)`(...)`[`.on_submit`](https://daybrite.dev/api/day_pieces/trait.TextFieldBuilder.html#tymethod.on_submit)`(...)` handles the Return key, so chaining
+soft keyboard on mobile). [`text_field`](https://docs.rs/day-pieces/latest/day_pieces/fn.text_field.html)`(...)`[`.on_submit`](https://docs.rs/day-pieces/latest/day_pieces/trait.TextFieldBuilder.html#tymethod.on_submit)`(...)` handles the Return key, so chaining
 fields is one signal write. The [focus reference](/docs/reference/focus) has the rules and the
 per-platform map.
 
 ## Conditionals and collections
 
-[`when`](https://daybrite.dev/api/day_pieces/fn.when.html) shows a subtree while a condition holds; it is itself reactive. Chain [`.otherwise`](https://daybrite.dev/api/day_pieces/trait.WhenBuilder.html#tymethod.otherwise) for the
+[`when`](https://docs.rs/day-pieces/latest/day_pieces/fn.when.html) shows a subtree while a condition holds; it is itself reactive. Chain [`.otherwise`](https://docs.rs/day-pieces/latest/day_pieces/trait.WhenBuilder.html#tymethod.otherwise) for the
 else arm.
 
 ```rust
@@ -167,12 +167,12 @@ when(
 .otherwise(|| label(res::str::tell_me_your_name()))
 ```
 
-Keyed collections ([`each`](https://daybrite.dev/api/day_pieces/fn.each.html)) build one child per item and reconcile by key when the list changes,
+Keyed collections ([`each`](https://docs.rs/day-pieces/latest/day_pieces/fn.each.html)) build one child per item and reconcile by key when the list changes,
 so each row keeps its own state across updates.
 
 ## Progress and canvas
 
-[`progress`](https://daybrite.dev/api/day_pieces/fn.progress.html) takes a fraction (a value or a reactive closure); [`spinner`](https://daybrite.dev/api/day_pieces/fn.spinner.html) is indeterminate. [`canvas`](https://daybrite.dev/api/day_pieces/fn.canvas.html)
+[`progress`](https://docs.rs/day-pieces/latest/day_pieces/fn.progress.html) takes a fraction (a value or a reactive closure); [`spinner`](https://docs.rs/day-pieces/latest/day_pieces/fn.spinner.html) is indeterminate. [`canvas`](https://docs.rs/day-pieces/latest/day_pieces/fn.canvas.html)
 hands you a native 2D drawing surface; Day never rasterizes it itself.
 
 ```rust
@@ -196,7 +196,7 @@ canvas(move |d, size| {
 Navigation state lives in signals too. Changing a selection or path updates the native
 container; using its tabs or back button updates the signal. Choose between two containers:
 
-**[`nav`](https://daybrite.dev/api/day_pieces/fn.nav.html)** is a one-of-N choice bound to a `Signal<String>`. Its [`.style`](https://daybrite.dev/api/day_pieces/trait.NavBuilder.html#tymethod.style) picks the native
+**[`nav`](https://docs.rs/day-pieces/latest/day_pieces/fn.nav.html)** is a one-of-N choice bound to a `Signal<String>`. Its [`.style`](https://docs.rs/day-pieces/latest/day_pieces/trait.NavBuilder.html#tymethod.style) picks the native
 chrome: `Sidebar` becomes a `NavigationSplitView` (an [`AdwNavigationSplitView`](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/class.NavigationSplitView.html) on GTK, an
 [`NSSplitView`](https://developer.apple.com/documentation/appkit/nssplitview) source list on macOS, a pushing list on mobile); `Tabs` becomes a native tab widget.
 
@@ -210,7 +210,7 @@ nav(section)
     .item("settings", res::str::settings(), settings_page)
 ```
 
-**[`nav_stack`](https://daybrite.dev/api/day_pieces/fn.nav_stack.html)** is a push/pop stack bound to a `Signal<Vec<String>>` path. Day reconciles the
+**[`nav_stack`](https://docs.rs/day-pieces/latest/day_pieces/fn.nav_stack.html)** is a push/pop stack bound to a `Signal<Vec<String>>` path. Day reconciles the
 native stack ([`UINavigationController`](https://developer.apple.com/documentation/uikit/uinavigationcontroller), [`AdwNavigationView`](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/class.NavigationView.html), the Android back stack) to the path.
 
 ```rust
@@ -220,7 +220,7 @@ nav_stack(path, home_view).destination(|key| detail_view(key))
 // the native back button writes the pop back into `path`.
 ```
 
-Each navigation surface uses a separate signal. A `Tabs` [nav host](/docs/reference/glossary#nav host) or a [`nav_stack`](https://daybrite.dev/api/day_pieces/fn.nav_stack.html)
+Each navigation surface uses a separate signal. A `Tabs` [nav host](/docs/reference/glossary#nav host) or a [`nav_stack`](https://docs.rs/day-pieces/latest/day_pieces/fn.nav_stack.html)
 inside a `Sidebar` nav host can be nested without additional state synchronization. Keys don't have to be strings: declare a
 `day::routes! { enum Section { Home => "home", … } }` enum (or implement `Route` by hand for
 keys that carry data, like `Item { id: u32 }` ↔ `"item-42"`) and bind the nav host to
@@ -243,7 +243,7 @@ The same keys drive deep links (`DAY_DEEPLINK=settings`;
 
 ## Localization and accessibility
 
-Text localizes through [Fluent](/docs/reference/glossary#fluent) with [`tr`](https://daybrite.dev/api/day/fn.tr.html), including interpolated signal arguments. Every Piece can
+Text localizes through [Fluent](/docs/reference/glossary#fluent) with [`tr`](https://docs.rs/day-app/latest/day/fn.tr.html), including interpolated signal arguments. Every Piece can
 carry accessibility metadata.
 
 ```rust
@@ -255,7 +255,7 @@ progress(move || volume.get() / 100.0)
 
 ## Ids and testing
 
-Give any Piece a stable [`.id(id!(name))`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.id) and dayscript can find, drive, and assert it, using the same
+Give any Piece a stable [`.id(id!(name))`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.id) and dayscript can find, drive, and assert it, using the same
 script on every platform.
 
 ```rust

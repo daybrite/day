@@ -27,14 +27,14 @@ button(res::str::about()).image(res::vectors::app_mark).action(about)
 button(res::str::send()).enabled(move || !busy.get()).action(send)
 ```
 
-Use [`.action(...)`](https://daybrite.dev/api/day_pieces/trait.ButtonBuilder.html#tymethod.action) for button activation, including after decorations such as [`.padding(...)`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.padding).
-The generic [`.on_tap(...)`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.on_tap) decorator installs a separate gesture recognizer; it is not an alias
+Use [`.action(...)`](https://docs.rs/day-pieces/latest/day_pieces/trait.ButtonBuilder.html#tymethod.action) for button activation, including after decorations such as [`.padding(...)`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.padding).
+The generic [`.on_tap(...)`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.on_tap) decorator installs a separate gesture recognizer; it is not an alias
 for the native button action. On AppKit that recognizer delays primary mouse events and can
 delay or suppress the pressed highlight. UIKit also installs a separate tap recognizer.
-Keeping activation on [`.action(...)`](https://daybrite.dev/api/day_pieces/trait.ButtonBuilder.html#tymethod.action) preserves the control's normal pointer, keyboard,
+Keeping activation on [`.action(...)`](https://docs.rs/day-pieces/latest/day_pieces/trait.ButtonBuilder.html#tymethod.action) preserves the control's normal pointer, keyboard,
 accessibility, and disabled behavior across toolkits.
 Day logs a runtime warning when a tap recognizer is attached to a native button, including
-through layout decorators. This also covers [`.on_tap_at(...)`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.on_tap_at). Existing callbacks continue
+through layout decorators. This also covers [`.on_tap_at(...)`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.on_tap_at). Existing callbacks continue
 to work, so the diagnostic does not silently change gesture semantics.
 
 For an operation shared across surfaces, use a [reusable `Command`](commands.md) to define its
@@ -45,13 +45,13 @@ The UI snippets use generated `res::str` accessors from an app's Fluent catalog;
 
 ## Icons and labels
 
-[`.icon(symbol)`](https://daybrite.dev/api/day_pieces/trait.ButtonBuilder.html#tymethod.icon) adds a platform symbol beside the title. It accepts a `Symbol`, signal, or
-closure. [`.image(name)`](https://daybrite.dev/api/day_pieces/trait.ButtonBuilder.html#tymethod.image) uses a bundled image or vector; pass a generated `res::images` or
-`res::vectors` constant. The last [`.icon()`](https://daybrite.dev/api/day_pieces/trait.ButtonBuilder.html#tymethod.icon) or [`.image()`](https://daybrite.dev/api/day_pieces/trait.ButtonBuilder.html#tymethod.image) call determines the image.
+[`.icon(symbol)`](https://docs.rs/day-pieces/latest/day_pieces/trait.ButtonBuilder.html#tymethod.icon) adds a platform symbol beside the title. It accepts a `Symbol`, signal, or
+closure. [`.image(name)`](https://docs.rs/day-pieces/latest/day_pieces/trait.ButtonBuilder.html#tymethod.image) uses a bundled image or vector; pass a generated `res::images` or
+`res::vectors` constant. The last [`.icon()`](https://docs.rs/day-pieces/latest/day_pieces/trait.ButtonBuilder.html#tymethod.icon) or [`.image()`](https://docs.rs/day-pieces/latest/day_pieces/trait.ButtonBuilder.html#tymethod.image) call determines the image.
 Use a small template glyph with a transparent background, as you would for a toolbar icon.
 Resource staging uses the existing [image and vector pipeline](vectors.md).
 
-[`.icon_only()`](https://daybrite.dev/api/day_pieces/trait.ButtonBuilder.html#tymethod.icon_only) hides the visible title when an icon is available. Keep a meaningful title:
+[`.icon_only()`](https://docs.rs/day-pieces/latest/day_pieces/trait.ButtonBuilder.html#tymethod.icon_only) hides the visible title when an icon is available. Keep a meaningful title:
 it remains the accessible name and, on desktop and web, the automatic tooltip. Buttons
 with a visible title do not receive an automatic tooltip. With no icon, the title stays
 visible. Native loaders that cannot resolve an icon also fall back to the title; web image
@@ -79,21 +79,21 @@ button(move || {
 ```
 
 These updates preserve the button instance. The icon builders also work after decorations,
-for example [`button`](https://daybrite.dev/api/day_pieces/fn.button.html)`(res::str::play())`[`.padding`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.padding)`(4.0)`[`.icon`](https://daybrite.dev/api/day_pieces/trait.ButtonBuilder.html#tymethod.icon)`(Symbol::Play)`.
+for example [`button`](https://docs.rs/day-pieces/latest/day_pieces/fn.button.html)`(res::str::play())`[`.padding`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.padding)`(4.0)`[`.icon`](https://docs.rs/day-pieces/latest/day_pieces/trait.ButtonBuilder.html#tymethod.icon)`(Symbol::Play)`.
 
 ## Styles
 
 | Modifier | Behavior |
 | --- | --- |
 | *(none)* | The platform's ordinary button |
-| [`.bordered()`](https://daybrite.dev/api/day_pieces/trait.ButtonBuilder.html#tymethod.bordered) | A contained button where the stock style is borderless, notably UIKit |
-| [`.prominent()`](https://daybrite.dev/api/day_pieces/trait.ButtonBuilder.html#tymethod.prominent) | The platform's primary or default-action treatment |
-| [`.tint(color)`](https://daybrite.dev/api/day_pieces/trait.ButtonBuilder.html#tymethod.tint) | A filled button with a contrasting foreground |
-| [`.compact()`](https://daybrite.dev/api/day_pieces/trait.ButtonBuilder.html#tymethod.compact) | Removes extra minimum width and horizontal padding on Android and web |
-| [`.enabled(value)`](https://daybrite.dev/api/day_pieces/trait.ButtonBuilder.html#tymethod.enabled) | Enables or disables interaction; accepts reactive values |
-| [`.selected(value)`](https://daybrite.dev/api/day_pieces/trait.ButtonBuilder.html#tymethod.selected) | Marks the button as the current choice among its peers; accepts reactive values |
+| [`.bordered()`](https://docs.rs/day-pieces/latest/day_pieces/trait.ButtonBuilder.html#tymethod.bordered) | A contained button where the stock style is borderless, notably UIKit |
+| [`.prominent()`](https://docs.rs/day-pieces/latest/day_pieces/trait.ButtonBuilder.html#tymethod.prominent) | The platform's primary or default-action treatment |
+| [`.tint(color)`](https://docs.rs/day-pieces/latest/day_pieces/trait.ButtonBuilder.html#tymethod.tint) | A filled button with a contrasting foreground |
+| [`.compact()`](https://docs.rs/day-pieces/latest/day_pieces/trait.ButtonBuilder.html#tymethod.compact) | Removes extra minimum width and horizontal padding on Android and web |
+| [`.enabled(value)`](https://docs.rs/day-pieces/latest/day_pieces/trait.ButtonBuilder.html#tymethod.enabled) | Enables or disables interaction; accepts reactive values |
+| [`.selected(value)`](https://docs.rs/day-pieces/latest/day_pieces/trait.ButtonBuilder.html#tymethod.selected) | Marks the button as the current choice among its peers; accepts reactive values |
 
-[`.tint()`](https://daybrite.dev/api/day_pieces/trait.ButtonBuilder.html#tymethod.tint) takes precedence over the other styles and can follow a signal. Day chooses black
+[`.tint()`](https://docs.rs/day-pieces/latest/day_pieces/trait.ButtonBuilder.html#tymethod.tint) takes precedence over the other styles and can follow a signal. Day chooses black
 or white foreground according to which has the higher WCAG contrast ratio against the fill.
 Disabled buttons reject actions even when a dayscript injects a press.
 
@@ -105,7 +105,7 @@ button(res::str::record())
 
 ## Selected state
 
-[`.selected(value)`](https://daybrite.dev/api/day_pieces/trait.ButtonBuilder.html#tymethod.selected) marks a button as the current choice among its peers: a document tab, one
+[`.selected(value)`](https://docs.rs/day-pieces/latest/day_pieces/trait.ButtonBuilder.html#tymethod.selected) marks a button as the current choice among its peers: a document tab, one
 view of a switcher. The platform draws its own checked or selected look and tells assistive
 technology the button is selected, while the button stays enabled, focusable and activatable.
 A disabled stand-in would do neither. A press never toggles the state natively: the app's
@@ -148,7 +148,7 @@ The button owns interaction in every case; the icon is content, not a separate a
 Symbols may look different between platforms. Bundled template images use the existing
 [toolbar icon loaders](toolbars.md), including their platform-specific tint behavior.
 
-AppKit's [`.prominent()`](https://daybrite.dev/api/day_pieces/trait.ButtonBuilder.html#tymethod.prominent) establishes the Return-key default action. GTK uses
+AppKit's [`.prominent()`](https://docs.rs/day-pieces/latest/day_pieces/trait.ButtonBuilder.html#tymethod.prominent) establishes the Return-key default action. GTK uses
 `suggested-action`, UIKit uses its bordered-prominent configuration, and WinUI requests
 `AccentButtonStyle` where available. Qt asks the current style to draw a default button;
 Android retains its stock filled treatment. ArkUI uses a transparent background for automatic
@@ -163,12 +163,12 @@ colors.
 
 ## Plain buttons
 
-[`.plain()`](https://daybrite.dev/api/day_pieces/trait.ButtonBuilder.html#tymethod.plain) requests a borderless native action button for toolbar commands and list
+[`.plain()`](https://docs.rs/day-pieces/latest/day_pieces/trait.ButtonBuilder.html#tymethod.plain) requests a borderless native action button for toolbar commands and list
 accessories. AppKit removes the [NSButton](https://developer.apple.com/documentation/appkit/nsbutton) bezel; UIKit uses its system button; Android
 uses Material's theme-resolved text-button colors with compact horizontal insets;
 GTK applies `flat`. Native press, focus, accessibility and disabled behavior remain.
 Qt, WinUI and web currently use their automatic style as a fallback; ArkUI's automatic
-style is already transparent. [`.plain()`](https://daybrite.dev/api/day_pieces/trait.ButtonBuilder.html#tymethod.plain) and [`.compact()`](https://daybrite.dev/api/day_pieces/trait.ButtonBuilder.html#tymethod.compact) are mutually exclusive style
+style is already transparent. [`.plain()`](https://docs.rs/day-pieces/latest/day_pieces/trait.ButtonBuilder.html#tymethod.plain) and [`.compact()`](https://docs.rs/day-pieces/latest/day_pieces/trait.ButtonBuilder.html#tymethod.compact) are mutually exclusive style
 requests: the last one wins. Android plain already includes compact horizontal sizing.
 Switching away from a tinted or plain style restores the original Material foreground
 and icon state colors as well as its background.

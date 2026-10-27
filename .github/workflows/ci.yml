@@ -1442,12 +1442,13 @@ jobs:
   # lane depends on no other repository's CI. A docs typo is a few minutes to deploy, not an hour
   # behind an Android emulator.
   #
-  # This job is also the does-rustdoc-still-build check on every crate change: a broken doc link
-  # or an intra-doc path that stopped resolving fails here, on the change that caused it. The
-  # build is portable (the core crates need no features and the `day` umbrella uses its headless
-  # `mock` backend), so no native toolkit is installed and it runs on a stock runner. Crate list
-  # + `cargo doc` invocations live in scripts/build-api-docs.sh, driven by
-  # website/src/data/api-crates.json (the same file /docs/reference/api reads).
+  # The site publishes no API reference: every API link goes to docs.rs. This job builds rustdoc
+  # the way docs.rs does (scripts/build-api-docs.sh: its default target, each crate's
+  # [package.metadata.docs.rs] features) only to check those links, so a link to a page or anchor
+  # docs.rs will not have fails here, and a broken intra-doc link fails on the change that caused
+  # it. The build documents this checkout, so a link to an API added since the last release passes
+  # and resolves on docs.rs with the next one. The crate list is website/src/data/api-crates.json,
+  # the same file /docs/reference/api reads.
   # ---------------------------------------------------------------------------
   website:
     name: website
@@ -1506,18 +1507,12 @@ jobs:
       - name: Check rendered pages and sitemap
         run: python3 -B scripts/docs/check-site.py
 
-      - name: Build the Rust API reference (dist/api)
-        # Astro clears dist during its build. Add Rustdoc afterward so the Pages artifact
-        # contains the bundle linked from /docs/reference/api.
-        run: scripts/build-api-docs.sh --out website/dist/api
+      - name: Build rustdoc as docs.rs does (for the link checks; not published)
+        run: scripts/build-api-docs.sh
 
-      - name: Check the API bundle is included
-        run: node website/scripts/check-api-bundle.mjs
-
-      - name: Check API reference links
+      - name: Check API links against it
         run: |
-          python3 -B -m unittest discover -s scripts/docs -p 'test_*links.py'
-          python3 -B -m unittest discover -s scripts/docs -p 'test_rustdoc_shell.py'
+          python3 -B -m unittest discover -s scripts/docs -p 'test_api_links.py'
           python3 -B scripts/docs/check-api-links.py
           node website/scripts/check-api-references.mjs
 

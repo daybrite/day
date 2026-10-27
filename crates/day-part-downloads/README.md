@@ -16,11 +16,10 @@ on the server, and background transfer support depends on the operating system.
 
 ## Use
 
-Add this entry to your app’s `Cargo.toml`, at the same Day version as the rest of the app:
+Add it to your app:
 
-```toml
-[dependencies]
-day-part-downloads = "0.6"
+```sh
+cargo add day-part-downloads
 ```
 
 ## Documentation
@@ -28,7 +27,7 @@ day-part-downloads = "0.6"
 - [Usage and platform limits](https://daybrite.dev/docs/reference/downloads/)
 - [HTTP networking](https://daybrite.dev/docs/reference/http/)
 - [Using platform services](https://daybrite.dev/docs/reference/parts/)
-- [Rust API](https://daybrite.dev/api/day_part_downloads/index.html)
+- [Rust API](https://docs.rs/day-part-downloads/latest/day_part_downloads/index.html)
 
 [Source](https://github.com/daybrite/day/tree/main/crates/day-part-downloads) ·
 [Contributing](https://daybrite.dev/contributing/setup/) · [MPL-2.0

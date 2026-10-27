@@ -24,7 +24,7 @@ direct use by extension crates.
 - [Setup and component reference](https://daybrite.dev/docs/reference/texteditor/)
 - [Plain-text editing](https://daybrite.dev/docs/reference/textarea/)
 - [Compose an interface](https://daybrite.dev/docs/explanation/pieces/)
-- [Rust API](https://daybrite.dev/api/day_piece_text_editor/index.html)
+- [Rust API](https://docs.rs/day-piece-text-editor/latest/day_piece_text_editor/index.html)
 
 [Source](https://github.com/daybrite/day/tree/main/crates/day-piece-text-editor) ·
 [Contributing](https://daybrite.dev/contributing/setup/) · [MPL-2.0

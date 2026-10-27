@@ -46,12 +46,12 @@ The UI snippets use generated `res::str` accessors from an app's Fluent catalog;
 
 | Need | Entry point and result | Constraint |
 | --- | --- | --- |
-| Current battery reading | [`day_part_device::battery::status() -> Option<BatteryStatus>`](https://daybrite.dev/api/day_part_device/battery/fn.status.html) | Absence can mean no battery/API; inspect the returned fields |
-| Small preference | [`day::prefs::get(&str) -> Option<String>`](https://daybrite.dev/api/day/prefs/fn.get.html); [`set(&str, &str) -> bool`](https://daybrite.dev/api/day_part_preferences/fn.set.html) | Synchronous; the default facade feature supplies it; false/None can include failure |
-| File data | [`day_part_filesystem::read_future(&str)`](https://daybrite.dev/api/day_part_filesystem/fn.read_future.html) | Await a result; native blocking forms must stay off the UI thread |
-| HTTP response | [`day_part_http::fetch_future(Request)`](https://daybrite.dev/api/day_part_http/fn.fetch_future.html) | Check transport errors and HTTP status separately |
-| Permission | [`day_part_permissions::status_future(Permission)`](https://daybrite.dev/api/day_part_permissions/fn.status_future.html) | Await authoritative status; a grant does not establish hardware availability |
-| Notification | [`Notification::post() -> Result<NotifId, NotifyError>`](https://daybrite.dev/api/day_part_local_notify/struct.Notification.html#method.post) | Consent and channel setup are separate; success does not establish delivery |
+| Current battery reading | [`day_part_device::battery::status() -> Option<BatteryStatus>`](https://docs.rs/day-part-device/latest/day_part_device/battery/fn.status.html) | Absence can mean no battery/API; inspect the returned fields |
+| Small preference | [`day::prefs::get(&str) -> Option<String>`](https://docs.rs/day-app/latest/day/prefs/fn.get.html); [`set(&str, &str) -> bool`](https://docs.rs/day-part-preferences/latest/day_part_preferences/fn.set.html) | Synchronous; the default facade feature supplies it; false/None can include failure |
+| File data | [`day_part_filesystem::read_future(&str)`](https://docs.rs/day-part-filesystem/latest/day_part_filesystem/fn.read_future.html) | Await a result; native blocking forms must stay off the UI thread |
+| HTTP response | [`day_part_http::fetch_future(Request)`](https://docs.rs/day-part-http/latest/day_part_http/fn.fetch_future.html) | Check transport errors and HTTP status separately |
+| Permission | [`day_part_permissions::status_future(Permission)`](https://docs.rs/day-part-permissions/latest/day_part_permissions/fn.status_future.html) | Await authoritative status; a grant does not establish hardware availability |
+| Notification | [`Notification::post() -> Result<NotifId, NotifyError>`](https://docs.rs/day-part-local-notify/latest/day_part_local_notify/struct.Notification.html#method.post) | Consent and channel setup are separate; success does not establish delivery |
 
 A part is a crate category, not a shared `Part` trait. There is no universal error or support
 contract: check each part's `capabilities`, `is_supported`, optional value, or error result.
@@ -59,7 +59,7 @@ OS selection often uses conditional compilation; some parts also depend on a liv
 Enabling a UI toolkit feature does not prove that all parts are available.
 
 For callbacks requiring `Send`, pass result data through a `Setter`. For futures awaited inside
-[`day::task`](https://daybrite.dev/api/day/fn.task.html), update signals and format generated localized messages on the UI thread. Keep task
+[`day::task`](https://docs.rs/day-app/latest/day/fn.task.html), update signals and format generated localized messages on the UI thread. Keep task
 and scope lifetimes explicit. See [async ownership](/docs/explanation/async).
 
 ## Complete tasks

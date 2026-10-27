@@ -29,9 +29,9 @@ progress(move || downloaded.get() / total.get())
 spinner()
 ```
 
-Both are plain leaf pieces that work without [`day::task`](https://daybrite.dev/api/day/fn.task.html) or a state machine. A determinate
+Both are plain leaf pieces that work without [`day::task`](https://docs.rs/day-app/latest/day/fn.task.html) or a state machine. A determinate
 bar is reactive by construction: pass a `Signal<f64>`, a closure, or a constant and it
-tracks the value with the same one-patch-per-change guarantee as [`slider`](https://daybrite.dev/api/day_pieces/fn.slider.html).
+tracks the value with the same one-patch-per-change guarantee as [`slider`](https://docs.rs/day-pieces/latest/day_pieces/fn.slider.html).
 
 ```rust
 let volume = Signal::new(40.0);
@@ -49,21 +49,21 @@ The UI snippets use generated `res::str` accessors from an app's Fluent catalog;
 
 `crates/day-pieces`:
 
-- [`spinner() -> Progress`](https://daybrite.dev/api/day_pieces/fn.spinner.html): indeterminate.
-- [`progress(fraction: impl IntoFraction<M>) -> Progress`](https://daybrite.dev/api/day_pieces/fn.progress.html): determinate. `IntoFraction`
+- [`spinner() -> Progress`](https://docs.rs/day-pieces/latest/day_pieces/fn.spinner.html): indeterminate.
+- [`progress(fraction: impl IntoFraction<M>) -> Progress`](https://docs.rs/day-pieces/latest/day_pieces/fn.progress.html): determinate. `IntoFraction`
   mirrors `IntoText`: it is implemented for `f64` (constant), `Signal<f64>`, and any
   `Fn() -> f64`, each under a disjoint marker so the three call forms stay coherent.
 - Out-of-range fractions are clamped to `0.0..=1.0` before they ever reach a toolkit,
   so a toolkit never has to defend against `1.7` or `-0.2`.
-- A determinate bar takes [`grow_w`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.grow_w) (it fills the available width like a slider); a spinner
+- A determinate bar takes [`grow_w`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.grow_w) (it fills the available width like a slider); a spinner
   keeps its fixed intrinsic size.
 
-A constant [`progress(0.5)`](https://daybrite.dev/api/day_pieces/fn.progress.html) installs no binding. There is nothing to update after build,
+A constant [`progress(0.5)`](https://docs.rs/day-pieces/latest/day_pieces/fn.progress.html) installs no binding. There is nothing to update after build,
 so it emits zero runtime patches (asserted in the e2e tests).
 
 ## Spinners
 
-Use [`spinner()`](https://daybrite.dev/api/day_pieces/fn.spinner.html) when work has no known
+Use [`spinner()`](https://docs.rs/day-pieces/latest/day_pieces/fn.spinner.html) when work has no known
 completion percentage. It is available through `day::prelude::*` without an additional dependency.
 
 ```rust
@@ -71,14 +71,14 @@ let running = Signal::new(true);
 spinner().animating(running).large()
 ```
 
-[`animating`](https://daybrite.dev/api/day_pieces/trait.ProgressBuilder.html#tymethod.animating)
+[`animating`](https://docs.rs/day-pieces/latest/day_pieces/trait.ProgressBuilder.html#tymethod.animating)
 accepts a Boolean, signal, or closure. It defaults to `true` and changes without rebuilding the
 view. Stopping preserves its layout space. Apple and GTK show a stopped indicator; Android and
 ArkUI can hide the indicator while retaining its space. Qt uses a busy progress bar and stops
 it by selecting a fixed range. The browser pauses its CSS animation.
 
-[`large`](https://daybrite.dev/api/day_pieces/trait.ProgressBuilder.html#tymethod.large) selects
-the platform's larger indicator. A determinate [`progress(fraction)`](https://daybrite.dev/api/day_pieces/fn.progress.html)
+[`large`](https://docs.rs/day-pieces/latest/day_pieces/trait.ProgressBuilder.html#tymethod.large) selects
+the platform's larger indicator. A determinate [`progress(fraction)`](https://docs.rs/day-pieces/latest/day_pieces/fn.progress.html)
 uses the same `Progress` type; animation and size options apply to indeterminate indicators.
 
 ## Toolkit implementations
@@ -102,7 +102,7 @@ Notes:
   [`QProgressBar`](https://doc.qt.io/qt-6/qprogressbar.html) (`min == max == 0`), so Day uses that rather than emulating a ring. It is a
   horizontal busy bar rather than a circular spinner, the one cross-platform divergence.
 - The determinate fraction crosses the C ABI (Qt/Android/WinUI) as an integer tick in
-  `0..1000`, the same encoding [`slider`](https://daybrite.dev/api/day_pieces/fn.slider.html) uses, so there is no float-ABI concern.
+  `0..1000`, the same encoding [`slider`](https://docs.rs/day-pieces/latest/day_pieces/fn.slider.html) uses, so there is no float-ABI concern.
 
 ## Sizing
 

@@ -16,15 +16,14 @@ state for the capture controls. It does not save to the system photo library or 
 
 ## Add to your app
 
-Add [`day-piece-camera`](https://crates.io/crates/day-piece-camera) to your app’s Cargo dependencies:
+Add [`day-piece-camera`](https://crates.io/crates/day-piece-camera) to your app:
 
-```toml
-[dependencies]
-day-piece-camera = "0.1"
+```sh
+cargo add day-piece-camera
 ```
 
 [Crate](https://crates.io/crates/day-piece-camera) ·
-[API reference](https://docs.rs/day-piece-camera/0.1.0/day_piece_camera/) ·
+[API reference](https://docs.rs/day-piece-camera/latest/day_piece_camera/) ·
 [Source](https://github.com/daybrite/day-piece-camera).
 The [Day CLI](/docs/reference/cli) enables the selected toolkit's integration and packages its
 native camera code. Declare the permission in `Day.toml`:
@@ -45,7 +44,7 @@ See [permissions](/docs/reference/permissions) for generated platform declaratio
 
 ## Preview and capture
 
-This component belongs in an app with [`day::resources!()`](https://daybrite.dev/api/day/macro.resources.html)
+This component belongs in an app with [`day::resources!()`](https://docs.rs/day-app/latest/day/macro.resources.html)
 and the messages above. The shutter is enabled only while the session is running.
 
 ```rust
@@ -70,26 +69,26 @@ pub fn camera_panel() -> impl Piece {
 }
 ```
 
-[`auto_request()`](https://docs.rs/day-piece-camera/0.1.0/day_piece_camera/struct.Camera.html#method.auto_request)
+[`auto_request()`](https://docs.rs/day-piece-camera/latest/day_piece_camera/struct.Camera.html#method.auto_request)
 opts into the system permission prompt when the session is wanted. Otherwise the app requests
 access itself; an undecided permission leaves the session idle. The
-[`active()`](https://docs.rs/day-piece-camera/0.1.0/day_piece_camera/struct.Camera.html#method.active)
+[`active()`](https://docs.rs/day-piece-camera/latest/day_piece_camera/struct.Camera.html#method.active)
 binding starts or stops the session, and
-[`facing()`](https://docs.rs/day-piece-camera/0.1.0/day_piece_camera/struct.Camera.html#method.facing)
+[`facing()`](https://docs.rs/day-piece-camera/latest/day_piece_camera/struct.Camera.html#method.facing)
 selects the front or back camera. Removing the piece releases its session.
 
 ## Results and errors
 
-[`CameraState`](https://docs.rs/day-piece-camera/0.1.0/day_piece_camera/enum.CameraState.html)
+[`CameraState`](https://docs.rs/day-piece-camera/latest/day_piece_camera/enum.CameraState.html)
 distinguishes idle, starting, running, unavailable hardware, denied permission, and a native
 error. A compiled renderer is not evidence of a usable camera: check both
-[`support()`](https://docs.rs/day-piece-camera/0.1.0/day_piece_camera/fn.support.html)
+[`support()`](https://docs.rs/day-piece-camera/latest/day_piece_camera/fn.support.html)
 and runtime state. Translate app-facing error messages through the catalog; retain native
 error details for diagnostics.
 
-A [`Photo`](https://docs.rs/day-piece-camera/0.1.0/day_piece_camera/struct.Photo.html)
+A [`Photo`](https://docs.rs/day-piece-camera/latest/day_piece_camera/struct.Photo.html)
 contains a cache-file path and its width and height.
-[`bytes()`](https://docs.rs/day-piece-camera/0.1.0/day_piece_camera/struct.Photo.html#method.bytes)
+[`bytes()`](https://docs.rs/day-piece-camera/latest/day_piece_camera/struct.Photo.html#method.bytes)
 reads the file synchronously; perform larger reads away from the UI thread. Move or copy photos
 to persistent storage before treating them as saved attachments. Cache files can be removed
 by the OS, and the piece does not manage a photo-library permission or save operation.

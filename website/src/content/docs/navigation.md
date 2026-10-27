@@ -10,14 +10,14 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-Day has two navigation pieces: [`nav`](https://daybrite.dev/api/day_pieces/fn.nav.html) selects a section, and [`nav_stack`](https://daybrite.dev/api/day_pieces/fn.nav_stack.html) opens detail pages with
+Day has two navigation pieces: [`nav`](https://docs.rs/day-pieces/latest/day_pieces/fn.nav.html) selects a section, and [`nav_stack`](https://docs.rs/day-pieces/latest/day_pieces/fn.nav_stack.html) opens detail pages with
 a path back. Both use platform navigation controls and keep their state in
 [signals](/docs/reference/glossary#signal). Routes connect that state to deep links and automated tests.
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
 [example messages](/docs/reference/localization#reference-example-messages) and [catalog setup](/docs/how-to/localization).
 
-## Sections: [`nav`](https://daybrite.dev/api/day_pieces/fn.nav.html)
+## Sections: [`nav`](https://docs.rs/day-pieces/latest/day_pieces/fn.nav.html)
 
 ```rust
 let section = Signal::new("home".to_string());
@@ -31,15 +31,15 @@ nav(section)
 ```
 
 The selection signal holds the active item's key. Set it from anywhere
-([`section.set("settings".into())`](https://daybrite.dev/api/day_reactive/struct.Signal.html#method.set)) and the nav host switches; the UI and programmatic navigation
+([`section.set("settings".into())`](https://docs.rs/day-reactive/latest/day_reactive/struct.Signal.html#method.set)) and the nav host switches; the UI and programmatic navigation
 can't disagree because they're the same state. Residency differs by style: `Tabs` builds every page at mount and keeps them alive, so tab
 pages retain their state (field contents, scroll position) across switches; `Sidebar` builds
 the selected page on demand and disposes it when the selection changes, so state that must survive a switch belongs in signals created above the destination builder.
 Signals created inside that builder are disposed with its page. A Tabs host with many heavy pages pays for all
-of them up front; keep expensive content behind a [`when`](https://daybrite.dev/api/day_pieces/fn.when.html) inside the page if that
+of them up front; keep expensive content behind a [`when`](https://docs.rs/day-pieces/latest/day_pieces/fn.when.html) inside the page if that
 matters.
 
-## Drill-down: [`nav_stack`](https://daybrite.dev/api/day_pieces/fn.nav_stack.html)
+## Drill-down: [`nav_stack`](https://docs.rs/day-pieces/latest/day_pieces/fn.nav_stack.html)
 
 ```rust
 let path = Signal::new(Vec::<String>::new());
@@ -50,8 +50,8 @@ nav_stack(path, library_page())
 ```
 
 The path signal is the navigation stack: `["album:42"]` means one page pushed above the root.
-[`.destination`](https://daybrite.dev/api/day_pieces/trait.NavBuilder.html#tymethod.destination) maps a pushed key to its page. Pushing is a vector edit
-([`path.update(|p| p.push(key))`](https://daybrite.dev/api/day_reactive/struct.Signal.html#method.update)) or, more commonly, the helpers:
+[`.destination`](https://docs.rs/day-pieces/latest/day_pieces/trait.NavBuilder.html#tymethod.destination) maps a pushed key to its page. Pushing is a vector edit
+([`path.update(|p| p.push(key))`](https://docs.rs/day-reactive/latest/day_reactive/struct.Signal.html#method.update)) or, more commonly, the helpers:
 
 ```rust
 nav_link(res::str::open_album(), "album:42");  // a button that pushes
@@ -60,7 +60,7 @@ nav_back();                              // pop
 current_route();                         // Option<String>
 ```
 
-[`nav_stack`](https://daybrite.dev/api/day_pieces/fn.nav_stack.html) delegates native back handling to each backend, including UIKit navigation
+[`nav_stack`](https://docs.rs/day-pieces/latest/day_pieces/fn.nav_stack.html) delegates native back handling to each backend, including UIKit navigation
 controllers and Android back callbacks. Guarded and unguarded navigation can use different
 gesture paths. Check edge swipes, system back, and any predictive preview on the OS versions
 you ship; the repository implementation is not evidence of those behaviors passing on devices.
@@ -68,7 +68,7 @@ Desktop back headers also depend on the chosen toolkit.
 
 ## Data-driven items
 
-A [`nav`](https://daybrite.dev/api/day_pieces/fn.nav.html)'s items can come from a signal, so a sidebar or tab set follows your data:
+A [`nav`](https://docs.rs/day-pieces/latest/day_pieces/fn.nav.html)'s items can come from a signal, so a sidebar or tab set follows your data:
 
 ```rust
 nav(current)
@@ -81,16 +81,16 @@ Rows are added and removed on the native widget as the signal changes; if the se
 disappears the selection resets. A data-driven item is a label plus an optional icon (the native
 row). For a rich master list (avatar, preview, badge) use a [`list`](/docs/reference/list).
 
-Mark a nav host [`.local()`](https://daybrite.dev/api/day_pieces/trait.NavBuilder.html#tymethod.local) when it is a *second* one-of-N control inside an already-routing page (a
+Mark a nav host [`.local()`](https://docs.rs/day-pieces/latest/day_pieces/trait.NavBuilder.html#tymethod.local) when it is a *second* one-of-N control inside an already-routing page (a
 filter strip beside the main tabs). Two routed nav hosts at the same level both feed
-[`current_route()`](https://daybrite.dev/api/day_pieces/fn.current_route.html), so you'd get `section/main/filter` and [`navigate`](https://daybrite.dev/api/day_pieces/fn.navigate.html) would be ambiguous; [`.local()`](https://daybrite.dev/api/day_pieces/trait.NavBuilder.html#tymethod.local)
+[`current_route()`](https://docs.rs/day-pieces/latest/day_pieces/fn.current_route.html), so you'd get `section/main/filter` and [`navigate`](https://docs.rs/day-pieces/latest/day_pieces/fn.navigate.html) would be ambiguous; [`.local()`](https://docs.rs/day-pieces/latest/day_pieces/trait.NavBuilder.html#tymethod.local)
 keeps the secondary one out of the route. A nav host nested one level deeper (a `Tabs` inside a
 `Sidebar` section) should stay routed. Debug builds warn when two routed one-of-N surfaces share
 a level.
 
 ## Intercepting back
 
-Guard the user's back (a native gesture, the back button, or [`nav_back()`](https://daybrite.dev/api/day_pieces/fn.nav_back.html)) with [`on_back`](https://daybrite.dev/api/day_pieces/trait.NavStackBuilder.html#tymethod.on_back), for
+Guard the user's back (a native gesture, the back button, or [`nav_back()`](https://docs.rs/day-pieces/latest/day_pieces/fn.nav_back.html)) with [`on_back`](https://docs.rs/day-pieces/latest/day_pieces/trait.NavStackBuilder.html#tymethod.on_back), for
 the unsaved-changes-confirm case. A programmatic `path.set` is never guarded (a write is not a
 back); this mirrors Jetpack Compose's `BackHandler`.
 
@@ -113,12 +113,12 @@ nav_stack(path, editor())
 ```
 
 Return `Proceed` to pop now or `Handled` to consume it; a `Handled` guard can hold the
-`BackRequest` and call [`proceed()`](https://daybrite.dev/api/day_pieces/struct.BackRequest.html#method.proceed) later. While a guard is armed Day stops the [toolkit](/docs/reference/glossary#toolkit) from
+`BackRequest` and call [`proceed()`](https://docs.rs/day-pieces/latest/day_pieces/struct.BackRequest.html#method.proceed) later. While a guard is armed Day stops the [toolkit](/docs/reference/glossary#toolkit) from
 auto-popping on a native gesture and routes the back through your guard instead: on iOS the
 swipe is disabled and the back button is intercepted, on Android a back callback takes priority
 (the predictive-back preview is unavailable while armed), on GTK the page's swipe is disabled.
 
-[`Route::title()`](https://daybrite.dev/api/day_pieces/trait.Route.html#method.title) may read reactive metadata. The stack updates the current native header when
+[`Route::title()`](https://docs.rs/day-pieces/latest/day_pieces/trait.Route.html#method.title) may read reactive metadata. The stack updates the current native header when
 that title changes, even if the route still compares equal. This lets a destination open
 immediately with a loading title and acquire its final title after fetching data without
 rebuilding the page.
@@ -142,11 +142,11 @@ nav_stack(path, root).destination(|key| {
 })
 ```
 
-[`current_route()`](https://daybrite.dev/api/day_pieces/fn.current_route.html) returns the **full** path (`"library/album-42"`), and it round-trips through
-[`navigate`](https://daybrite.dev/api/day_pieces/fn.navigate.html), so persisting the whole route across launches is: save [`current_route()`](https://daybrite.dev/api/day_pieces/fn.current_route.html) on the way
-out, [`navigate(&saved)`](https://daybrite.dev/api/day_pieces/fn.navigate.html) on the way back in.
+[`current_route()`](https://docs.rs/day-pieces/latest/day_pieces/fn.current_route.html) returns the **full** path (`"library/album-42"`), and it round-trips through
+[`navigate`](https://docs.rs/day-pieces/latest/day_pieces/fn.navigate.html), so persisting the whole route across launches is: save [`current_route()`](https://docs.rs/day-pieces/latest/day_pieces/fn.current_route.html) on the way
+out, [`navigate(&saved)`](https://docs.rs/day-pieces/latest/day_pieces/fn.navigate.html) on the way back in.
 
-For a single surface, [`.restore(key)`](https://daybrite.dev/api/day_pieces/trait.NavBuilder.html#tymethod.restore) does that for you without any [`current_route()`](https://daybrite.dev/api/day_pieces/fn.current_route.html) calls:
+For a single surface, [`.restore(key)`](https://docs.rs/day-pieces/latest/day_pieces/trait.NavBuilder.html#tymethod.restore) does that for you without any [`current_route()`](https://docs.rs/day-pieces/latest/day_pieces/fn.current_route.html) calls:
 
 ```rust
 nav(section).restore("nav.section");  // reopens on the last-viewed section
@@ -155,11 +155,11 @@ nav_stack(path, home).restore("mail.path");    // rebuilds the pushed path
 
 It saves the selected key (or the stack's path) on every change and reads it back at build. A
 launch deep link outranks it, and a saved value that no longer fits is ignored. Persistence runs
-through the app's preferences, which [`day::launch`](https://daybrite.dev/api/day/fn.launch.html) sets up, and they are disk-backed, so restore
+through the app's preferences, which [`day::launch`](https://docs.rs/day-app/latest/day/fn.launch.html) sets up, and they are disk-backed, so restore
 also survives an Android process death.
 
 [dayscript](/docs/how-to/dayscript) uses the same mechanism: `navigate: { route: controls }` in a script
-performs the write your UI would, and `assert_route` compares the full [`current_route()`](https://daybrite.dev/api/day_pieces/fn.current_route.html). A
+performs the write your UI would, and `assert_route` compares the full [`current_route()`](https://docs.rs/day-pieces/latest/day_pieces/fn.current_route.html). A
 navigation test asserts on route strings, and `day lint` checks that every literal route in your
 sources and scripts starts with a declared item key, so a typo is a lint warning instead of a
 silently-ignored tap.
@@ -167,7 +167,7 @@ silently-ignored tap.
 ## Typed routes
 
 Routes travel as strings; in code you can declare them as an enum. Declare the keys as an enum and
-both [`nav`](https://daybrite.dev/api/day_pieces/fn.nav.html) and [`nav_stack`](https://daybrite.dev/api/day_pieces/fn.nav_stack.html) accept it directly; every [`.item`](https://daybrite.dev/api/day_pieces/trait.NavBuilder.html#tymethod.item), destination match, and navigation call
+both [`nav`](https://docs.rs/day-pieces/latest/day_pieces/fn.nav.html) and [`nav_stack`](https://docs.rs/day-pieces/latest/day_pieces/fn.nav_stack.html) accept it directly; every [`.item`](https://docs.rs/day-pieces/latest/day_pieces/trait.NavBuilder.html#tymethod.item), destination match, and navigation call
 site is then compile-checked:
 
 ```rust
@@ -186,10 +186,10 @@ nav(section)
 
 A sidebar keys on `Option<Section>` (`None` is the collapsed mobile list); tabs key on the bare
 enum since a tab is always selected. Each variant maps to its declared string, so
-deep links, [dayscript](/docs/reference/glossary#dayscript), and [`current_route()`](https://daybrite.dev/api/day_pieces/fn.current_route.html) are unchanged.
+deep links, [dayscript](/docs/reference/glossary#dayscript), and [`current_route()`](https://docs.rs/day-pieces/latest/day_pieces/fn.current_route.html) are unchanged.
 
 Typed routes pay off most for **routes that carry data**. Implement the `Route` trait by hand
-([`key()`](https://daybrite.dev/api/day_pieces/trait.Route.html#method.key) encodes, [`from_key()`](https://daybrite.dev/api/day_pieces/trait.Route.html#method.from_key) parses), and stack destinations receive the typed value:
+([`key()`](https://docs.rs/day-pieces/latest/day_pieces/trait.Route.html#method.key) encodes, [`from_key()`](https://docs.rs/day-pieces/latest/day_pieces/trait.Route.html#method.from_key) parses), and stack destinations receive the typed value:
 
 ```rust
 #[derive(Clone, PartialEq)]
@@ -240,18 +240,18 @@ stringly, move to an enum when the app grows, mix the two freely (a typed nav ho
 ## Patterns and limits
 
 - **Desktop split layouts:** `NavStyle::Sidebar` gives the two-pane desktop shape. Give the
-  detail pane [`.grow()`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.grow) or it collapses to its content width.
-- **State restoration:** [`.restore(key)`](https://daybrite.dev/api/day_pieces/trait.NavBuilder.html#tymethod.restore) persists and restores selection and path through the
+  detail pane [`.grow()`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.grow) or it collapses to its content width.
+- **State restoration:** [`.restore(key)`](https://docs.rs/day-pieces/latest/day_pieces/trait.NavBuilder.html#tymethod.restore) persists and restores selection and path through the
   installed nav store, as described above. Persist your own signals (see
   [parts: prefs](/docs/reference/parts)) only for custom state beyond navigation.
-- **More windows:** [`day::open_window`](https://daybrite.dev/api/day/fn.open_window.html) opens secondary windows on every [backend](/docs/reference/glossary#backend)
+- **More windows:** [`day::open_window`](https://docs.rs/day-app/latest/day/fn.open_window.html) opens secondary windows on every [backend](/docs/reference/glossary#backend)
   (`WindowKind::Normal`, `Preferences` or `About`; [`day-piece-settings`](/docs/reference/settings) registers the
   Settings and About windows for you): native windows on the desktop backends, iPad scenes, Android activities, and OHOS
   abilities; iPhone and the web present them as a fullscreen cover. See
   [windows](/docs/reference/windows). Dialogs and alerts are separate
   ([dialogs reference](/docs/reference/dialogs)).
 - **Android process death:** if Android kills a backgrounded process, relaunch is a cold start,
-  but [`.restore`](https://daybrite.dev/api/day_pieces/trait.NavBuilder.html#tymethod.restore) reads back through the disk-backed prefs store, so navigation state survives
+  but [`.restore`](https://docs.rs/day-pieces/latest/day_pieces/trait.NavBuilder.html#tymethod.restore) reads back through the disk-backed prefs store, so navigation state survives
   it.
 
 The [navigation reference](/docs/reference/navigation) has the per-platform mapping details.
@@ -265,7 +265,7 @@ The current signatures are `nav<K: Route, S: Binding<K>>(selection: S) -> Nav<S,
 A route is not limited to `String`; its encode/parse contract is part of the app's data model.
 
 Keep shared state above replaceable destination closures. Persisted navigation restores route
-selection/path, not arbitrary page signals. [`navigate(&str) -> bool`](https://daybrite.dev/api/day_pieces/fn.navigate.html) reports whether routing
+selection/path, not arbitrary page signals. [`navigate(&str) -> bool`](https://docs.rs/day-pieces/latest/day_pieces/fn.navigate.html) reports whether routing
 succeeded; it does not validate application data or grant permission to open a document.
 Secondary windows have app-owned lifetimes and do not extend captured page-local signals.
 

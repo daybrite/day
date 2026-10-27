@@ -2,8 +2,9 @@
 // SPDX-License-Identifier: MPL-2.0
 
 // File-backed persistent store for platforms with no in-reach system preferences API: desktop Linux,
-// Windows, and (best-effort) HarmonyOS/OpenHarmony. The store is a flat String->String map under
-// `<config-dir>/day/day-part-preferences.store`, serialized one entry per line as
+// Windows, and (best-effort) HarmonyOS/OpenHarmony. The store is a flat String->String map in
+// `preferences.store` in the app's configuration directory (`day_spec::storage::config_dir()`,
+// a folder named for the app), serialized one entry per line as
 // `escaped_key=escaped_value`. escape() removes every raw `=`, newline, and carriage return, so the
 // first raw `=` on a line is unambiguously the separator and a value can contain anything.
 //
@@ -17,7 +18,7 @@ use std::fs;
 use std::path::PathBuf;
 use std::sync::Mutex;
 
-/// The store file, created under `<config-dir>/day/`, named after the app (docs/prefs.md): the
+/// The store file's name in a `DAY_PREFS_DIR`, named after the app (docs/prefs.md): the
 /// `[app].id` from `Day.toml`, which `day build`/`day launch` export as `DAY_APP_ID` (a dev launch
 /// sets it in the process environment; a packaged build bakes it at compile time). A binary
 /// built outside the CLI, with no id either way, shares one `day-part-preferences.store`.
@@ -113,14 +114,15 @@ fn save(map: &BTreeMap<String, String>) -> bool {
 }
 
 /// The store file: under `DAY_PREFS_DIR` when it is set (a private store, which is how a test
-/// keeps a store across the processes it starts), else under `<config-dir>/day/`.
+/// keeps a store across the processes it starts), else `preferences.store` in the app's
+/// configuration directory.
 fn store_path() -> Option<PathBuf> {
     if let Some(dir) = std::env::var_os("DAY_PREFS_DIR")
         && !dir.is_empty()
     {
         return Some(PathBuf::from(dir).join(store_file()));
     }
-    Some(config_dir()?.join("day").join(store_file()))
+    Some(config_dir()?.join("preferences.store"))
 }
 
 /// Escape so the result contains no raw `=`, newline, or carriage return:
@@ -160,40 +162,22 @@ fn unescape(s: &str) -> String {
     out
 }
 
-// --- Per-OS config directory ---
+// --- The app's configuration directory ---
 
-#[cfg(all(target_os = "linux", not(target_env = "ohos")))]
+// The platforms whose store is this file: the app's own configuration folder,
+// `$XDG_CONFIG_HOME/<app id>` (else `~/.config/<app id>`) on Linux, `%APPDATA%\<app id>` on
+// Windows, the host's files directory on HarmonyOS (`DAY_DATA_DIR`), with a fixed sandbox path
+// there when the host passed none so a store is always creatable.
+#[cfg(any(target_os = "linux", target_os = "windows"))]
 fn config_dir() -> Option<PathBuf> {
-    if let Some(dir) = std::env::var_os("XDG_CONFIG_HOME")
-        && !dir.is_empty()
-    {
-        return Some(PathBuf::from(dir));
-    }
-    std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".config"))
-}
-
-#[cfg(target_os = "windows")]
-fn config_dir() -> Option<PathBuf> {
-    if let Some(dir) = std::env::var_os("APPDATA")
-        && !dir.is_empty()
-    {
-        return Some(PathBuf::from(dir));
-    }
-    std::env::var_os("USERPROFILE").map(|home| PathBuf::from(home).join("AppData").join("Roaming"))
-}
-
-// HarmonyOS/OpenHarmony: best-effort. Prefer an app-provided files dir from the environment, then the
-// usual roots, and finally a fixed sandbox path so a store is always creatable.
-#[cfg(all(target_os = "linux", target_env = "ohos"))]
-fn config_dir() -> Option<PathBuf> {
-    for var in ["OHOS_APP_FILES_DIR", "XDG_CONFIG_HOME", "HOME", "TMPDIR"] {
-        if let Some(dir) = std::env::var_os(var)
-            && !dir.is_empty()
-        {
-            return Some(PathBuf::from(dir));
-        }
-    }
-    Some(PathBuf::from("/data/storage/el2/base/haps/entry/files"))
+    let dir = day_spec::storage::config_dir();
+    #[cfg(target_env = "ohos")]
+    let dir = dir.or_else(|| {
+        Some(PathBuf::from(
+            "/data/storage/el2/base/haps/entry/files/config",
+        ))
+    });
+    dir
 }
 
 // Elsewhere this file serves only the `memory` feature's `DAY_PREFS_DIR` store.

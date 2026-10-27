@@ -57,7 +57,7 @@ grid_note = Details for the selected item.
 ```
 
 Each row contributes two columns. The location value uses
-[`.grow_w()`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.grow_w), making the
+[`.grow_w()`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.grow_w), making the
 second column share the available width. The first label is a direct child of the grid, so
 it occupies a full-width row. The note spans both columns within a row.
 
@@ -65,12 +65,12 @@ it occupies a full-width row. The note spans both columns within a row.
 
 | Builder | Default and behavior |
 | --- | --- |
-| [`spacing(value)`](https://daybrite.dev/api/day_pieces/trait.GridBuilder.html#tymethod.spacing) | Sets both row and column spacing; both default to zero. Accepts points or a `Space` value. |
-| [`row_spacing(value)`](https://daybrite.dev/api/day_pieces/trait.GridBuilder.html#tymethod.row_spacing) | Sets the gap between rows. |
-| [`column_spacing(value)`](https://daybrite.dev/api/day_pieces/trait.GridBuilder.html#tymethod.column_spacing) | Sets the gap between columns. |
-| [`Grid::align(value)`](https://daybrite.dev/api/day_pieces/trait.GridBuilder.html#tymethod.align) | Aligns cells within their allocated space; defaults to `Alignment::Center`. |
-| [`GridRow::align(value)`](https://daybrite.dev/api/day_pieces/trait.GridRowBuilder.html#tymethod.align) | Overrides vertical alignment for that row; otherwise inherits the grid's alignment. |
-| [`.grid_align(value)`](https://daybrite.dev/api/day_pieces/struct.Decorated.html#method.grid_align) | Overrides both alignment axes for one cell. |
+| [`spacing(value)`](https://docs.rs/day-pieces/latest/day_pieces/trait.GridBuilder.html#tymethod.spacing) | Sets both row and column spacing; both default to zero. Accepts points or a `Space` value. |
+| [`row_spacing(value)`](https://docs.rs/day-pieces/latest/day_pieces/trait.GridBuilder.html#tymethod.row_spacing) | Sets the gap between rows. |
+| [`column_spacing(value)`](https://docs.rs/day-pieces/latest/day_pieces/trait.GridBuilder.html#tymethod.column_spacing) | Sets the gap between columns. |
+| [`Grid::align(value)`](https://docs.rs/day-pieces/latest/day_pieces/trait.GridBuilder.html#tymethod.align) | Aligns cells within their allocated space; defaults to `Alignment::Center`. |
+| [`GridRow::align(value)`](https://docs.rs/day-pieces/latest/day_pieces/trait.GridRowBuilder.html#tymethod.align) | Overrides vertical alignment for that row; otherwise inherits the grid's alignment. |
+| [`.grid_align(value)`](https://docs.rs/day-pieces/latest/day_pieces/struct.Decorated.html#method.grid_align) | Overrides both alignment axes for one cell. |
 
 A cell's alignment takes precedence over its row's vertical alignment and the grid's default.
 Leading and trailing placement follows the app's layout direction; columns mirror in
@@ -82,14 +82,14 @@ Cells occupy columns in declaration order. The row with the most occupied column
 the grid's column count. Without growth modifiers, each column takes the largest ideal width
 of its single-column cells; spanning cells can require additional width.
 
-A cell with [`.grow_w()`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.grow_w)
+A cell with [`.grow_w()`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.grow_w)
 makes its column flexible. Under a bounded width, rigid columns retain their ideal widths and
 flexible columns split the remaining space after column gaps. When width is unconstrained,
 such as inside a horizontal [scroll view](/docs/reference/scroll), flexible columns use their
 ideal widths instead.
 
 Row heights account for the cells' heights at their final column widths, including wrapped
-text. A [`.grow_h()`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.grow_h) cell
+text. A [`.grow_h()`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.grow_h) cell
 lets its row share extra height when the grid receives a bounded height.
 
 Rigid content in a flexible column can clip when little width remains. Allow long text to
@@ -97,12 +97,12 @@ wrap or scroll the grid when its contents cannot fit. Test narrow windows and lo
 
 ## Spanning and empty cells
 
-[`.grid_span(n)`](https://daybrite.dev/api/day_pieces/struct.Decorated.html#method.grid_span)
+[`.grid_span(n)`](https://docs.rs/day-pieces/latest/day_pieces/struct.Decorated.html#method.grid_span)
 makes a cell occupy consecutive columns and advances the next cell accordingly. The default
 span is one; zero is treated as one. Row spanning is not supported. A direct child that is
 not a row occupies a full-width row without needing a span modifier.
 
-A [`spacer()`](https://daybrite.dev/api/day_pieces/fn.spacer.html) inside a grid row reserves one
+A [`spacer()`](https://docs.rs/day-pieces/latest/day_pieces/fn.spacer.html) inside a grid row reserves one
 empty column position. It contributes no width and does not push adjacent cells apart.
 Use column spacing for gaps between cells.
 
@@ -112,8 +112,8 @@ the note above still spans two columns even though padding follows its span modi
 
 ## Reactive content and lifetime
 
-Signal-backed labels and controls update normally. [`each()`](https://daybrite.dev/api/day_pieces/fn.each.html)
-and [`when()`](https://daybrite.dev/api/day_pieces/fn.when.html) expand into rows at grid level or
+Signal-backed labels and controls update normally. [`each()`](https://docs.rs/day-pieces/latest/day_pieces/fn.each.html)
+and [`when()`](https://docs.rs/day-pieces/latest/day_pieces/fn.when.html) expand into rows at grid level or
 into cells within a row. Changes to content or the row set can resize columns across the grid.
 Nested grids behave as ordinary cells.
 

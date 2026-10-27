@@ -4,8 +4,8 @@ navTitle: "Sharing"
 
 # Native URL sharing
 
-Call [`day::share_url(url, title)`](https://daybrite.dev/api/day/fn.share_url.html) directly from a user action after checking
-[`day::share_support()`](https://daybrite.dev/api/day/fn.share_support.html). It presents the toolkit's native chooser and returns whether
+Call [`day::share_url(url, title)`](https://docs.rs/day-app/latest/day/fn.share_url.html) directly from a user action after checking
+[`day::share_support()`](https://docs.rs/day-app/latest/day/fn.share_support.html). It presents the toolkit's native chooser and returns whether
 presentation started. It does not send the URL automatically, report completion or treat
 cancellation as an error. Sharing targets and permissions belong to the operating system.
 

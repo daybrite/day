@@ -24,12 +24,13 @@ const put = (path, value) => writeFile(path, JSON.stringify(value, null, 2) + '\
 export function mainCompatibility(plan, checkout) {
   return plan.map(step => {
     if (step.compatibility === 'install') return { ...step, body: `cargo install --path ${quote(join(checkout, 'crates/day-cli'), step.shell)} --locked\n` };
-    if (step.kind === 'file' && step.path === 'Cargo.toml') {
-      const day = 'day = { package = "day-app", version = "0.6" }';
-      const build = 'day-build = "0.6"';
-      if (!step.body.includes(day) || !step.body.includes(build)) throw new Error('Update the explicit main-compatibility dependency substitutions.');
-      return { ...step, body: step.body.replace(day, `day = { package = "day-app", path = ${JSON.stringify(join(checkout, 'crates/day'))} }`)
-        .replace(build, `day-build = { path = ${JSON.stringify(join(checkout, 'crates/day-build'))} }`) };
+    // The reader's `cargo add` takes the newest release; main takes the same crates from the
+    // checkout. A recipe that adds anything else must say how main resolves it.
+    if (step.compatibility === 'dependencies') {
+      const reader = 'cargo add day-app --rename day\ncargo add --build day-build\n';
+      if (step.body !== reader) throw new Error('Update the explicit main-compatibility dependency substitutions.');
+      return { ...step, body: `cargo add day-app --rename day --path ${quote(join(checkout, 'crates/day'), step.shell)}\n` +
+        `cargo add --build day-build --path ${quote(join(checkout, 'crates/day-build'), step.shell)}\n` };
     }
     return step;
   });

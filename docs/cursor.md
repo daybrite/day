@@ -12,7 +12,7 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 # Cursor
 
 Change the mouse pointer to show what an area does: a link can use a pointing hand, a drawing
-surface a crosshair, and a divider a resize cursor. Apply [`.cursor(...)`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.cursor) to a piece; the pointer
+surface a crosshair, and a divider a resize cursor. Apply [`.cursor(...)`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.cursor) to a piece; the pointer
 updates when its bound state changes.
 
 ## Authoring
@@ -47,7 +47,7 @@ Three rules:
   reactive cursor can hand back what it took.
 - A shape is a pointer affordance and nothing else. A touch screen never shows one, and that
   is correct; an affordance that only a cursor reveals (a resize handle with no visible grip)
-  should check [`capability(Cap::Cursor)`](https://daybrite.dev/api/day_core/fn.capability.html) before it counts on being discovered.
+  should check [`capability(Cap::Cursor)`](https://docs.rs/day-core/latest/day_core/fn.capability.html) before it counts on being discovered.
 
 ## API
 
@@ -77,7 +77,7 @@ below is the only mapping written down.
 | `ColResize`, `RowResize` | `col-resize`, `row-resize` | a divider between columns or rows |
 | `Native(name)` | the name | one toolkit's shape, see below |
 
-[`Cursor::css_name()`](https://daybrite.dev/api/day_spec/enum.Cursor.html#method.css_name) answers the keyword, and `Cursor::NAMED` walks the named set in order,
+[`Cursor::css_name()`](https://docs.rs/day-spec/latest/day_spec/enum.Cursor.html#method.css_name) answers the keyword, and `Cursor::NAMED` walks the named set in order,
 which is what the Showcase's Cursors page draws.
 
 Custom cursor images are not supported.
@@ -113,4 +113,4 @@ toolkit feature:
 
 Each is a `Cursor::Native` value, so the named toolkit resolves it by its own table and any
 other ignores it. Guard toolkit-specific constants with the matching `#[cfg(feature = …)]`.
-[`Cursor::native("…")`](https://daybrite.dev/api/day_spec/enum.Cursor.html#method.native) is the ungated form for a name Day has no constant for.
+[`Cursor::native("…")`](https://docs.rs/day-spec/latest/day_spec/enum.Cursor.html#method.native) is the ungated form for a name Day has no constant for.

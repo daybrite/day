@@ -11,7 +11,7 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
 A **Piece** describes a control, layout, or group of controls in a Day interface. Pieces compose
-into a tree, and the selected backend creates the native widgets. For example, a [`label`](https://daybrite.dev/api/day_pieces/fn.label.html) becomes
+into a tree, and the selected backend creates the native widgets. For example, a [`label`](https://docs.rs/day-pieces/latest/day_pieces/fn.label.html) becomes
 an `NSTextField` on macOS or a `TextView` on Android. The [API tour](/docs/reference/api-tour) has examples;
 this page explains composition and construction.
 
@@ -89,9 +89,9 @@ fn settings_page(dark_mode: Signal<bool>) -> impl Piece {
 }
 ```
 
-Day's constructors preserve concrete types: [`column()`](https://daybrite.dev/api/day_pieces/fn.column.html) returns a `Column`, [`labeled()`](https://daybrite.dev/api/day_pieces/fn.labeled.html) a
-`Labeled`, and modifiers ([`.id()`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.id), [`.padding()`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.padding), [`.on_tap()`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.on_tap) …) return `Decorated<P>`, which keeps
-the decorated piece's type. Call [`.any()`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.any) where a single `AnyPiece` type is
+Day's constructors preserve concrete types: [`column()`](https://docs.rs/day-pieces/latest/day_pieces/fn.column.html) returns a `Column`, [`labeled()`](https://docs.rs/day-pieces/latest/day_pieces/fn.labeled.html) a
+`Labeled`, and modifiers ([`.id()`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.id), [`.padding()`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.padding), [`.on_tap()`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.on_tap) …) return `Decorated<P>`, which keeps
+the decorated piece's type. Call [`.any()`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.any) where a single `AnyPiece` type is
 required. Calling it on an `AnyPiece` returns the existing value without another allocation.
 
 Because the type is kept, the piece's builders can be chained after a generic modifier, in
@@ -115,14 +115,14 @@ The `day` prelude ships a small set of Pieces, grouped roughly as follows:
 
 | Group | Pieces |
 |---|---|
-| Text | [`label`](https://daybrite.dev/api/day_pieces/fn.label.html), [`text_area`](https://daybrite.dev/api/day_pieces/fn.text_area.html) |
-| Controls | [`button`](https://daybrite.dev/api/day_pieces/fn.button.html), [`toggle`](https://daybrite.dev/api/day_pieces/fn.toggle.html), [`slider`](https://daybrite.dev/api/day_pieces/fn.slider.html), [`text_field`](https://daybrite.dev/api/day_pieces/fn.text_field.html), [`secure_field`](https://daybrite.dev/api/day_pieces/fn.secure_field.html), [`picker`](https://daybrite.dev/api/day_pieces/fn.picker.html) (menu/segmented/inline), [`progress`](https://daybrite.dev/api/day_pieces/fn.progress.html), [`spinner`](https://daybrite.dev/api/day_pieces/fn.spinner.html) |
-| Layout | [`column`](https://daybrite.dev/api/day_pieces/fn.column.html), [`row`](https://daybrite.dev/api/day_pieces/fn.row.html), [`zstack`](https://daybrite.dev/api/day_pieces/fn.zstack.html), [`grid`](https://daybrite.dev/api/day_pieces/fn.grid.html), [`scroll`](https://daybrite.dev/api/day_pieces/fn.scroll.html), [`spacer`](https://daybrite.dev/api/day_pieces/fn.spacer.html), [`divider`](https://daybrite.dev/api/day_pieces/fn.divider.html), [`form`](https://daybrite.dev/api/day_pieces/fn.form.html)/[`section`](https://daybrite.dev/api/day_pieces/fn.section.html) |
-| Structure | [`when`](https://daybrite.dev/api/day_pieces/fn.when.html), [`each`](https://daybrite.dev/api/day_pieces/fn.each.html), [`with_environment`](https://daybrite.dev/api/day_pieces/fn.with_environment.html) |
-| Collections | [`list`](https://daybrite.dev/api/day_pieces/fn.list.html) (native recycling) |
-| Drawing | [`canvas`](https://daybrite.dev/api/day_pieces/fn.canvas.html), [`shape`](https://daybrite.dev/api/day_pieces/fn.shape.html) ([`rectangle`](https://daybrite.dev/api/day_pieces/fn.rectangle.html), [`circle`](https://daybrite.dev/api/day_pieces/fn.circle.html), [`capsule`](https://daybrite.dev/api/day_pieces/fn.capsule.html), [`arc`](https://daybrite.dev/api/day_pieces/fn.arc.html), …), [`image`](https://daybrite.dev/api/day_pieces/fn.image.html), [`vector`](https://daybrite.dev/api/day_pieces/fn.vector.html) |
-| Navigation | [`nav`](https://daybrite.dev/api/day_pieces/fn.nav.html), [`nav_stack`](https://daybrite.dev/api/day_pieces/fn.nav_stack.html), [`nav_link`](https://daybrite.dev/api/day_pieces/fn.nav_link.html), [`toolbar`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.toolbar) |
-| Presentation | [`alert`](https://daybrite.dev/api/day_pieces/fn.alert.html), [`confirm`](https://daybrite.dev/api/day_pieces/fn.confirm.html), [`prompt`](https://daybrite.dev/api/day_pieces/fn.prompt.html), [`cover`](https://daybrite.dev/api/day_pieces/fn.cover.html), menus |
+| Text | [`label`](https://docs.rs/day-pieces/latest/day_pieces/fn.label.html), [`text_area`](https://docs.rs/day-pieces/latest/day_pieces/fn.text_area.html) |
+| Controls | [`button`](https://docs.rs/day-pieces/latest/day_pieces/fn.button.html), [`toggle`](https://docs.rs/day-pieces/latest/day_pieces/fn.toggle.html), [`slider`](https://docs.rs/day-pieces/latest/day_pieces/fn.slider.html), [`text_field`](https://docs.rs/day-pieces/latest/day_pieces/fn.text_field.html), [`secure_field`](https://docs.rs/day-pieces/latest/day_pieces/fn.secure_field.html), [`picker`](https://docs.rs/day-pieces/latest/day_pieces/fn.picker.html) (menu/segmented/inline), [`progress`](https://docs.rs/day-pieces/latest/day_pieces/fn.progress.html), [`spinner`](https://docs.rs/day-pieces/latest/day_pieces/fn.spinner.html) |
+| Layout | [`column`](https://docs.rs/day-pieces/latest/day_pieces/fn.column.html), [`row`](https://docs.rs/day-pieces/latest/day_pieces/fn.row.html), [`zstack`](https://docs.rs/day-pieces/latest/day_pieces/fn.zstack.html), [`grid`](https://docs.rs/day-pieces/latest/day_pieces/fn.grid.html), [`scroll`](https://docs.rs/day-pieces/latest/day_pieces/fn.scroll.html), [`spacer`](https://docs.rs/day-pieces/latest/day_pieces/fn.spacer.html), [`divider`](https://docs.rs/day-pieces/latest/day_pieces/fn.divider.html), [`form`](https://docs.rs/day-pieces/latest/day_pieces/fn.form.html)/[`section`](https://docs.rs/day-pieces/latest/day_pieces/fn.section.html) |
+| Structure | [`when`](https://docs.rs/day-pieces/latest/day_pieces/fn.when.html), [`each`](https://docs.rs/day-pieces/latest/day_pieces/fn.each.html), [`with_environment`](https://docs.rs/day-pieces/latest/day_pieces/fn.with_environment.html) |
+| Collections | [`list`](https://docs.rs/day-pieces/latest/day_pieces/fn.list.html) (native recycling) |
+| Drawing | [`canvas`](https://docs.rs/day-pieces/latest/day_pieces/fn.canvas.html), [`shape`](https://docs.rs/day-pieces/latest/day_pieces/fn.shape.html) ([`rectangle`](https://docs.rs/day-pieces/latest/day_pieces/fn.rectangle.html), [`circle`](https://docs.rs/day-pieces/latest/day_pieces/fn.circle.html), [`capsule`](https://docs.rs/day-pieces/latest/day_pieces/fn.capsule.html), [`arc`](https://docs.rs/day-pieces/latest/day_pieces/fn.arc.html), …), [`image`](https://docs.rs/day-pieces/latest/day_pieces/fn.image.html), [`vector`](https://docs.rs/day-pieces/latest/day_pieces/fn.vector.html) |
+| Navigation | [`nav`](https://docs.rs/day-pieces/latest/day_pieces/fn.nav.html), [`nav_stack`](https://docs.rs/day-pieces/latest/day_pieces/fn.nav_stack.html), [`nav_link`](https://docs.rs/day-pieces/latest/day_pieces/fn.nav_link.html), [`toolbar`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.toolbar) |
+| Presentation | [`alert`](https://docs.rs/day-pieces/latest/day_pieces/fn.alert.html), [`confirm`](https://docs.rs/day-pieces/latest/day_pieces/fn.confirm.html), [`prompt`](https://docs.rs/day-pieces/latest/day_pieces/fn.prompt.html), [`cover`](https://docs.rs/day-pieces/latest/day_pieces/fn.cover.html), menus |
 
 Anything beyond this vocabulary (a map, a web view, a Lottie animation, an [embedded
 SwiftUI view](/docs/reference/swiftui)) lives in a separate *piece crate* (`day-piece-*`) that you
@@ -145,7 +145,7 @@ pub trait Piece: 'static {
 
 Two parts of that signature matter.
 
-- **[`build`](https://daybrite.dev/api/day_core/trait.Piece.html#tymethod.build) takes `self`, not `&self`.** A Piece is consumed exactly once. There is no retained
+- **[`build`](https://docs.rs/day-core/latest/day_core/trait.Piece.html#tymethod.build) takes `self`, not `&self`.** A Piece is consumed exactly once. There is no retained
   view description that Day re-runs and diffs against the last frame.
 - **It returns an `RNode`,** a handle to a node in the *realized tree*: the live structure that
   owns the native widget, its layout state, and the [reactive](/docs/reference/glossary#reactive) scope its [bindings](/docs/reference/glossary#binding) live in.
@@ -157,7 +157,7 @@ build. The [reactivity page](/docs/explanation/reactivity) covers what that mean
 costs.
 
 
-With `title = res::str::hi()`, the label's [`build`](https://daybrite.dev/api/day_core/trait.Piece.html#tymethod.build) creates three things that live together:
+With `title = res::str::hi()`, the label's [`build`](https://docs.rs/day-core/latest/day_core/trait.Piece.html#tymethod.build) creates three things that live together:
 
 ```text
    Piece (builder)          realized tree node             native widget
@@ -177,10 +177,10 @@ With `title = res::str::hi()`, the label's [`build`](https://daybrite.dev/api/da
   accessibility annotations.
 - The **native widget** is created immediately through the toolkit [backend](/docs/reference/glossary#backend) (an `NSButton`, a
   `GtkEntry`, …) and inserted into its native parent at the right index. Containers like
-  [`column`](https://daybrite.dev/api/day_pieces/fn.column.html) and [`row`](https://daybrite.dev/api/day_pieces/fn.row.html) get a plain native container view; decorators ([`padding`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.padding), [`frame`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.frame)) get no
+  [`column`](https://docs.rs/day-pieces/latest/day_pieces/fn.column.html) and [`row`](https://docs.rs/day-pieces/latest/day_pieces/fn.row.html) get a plain native container view; decorators ([`padding`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.padding), [`frame`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.frame)) get no
   widget at all and exist purely in Day's tree.
 - The **scope** owns every binding and event handler the build created. When the node is later
-  removed (a [`when`](https://daybrite.dev/api/day_pieces/fn.when.html) arm switches, an [`each`](https://daybrite.dev/api/day_pieces/fn.each.html) row disappears), disposing the scope tears down its
+  removed (a [`when`](https://docs.rs/day-pieces/latest/day_pieces/fn.when.html) arm switches, an [`each`](https://docs.rs/day-pieces/latest/day_pieces/fn.each.html) row disappears), disposing the scope tears down its
   bindings and handlers in one step, and the native widget is released.
 
 The details of that machinery (the tree structure, measurement, and how events travel back)
@@ -212,12 +212,12 @@ each(
 )
 ```
 
-[`each`](https://daybrite.dev/api/day_pieces/fn.each.html) takes a *row source* and a row builder. [`items(data, key_of)`](https://daybrite.dev/api/day_pieces/fn.items.html) is the row source for plain
-data; a [model](/docs/explanation/model) collection supplies one directly, and [`list`](https://daybrite.dev/api/day_pieces/fn.list.html) accepts the
+[`each`](https://docs.rs/day-pieces/latest/day_pieces/fn.each.html) takes a *row source* and a row builder. [`items(data, key_of)`](https://docs.rs/day-pieces/latest/day_pieces/fn.items.html) is the row source for plain
+data; a [model](/docs/explanation/model) collection supplies one directly, and [`list`](https://docs.rs/day-pieces/latest/day_pieces/fn.list.html) accepts the
 same sources.
 
-[`each`](https://daybrite.dev/api/day_pieces/fn.each.html) compares the old and new key sequences to decide which rows to keep, build, or remove. A
-[`when`](https://daybrite.dev/api/day_pieces/fn.when.html) flip or a row removal is a real structural edit (native widgets are added and removed), so it
+[`each`](https://docs.rs/day-pieces/latest/day_pieces/fn.each.html) compares the old and new key sequences to decide which rows to keep, build, or remove. A
+[`when`](https://docs.rs/day-pieces/latest/day_pieces/fn.when.html) flip or a row removal is a real structural edit (native widgets are added and removed), so it
 costs more than a bound-attribute update. For long scrolling data, prefer
 [`list`](/docs/reference/list), which hands rows to the platform's recycling list widget instead of
 materializing every row.
@@ -232,11 +232,11 @@ button(res::str::save()).action(save).id(id!(save_button))
 
 [dayscript](/docs/how-to/dayscript) targets elements by id, [accessibility](/docs/how-to/accessibility) uses them
 as stable automation identifiers, and debug output prints them. They're optional everywhere, but pages you intend to test should id their
-interactive elements; `day lint` catches an id used twice and a [`navigate`](https://daybrite.dev/api/day_pieces/fn.navigate.html) to a [route](/docs/reference/glossary#route) that
+interactive elements; `day lint` catches an id used twice and a [`navigate`](https://docs.rs/day-pieces/latest/day_pieces/fn.navigate.html) to a [route](/docs/reference/glossary#route) that
 doesn't exist.
 
 `id!(save_button)` declares the ID; YAML refers to `save_button`. The catalog supplies
-the human-readable title independently. For recycled rows, use [`.id_of`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.id_of) so the ID follows
+the human-readable title independently. For recycled rows, use [`.id_of`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.id_of) so the ID follows
 the current item. See [element IDs](/docs/reference/element-ids).
 
 ## Where Pieces come from

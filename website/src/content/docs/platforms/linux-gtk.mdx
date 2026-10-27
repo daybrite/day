@@ -50,15 +50,15 @@ marks it executable and runs it.
 - [`GtkVideo`](https://docs.gtk.org/gtk4/class.Video.html) needs a GStreamer media toolkit in the GTK build. Distro packages ship one;
   Homebrew's gtk4 does not, so the media piece shows GTK's own "no media toolkit" error on
   `macos-gtk`.
-- Lottie and map have no GTK arm; each renders its placeholder. [`cover()`](https://daybrite.dev/api/day_pieces/fn.cover.html) presents as
+- Lottie and map have no GTK arm; each renders its placeholder. [`cover()`](https://docs.rs/day-pieces/latest/day_pieces/fn.cover.html) presents as
   a topmost window-sized child (no transition, programmatic dismissal only).
 - The combo box uses [`GtkComboBoxText`](https://docs.gtk.org/gtk4/class.ComboBoxText.html), deprecated in GTK 4.10 but kept because GTK has no
   editable replacement yet.
-- A [`progress`](https://daybrite.dev/api/day_pieces/fn.progress.html) node picks its widget at realize time: [`progress(f)`](https://daybrite.dev/api/day_pieces/fn.progress.html) becomes a [`GtkProgressBar`](https://docs.gtk.org/gtk4/class.ProgressBar.html)
-  and [`spinner()`](https://daybrite.dev/api/day_pieces/fn.spinner.html) a [`GtkSpinner`](https://docs.gtk.org/gtk4/class.Spinner.html). A node that starts indeterminate will not turn into a bar on a
+- A [`progress`](https://docs.rs/day-pieces/latest/day_pieces/fn.progress.html) node picks its widget at realize time: [`progress(f)`](https://docs.rs/day-pieces/latest/day_pieces/fn.progress.html) becomes a [`GtkProgressBar`](https://docs.gtk.org/gtk4/class.ProgressBar.html)
+  and [`spinner()`](https://docs.rs/day-pieces/latest/day_pieces/fn.spinner.html) a [`GtkSpinner`](https://docs.gtk.org/gtk4/class.Spinner.html). A node that starts indeterminate will not turn into a bar on a
   later value change; use separate nodes if you need both.
 - Canvas text uses cairo's toy text API, not Pango, so complex-script shaping inside a
-  [`canvas`](https://daybrite.dev/api/day_pieces/fn.canvas.html) is weaker than in a [`label`](https://daybrite.dev/api/day_pieces/fn.label.html).
+  [`canvas`](https://docs.rs/day-pieces/latest/day_pieces/fn.canvas.html) is weaker than in a [`label`](https://docs.rs/day-pieces/latest/day_pieces/fn.label.html).
 - GTK on macOS (`macos-gtk`) exists for development convenience only
   ([Tier 4](/docs/reference/platforms#support-tiers)); `day pack` skips it, and the accessibility tree is
   absent (GTK's a11y bridge is Linux-only). On Windows, build `linux-gtk` inside
@@ -71,38 +71,38 @@ this table adds links and notes.
 
 | Day piece | GTK widget |
 |---|---|
-| [`column`](https://daybrite.dev/api/day_pieces/fn.column.html) / [`row`](https://daybrite.dev/api/day_pieces/fn.row.html) / [`nav_stack`](https://daybrite.dev/api/day_pieces/fn.nav_stack.html) / [`section`](https://daybrite.dev/api/day_pieces/fn.section.html) | [`GtkFixed`](https://docs.gtk.org/gtk4/class.Fixed.html) (Day owns layout) |
-| [`label`](https://daybrite.dev/api/day_pieces/fn.label.html) | [`GtkLabel`](https://docs.gtk.org/gtk4/class.Label.html) |
-| [`button`](https://daybrite.dev/api/day_pieces/fn.button.html) | [`GtkButton`](https://docs.gtk.org/gtk4/class.Button.html) |
-| [`toggle`](https://daybrite.dev/api/day_pieces/fn.toggle.html) | [`GtkSwitch`](https://docs.gtk.org/gtk4/class.Switch.html) |
-| [`slider`](https://daybrite.dev/api/day_pieces/fn.slider.html) | [`GtkScale`](https://docs.gtk.org/gtk4/class.Scale.html) |
-| [`text_field`](https://daybrite.dev/api/day_pieces/fn.text_field.html) | [`GtkEntry`](https://docs.gtk.org/gtk4/class.Entry.html) |
-| [`secure_field`](https://daybrite.dev/api/day_pieces/fn.secure_field.html) | [`GtkEntry`](https://docs.gtk.org/gtk4/class.Entry.html) with [`visibility`](https://docs.gtk.org/gtk4/property.Entry.visibility.html) off |
-| [`text_area`](https://daybrite.dev/api/day_pieces/fn.text_area.html) | [`GtkTextView`](https://docs.gtk.org/gtk4/class.TextView.html) in a [`GtkScrolledWindow`](https://docs.gtk.org/gtk4/class.ScrolledWindow.html) |
-| [`picker`](https://daybrite.dev/api/day_pieces/fn.picker.html)`()`[`.menu`](https://daybrite.dev/api/day_pieces/trait.PickerBuilder.html#tymethod.menu)`()` | [`GtkDropDown`](https://docs.gtk.org/gtk4/class.DropDown.html) |
-| [`picker`](https://daybrite.dev/api/day_pieces/fn.picker.html)`()`[`.segmented`](https://daybrite.dev/api/day_pieces/trait.PickerBuilder.html#tymethod.segmented)`()` | linked [`GtkToggleButton`](https://docs.gtk.org/gtk4/class.ToggleButton.html)s |
-| [`picker`](https://daybrite.dev/api/day_pieces/fn.picker.html)`()`[`.inline`](https://daybrite.dev/api/day_pieces/trait.PickerBuilder.html#tymethod.inline)`()` | grouped [`GtkCheckButton`](https://docs.gtk.org/gtk4/class.CheckButton.html)s (GTK 4's radio) |
-| [`progress(f)`](https://daybrite.dev/api/day_pieces/fn.progress.html) | [`GtkProgressBar`](https://docs.gtk.org/gtk4/class.ProgressBar.html) |
-| [`spinner()`](https://daybrite.dev/api/day_pieces/fn.spinner.html) | [`GtkSpinner`](https://docs.gtk.org/gtk4/class.Spinner.html) |
-| [`divider`](https://daybrite.dev/api/day_pieces/fn.divider.html) | [`GtkSeparator`](https://docs.gtk.org/gtk4/class.Separator.html) |
-| [`scroll`](https://daybrite.dev/api/day_pieces/fn.scroll.html) | [`GtkScrolledWindow`](https://docs.gtk.org/gtk4/class.ScrolledWindow.html) |
-| [`list`](https://daybrite.dev/api/day_pieces/fn.list.html) | [`GtkListView`](https://docs.gtk.org/gtk4/class.ListView.html) (recycling, signal factory) |
-| [`nav`](https://daybrite.dev/api/day_pieces/fn.nav.html) (split) | [`GtkPaned`](https://docs.gtk.org/gtk4/class.Paned.html) |
-| [`nav`](https://daybrite.dev/api/day_pieces/fn.nav.html) (stack) | [`AdwNavigationView`](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/1-latest/class.NavigationView.html) |
+| [`column`](https://docs.rs/day-pieces/latest/day_pieces/fn.column.html) / [`row`](https://docs.rs/day-pieces/latest/day_pieces/fn.row.html) / [`nav_stack`](https://docs.rs/day-pieces/latest/day_pieces/fn.nav_stack.html) / [`section`](https://docs.rs/day-pieces/latest/day_pieces/fn.section.html) | [`GtkFixed`](https://docs.gtk.org/gtk4/class.Fixed.html) (Day owns layout) |
+| [`label`](https://docs.rs/day-pieces/latest/day_pieces/fn.label.html) | [`GtkLabel`](https://docs.gtk.org/gtk4/class.Label.html) |
+| [`button`](https://docs.rs/day-pieces/latest/day_pieces/fn.button.html) | [`GtkButton`](https://docs.gtk.org/gtk4/class.Button.html) |
+| [`toggle`](https://docs.rs/day-pieces/latest/day_pieces/fn.toggle.html) | [`GtkSwitch`](https://docs.gtk.org/gtk4/class.Switch.html) |
+| [`slider`](https://docs.rs/day-pieces/latest/day_pieces/fn.slider.html) | [`GtkScale`](https://docs.gtk.org/gtk4/class.Scale.html) |
+| [`text_field`](https://docs.rs/day-pieces/latest/day_pieces/fn.text_field.html) | [`GtkEntry`](https://docs.gtk.org/gtk4/class.Entry.html) |
+| [`secure_field`](https://docs.rs/day-pieces/latest/day_pieces/fn.secure_field.html) | [`GtkEntry`](https://docs.gtk.org/gtk4/class.Entry.html) with [`visibility`](https://docs.gtk.org/gtk4/property.Entry.visibility.html) off |
+| [`text_area`](https://docs.rs/day-pieces/latest/day_pieces/fn.text_area.html) | [`GtkTextView`](https://docs.gtk.org/gtk4/class.TextView.html) in a [`GtkScrolledWindow`](https://docs.gtk.org/gtk4/class.ScrolledWindow.html) |
+| [`picker`](https://docs.rs/day-pieces/latest/day_pieces/fn.picker.html)`()`[`.menu`](https://docs.rs/day-pieces/latest/day_pieces/trait.PickerBuilder.html#tymethod.menu)`()` | [`GtkDropDown`](https://docs.gtk.org/gtk4/class.DropDown.html) |
+| [`picker`](https://docs.rs/day-pieces/latest/day_pieces/fn.picker.html)`()`[`.segmented`](https://docs.rs/day-pieces/latest/day_pieces/trait.PickerBuilder.html#tymethod.segmented)`()` | linked [`GtkToggleButton`](https://docs.gtk.org/gtk4/class.ToggleButton.html)s |
+| [`picker`](https://docs.rs/day-pieces/latest/day_pieces/fn.picker.html)`()`[`.inline`](https://docs.rs/day-pieces/latest/day_pieces/trait.PickerBuilder.html#tymethod.inline)`()` | grouped [`GtkCheckButton`](https://docs.gtk.org/gtk4/class.CheckButton.html)s (GTK 4's radio) |
+| [`progress(f)`](https://docs.rs/day-pieces/latest/day_pieces/fn.progress.html) | [`GtkProgressBar`](https://docs.gtk.org/gtk4/class.ProgressBar.html) |
+| [`spinner()`](https://docs.rs/day-pieces/latest/day_pieces/fn.spinner.html) | [`GtkSpinner`](https://docs.gtk.org/gtk4/class.Spinner.html) |
+| [`divider`](https://docs.rs/day-pieces/latest/day_pieces/fn.divider.html) | [`GtkSeparator`](https://docs.gtk.org/gtk4/class.Separator.html) |
+| [`scroll`](https://docs.rs/day-pieces/latest/day_pieces/fn.scroll.html) | [`GtkScrolledWindow`](https://docs.gtk.org/gtk4/class.ScrolledWindow.html) |
+| [`list`](https://docs.rs/day-pieces/latest/day_pieces/fn.list.html) | [`GtkListView`](https://docs.gtk.org/gtk4/class.ListView.html) (recycling, signal factory) |
+| [`nav`](https://docs.rs/day-pieces/latest/day_pieces/fn.nav.html) (split) | [`GtkPaned`](https://docs.gtk.org/gtk4/class.Paned.html) |
+| [`nav`](https://docs.rs/day-pieces/latest/day_pieces/fn.nav.html) (stack) | [`AdwNavigationView`](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/1-latest/class.NavigationView.html) |
 | `nav_menu` | [`GtkListBox`](https://docs.gtk.org/gtk4/class.ListBox.html) (`.navigation-sidebar`) |
 | `tabs` | [`AdwViewStack`](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/1-latest/class.ViewStack.html) + linked toggle buttons |
-| [`image`](https://daybrite.dev/api/day_pieces/fn.image.html) | [`GtkPicture`](https://docs.gtk.org/gtk4/class.Picture.html) |
-| [`vector`](https://daybrite.dev/api/day_pieces/fn.vector.html) | [`GtkPicture`](https://docs.gtk.org/gtk4/class.Picture.html) showing the raster cache PNG ([`.tint`](https://daybrite.dev/api/day_pieces/trait.VectorBuilder.html#tymethod.tint) recolors the pixels) |
-| [`cover()`](https://daybrite.dev/api/day_pieces/fn.cover.html) | emulated: a topmost window-sized child (no transition, programmatic dismissal only) |
-| [`canvas`](https://daybrite.dev/api/day_pieces/fn.canvas.html) | [`GtkDrawingArea`](https://docs.gtk.org/gtk4/class.DrawingArea.html) (cairo) |
+| [`image`](https://docs.rs/day-pieces/latest/day_pieces/fn.image.html) | [`GtkPicture`](https://docs.gtk.org/gtk4/class.Picture.html) |
+| [`vector`](https://docs.rs/day-pieces/latest/day_pieces/fn.vector.html) | [`GtkPicture`](https://docs.gtk.org/gtk4/class.Picture.html) showing the raster cache PNG ([`.tint`](https://docs.rs/day-pieces/latest/day_pieces/trait.VectorBuilder.html#tymethod.tint) recolors the pixels) |
+| [`cover()`](https://docs.rs/day-pieces/latest/day_pieces/fn.cover.html) | emulated: a topmost window-sized child (no transition, programmatic dismissal only) |
+| [`canvas`](https://docs.rs/day-pieces/latest/day_pieces/fn.canvas.html) | [`GtkDrawingArea`](https://docs.gtk.org/gtk4/class.DrawingArea.html) (cairo) |
 | dialogs / alerts / prompts | [`AdwAlertDialog`](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/1-latest/class.AlertDialog.html) |
 | file dialogs | [`GtkFileDialog`](https://docs.gtk.org/gtk4/class.FileDialog.html) |
 | menu bar / context menus | [`GtkPopoverMenuBar`](https://docs.gtk.org/gtk4/class.PopoverMenuBar.html) / [`GtkPopoverMenu`](https://docs.gtk.org/gtk4/class.PopoverMenu.html) |
-| *external* [`spinner()`](https://daybrite.dev/api/day_pieces/fn.spinner.html) | [`GtkSpinner`](https://docs.gtk.org/gtk4/class.Spinner.html) |
+| *external* [`spinner()`](https://docs.rs/day-pieces/latest/day_pieces/fn.spinner.html) | [`GtkSpinner`](https://docs.gtk.org/gtk4/class.Spinner.html) |
 | *external* `combobox()` | [`GtkComboBoxText`](https://docs.gtk.org/gtk4/class.ComboBoxText.html) (with entry) |
-| *external* [`search_field()`](https://daybrite.dev/api/day_pieces/searchfield/fn.search_field.html) | [`GtkSearchEntry`](https://docs.gtk.org/gtk4/class.SearchEntry.html) |
-| *external* [`date_picker()`](https://daybrite.dev/api/day_pieces/datetime/fn.date_picker.html) | [`GtkCalendar`](https://docs.gtk.org/gtk4/class.Calendar.html), in a [`GtkMenuButton`](https://docs.gtk.org/gtk4/class.MenuButton.html) popover when compact |
-| *external* [`time_picker()`](https://daybrite.dev/api/day_pieces/datetime/fn.time_picker.html) | linked [`GtkSpinButton`](https://docs.gtk.org/gtk4/class.SpinButton.html)s |
+| *external* [`search_field()`](https://docs.rs/day-pieces/latest/day_pieces/searchfield/fn.search_field.html) | [`GtkSearchEntry`](https://docs.gtk.org/gtk4/class.SearchEntry.html) |
+| *external* [`date_picker()`](https://docs.rs/day-pieces/latest/day_pieces/datetime/fn.date_picker.html) | [`GtkCalendar`](https://docs.gtk.org/gtk4/class.Calendar.html), in a [`GtkMenuButton`](https://docs.gtk.org/gtk4/class.MenuButton.html) popover when compact |
+| *external* [`time_picker()`](https://docs.rs/day-pieces/latest/day_pieces/datetime/fn.time_picker.html) | linked [`GtkSpinButton`](https://docs.gtk.org/gtk4/class.SpinButton.html)s |
 | *external* `webview()` | [`WebKitWebView`](https://webkitgtk.org/reference/webkitgtk/stable/class.WebView.html) (WebKitGTK 6.0) |
 | *external* `media()` | [`GtkVideo`](https://docs.gtk.org/gtk4/class.Video.html) |
 

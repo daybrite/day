@@ -15,15 +15,14 @@ attached to a screen, or an audio session when playback needs to outlive that sc
 
 ## Add to your app
 
-Add [`day-piece-media`](https://crates.io/crates/day-piece-media) to your app’s Cargo dependencies:
+Add [`day-piece-media`](https://crates.io/crates/day-piece-media) to your app:
 
-```toml
-[dependencies]
-day-piece-media = "0.4.3"
+```sh
+cargo add day-piece-media
 ```
 
 [Crate](https://crates.io/crates/day-piece-media) ·
-[API reference](https://docs.rs/day-piece-media/0.4.3/day_piece_media/) ·
+[API reference](https://docs.rs/day-piece-media/latest/day_piece_media/) ·
 [Source](https://github.com/daybrite/day-piece-media).
 The Day CLI enables the matching toolkit feature and packages the native integration.
 No dependency entry is needed in `Day.toml`.
@@ -42,37 +41,37 @@ pub fn player(url: Signal<String>, state: Signal<PlaybackState>) -> impl Piece {
 }
 ```
 
-[`media()`](https://docs.rs/day-piece-media/0.4.3/day_piece_media/fn.media.html)
+[`media()`](https://docs.rs/day-piece-media/latest/day_piece_media/fn.media.html)
 autoplays by default. Use
-[`no_autoplay()`](https://docs.rs/day-piece-media/0.4.3/day_piece_media/struct.Media.html#method.no_autoplay)
+[`no_autoplay()`](https://docs.rs/day-piece-media/latest/day_piece_media/struct.Media.html#method.no_autoplay)
 to require a deliberate start. Browser autoplay policies can block playback even when requested.
 For bundled media, use the generated asset constant; see [resources](/docs/reference/resources).
 
-[`Media`](https://docs.rs/day-piece-media/0.4.3/day_piece_media/struct.Media.html)
+[`Media`](https://docs.rs/day-piece-media/latest/day_piece_media/struct.Media.html)
 accepts play, pause, stop, and load triggers, optional looping, mute, and reactive volume.
 Volume ranges from 0 to 1. Removing the piece releases its player; a newly constructed piece
 starts a new playback lifetime.
 
 ## Observe playback and errors
 
-Bind [`state()`](https://docs.rs/day-piece-media/0.4.3/day_piece_media/struct.Media.html#method.state),
-[`timeline()`](https://docs.rs/day-piece-media/0.4.3/day_piece_media/struct.Media.html#method.timeline), and
-[`error()`](https://docs.rs/day-piece-media/0.4.3/day_piece_media/struct.Media.html#method.error)
+Bind [`state()`](https://docs.rs/day-piece-media/latest/day_piece_media/struct.Media.html#method.state),
+[`timeline()`](https://docs.rs/day-piece-media/latest/day_piece_media/struct.Media.html#method.timeline), and
+[`error()`](https://docs.rs/day-piece-media/latest/day_piece_media/struct.Media.html#method.error)
 to signals when building custom controls. Loading, buffering, playing, paused, ended, and failed
 states are distinct. A requested action is not proof that playback started.
 
-[`MediaTimeline`](https://docs.rs/day-piece-media/0.4.3/day_piece_media/struct.MediaTimeline.html)
+[`MediaTimeline`](https://docs.rs/day-piece-media/latest/day_piece_media/struct.MediaTimeline.html)
 reports duration and seekable ranges. Live streams can have no known duration or only a moving
 seek window. Enable seeking according to the reported ranges rather than assuming every source
 can seek. Playback rate support depends on the engine; Linux GTK does not support changing it.
 
-[`StreamMetadata`](https://docs.rs/day-piece-media/0.4.3/day_piece_media/struct.StreamMetadata.html)
+[`StreamMetadata`](https://docs.rs/day-piece-media/latest/day_piece_media/struct.StreamMetadata.html)
 contains stream-provided information. Treat station names and titles as external content.
 App-owned labels and empty states still use generated localized accessors.
 
 ## Keep audio playing across screens
 
-Retain an [`AudioSession`](https://docs.rs/day-piece-media/0.4.3/day_piece_media/struct.AudioSession.html)
+Retain an [`AudioSession`](https://docs.rs/day-piece-media/latest/day_piece_media/struct.AudioSession.html)
 in app-owned state. Its snapshots include playback, timeline, errors, and metadata. Clones share
 the player; dropping the last handle releases it.
 
@@ -87,17 +86,17 @@ pub fn start_audio(source: String) -> Result<AudioSession, MediaError> {
 ```
 
 This is an API excerpt; the caller must retain the returned handle. A successful
-[`load()`](https://docs.rs/day-piece-media/0.4.3/day_piece_media/struct.AudioSession.html#method.load)
+[`load()`](https://docs.rs/day-piece-media/latest/day_piece_media/struct.AudioSession.html#method.load)
 returns a load generation, not a playback-completion result. Observe the snapshot for later
 engine failures. Create and use the session on the UI thread.
 
 For background playback, configure
-[`BackgroundAudio`](https://docs.rs/day-piece-media/0.4.3/day_piece_media/struct.BackgroundAudio.html)
+[`BackgroundAudio`](https://docs.rs/day-piece-media/latest/day_piece_media/struct.BackgroundAudio.html)
 with localized presentation text on the UI thread. Android needs the media foreground service;
 iOS needs the audio background mode. The crate contributes these native requirements through
 Day's build metadata. OS policy and permissions still govern playback.
-[`NowPlayingInfo`](https://docs.rs/day-piece-media/0.4.3/day_piece_media/struct.NowPlayingInfo.html)
-and [`RemoteCommand`](https://docs.rs/day-piece-media/0.4.3/day_piece_media/enum.RemoteCommand.html)
+[`NowPlayingInfo`](https://docs.rs/day-piece-media/latest/day_piece_media/struct.NowPlayingInfo.html)
+and [`RemoteCommand`](https://docs.rs/day-piece-media/latest/day_piece_media/enum.RemoteCommand.html)
 connect metadata and system transport actions to your session.
 
 ## Platform behavior

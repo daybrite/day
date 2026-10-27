@@ -10,10 +10,10 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 # Deep links
 
-How a URL outside the app becomes a [`navigate`](https://daybrite.dev/api/day_pieces/fn.navigate.html) inside it. This document covers the OS side:
+How a URL outside the app becomes a [`navigate`](https://docs.rs/day-pieces/latest/day_pieces/fn.navigate.html) inside it. This document covers the OS side:
 scheme registration, delivery into the process, per-platform capabilities, and testing. The
 route grammar, absolute/relative addressing, query params, and how a pending link interacts
-with [`.restore`](https://daybrite.dev/api/day_pieces/trait.NavBuilder.html#tymethod.restore) are specified in [docs/navigation](navigation.md#routes-the-string-route-adapter-deep-links--dayscript)
+with [`.restore`](https://docs.rs/day-pieces/latest/day_pieces/trait.NavBuilder.html#tymethod.restore) are specified in [docs/navigation](navigation.md#routes-the-string-route-adapter-deep-links--dayscript)
 and are not repeated here.
 
 Platform execution claims below are retained records and were not rerun during restructuring.
@@ -25,7 +25,7 @@ Platform execution claims below are retained records and were not rerun during r
 ```
 
 The host + path after `://` is the day route string, verbatim. Query params ride through to
-[`route_param(..)`](https://daybrite.dev/api/day_pieces/fn.route_param.html)/[`route_params()`](https://daybrite.dev/api/day_pieces/fn.route_params.html). `day new` derives `<scheme>` from the app name (letters
+[`route_param(..)`](https://docs.rs/day-pieces/latest/day_pieces/fn.route_param.html)/[`route_params()`](https://docs.rs/day-pieces/latest/day_pieces/fn.route_params.html). `day new` derives `<scheme>` from the app name (letters
 and digits only, lowercased: `Field Notes` ⇒ `fieldnotes`) and writes it into every host
 project that registers schemes.
 
@@ -44,11 +44,11 @@ However a link arrives, the behavior inside the app is the same:
 
 - **Cold start** (the link launched the app): the route is recorded before the tree mounts
   (`DAY_DEEPLINK` in the environment where launch environments exist, or
-  [`day_core::set_launch_deeplink`](https://daybrite.dev/api/day_core/fn.set_launch_deeplink.html) from the platform entry where they don't) and navigates one
-  turn after the first mount. It wins over [`.restore`](https://daybrite.dev/api/day_pieces/trait.NavBuilder.html#tymethod.restore).
+  [`day_core::set_launch_deeplink`](https://docs.rs/day-core/latest/day_core/fn.set_launch_deeplink.html) from the platform entry where they don't) and navigates one
+  turn after the first mount. It wins over [`.restore`](https://docs.rs/day-pieces/latest/day_pieces/trait.NavBuilder.html#tymethod.restore).
 - **Warm delivery** (the app was running): the platform layer emits `RouteRequested(route)`
   to the active nav host, which navigates immediately.
-- **Handlers stack.** [`day::on_open_url`](https://daybrite.dev/api/day/fn.on_open_url.html) registrations stack, newest first: the newest live
+- **Handlers stack.** [`day::on_open_url`](https://docs.rs/day-app/latest/day/fn.on_open_url.html) registrations stack, newest first: the newest live
   handler sees a URL first, and a handler that returns `false` passes it on. A part that waits for
   one callback URL for the life of one operation (the sign-in redirect in
   [day-part-auth](/docs/reference/auth)) registers in a scope of its own,
@@ -57,7 +57,7 @@ However a link arrives, the behavior inside the app is the same:
 - **Navigation only.** A scheme URL can be sent by any app or web page, unauthenticated. Deep
   links never execute an action; they only address a surface. Anything destructive must sit
   behind the app's own UI once the user arrives.
-- An unknown route falls back exactly like any bad [`navigate`](https://daybrite.dev/api/day_pieces/fn.navigate.html) call: the unmatched segments are
+- An unknown route falls back exactly like any bad [`navigate`](https://docs.rs/day-pieces/latest/day_pieces/fn.navigate.html) call: the unmatched segments are
   dropped and `day lint`'s `unknown-route` check catches literal mistakes at build time.
 
 ## Where each platform stands
@@ -80,7 +80,7 @@ Under the scene lifecycle the app runs, URLs arrive at the scene delegate, and t
 day-toolkit-uikit takes them: cold from the connection options' `URLContexts` (and a quick action's
 `shortcutItem`), warm from `scene:openURLContexts:` (and
 `windowScene:performActionForShortcutItem:`), every arm one call into
-[`day_core::request_route`](https://daybrite.dev/api/day_core/fn.request_route.html). The app-delegate `application:openURL:options:` intake remains for
+[`day_core::request_route`](https://docs.rs/day-core/latest/day_core/fn.request_route.html). The app-delegate `application:openURL:options:` intake remains for
 the pre-scene path. `URLContexts` is declared non-null but a plain launch returns nil, so the
 cold arm reads it through a nullable send; the strict binding panicked on every ordinary
 launch until the dayscript walkthrough caught it. Concerns:
@@ -109,7 +109,7 @@ Concerns:
 
 The module's `skills` declare a `uris` entry with the app scheme, and both temperatures are
 one call: the ArkTS host forwards a cold `want.uri` (in `onCreate`, before `start()`) and a
-warm `onNewWant` one to the shim's `deepLink(uri)`, which lands in [`day_core::request_route`](https://daybrite.dev/api/day_core/fn.request_route.html)
+warm `onNewWant` one to the shim's `deepLink(uri)`, which lands in [`day_core::request_route`](https://docs.rs/day-core/latest/day_core/fn.request_route.html)
 (buffered until the first mount, applied on the UI thread after it). A want with no URI
 carries `want.uri` as an empty string rather than undefined, so the ability also reads the
 `parameters["day.uri"]` fallback a `[[shortcuts]]` want uses through `||`, never `??`. Verified on the Oniro
@@ -121,7 +121,7 @@ exercise link-from-a-page flows.
 
 A second launch of a desktop app hands its command line (`--day-open-url`, `--day-open-file`,
 files, URLs) to the copy already running and exits; the running copy receives them as a warm
-link or file and brings its front window forward ([`day_core::forward_launch_args`](https://daybrite.dev/api/day_core/documents/fn.forward_launch_args.html)). Apps never
+link or file and brings its front window forward ([`day_core::forward_launch_args`](https://docs.rs/day-core/latest/day_core/documents/fn.forward_launch_args.html)). Apps never
 see two processes.
 
 | Toolkit | Mechanism | Status |
@@ -167,7 +167,7 @@ string with no formatter behind it) and writes the platform's native declaration
   readable English. The default locale gets its own `.lproj` too: those dirs are the
   bundle's localization list, and iOS 15 resolves a device language outside the list to the
   first entry, not to [`CFBundleDevelopmentRegion`](https://developer.apple.com/documentation/bundleresources/information-property-list/cfbundledevelopmentregion). A quick action's type string is the URL itself; the scene delegate feeds
-  it into [`day_core::request_route`](https://daybrite.dev/api/day_core/fn.request_route.html), warm via `performActionForShortcutItem` and cold via the
+  it into [`day_core::request_route`](https://docs.rs/day-core/latest/day_core/fn.request_route.html), warm via `performActionForShortcutItem` and cold via the
   connection options. Conveyance is verified in the built bundle; the tap itself cannot be
   automated on a simulator (no touch injection, and `simctl openurl` sits behind a
   confirmation dialog), so OS-delivered activation relies on the same intake path the
@@ -181,20 +181,20 @@ string with no formatter behind it) and writes the platform's native declaration
   the exact want the profile declares (`aa start … --ps day.uri <url>`); the emulator's
   stock launcher renders no shortcut panel for any app, so the panel UI itself needs real
   hardware.
-- **macOS** — the Dock menu lists the shortcuts above the app's own [`dock_menu`](https://daybrite.dev/api/day_pieces/fn.dock_menu.html) entries
+- **macOS** — the Dock menu lists the shortcuts above the app's own [`dock_menu`](https://docs.rs/day-pieces/latest/day_pieces/fn.dock_menu.html) entries
   ([docs/menus](menus.md#dock-menu)). `day-build` registers the `[[shortcuts]]` into the
   binary at link time, so the menu is built while the app runs, in its current language, and
   choosing an entry opens its route in the running app.
 - **Windows** — the jump list's Tasks: each entry runs the app with
   `--day-open-url "<scheme>://<route>"`, which single-instance forwarding hands to the copy
-  already running. Built at startup and rebuilt on every [`set_launcher_shortcuts`](https://daybrite.dev/api/day/fn.set_launcher_shortcuts.html).
+  already running. Built at startup and rebuilt on every [`set_launcher_shortcuts`](https://docs.rs/day-app/latest/day/fn.set_launcher_shortcuts.html).
 - **Linux** — `Actions=` in the generated `.desktop` file, one `[Desktop Action …]` group per
   shortcut with a `Name[<locale>]` for every locale and the same `--day-open-url` command line.
 - **Web** — the manifest's `shortcuts` member, opening `./#<route>`, in the default locale.
 
 ### Shortcuts set while the app runs
 
-[`day::set_launcher_shortcuts(vec![LauncherShortcut { route, label }])`](https://daybrite.dev/api/day/fn.set_launcher_shortcuts.html) replaces the app's
+[`day::set_launcher_shortcuts(vec![LauncherShortcut { route, label }])`](https://docs.rs/day-app/latest/day/fn.set_launcher_shortcuts.html) replaces the app's
 run-time shortcuts: "Resume <last document>", the three most recent chats. They show beside the
 declared ones as iOS Home Screen quick actions, Android dynamic shortcuts (API 25+), Windows
 jump-list tasks and macOS Dock menu items (`Cap::DynamicShortcuts`). Pass labels already
@@ -218,7 +218,7 @@ an "Open in …?" confirmation SpringBoard shows headlessly, so automated openur
 tap the simulator cannot inject; a device, or an XCUITest runner, gets past it.
 
 **`deep_link: { url: "scheme://route?x=1" }`.** An in-process step: the URL maps to
-its route through the same [`day_spec::route_of_url`](https://daybrite.dev/api/day_spec/fn.route_of_url.html) every platform intake uses, then
+its route through the same [`day_spec::route_of_url`](https://docs.rs/day-spec/latest/day_spec/fn.route_of_url.html) every platform intake uses, then
 navigates: a warm delivery without the OS. It proves the app's routing, param handling, and
 back-stack seeding identically on every toolkit including mock (cheap enough for every
 app's walkthrough), and it does not prove OS registration. `day lint` validates the URL's
@@ -235,7 +235,7 @@ syntax (`[a-z][a-z0-9+.-]*`) and are added alongside the app’s navigation sche
 url_schemes = ["feed", "web+feed"]
 ```
 
-Register [`day::on_open_url(|url| { /* show validation UI */ true })`](https://daybrite.dev/api/day/fn.on_open_url.html) in the app root.
+Register [`day::on_open_url(|url| { /* show validation UI */ true })`](https://docs.rs/day-app/latest/day/fn.on_open_url.html) in the app root.
 Handlers stack: the newest registration is asked first, and a URL it declines passes to the
 earlier ones, so a part awaiting a callback URL (such as a sign-in redirect)
 registers for the duration of its own scope without

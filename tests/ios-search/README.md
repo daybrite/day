@@ -8,7 +8,7 @@ are retained in the result bundle. Day-News runs with a separate fixture library
 these tests never change the production library or credentials.
 
 Before the full scrolling test, launch Day-News once with
-`DAY_NEWS_DATA_DIR=/tmp/day-search-drawer-fixture` and `DAY_NEWS_SYNC_TEST=1`, then run
+`DAY_DATA_DIR=/tmp/day-search-drawer-fixture` and `DAY_NEWS_SYNC_TEST=1`, then run
 `python3 tests/ios-search/seed-news.py` to supply 40 offline feed rows. An empty fixture
 can check initial hiding and reveal, but UIKit keeps revealed search visible if the list
 has too little content to scroll. No artificial content offset overrides that behavior.

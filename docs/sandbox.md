@@ -79,8 +79,8 @@ Native file drops can also carry a system access grant. Do not assume a custom s
 payload containing a path grants access to that path.
 
 A saved path is not a durable permission. To reopen a selected file after relaunch, store the
-opaque bytes from [`FileUrl::bookmark(read_only)`](https://daybrite.dev/api/day_pieces/struct.FileUrl.html#method.bookmark) in app-private preferences or a database.
-Resolve them with [`FileUrl::resolve_bookmark`](https://daybrite.dev/api/day_pieces/struct.FileUrl.html#method.resolve_bookmark):
+opaque bytes from [`FileUrl::bookmark(read_only)`](https://docs.rs/day-pieces/latest/day_pieces/struct.FileUrl.html#method.bookmark) in app-private preferences or a database.
+Resolve them with [`FileUrl::resolve_bookmark`](https://docs.rs/day-pieces/latest/day_pieces/struct.FileUrl.html#method.resolve_bookmark):
 
 ```rust
 // While the user-selected file is accessible:
@@ -111,8 +111,10 @@ example, an app-private file) is usable too; actual I/O determines whether acces
 ## Storage and other restrictions
 
 * Keep preferences, SQLite databases and writable application state in app-private storage.
-  macOS supplies the sandbox container as the application's home. Day's normal storage defaults
-  follow that home; they must not be replaced with a hard-coded user's home path.
+  macOS supplies the sandbox container as the application's home. Day's storage directories
+  (`day::storage`, [Where files live](fs.md#where-files-live)) follow that home, so a sandboxed
+  app's data lands in `~/Library/Containers/<bundle id>/Data/Library/Application Support/<id>`;
+  they must not be replaced with a hard-coded user's home path.
 * A SQLite database can create journal/WAL/SHM files next to itself. Selecting only a database
   file does not promise access to its siblings. Prefer importing it into private storage;
   document-in-place workflows need an appropriately authorized directory and lifecycle.

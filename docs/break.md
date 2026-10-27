@@ -15,15 +15,14 @@ the next launch. Your app chooses the destination and when to request consent.
 
 ## Add to your app
 
-Add [`day-piece-crash-reporter`](https://crates.io/crates/day-piece-crash-reporter) to your app’s Cargo dependencies:
+Add [`day-piece-crash-reporter`](https://crates.io/crates/day-piece-crash-reporter) to your app:
 
-```toml
-[dependencies]
-day-piece-crash-reporter = "0.1.0"
+```sh
+cargo add day-piece-crash-reporter
 ```
 
 [Crate](https://crates.io/crates/day-piece-crash-reporter) ·
-[API reference](https://docs.rs/day-piece-crash-reporter/0.1.0/day_piece_crash_reporter/) ·
+[API reference](https://docs.rs/day-piece-crash-reporter/latest/day_piece_crash_reporter/) ·
 [Source](https://github.com/daybrite/day-piece-break).
 The default `ui` feature includes the consent interface. Use `default-features = false` for
 capture and transports with your own interface. No per-toolkit feature is required.
@@ -41,37 +40,37 @@ pub fn initialize_reports() -> Result<(), InitError> {
 }
 ```
 
-[`Config::init()`](https://docs.rs/day-piece-crash-reporter/0.1.0/day_piece_crash_reporter/struct.Config.html#method.init)
+[`Config::init()`](https://docs.rs/day-piece-crash-reporter/latest/day_piece_crash_reporter/struct.Config.html#method.init)
 reconciles the previous session and installs capture hooks. A second initialization returns
 an error. The report directory defaults to the app's data directory. Keep reports out of shared
 or public storage and set a retention limit appropriate to your app.
 
-[`last_session()`](https://docs.rs/day-piece-crash-reporter/0.1.0/day_piece_crash_reporter/fn.last_session.html)
+[`last_session()`](https://docs.rs/day-piece-crash-reporter/latest/day_piece_crash_reporter/fn.last_session.html)
 distinguishes known crashes from an unclean exit. An unclean exit can also result from an OS kill
 or power loss; do not describe every such exit as a captured crash.
 
 ## Review and send reports
 
-Add [`consent_banner()`](https://docs.rs/day-piece-crash-reporter/0.1.0/day_piece_crash_reporter/fn.consent_banner.html)
+Add [`consent_banner()`](https://docs.rs/day-piece-crash-reporter/latest/day_piece_crash_reporter/fn.consent_banner.html)
 to the app's interface after initialization. It lets the person inspect, send, or discard pending
 reports. Configure a transport with
-[`Config::reporter()`](https://docs.rs/day-piece-crash-reporter/0.1.0/day_piece_crash_reporter/struct.Config.html#method.reporter)
+[`Config::reporter()`](https://docs.rs/day-piece-crash-reporter/latest/day_piece_crash_reporter/struct.Config.html#method.reporter)
 before initialization; no upload destination is configured by default.
 
 | Transport | Intended destination |
 | --- | --- |
-| [`RestReporter`](https://docs.rs/day-piece-crash-reporter/0.1.0/day_piece_crash_reporter/struct.RestReporter.html) | An app-owned HTTP endpoint. |
-| [`GithubIssueReporter`](https://docs.rs/day-piece-crash-reporter/0.1.0/day_piece_crash_reporter/struct.GithubIssueReporter.html) | A GitHub issue submission flow. |
-| [`EmailReporter`](https://docs.rs/day-piece-crash-reporter/0.1.0/day_piece_crash_reporter/struct.EmailReporter.html) | The person's email client. |
-| [`Reporter`](https://docs.rs/day-piece-crash-reporter/0.1.0/day_piece_crash_reporter/trait.Reporter.html) | Your own submission implementation. |
+| [`RestReporter`](https://docs.rs/day-piece-crash-reporter/latest/day_piece_crash_reporter/struct.RestReporter.html) | An app-owned HTTP endpoint. |
+| [`GithubIssueReporter`](https://docs.rs/day-piece-crash-reporter/latest/day_piece_crash_reporter/struct.GithubIssueReporter.html) | A GitHub issue submission flow. |
+| [`EmailReporter`](https://docs.rs/day-piece-crash-reporter/latest/day_piece_crash_reporter/struct.EmailReporter.html) | The person's email client. |
+| [`Reporter`](https://docs.rs/day-piece-crash-reporter/latest/day_piece_crash_reporter/trait.Reporter.html) | Your own submission implementation. |
 
 For a custom interface,
-[`pending()`](https://docs.rs/day-piece-crash-reporter/0.1.0/day_piece_crash_reporter/fn.pending.html)
+[`pending()`](https://docs.rs/day-piece-crash-reporter/latest/day_piece_crash_reporter/fn.pending.html)
 provides a signal of report metadata.
-[`report_text()`](https://docs.rs/day-piece-crash-reporter/0.1.0/day_piece_crash_reporter/fn.report_text.html)
+[`report_text()`](https://docs.rs/day-piece-crash-reporter/latest/day_piece_crash_reporter/fn.report_text.html)
 loads a selected report, while
-[`send()`](https://docs.rs/day-piece-crash-reporter/0.1.0/day_piece_crash_reporter/fn.send.html)
-and [`discard()`](https://docs.rs/day-piece-crash-reporter/0.1.0/day_piece_crash_reporter/fn.discard.html)
+[`send()`](https://docs.rs/day-piece-crash-reporter/latest/day_piece_crash_reporter/fn.send.html)
+and [`discard()`](https://docs.rs/day-piece-crash-reporter/latest/day_piece_crash_reporter/fn.discard.html)
 operate on that selection. Sending completes through a `Send` callback: pass results through a
 [Setter](/docs/explanation/async) before updating UI state. Handle submission errors and retain
 the person's ability to discard a report.
@@ -79,7 +78,7 @@ the person's ability to discard a report.
 ## Privacy and capture limits
 
 Reports can contain panic messages, paths, and app context. Use
-[`Config::redact()`](https://docs.rs/day-piece-crash-reporter/0.1.0/day_piece_crash_reporter/struct.Config.html#method.redact)
+[`Config::redact()`](https://docs.rs/day-piece-crash-reporter/latest/day_piece_crash_reporter/struct.Config.html#method.redact)
 to scrub panic messages before persistence. This hook is not a general guarantee that every
 report field is sanitized; inspect the full report and your custom metadata before enabling
 submission. Do not embed a privileged service credential in the app.

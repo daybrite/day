@@ -15,7 +15,7 @@ For walkthroughs written in YAML, see [DayScript](/docs/how-to/dayscript).
 ## Declare a test
 
 Mark a function with `#[day::test]` and return a
-[`Case`](https://daybrite.dev/api/day_core/conformance/struct.Case.html). A GUI case supplies a
+[`Case`](https://docs.rs/day-core/latest/day_core/conformance/struct.Case.html). A GUI case supplies a
 page and an async body that drives it. Test names replace underscores with hyphens:
 `button_press` runs as `button-press`. Names must be unique across linked test providers.
 
@@ -51,10 +51,10 @@ fn button_press() -> Case {
 }
 ```
 
-Each awaited [`Drive`](https://daybrite.dev/api/day_core/conformance/struct.Drive.html) operation
+Each awaited [`Drive`](https://docs.rs/day-core/latest/day_core/conformance/struct.Drive.html) operation
 lets the app process events. Use `tap`, `input`, and `toggle` to interact with controls, and
 assertions such as `assert_text`, `assert_value`, and `assert_focused` to check the result.
-Pass [`id!(...).as_str()`](https://daybrite.dev/api/day_core/element_id/struct.ElementId.html#method.as_str) where a drive operation accepts a string ID.
+Pass [`id!(...).as_str()`](https://docs.rs/day-core/latest/day_core/element_id/struct.ElementId.html#method.as_str) where a drive operation accepts a string ID.
 
 Keep each case focused on one behavior. Declare tests in a module included by the app's test
 build. A Cargo feature such as `conformance` can exclude them from shipping builds; enable
@@ -62,7 +62,7 @@ that feature when building the test app. A disabled module contributes no tests.
 
 ## Host a test page
 
-Wrap the app's root with [`day::test_host`](https://daybrite.dev/api/day/fn.test_host.html):
+Wrap the app's root with [`day::test_host`](https://docs.rs/day-app/latest/day/fn.test_host.html):
 
 ```rust
 pub fn root() -> impl Piece {
@@ -75,8 +75,8 @@ It disposes the page before the next case and restores the app when the run ends
 A GUI test fails if the app has no test host.
 
 For logic that needs the app's environment without a page, use
-[`Case::headless`](https://daybrite.dev/api/day_core/conformance/struct.Case.html#method.headless)
-and [`.run`](https://daybrite.dev/api/day_core/conformance/struct.Case.html#method.run).
+[`Case::headless`](https://docs.rs/day-core/latest/day_core/conformance/struct.Case.html#method.headless)
+and [`.run`](https://docs.rs/day-core/latest/day_core/conformance/struct.Case.html#method.run).
 The body receives a `Drive` with `check` and `check_eq` assertions.
 
 ## Run tests
@@ -98,7 +98,7 @@ The command accepts the same device-selection flags as `day launch`; see the
 
 The default case timeout is 30 seconds. Set `--case-timeout <seconds>` to change it, or use
 `0` when debugging without a limit. A case can set its limit with
-[`.timeout`](https://daybrite.dev/api/day_core/conformance/struct.Case.html#method.timeout).
+[`.timeout`](https://docs.rs/day-core/latest/day_core/conformance/struct.Case.html#method.timeout).
 A failed test fails the command. A timed-out case fails and the run continues.
 
 For web tests, build through Day's CLI so the test registry is included in the app.
@@ -121,8 +121,8 @@ With a device profile, the path includes `<device>` between the target and varia
 The JSON report records passes, failures, skips, durations, and failure messages.
 `--shots on-failure` is the default; use `always` to retain every capture or `never` to disable
 captures. Declare a capture with
-[`.shot`](https://daybrite.dev/api/day_core/conformance/struct.Case.html#method.shot) on the case,
-or call [`Drive::shot`](https://daybrite.dev/api/day_core/conformance/struct.Drive.html#method.shot)
+[`.shot`](https://docs.rs/day-core/latest/day_core/conformance/struct.Case.html#method.shot) on the case,
+or call [`Drive::shot`](https://docs.rs/day-core/latest/day_core/conformance/struct.Drive.html#method.shot)
 during the test.
 
 ## Interpret a result
@@ -131,14 +131,14 @@ A passing test verifies the assertions it ran. Scripted input checks Day's event
 it does not verify that a physical tap or a native gesture recognizer produces that event.
 Exercise native input separately when testing gestures, text composition, or platform menus.
 
-Use [`assert_native`](https://daybrite.dev/api/day_core/conformance/struct.Drive.html#method.assert_native)
+Use [`assert_native`](https://docs.rs/day-core/latest/day_core/conformance/struct.Drive.html#method.assert_native)
 to check properties read from the native widget. Fields a toolkit cannot read appear as
 `native_unread` in the report. Treat those as unverified native properties.
 Visibility assertions check hidden flags and window membership; a clipped or transparent view
 can still report visible.
 
 A case can declare a required capability with
-[`.requires`](https://daybrite.dev/api/day_core/conformance/struct.Case.html#method.requires).
+[`.requires`](https://docs.rs/day-core/latest/day_core/conformance/struct.Case.html#method.requires).
 Unsupported cases are skipped with a reason. Review skips alongside passes; a skip does not
 verify the feature. Snapshot-dependent cases cannot capture on Web DOM.
 

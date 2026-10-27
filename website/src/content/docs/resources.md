@@ -43,7 +43,7 @@ The UI snippets use generated `res::str` accessors from an app's Fluent catalog;
 > [Fluent catalog](/docs/how-to/localization).
 
 You reference bundled resources through generated constants, not bare strings. The scaffold's
-`build.rs` calls [`day_build::prebuild_project()`](https://daybrite.dev/api/day_build/fn.prebuild_project.html), which writes a typed constant per file:
+`build.rs` calls [`day_build::prebuild_project()`](https://docs.rs/day-build/latest/day_build/fn.prebuild_project.html), which writes a typed constant per file:
 
 ```rust
 image(res::images::wave);                 // ← resource/images/wave.png
@@ -53,7 +53,7 @@ vector(res::vectors::home);               // ← resource/vectors/home.svg
 
 A typo, or a file that was renamed or deleted, is a compile error, and the names autocomplete.
 Dropping a file into `resource/` makes its constant appear on the next build. For a name known
-only at runtime, [`ImageName::dynamic(…)`](https://daybrite.dev/api/day_core/struct.ImageName.html#method.dynamic) / [`AssetName::dynamic(…)`](https://daybrite.dev/api/day_core/struct.AssetName.html#method.dynamic) opt out of the presence
+only at runtime, [`ImageName::dynamic(…)`](https://docs.rs/day-core/latest/day_core/struct.ImageName.html#method.dynamic) / [`AssetName::dynamic(…)`](https://docs.rs/day-core/latest/day_core/struct.AssetName.html#method.dynamic) opt out of the presence
 guarantee explicitly.
 
 ## Data files: `resource/assets/`
@@ -70,9 +70,9 @@ This integration fragment requires an app-defined `Stations` type and `serde_jso
 `resource_missing` message is defined in the [complete resource example](#handle-a-missing-bundled-file).
 Handle parsing errors at the caller and map them to localized UI messages too.
 
-[`Resource::as_slice()`](https://daybrite.dev/api/day_core/struct.Resource.html#method.as_slice) borrows the opened bytes without another copy. The opener may use native
+[`Resource::as_slice()`](https://docs.rs/day-core/latest/day_core/struct.Resource.html#method.as_slice) borrows the opened bytes without another copy. The opener may use native
 storage, a memory map, or owned bytes; zero-copy opening is not guaranteed on every backend.
-[`read_at(offset, buf)`](https://daybrite.dev/api/day_core/struct.Resource.html#method.read_at) gives random access for large files. During development the same call
+[`read_at(offset, buf)`](https://docs.rs/day-core/latest/day_core/struct.Resource.html#method.read_at) gives random access for large files. During development the same call
 resolves against your project directory, so editing an asset and relaunching picks it up without
 a packaging step.
 
@@ -100,7 +100,7 @@ platform picks the right density at runtime the same way it does for any native 
 ## Vector glyphs: `resource/vectors/`
 
 SVG glyphs (nav and toolbar icons, symbols) go in `resource/vectors/` and render
-resolution-independent through the [`vector`](https://daybrite.dev/api/day_pieces/fn.vector.html) piece:
+resolution-independent through the [`vector`](https://docs.rs/day-pieces/latest/day_pieces/fn.vector.html) piece:
 
 ```rust
 vector(res::vectors::home).tint(accent).frame(24.0, 24.0)
@@ -123,8 +123,8 @@ it goes; `Vectors xaml: 81/81 glyph(s) vector` means every glyph converted and n
 | [windows-winui](/docs/reference/platforms/windows-winui) | **XAML geometry** — a `Path` in a scaling `Viewbox`, a `PathIcon` in the nav pane, redrawn at every size | a brush on the shapes |
 | [web-dom](/docs/reference/platforms/web-dom) | the SVG, rendered by the browser | a CSS mask painted with the tint |
 | [harmony-arkui](/docs/reference/platforms/harmony-arkui) | the SVG in `rawfile`, rendered by ArkUI's `Image` | SVG fill color |
-| [linux-gtk](/docs/reference/platforms/linux-gtk), macos-gtk | retained SVG rendered by librsvg 2.52+ and Cairo at the requested size, including the [`vector`](https://daybrite.dev/api/day_pieces/fn.vector.html) piece | an alpha-preserving render-node color matrix |
-| [linux-qt](/docs/reference/platforms/linux-qt), macos-qt | retained SVG rendered by `QSvgRenderer` at the requested size, including the [`vector`](https://daybrite.dev/api/day_pieces/fn.vector.html) piece | alpha compositing at the current paint resolution |
+| [linux-gtk](/docs/reference/platforms/linux-gtk), macos-gtk | retained SVG rendered by librsvg 2.52+ and Cairo at the requested size, including the [`vector`](https://docs.rs/day-pieces/latest/day_pieces/fn.vector.html) piece | an alpha-preserving render-node color matrix |
+| [linux-qt](/docs/reference/platforms/linux-qt), macos-qt | retained SVG rendered by `QSvgRenderer` at the requested size, including the [`vector`](https://docs.rs/day-pieces/latest/day_pieces/fn.vector.html) piece | alpha compositing at the current paint resolution |
 
 Qt SVG and librsvg development libraries are required at build time. On Debian/Ubuntu,
 install `qt6-svg-dev` for Qt or `librsvg2-dev` (2.52+) for GTK. Homebrew supplies them through
@@ -164,7 +164,7 @@ behind a raster that still looks right.
 
 ### Weights
 
-[`.weight(VectorWeight::Light | Bold)`](https://daybrite.dev/api/day_pieces/trait.VectorBuilder.html#tymethod.weight) selects per-weight art on every backend. Template sources
+[`.weight(VectorWeight::Light | Bold)`](https://docs.rs/day-pieces/latest/day_pieces/trait.VectorBuilder.html#tymethod.weight) selects per-weight art on every backend. Template sources
 (SF Symbols exports, `.symbolset` bundles) carry real Light and Bold variants; a plain SVG aliases
 all three to the same glyph, so the call degrades to Regular rather than to a missing asset.
 
@@ -200,12 +200,12 @@ otherwise surface as a confusing runtime-only failure on one platform:
   and italic are synthesized where the platform can.
 - **File names don't matter; family names do.** `resource/fonts/SpecialElite-Regular.ttf` whose embedded
   family is "Special Elite" generates `res::fonts::special_elite`, used as
-  [`Font::custom(res::fonts::special_elite, 20.0)`](https://daybrite.dev/api/day_spec/enum.Font.html#method.custom). (`Font::Custom("Special Elite", 20.0)` is the
+  [`Font::custom(res::fonts::special_elite, 20.0)`](https://docs.rs/day-spec/latest/day_spec/enum.Font.html#method.custom). (`Font::Custom("Special Elite", 20.0)` is the
   unchecked alternative for a family name only known at runtime.)
 
 Outside those rules, an unknown family never breaks the app. The label
-renders in the system font and the log names the family that didn't resolve. [`.weight(...)`](https://daybrite.dev/api/day_pieces/trait.LabelBuilder.html#tymethod.weight) and
-[`.italic()`](https://daybrite.dev/api/day_pieces/trait.LabelBuilder.html#tymethod.italic) still apply, but a single-face family only gets what the platform can synthesize (a
+renders in the system font and the log names the family that didn't resolve. [`.weight(...)`](https://docs.rs/day-pieces/latest/day_pieces/trait.LabelBuilder.html#tymethod.weight) and
+[`.italic()`](https://docs.rs/day-pieces/latest/day_pieces/trait.LabelBuilder.html#tymethod.italic) still apply, but a single-face family only gets what the platform can synthesize (a
 heavier stroke, a slant), not true bold or italic cuts.
 
 ## The app icon: `resource/icons/`
@@ -246,7 +246,7 @@ do not rely on a development fallback for distribution.
 
 ## Validate generated access and runtime loading
 
-Start with the scaffold's [`day_build::prebuild_project()`](https://daybrite.dev/api/day_build/fn.prebuild_project.html) in `build.rs` and `day::resources!()`
+Start with the scaffold's [`day_build::prebuild_project()`](https://docs.rs/day-build/latest/day_build/fn.prebuild_project.html) in `build.rs` and `day::resources!()`
 in the app crate. Add the resource, rebuild, then use its generated `res::assets`, `res::images`,
 `res::vectors`, or `res::fonts` constant. A generated identifier proves the name was discovered
 at build time; it does not prove runtime packaging, decoding, or backend support. Handle the

@@ -11,13 +11,7 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-An app's `Cargo.toml` takes the framework from crates.io:
-
-```toml
-[dependencies]
-day = { package = "day-app", version = "0.6" }
-```
-
+`cargo add day-app --rename day` adds the published Day framework to your app.
 Anyone who clones the app builds against the published crates. When you are changing a day crate
 and the app screen that demonstrates it, the app has to build against your checkout instead;
 `day patch` makes the switch:

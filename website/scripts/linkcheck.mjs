@@ -32,10 +32,6 @@ function htmlFiles(dir, base = dir) {
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     const p = join(dir, entry.name);
     if (entry.isDirectory()) {
-      // The Rust API reference is a generated bundle, not ours to lint, and it is absent in
-      // local builds (dist/api, from `cargo doc` — rustdoc validates its own links).
-      const rel = relative(base, p);
-      if (rel === 'api') continue;
       out = out.concat(htmlFiles(p, base));
     } else if (entry.name.endsWith('.html')) out.push(relative(base, p));
   }
@@ -75,7 +71,7 @@ function brokenFragments(files) {
   for (const file of files) {
     const from = urlOf(file);
     for (const [, href] of readFileSync(join(DIST, file), 'utf8').matchAll(/href="([^"]*#[^"]*)"/g)) {
-      if (/^(https?:|mailto:|tel:)/.test(href) || href.includes('/api/')) continue;
+      if (/^(https?:|mailto:|tel:)/.test(href)) continue;
       const [target, fragment] = href.split('#');
       if (!fragment) continue; // a bare `#` is a no-op link, not an anchor
       const page = target
@@ -106,9 +102,9 @@ const result = await checker.check({
   path: paths,
   serverRoot: DIST,
   recurse: true,
-  // Skip external links (flaky, not ours) and any link INTO the generated /api/ rustdoc
-  // reference, which is absent in local builds.
-  linksToSkip: ['^https?://(?!localhost)', '://[^/]+/api/'],
+  // Skip external links (flaky, not ours). API links go to docs.rs; scripts/docs/check-api-links.py
+  // checks those against a docs.rs-equivalent build.
+  linksToSkip: ['^https?://(?!localhost)'],
 });
 
 const fragments = brokenFragments(paths);

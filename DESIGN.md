@@ -109,6 +109,7 @@ the architecture-level view and the rationale.
 | localization — Fluent, `res::str` typed keys, locales | [docs/localization.md](docs/localization.md) | [§12](#12-localization-fluent), [§18.5](#185-typed-resource-constants-docsresourcesmd) |
 | resources — images, data assets, custom fonts, typed constants | [docs/resources.md](docs/resources.md) | [§18](#18-resources-icons-and-theming) |
 | accessibility & the a11y audit | [docs/accessibility.md](docs/accessibility.md) | [§13](#13-accessibility) |
+| app directories — `day::storage`: each app's data, cache and configuration folders, per platform | [docs/fs.md](docs/fs.md) | [§8.6](#86-app-directories) |
 | app lifecycle | [docs/lifecycle.md](docs/lifecycle.md) | [§8.1](#81-the-toolkit-trait), [§9](#9-the-eight-toolkits-and-the-extra-combinations) |
 | async — `day::task`/`TaskHandle`, `Resource`/`Load`, the runtime-quarantine policy | [docs/async.md](docs/async.md) | [§4.5](#45-async) |
 | observable model — per-property `Store`/`Keyed`/`Elem`/`Field`, `#[derive(Observable)]`, the change log | [docs/model.md](docs/model.md) | [Addendum](#addendum-2026-08-22--day-model-per-property-observation) |
@@ -315,7 +316,9 @@ requirement from `[workspace.package]`. A release moves the shared package versi
 requirements, the few member manifests that name a sibling with a version (day-toolkit-qt's
 `day-platform-macos`), and every committed `Cargo.lock` together:
 `scripts/release/bump-version.py <x.y.z>` does all four and holds each lock to
-`cargo metadata --locked`, and `--check` reports anything behind. Internal dev-dependencies are
+`cargo metadata --locked`, and `--check` reports anything behind. The documentation names no
+release (`cargo add`, `--day-version latest`, docs.rs `latest`), which the website's docs check
+enforces, so a release leaves it alone. Internal dev-dependencies are
 plain paths with no version, so `cargo publish` drops them; that is what lets `day-model` test
 against `day-pieces`, which depends on it.
 
@@ -2509,6 +2512,29 @@ report, so this policy was specified up front:
 
 ---
 
+### §8.6 App directories
+
+`day_spec::storage` (re-exported as `day::storage`) is the one place a Day crate learns where
+the app keeps its files: `data_dir()`, `cache_dir()` and `config_dir()`, each a folder named
+after the app id (`app_id()`: `DAY_APP_ID`, else the baked-in id, else the executable's name)
+in the platform's own place for that kind of file. Application Support and Caches on Apple
+platforms (inside the container when sandboxed, because `HOME` is the container there),
+`%LOCALAPPDATA%` for data and caches and the roaming `%APPDATA%` for settings on Windows, the
+XDG base directories on Linux and the BSDs, and the directories the Android and HarmonyOS hosts
+pass as `DAY_DATA_DIR` / `DAY_CACHE_DIR`. XDG variables count only where they are the
+convention, so a Finder or Start-menu launch and a terminal launch open the same files.
+`DAY_DATA_DIR` relocates all three for tests. `data_dir_for(app_id)` resolves another app's,
+for a host of several apps (the crash reporter's store, a day-lite superapp) and for
+`day launch`'s crash diagnosis. day-part-filesystem (`day-fs/`), day-persistence's
+`Sqlite::app_data` (the directory itself, `.db` files), the preferences file store, the Windows
+keychain and remembered window frames all resolve through it; the per-target table is
+[docs/fs.md](docs/fs.md) §Where files live.
+
+> [!NOTE]
+> **Status: shipped 2026-10.** Before it, the filesystem part and day-persistence shared one
+> `day/` folder (`day-fs/`, `day-db/`) between every app on a desktop, and apps hand-rolled
+> their own paths. Nothing migrates the old locations.
+
 ## §9 The eight toolkits (and the extra combinations)
 
 > [!IMPORTANT]
@@ -4148,7 +4174,7 @@ ArkUI; emulator acceptance remains in CI.
 > Windows arm from one `bridge!`, and the consumer of the stacked `on_open_url` handlers
 > ([§8](#8-the-toolkit-specification-day-spec)). Nothing about
 > the layout or the aggregation changed; what an external repository adds is a dependency rule
-> and a test harness. Its day dependencies are crates.io versions (`day-core = "0.6"`), and the
+> and a test harness. Its day dependencies are crates.io release requirements (as `cargo add day-core` writes them), and the
 > repository publishes its own crates to crates.io on a version tag (daybrite/actions'
 > `daylib.yml`, [§20](#20-continuous-integration)), so an app takes pieces and day the same way and cargo unifies them by
 > version. (Until 2026-10-25 they named the bare canonical git URL, since cargo unifies a git
@@ -6347,12 +6373,13 @@ The `daybrite/actions` companion repository provides reusable workflows for exte
    can send, and a `workflow_dispatch` with `website-only` checked (each root framework job carries
    the gate; Actions has no workflow-level `if`). The daily schedule (06:00 UTC) was a
    website-only trigger until 2026-10; it now runs the complete workflow on `main`, so a
-   runner-image, toolchain, emulator or dependency change surfaces on a day with no push. The `website` job builds the rustdoc bundle into
-   `dist/api` after the Astro build, which clears `dist`. Pages deploys one artifact, so the job
-   that feeds the deploy assembles both outputs and checks every manifest-listed crate entry,
-   the gallery and Showcase pages, search entry files, sitemap, and custom-domain file.
-   The rendered-page audit checks metadata, headings, image descriptions, and sitemap coverage
-   before the API bundle is added.
+   runner-image, toolchain, emulator or dependency change surfaces on a day with no push. The site publishes no API
+   reference (changed 2026-10-27; it hosted a rustdoc bundle at `/api/` until then): every API
+   link goes to docs.rs. After the Astro build the job builds rustdoc the way docs.rs does
+   (`scripts/build-api-docs.sh`: docs.rs's default target, each crate's
+   `[package.metadata.docs.rs]` features, `DOCS_RS=1`, into `target/api-check/`), never uploads
+   it, and checks every API link against it. The rendered-page audit checks metadata, headings,
+   image descriptions, and sitemap coverage.
    Documentation sidebars use local Material Symbols Outlined SVGs, mapped by canonical route
    and reference-group ID in `website/src/data/sidebar-icons.json`. The shared `SidebarIcon`
    component renders decorative CSS masks in the link's current color for both themes.
@@ -6361,37 +6388,25 @@ The `daybrite/actions` companion repository provides reusable workflows for exte
    `docs:architecture` checks complete navigation coverage, unique symbols and geometry, and
    the vendored assets' pinned upstream hashes and license. The browser needs no icon font or
    third-party icon requests; provenance lives beside the SVGs in `website/public/icons/docs/`.
-   Normal local `npm run build` and `build:force` commands also assemble the site and Rustdoc,
-   then validate the combined artifact. CI uses the separate `build:site` step before its
-   explicit API build. Reference guides link API names to generated item pages and anchors;
-   the API link checker validates those incoming links as well as links within Rustdoc.
-   The manifest includes the portable pieces, parts, model, build, and toolchain crates used by
-   those guides; the umbrella documents `mock,model` so optional model integration APIs are
-   available too; `day-pieces` also documents its `model` feature so its row and tree adapters
-   exist at the links emitted by the umbrella. External `Uuid` documentation stays with its
-   defining crate rather than being inlined into the Day bundle. Permission-name modules use `cfg(doc)` alongside their target gates to expose
-   all documented platform constants without changing runtime availability.
-   Explicit Markdown item links identify their actual receiver type and use absolute
-   `https://daybrite.dev/api/` URLs so local previews open the published reference. A presentation
-   plugin adds a dashed underline without extra label text. A separate AST-based coverage check runs after Rustdoc
-   and rejects unlinked callable references against the generated names, with exact, reasoned
+   Reference guides link API names to their docs.rs item pages and anchors
+   (`https://docs.rs/<package>/latest/<library>/…`, the same form external crates use), and
+   `npm run docs:api` checks them locally. The checking build documents this checkout, so a link
+   to an API added since the last release passes and resolves on docs.rs with the next release;
+   a link it cannot find (a typo, or an item behind a platform or feature docs.rs does not build)
+   fails. The manifest (`website/src/data/api-crates.json`) lists the portable pieces, parts,
+   model, build, and toolchain crates the guides use; the umbrella documents
+   `mock,model,settings,text-editor,swiftui,http-image,fs,permissions` and `day-pieces` its
+   `model` feature, as their `[package.metadata.docs.rs]` tell docs.rs. Permission-name modules
+   use `cfg(doc)` alongside their target gates to expose all documented platform constants
+   without changing runtime availability. A presentation plugin adds a dashed underline to API
+   links without extra label text. A separate AST-based coverage check runs after the checking
+   build and rejects unlinked callable references against its names, with exact, reasoned
    exceptions for native/private/generated APIs, fields and retained proposals. It excludes
    fenced code and does not infer destinations from shared method names. Bare names still need
-   editorial review; destination and fragment validation remains the rendered checker's job.
-   Rustdoc runs with a locked dependency graph and warnings denied. The builder creates each
-   published crate's output directory before documentation starts and serializes rustdoc, so
-   cross-crate links resolve locally even when Cargo documents a consumer first. Its item-link check follows
-   aliases and checks fragment destinations separately from the website link checker. Links to
-   private helpers remain prose, public links across modules use crate-qualified targets, and
-   re-exported standard-library links point to the hosted Rust documentation. This artifact sequence
-   makes it the does-rustdoc-still-build check on crate changes too; the separate `api-docs`
-   job it replaced is gone. The `screenshots-<combo>` artifacts the platform legs upload stay, as
-   each run's evidence of what its walkthrough rendered.
-   Rustdoc's stable HTML hooks reuse the Astro API bridge's rendered footer, plus
-   the exact compiled site stylesheets. A small adapter maps Rustdoc colors and typography to
-   the site's design tokens. Rustdoc retains its native header, search, sidebar, and theme controls;
-   the Day navigation header is not injected. Both roots use `scripts/theme.js` and the
-   `day-theme` preference. Build the Astro site before generating Rustdoc; `--site-dir` selects another assembled site for isolated builds.
+   editorial review. The checking build runs with a locked dependency graph and warnings denied,
+   which makes it the does-rustdoc-still-build check on crate changes too; the separate
+   `api-docs` job it replaced is gone. The `screenshots-<combo>` artifacts the platform legs
+   upload stay, as each run's evidence of what its walkthrough rendered.
 
    Documentation authoring standards and unpublished templates live in `website/authoring/`;
    the published guides retain their canonical-source symlinks and route-catalog entries.
@@ -7236,8 +7251,8 @@ What shipped, and where:
   `Sqlite` (rusqlite on native targets; on web-dom the same type proxies statements to the
   day-sql worker's OPFS-backed engine, `crates/day-sqlite-worker` — [docs/persistence.md](docs/persistence.md) §The
   web; `bundled` default / `system` / `cipher` as engine features;
-  `at`/`memory`/`app_data` — the last resolving day-part-filesystem' data-root rules under a `day-db/`
-  leaf) and `Recorder` (fixture-answering, statement-logging, always compiled). `capabilities()`
+  `at`/`memory`/`app_data` — the last opening a file in the app's data directory,
+  `day_spec::storage::data_dir()`, [docs/fs.md](docs/fs.md) §Where files live) and `Recorder` (fixture-answering, statement-logging, always compiled). `capabilities()`
   reports what is real per build.
 - **Schema** — derived DDL is `STRICT` where the engine allows, readable by any tool, and
   bookkept in one `_day_schema` table (fingerprint + version); every other table in the file is

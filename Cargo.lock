@@ -500,6 +500,7 @@ dependencies = [
  "day-build",
  "day-fonts",
  "day-script-protocol",
+ "day-spec",
  "day-toolchain",
  "day-vector",
  "filetime",
@@ -681,6 +682,7 @@ name = "day-part-filesystem"
 version = "0.6.2"
 dependencies = [
  "day-async",
+ "day-spec",
 ]
 
 [[package]]
@@ -731,6 +733,7 @@ dependencies = [
  "day-build",
  "day-part-biometrics",
  "day-platform-android",
+ "day-spec",
  "objc2",
  "objc2-core-foundation",
  "objc2-foundation",
@@ -784,6 +787,7 @@ dependencies = [
  "day-core",
  "day-platform-android",
  "day-reactive",
+ "day-spec",
  "log",
  "objc2",
  "objc2-foundation",

@@ -16,11 +16,10 @@ Screen Wake Lock API and page visibility.
 
 ## Use
 
-Add this entry to your app’s `Cargo.toml`, at the same Day version as the rest of the app:
+Add it to your app:
 
-```toml
-[dependencies]
-day-part-wakelock = "0.6"
+```sh
+cargo add day-part-wakelock
 ```
 
 ## Documentation
@@ -28,7 +27,7 @@ day-part-wakelock = "0.6"
 - [Usage and platform limits](https://daybrite.dev/docs/reference/wakelock/)
 - [Platform capabilities](https://daybrite.dev/docs/reference/platforms/)
 - [Using platform services](https://daybrite.dev/docs/reference/parts/)
-- [Rust API](https://daybrite.dev/api/day_part_wakelock/index.html)
+- [Rust API](https://docs.rs/day-part-wakelock/latest/day_part_wakelock/index.html)
 
 [Source](https://github.com/daybrite/day/tree/main/crates/day-part-wakelock) ·
 [Contributing](https://daybrite.dev/contributing/setup/) · [MPL-2.0

@@ -39,7 +39,7 @@ day::open_window(
 );
 ```
 
-The same builders apply to the first window through the `WindowOptions` handed to [`day::launch`](https://daybrite.dev/api/day/fn.launch.html).
+The same builders apply to the first window through the `WindowOptions` handed to [`day::launch`](https://docs.rs/day-app/latest/day/fn.launch.html).
 Phones and the web ignore them: a phone window has no frame to change, and a window the platform
 cannot open presents as a cover inside the first one ([docs/windows](windows.md)), which is the
 right splash on a phone.
@@ -75,8 +75,8 @@ fn document_window() -> impl Piece {
 }
 ```
 
-[`WindowHandle::safe_area()`](https://daybrite.dev/api/day_core/windows/struct.WindowHandle.html#method.safe_area) answers for that window when a binding re-runs later, for example
-after a toolbar makes the title bar taller. The app-wide [`day::safe_area()`](https://daybrite.dev/api/day/fn.safe_area.html) answers for the window
+[`WindowHandle::safe_area()`](https://docs.rs/day-core/latest/day_core/windows/struct.WindowHandle.html#method.safe_area) answers for that window when a binding re-runs later, for example
+after a toolbar makes the title bar taller. The app-wide [`day::safe_area()`](https://docs.rs/day-app/latest/day/fn.safe_area.html) answers for the window
 being built, and otherwise for the first window.
 
 ## Background
@@ -89,13 +89,13 @@ being built, and otherwise for the first window.
 
 ## Drag regions
 
-[`.window_drag_region()`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.window_drag_region) lets the user move the window by dragging the piece, as a title bar does.
+[`.window_drag_region()`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.window_drag_region) lets the user move the window by dragging the piece, as a title bar does.
 The piece's own background starts a native move, with the platform's snapping and edge tiling.
 Buttons, fields and other controls inside the region keep their own clicks. A double click does
 what the user's title-bar setting says: zoom, minimize or nothing on macOS (System Settings ▸
 Desktop & Dock), maximize on Windows and GNOME.
 
-A region placed on a layout-only wrapper ([`.padding(…)`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.padding), [`.frame(…)`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.frame)) applies to the view the
+A region placed on a layout-only wrapper ([`.padding(…)`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.padding), [`.frame(…)`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.frame)) applies to the view the
 wrapper holds. On a phone the piece is an ordinary view.
 
 ## Placement
@@ -141,7 +141,7 @@ back to the standard frame or the opaque background.
   bar with [`GtkWindowControls`](https://docs.gtk.org/gtk4/class.WindowControls.html) over the content's top band and reports the band's height as the
   inset. A drag region moves the window with [`gdk::Toplevel::begin_move`](https://docs.gtk.org/gdk4/method.Toplevel.begin_move.html) once a drag passes the
   platform threshold; a double click follows `gtk-titlebar-double-click`, and a secondary click
-  opens the window menu. GTK 4 cannot place windows, so [`placement`](https://daybrite.dev/api/day_spec/struct.WindowOptions.html#method.placement) is the window manager's.
+  opens the window menu. GTK 4 cannot place windows, so [`placement`](https://docs.rs/day-spec/latest/day_spec/struct.WindowOptions.html#method.placement) is the window manager's.
 - **Qt.** `Frameless` is `Qt::FramelessWindowHint`, resized from its edges with
   [`QWindow::startSystemResize`](https://doc.qt.io/qt-6/qwindow.html). A drag region calls [`QWindow::startSystemMove`](https://doc.qt.io/qt-6/qwindow.html) once a drag passes
   `startDragDistance`, and a double click toggles maximize. Qt has no way to keep the window

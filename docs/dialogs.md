@@ -30,7 +30,7 @@ button(res::str::delete()).action(move || {
 });
 ```
 
-Use [`day::task`](https://daybrite.dev/api/day/fn.task.html) to await a dialog from a synchronous action.
+Use [`day::task`](https://docs.rs/day-app/latest/day/fn.task.html) to await a dialog from a synchronous action.
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
 [example messages](/docs/reference/localization#reference-example-messages) and [catalog setup](/docs/how-to/localization).

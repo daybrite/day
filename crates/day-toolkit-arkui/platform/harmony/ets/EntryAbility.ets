@@ -38,9 +38,11 @@ export default class EntryAbility extends UIAbility {
     // native side can ask for one. `day build` generates the aggregator, empty when no crate
     // in the app carries an ArkTS arm.
     nativeEntry.registerDayBridges(registerDayBridges());
-    // The app's private files directory, for day-part-filesystem (docs/fs.md) — here rather than in
+    // The app's private files and cache directories, Day's data and cache directories here
+    // (day_spec::storage, docs/fs.md "Where files live") — set here rather than in
     // applyLaunchEnv, which is static and has no ability context.
     nativeEntry.setEnv('DAY_DATA_DIR', this.context.filesDir);
+    nativeEntry.setEnv('DAY_CACHE_DIR', this.context.cacheDir);
     // Report the ACTIVE color mode so day-toolkit-arkui themes its neutral paints (DAY_THEME, when
     // present, wins on the Rust side): the C-API nodes don't re-theme hardcoded colors.
     nativeEntry.setEnv(

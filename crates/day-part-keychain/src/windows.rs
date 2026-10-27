@@ -36,22 +36,14 @@ use crate::record;
 use crate::{Entry, KeychainError, OnDone, Protection, Support};
 use day_part_biometrics::{Availability, BiometricError, Prompt};
 
-/// The store directory: `DAY_DATA_DIR` when the CLI set one (tests, a host that relocates data),
-/// else `%LOCALAPPDATA%\<app id>\day-keychain`. Local, not roaming: a DPAPI blob made on this
-/// machine is unreadable on another.
+/// The store directory: `day-keychain` in the app's data directory
+/// (`day_spec::storage::data_dir()`), which is `%LOCALAPPDATA%\<app id>` unless `DAY_DATA_DIR`
+/// relocates it (tests, a host). Local, not roaming: a DPAPI blob made on this machine is
+/// unreadable on another.
 fn store_dir() -> Result<std::path::PathBuf, KeychainError> {
-    if let Some(dir) = std::env::var_os("DAY_DATA_DIR")
-        && !dir.is_empty()
-    {
-        return Ok(std::path::PathBuf::from(dir).join("day-keychain"));
-    }
-    let base = std::env::var_os("LOCALAPPDATA")
-        .filter(|d| !d.is_empty())
-        .or_else(|| std::env::var_os("APPDATA").filter(|d| !d.is_empty()))
-        .ok_or(KeychainError::Unavailable)?;
-    Ok(std::path::PathBuf::from(base)
-        .join(crate::app_id())
-        .join("day-keychain"))
+    day_spec::storage::data_dir()
+        .map(|dir| dir.join("day-keychain"))
+        .ok_or(KeychainError::Unavailable)
 }
 
 /// Copy a DPAPI output blob into Rust memory and free it.

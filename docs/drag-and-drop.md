@@ -54,8 +54,8 @@ let target = label(move || received.get()).drop_target(Target {
 });
 ```
 
-Localize user-facing strings in real applications. Apply a canvas's gesture/test [`.id(...)`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.id)
-before [`.drop_target(...)`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.drop_target) when the identifier must still address the canvas itself: the
+Localize user-facing strings in real applications. Apply a canvas's gesture/test [`.id(...)`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.id)
+before [`.drop_target(...)`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.drop_target) when the identifier must still address the canvas itself: the
 transfer decorator creates a native wrapper. The source and target may be the same piece.
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the

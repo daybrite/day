@@ -55,7 +55,7 @@ device build (`<stem>-ios-uikit-unsigned.ipa`) for sideloading or your own signi
   terminates the app on first use. Day generates those keys from your `[permissions]` table, and
   `day lint` fails the build when one is missing, so the mistake surfaces in CI.
 - [`day-pieces`](/docs/reference/combobox) has no UIKit arm, because iOS has no native combo-box control; it renders as
-  a placeholder. Use [`picker`](https://daybrite.dev/api/day_pieces/fn.picker.html)`()`[`.menu`](https://daybrite.dev/api/day_pieces/trait.PickerBuilder.html#tymethod.menu)`()`.
+  a placeholder. Use [`picker`](https://docs.rs/day-pieces/latest/day_pieces/fn.picker.html)`()`[`.menu`](https://docs.rs/day-pieces/latest/day_pieces/trait.PickerBuilder.html#tymethod.menu)`()`.
 - iOS has no persistent menu bar, so `set_app_menu` is a no-op; context menus work
   ([`UIContextMenuInteraction`](https://developer.apple.com/documentation/uikit/uicontextmenuinteraction)).
 - Window screenshots aren't implemented in-process; the walkthrough uses
@@ -70,40 +70,40 @@ this table adds links and notes.
 
 | Day piece | UIKit class |
 |---|---|
-| [`column`](https://daybrite.dev/api/day_pieces/fn.column.html) / [`row`](https://daybrite.dev/api/day_pieces/fn.row.html) / [`nav_stack`](https://daybrite.dev/api/day_pieces/fn.nav_stack.html) / [`section`](https://daybrite.dev/api/day_pieces/fn.section.html) | [`UIView`](https://developer.apple.com/documentation/uikit/uiview) |
-| [`label`](https://daybrite.dev/api/day_pieces/fn.label.html) | [`UILabel`](https://developer.apple.com/documentation/uikit/uilabel) |
-| [`button`](https://daybrite.dev/api/day_pieces/fn.button.html) | [`UIButton`](https://developer.apple.com/documentation/uikit/uibutton) (system type; bordered/prominent use [`UIButtonConfiguration`](https://developer.apple.com/documentation/uikit/uibuttonconfiguration)) |
-| [`toggle`](https://daybrite.dev/api/day_pieces/fn.toggle.html) | [`UISwitch`](https://developer.apple.com/documentation/uikit/uiswitch) |
-| [`slider`](https://daybrite.dev/api/day_pieces/fn.slider.html) | [`UISlider`](https://developer.apple.com/documentation/uikit/uislider) |
-| [`text_field`](https://daybrite.dev/api/day_pieces/fn.text_field.html) | [`UITextField`](https://developer.apple.com/documentation/uikit/uitextfield) |
-| [`secure_field`](https://daybrite.dev/api/day_pieces/fn.secure_field.html) | [`UITextField`](https://developer.apple.com/documentation/uikit/uitextfield) with [`isSecureTextEntry`](https://developer.apple.com/documentation/uikit/uitextinputtraits/issecuretextentry) |
-| [`text_area`](https://daybrite.dev/api/day_pieces/fn.text_area.html) | [`UITextView`](https://developer.apple.com/documentation/uikit/uitextview) |
-| [`picker`](https://daybrite.dev/api/day_pieces/fn.picker.html)`()`[`.segmented`](https://daybrite.dev/api/day_pieces/trait.PickerBuilder.html#tymethod.segmented)`()` | [`UISegmentedControl`](https://developer.apple.com/documentation/uikit/uisegmentedcontrol) |
-| [`picker`](https://daybrite.dev/api/day_pieces/fn.picker.html)`()`[`.menu`](https://daybrite.dev/api/day_pieces/trait.PickerBuilder.html#tymethod.menu)`()` | [`UIButton`](https://developer.apple.com/documentation/uikit/uibutton) + [`UIMenu`](https://developer.apple.com/documentation/uikit/uimenu) |
-| [`picker`](https://daybrite.dev/api/day_pieces/fn.picker.html)`()`[`.inline`](https://daybrite.dev/api/day_pieces/trait.PickerBuilder.html#tymethod.inline)`()` | [`UIStackView`](https://developer.apple.com/documentation/uikit/uistackview) of check-marked buttons |
-| [`progress(f)`](https://daybrite.dev/api/day_pieces/fn.progress.html) | [`UIProgressView`](https://developer.apple.com/documentation/uikit/uiprogressview) |
-| [`spinner()`](https://daybrite.dev/api/day_pieces/fn.spinner.html) | [`UIActivityIndicatorView`](https://developer.apple.com/documentation/uikit/uiactivityindicatorview) |
-| [`scroll`](https://daybrite.dev/api/day_pieces/fn.scroll.html) | [`UIScrollView`](https://developer.apple.com/documentation/uikit/uiscrollview) |
-| [`list`](https://daybrite.dev/api/day_pieces/fn.list.html) | [`UITableView`](https://developer.apple.com/documentation/uikit/uitableview) (plain style, recycled cells) |
-| [`nav`](https://daybrite.dev/api/day_pieces/fn.nav.html) | [`UINavigationController`](https://developer.apple.com/documentation/uikit/uinavigationcontroller) |
+| [`column`](https://docs.rs/day-pieces/latest/day_pieces/fn.column.html) / [`row`](https://docs.rs/day-pieces/latest/day_pieces/fn.row.html) / [`nav_stack`](https://docs.rs/day-pieces/latest/day_pieces/fn.nav_stack.html) / [`section`](https://docs.rs/day-pieces/latest/day_pieces/fn.section.html) | [`UIView`](https://developer.apple.com/documentation/uikit/uiview) |
+| [`label`](https://docs.rs/day-pieces/latest/day_pieces/fn.label.html) | [`UILabel`](https://developer.apple.com/documentation/uikit/uilabel) |
+| [`button`](https://docs.rs/day-pieces/latest/day_pieces/fn.button.html) | [`UIButton`](https://developer.apple.com/documentation/uikit/uibutton) (system type; bordered/prominent use [`UIButtonConfiguration`](https://developer.apple.com/documentation/uikit/uibuttonconfiguration)) |
+| [`toggle`](https://docs.rs/day-pieces/latest/day_pieces/fn.toggle.html) | [`UISwitch`](https://developer.apple.com/documentation/uikit/uiswitch) |
+| [`slider`](https://docs.rs/day-pieces/latest/day_pieces/fn.slider.html) | [`UISlider`](https://developer.apple.com/documentation/uikit/uislider) |
+| [`text_field`](https://docs.rs/day-pieces/latest/day_pieces/fn.text_field.html) | [`UITextField`](https://developer.apple.com/documentation/uikit/uitextfield) |
+| [`secure_field`](https://docs.rs/day-pieces/latest/day_pieces/fn.secure_field.html) | [`UITextField`](https://developer.apple.com/documentation/uikit/uitextfield) with [`isSecureTextEntry`](https://developer.apple.com/documentation/uikit/uitextinputtraits/issecuretextentry) |
+| [`text_area`](https://docs.rs/day-pieces/latest/day_pieces/fn.text_area.html) | [`UITextView`](https://developer.apple.com/documentation/uikit/uitextview) |
+| [`picker`](https://docs.rs/day-pieces/latest/day_pieces/fn.picker.html)`()`[`.segmented`](https://docs.rs/day-pieces/latest/day_pieces/trait.PickerBuilder.html#tymethod.segmented)`()` | [`UISegmentedControl`](https://developer.apple.com/documentation/uikit/uisegmentedcontrol) |
+| [`picker`](https://docs.rs/day-pieces/latest/day_pieces/fn.picker.html)`()`[`.menu`](https://docs.rs/day-pieces/latest/day_pieces/trait.PickerBuilder.html#tymethod.menu)`()` | [`UIButton`](https://developer.apple.com/documentation/uikit/uibutton) + [`UIMenu`](https://developer.apple.com/documentation/uikit/uimenu) |
+| [`picker`](https://docs.rs/day-pieces/latest/day_pieces/fn.picker.html)`()`[`.inline`](https://docs.rs/day-pieces/latest/day_pieces/trait.PickerBuilder.html#tymethod.inline)`()` | [`UIStackView`](https://developer.apple.com/documentation/uikit/uistackview) of check-marked buttons |
+| [`progress(f)`](https://docs.rs/day-pieces/latest/day_pieces/fn.progress.html) | [`UIProgressView`](https://developer.apple.com/documentation/uikit/uiprogressview) |
+| [`spinner()`](https://docs.rs/day-pieces/latest/day_pieces/fn.spinner.html) | [`UIActivityIndicatorView`](https://developer.apple.com/documentation/uikit/uiactivityindicatorview) |
+| [`scroll`](https://docs.rs/day-pieces/latest/day_pieces/fn.scroll.html) | [`UIScrollView`](https://developer.apple.com/documentation/uikit/uiscrollview) |
+| [`list`](https://docs.rs/day-pieces/latest/day_pieces/fn.list.html) | [`UITableView`](https://developer.apple.com/documentation/uikit/uitableview) (plain style, recycled cells) |
+| [`nav`](https://docs.rs/day-pieces/latest/day_pieces/fn.nav.html) | [`UINavigationController`](https://developer.apple.com/documentation/uikit/uinavigationcontroller) |
 | `nav_menu` | [`UITableView`](https://developer.apple.com/documentation/uikit/uitableview) (inset-grouped) |
 | `tabs` | [`UITabBarController`](https://developer.apple.com/documentation/uikit/uitabbarcontroller) |
-| [`cover()`](https://daybrite.dev/api/day_pieces/fn.cover.html) | a full-screen modal [`UIViewController`](https://developer.apple.com/documentation/uikit/uiviewcontroller) |
-| [`image`](https://daybrite.dev/api/day_pieces/fn.image.html) | [`UIImageView`](https://developer.apple.com/documentation/uikit/uiimageview) |
-| [`vector`](https://daybrite.dev/api/day_pieces/fn.vector.html) | [`UIImageView`](https://developer.apple.com/documentation/uikit/uiimageview) — the SVG ships in a DayPieces imageset with `preserves-vector-representation`, so it renders at display size |
-| [`canvas`](https://daybrite.dev/api/day_pieces/fn.canvas.html) | a custom [`UIView`](https://developer.apple.com/documentation/uikit/uiview) replaying the display list through Core Graphics |
+| [`cover()`](https://docs.rs/day-pieces/latest/day_pieces/fn.cover.html) | a full-screen modal [`UIViewController`](https://developer.apple.com/documentation/uikit/uiviewcontroller) |
+| [`image`](https://docs.rs/day-pieces/latest/day_pieces/fn.image.html) | [`UIImageView`](https://developer.apple.com/documentation/uikit/uiimageview) |
+| [`vector`](https://docs.rs/day-pieces/latest/day_pieces/fn.vector.html) | [`UIImageView`](https://developer.apple.com/documentation/uikit/uiimageview) — the SVG ships in a DayPieces imageset with `preserves-vector-representation`, so it renders at display size |
+| [`canvas`](https://docs.rs/day-pieces/latest/day_pieces/fn.canvas.html) | a custom [`UIView`](https://developer.apple.com/documentation/uikit/uiview) replaying the display list through Core Graphics |
 | dialogs / alerts / prompts | [`UIAlertController`](https://developer.apple.com/documentation/uikit/uialertcontroller) |
 | file dialogs | [`UIDocumentPickerViewController`](https://developer.apple.com/documentation/uikit/uidocumentpickerviewcontroller) |
 | context menus | [`UIContextMenuInteraction`](https://developer.apple.com/documentation/uikit/uicontextmenuinteraction) |
-| *external* [`spinner()`](https://daybrite.dev/api/day_pieces/fn.spinner.html) | [`UIActivityIndicatorView`](https://developer.apple.com/documentation/uikit/uiactivityindicatorview) |
-| *external* [`search_field()`](https://daybrite.dev/api/day_pieces/searchfield/fn.search_field.html) | [`UISearchTextField`](https://developer.apple.com/documentation/uikit/uisearchtextfield) |
-| *external* [`date_picker()`](https://daybrite.dev/api/day_pieces/datetime/fn.date_picker.html) / [`time_picker()`](https://daybrite.dev/api/day_pieces/datetime/fn.time_picker.html) | [`UIDatePicker`](https://developer.apple.com/documentation/uikit/uidatepicker) |
+| *external* [`spinner()`](https://docs.rs/day-pieces/latest/day_pieces/fn.spinner.html) | [`UIActivityIndicatorView`](https://developer.apple.com/documentation/uikit/uiactivityindicatorview) |
+| *external* [`search_field()`](https://docs.rs/day-pieces/latest/day_pieces/searchfield/fn.search_field.html) | [`UISearchTextField`](https://developer.apple.com/documentation/uikit/uisearchtextfield) |
+| *external* [`date_picker()`](https://docs.rs/day-pieces/latest/day_pieces/datetime/fn.date_picker.html) / [`time_picker()`](https://docs.rs/day-pieces/latest/day_pieces/datetime/fn.time_picker.html) | [`UIDatePicker`](https://developer.apple.com/documentation/uikit/uidatepicker) |
 | *external* `pull_refresh()` | [`UIRefreshControl`](https://developer.apple.com/documentation/uikit/uirefreshcontrol) |
 | *external* `webview()` | [`WKWebView`](https://developer.apple.com/documentation/webkit/wkwebview) |
 | *external* `media()` | [`AVPlayerViewController`](https://developer.apple.com/documentation/avkit/avplayerviewcontroller) |
 | *external* `lottie()` | `LottieAnimationView` ([lottie-ios](https://github.com/airbnb/lottie-ios), via SwiftPM) |
 
-[`toggle`](https://daybrite.dev/api/day_pieces/fn.toggle.html) is the only boolean control, radio behavior is [`picker`](https://daybrite.dev/api/day_pieces/fn.picker.html)`()`[`.inline`](https://daybrite.dev/api/day_pieces/trait.PickerBuilder.html#tymethod.inline)`()`, and [`list`](https://daybrite.dev/api/day_pieces/fn.list.html) is the only
+[`toggle`](https://docs.rs/day-pieces/latest/day_pieces/fn.toggle.html) is the only boolean control, radio behavior is [`picker`](https://docs.rs/day-pieces/latest/day_pieces/fn.picker.html)`()`[`.inline`](https://docs.rs/day-pieces/latest/day_pieces/trait.PickerBuilder.html#tymethod.inline)`()`, and [`list`](https://docs.rs/day-pieces/latest/day_pieces/fn.list.html) is the only
 collection; there is no checkbox, stepper, or table piece.
 
 **Text measurement** is UIKit's `sizeThatFits:` on the realized view, so wrapping matches what

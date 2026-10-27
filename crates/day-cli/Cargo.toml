@@ -74,6 +74,8 @@ day-toolchain = { workspace = true }
 # Font name-table parsing + family→ident rules (§18.4): the same leaf crate the runtimes use (via
 # `day_spec::fonts`), so the names the stagers derive always match what the backends look up.
 day-fonts = { workspace = true }
+# `storage::data_dir_for`: where a launched desktop app keeps its crash-reporter store.
+day-spec = { workspace = true }
 # Resource name → identifier rules (§18.5): the same leaf crate an app's `build.rs` uses to generate
 # the typed `res::…` constants, so the name a stager writes into a backend's native store is exactly
 # the string baked into the constant. `sanitize_ident` re-exported from here.

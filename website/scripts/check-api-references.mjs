@@ -8,7 +8,8 @@ import { unlinkedReferences } from './api-reference-coverage.mjs';
 const root = fileURLToPath(new URL('../../', import.meta.url));
 const args = process.argv.slice(2);
 const audit = args.includes('--audit');
-const dist = resolve(root, args.find(a => !a.startsWith('--')) ?? 'website/dist');
+// The docs.rs-equivalent rustdoc scripts/build-api-docs.sh builds; the site publishes none of its own.
+const docs = resolve(root, args.find(a => !a.startsWith('--')) ?? 'target/api-check/x86_64-unknown-linux-gnu/doc');
 const names = new Set();
 async function index(directory) {
   for (const entry of await readdir(directory, { withFileTypes: true })) {
@@ -22,8 +23,8 @@ async function index(directory) {
     }
   }
 }
-await index(resolve(dist, 'api'));
-if (!names.size) throw new Error(`No published Rust API found in ${dist}/api; build it first.`);
+await index(docs);
+if (!names.size) throw new Error(`No Rust API found in ${docs}; run scripts/build-api-docs.sh first.`);
 const routes = JSON.parse(await readFile(resolve(root, 'website/src/data/content-routes.json'), 'utf8'));
 const sources = [...new Set(Object.values(routes).filter(p => p.published !== false).map(p => p.source))].sort();
 const exceptions = JSON.parse(await readFile(resolve(root, 'website/authoring/api-reference-exceptions.json'), 'utf8'));

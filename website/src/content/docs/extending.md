@@ -38,7 +38,7 @@ rating(stars).max(5).editable(true)
 ```
 
 Most reusable UI in a Day app is this tier: cards, badges, form rows, charts drawn with
-[`canvas`](https://daybrite.dev/api/day_pieces/fn.canvas.html). The [composite-piece tutorial](/contributing/tutorials/composite-piece) and
+[`canvas`](https://docs.rs/day-pieces/latest/day_pieces/fn.canvas.html). The [composite-piece tutorial](/contributing/tutorials/composite-piece) and
 [`day-piece-settings`](/docs/reference/settings) show composition,
 and the [composite piece tutorial](/contributing/tutorials/composite-piece) provides a complete example.
 
@@ -170,3 +170,44 @@ does it render anything?
 Whichever tier you pick, you package it the same way, by publishing a crate. Consumers add one
 dependency line, and localization files and assets inside your crate aggregate into their app
 under your package's namespace.
+
+## Storage integration
+
+Native storage paths are resolved by
+[`day_spec::storage`](https://docs.rs/day-spec/latest/day_spec/storage/index.html), re-exported
+as [`day::storage`](https://docs.rs/day-app/latest/day/storage/index.html). The
+[filesystem reference](/docs/reference/fs#where-files-live) defines the public directory and
+override contracts.
+
+The resolver chooses the app ID from a nonempty runtime `DAY_APP_ID`, then the compile-time
+value supplied by `day build`, then the executable name. It sanitizes the ID for use as a
+folder name. Custom launchers must preserve the intended identity across launches.
+
+### Mobile hosts and browser storage
+
+The Android [activity](https://github.com/daybrite/day/blob/main/crates/day-toolkit-material/java/dev/daybrite/day/bridge/DayActivity.java)
+exports `DAY_DATA_DIR` and `DAY_CACHE_DIR` from the app's `Context`. The HarmonyOS
+[ability](https://github.com/daybrite/day/blob/main/crates/day-toolkit-arkui/platform/harmony/ets/EntryAbility.ets)
+exports them from its ability context. Set these before Rust code accesses storage. Mobile
+processes without host-provided paths cannot resolve the corresponding directories.
+
+Native file operations use `std::fs` beneath the resolved data root. On Web,
+[day-part-filesystem](https://github.com/daybrite/day/tree/main/crates/day-part-filesystem)
+uses the day-toolkit-dom bridge. Requests start through `day_dom_fs_start` and complete through
+request-ID exports into Wasm. The browser implementation uses OPFS; keep its unavailable-storage
+errors consistent with the public file API.
+
+### Preference file format
+
+The [file store](https://github.com/daybrite/day/blob/main/crates/day-part-preferences/src/file.rs)
+serializes a string map as one `escaped_key=escaped_value` entry per line. Backslash, newline,
+carriage return, and equals are escaped, so the first unescaped separator divides the entry.
+A process-wide mutex serializes load-modify-save cycles. Writes use a sibling temporary file
+and rename it over the destination; this does not coordinate independent processes.
+
+The default file is `preferences.store` in the configuration directory. `DAY_PREFS_DIR`
+overrides it with `<app-id>.store` inside the supplied directory, or
+`day-part-preferences.store` when no runtime or compile-time app ID is available. With the
+`memory` feature enabled, setting this override selects the file store for persistence tests
+across processes. Keep the public [migration note](/docs/reference/prefs#what-each-platform-does)
+current when changing the default layout.

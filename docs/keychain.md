@@ -17,11 +17,10 @@ may be read, including "only after the device verifies the person, every time".
 
 ## Add to your app
 
-Add [`day-part-keychain`](https://github.com/daybrite/day/tree/main/crates/day-part-keychain) to your app’s Cargo dependencies, using the same Day version as the rest of your app:
+Add [`day-part-keychain`](https://github.com/daybrite/day/tree/main/crates/day-part-keychain) to your app:
 
-```toml
-[dependencies]
-day-part-keychain = "0.6"
+```sh
+cargo add day-part-keychain
 ```
 
 The implementation is selected by the compilation target; no toolkit feature flags or dependency
@@ -36,16 +35,16 @@ biometrics = true   # the reason is the catalog's `permission_biometrics` messag
 
 | Platforms / toolkits | Availability |
 | --- | --- |
-| iOS, macOS | The data protection keychain. An unsigned macOS development build falls back to the login keychain and says so ([`backend()`](https://daybrite.dev/api/day_part_keychain/fn.backend.html) returns `login-keychain`, [`support()`](https://daybrite.dev/api/day_part_keychain/fn.support.html) `Emulated`); user presence is unavailable there. |
+| iOS, macOS | The data protection keychain. An unsigned macOS development build falls back to the login keychain and says so ([`backend()`](https://docs.rs/day-part-keychain/latest/day_part_keychain/fn.backend.html) returns `login-keychain`, [`support()`](https://docs.rs/day-part-keychain/latest/day_part_keychain/fn.support.html) `Emulated`); user presence is unavailable there. |
 | Android | Files in the app's no-backup directory, encrypted with keys the Android Keystore holds; user presence through the system's biometric prompt (API 28 and later). |
 | Windows | Files under `%LOCALAPPDATA%`, protected with DPAPI for the signed-in account; user presence gated by Windows Hello (`Emulated`: the check is in front of the item, not bound to it). |
 | Linux (GTK / Qt) | The Secret Service (GNOME Keyring, KDE's ksecretd, KeePassXC) through libsecret, loaded at run time. `Unsupported` on a session with none; no user-presence level. |
 | HarmonyOS | Files in the app sandbox, encrypted with Universal Keystore keys; user presence through a key bound to user authentication. |
 | Web | No store a page may rely on for a secret: `Unsupported`. |
 
-[`backend()`](https://daybrite.dev/api/day_part_keychain/fn.backend.html) identifies the selected storage implementation.
+[`backend()`](https://docs.rs/day-part-keychain/latest/day_part_keychain/fn.backend.html) identifies the selected storage implementation.
 It returns `secret-service` on Linux even when the session has no reachable service. Check
-[`support()`](https://daybrite.dev/api/day_part_keychain/fn.support.html) for current availability.
+[`support()`](https://docs.rs/day-part-keychain/latest/day_part_keychain/fn.support.html) for current availability.
 
 ## Authoring
 
@@ -69,20 +68,20 @@ day::task(async move {
 });
 ```
 
-[`set(key, secret, protection)`](https://daybrite.dev/api/day_part_keychain/fn.set.html) replaces any item under `key`, whatever its level. [`get(key)`](https://daybrite.dev/api/day_part_keychain/fn.get.html) is synchronous
-and never shows a dialog. [`get_async(key, reason, callback)`](https://daybrite.dev/api/day_part_keychain/fn.get_async.html) and [`get_future(key, reason)`](https://daybrite.dev/api/day_part_keychain/fn.get_future.html) show the
+[`set(key, secret, protection)`](https://docs.rs/day-part-keychain/latest/day_part_keychain/fn.set.html) replaces any item under `key`, whatever its level. [`get(key)`](https://docs.rs/day-part-keychain/latest/day_part_keychain/fn.get.html) is synchronous
+and never shows a dialog. [`get_async(key, reason, callback)`](https://docs.rs/day-part-keychain/latest/day_part_keychain/fn.get_async.html) and [`get_future(key, reason)`](https://docs.rs/day-part-keychain/latest/day_part_keychain/fn.get_future.html) show the
 device's verification dialog when the item needs it and resolve with the secret; an item at
-another level resolves without a dialog. [`remove(key)`](https://daybrite.dev/api/day_part_keychain/fn.remove.html), [`contains(key)`](https://daybrite.dev/api/day_part_keychain/fn.contains.html) and [`entries()`](https://daybrite.dev/api/day_part_keychain/fn.entries.html)
+another level resolves without a dialog. [`remove(key)`](https://docs.rs/day-part-keychain/latest/day_part_keychain/fn.remove.html), [`contains(key)`](https://docs.rs/day-part-keychain/latest/day_part_keychain/fn.contains.html) and [`entries()`](https://docs.rs/day-part-keychain/latest/day_part_keychain/fn.entries.html)
 (every key with its level, without the secrets) complete the API. A key is at most
-[`MAX_KEY_LEN`](https://daybrite.dev/api/day_part_keychain/constant.MAX_KEY_LEN.html) bytes with no control characters; a secret at most [`MAX_SECRET_LEN`](https://daybrite.dev/api/day_part_keychain/constant.MAX_SECRET_LEN.html) (64 KiB).
+[`MAX_KEY_LEN`](https://docs.rs/day-part-keychain/latest/day_part_keychain/constant.MAX_KEY_LEN.html) bytes with no control characters; a secret at most [`MAX_SECRET_LEN`](https://docs.rs/day-part-keychain/latest/day_part_keychain/constant.MAX_SECRET_LEN.html) (64 KiB).
 
-[`Secret`](https://daybrite.dev/api/day_part_keychain/struct.Secret.html) owns its bytes and zeroes them when dropped, compares in constant time, and prints as
+[`Secret`](https://docs.rs/day-part-keychain/latest/day_part_keychain/struct.Secret.html) owns its bytes and zeroes them when dropped, compares in constant time, and prints as
 `Secret(<n> bytes)` so a stray `{:?}` never logs it. Build one from a string or bytes; read it
-with [`as_str()`](https://daybrite.dev/api/day_part_keychain/struct.Secret.html#method.as_str) or [`as_bytes()`](https://daybrite.dev/api/day_part_keychain/struct.Secret.html#method.as_bytes).
+with [`as_str()`](https://docs.rs/day-part-keychain/latest/day_part_keychain/struct.Secret.html#method.as_str) or [`as_bytes()`](https://docs.rs/day-part-keychain/latest/day_part_keychain/struct.Secret.html#method.as_bytes).
 
 ### Protection levels
 
-| [`Protection`](https://daybrite.dev/api/day_part_keychain/enum.Protection.html) | Readable | Use it for |
+| [`Protection`](https://docs.rs/day-part-keychain/latest/day_part_keychain/enum.Protection.html) | Readable | Use it for |
 |---|---|---|
 | `WhenUnlocked` (default) | while the device is unlocked | a session token the UI uses |
 | `AfterFirstUnlock` | from the first unlock after boot until reboot, locked screen included | a secret background work needs (a sync, a notification handler) |
@@ -90,11 +89,11 @@ with [`as_str()`](https://daybrite.dev/api/day_part_keychain/struct.Secret.html#
 
 Apple and HarmonyOS distinguish the first two (`WhenUnlocked` items are unreadable while the
 device is locked); Android, Windows and Linux keep both readable whenever the app runs, since
-their stores unlock with the first sign-in. [`protection_support(level)`](https://daybrite.dev/api/day_part_keychain/fn.protection_support.html) says how a level is
+their stores unlock with the first sign-in. [`protection_support(level)`](https://docs.rs/day-part-keychain/latest/day_part_keychain/fn.protection_support.html) says how a level is
 realized here: `Native` where the OS binds the item to it, `Emulated` where the crate gates the
 read without a binding (Windows user presence), `Unsupported` where nothing can honor it (Linux
-user presence, every level on the web). A `UserPresence` [`set`](https://daybrite.dev/api/day_part_keychain/fn.set.html) needs a device passcode, PIN or
-password and fails with [`KeychainError::PasscodeNotSet`](https://daybrite.dev/api/day_part_keychain/enum.KeychainError.html#variant.PasscodeNotSet) without one. Writing never prompts;
+user presence, every level on the web). A `UserPresence` [`set`](https://docs.rs/day-part-keychain/latest/day_part_keychain/fn.set.html) needs a device passcode, PIN or
+password and fails with [`KeychainError::PasscodeNotSet`](https://docs.rs/day-part-keychain/latest/day_part_keychain/enum.KeychainError.html#variant.PasscodeNotSet) without one. Writing never prompts;
 only reading does.
 
 ### What an item is scoped to
@@ -108,19 +107,19 @@ with it.
 
 ### Errors
 
-[`KeychainError`](https://daybrite.dev/api/day_part_keychain/enum.KeychainError.html) names the outcomes an app acts on: `NotFound`, `NeedsPresence` (a protected item
-read with the synchronous [`get`](https://daybrite.dev/api/day_part_keychain/fn.get.html)), `Cancelled` and `AuthFailed` (the dialog), `Lockout`,
+[`KeychainError`](https://docs.rs/day-part-keychain/latest/day_part_keychain/enum.KeychainError.html) names the outcomes an app acts on: `NotFound`, `NeedsPresence` (a protected item
+read with the synchronous [`get`](https://docs.rs/day-part-keychain/latest/day_part_keychain/fn.get.html)), `Cancelled` and `AuthFailed` (the dialog), `Lockout`,
 `PasscodeNotSet`, `Unreadable` (the item exists but its key was invalidated or its file damaged;
-[`remove`](https://daybrite.dev/api/day_part_keychain/fn.remove.html) clears it), `Locked` (a keyring whose unlock dialog was dismissed, an Apple item read
+[`remove`](https://docs.rs/day-part-keychain/latest/day_part_keychain/fn.remove.html) clears it), `Locked` (a keyring whose unlock dialog was dismissed, an Apple item read
 while the device is locked), `Unavailable` (no Secret Service, no logon session), `Unsupported`,
 and `Platform(message)` for the rest.
 
 ### Threads
 
 The synchronous calls finish in milliseconds on every platform but Linux, where a locked keyring
-makes the Secret Service show its unlock dialog during the call; UI code there prefers [`get_async`](https://daybrite.dev/api/day_part_keychain/fn.get_async.html),
+makes the Secret Service show its unlock dialog during the call; UI code there prefers [`get_async`](https://docs.rs/day-part-keychain/latest/day_part_keychain/fn.get_async.html),
 which works on a thread of its own. Completions run where the platform delivers them;
-[`get_future`](https://daybrite.dev/api/day_part_keychain/fn.get_future.html) awaited under [`day::task`](https://daybrite.dev/api/day/fn.task.html) resumes on the UI thread ([docs/async](/docs/explanation/async)).
+[`get_future`](https://docs.rs/day-part-keychain/latest/day_part_keychain/fn.get_future.html) awaited under [`day::task`](https://docs.rs/day-app/latest/day/fn.task.html) resumes on the UI thread ([docs/async](/docs/explanation/async)).
 
 ## Platform implementations
 
@@ -141,8 +140,8 @@ Platform guidance: [Apple: keychain services](https://developer.apple.com/docume
   `AfterFirstUnlock` is [`kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly`](https://developer.apple.com/documentation/security/ksecattraccessibleafterfirstunlockthisdeviceonly), and `UserPresence`
   is an access control created with [`kSecAttrAccessibleWhenPasscodeSetThisDeviceOnly`](https://developer.apple.com/documentation/security/ksecattraccessiblewhenpasscodesetthisdeviceonly) and the
   `userPresence` flag: a biometric or the passcode, each read, not invalidated by a change of
-  enrollment. The synchronous [`get`](https://daybrite.dev/api/day_part_keychain/fn.get.html) hands the keychain an `LAContext` with `interactionNotAllowed`
-  set, so the keychain refuses instead of prompting; [`get_async`](https://daybrite.dev/api/day_part_keychain/fn.get_async.html) hands it one carrying the reason,
+  enrollment. The synchronous [`get`](https://docs.rs/day-part-keychain/latest/day_part_keychain/fn.get.html) hands the keychain an `LAContext` with `interactionNotAllowed`
+  set, so the keychain refuses instead of prompting; [`get_async`](https://docs.rs/day-part-keychain/latest/day_part_keychain/fn.get_async.html) hands it one carrying the reason,
   and the system shows its dialog during `SecItemCopyMatching`. The data protection keychain
   needs the `keychain-access-groups` entitlement a signed app has; an unsigned `cargo run` or
   development launch on macOS falls back to the login keychain, which has no access control.
@@ -151,12 +150,12 @@ Platform guidance: [Apple: keychain services](https://developer.apple.com/docume
   AES-256-GCM under one keystore key. `UserPresence` items are AES-256-GCM under a per-item key
   that an RSA keystore key pair wraps: encryption with the public key needs no prompt, and
   decryption with the private key is allowed only through a cipher the system prompt authorized,
-  with the device credential accepted alongside a biometric. Keys are created by [`set`](https://daybrite.dev/api/day_part_keychain/fn.set.html), never by a
+  with the device credential accepted alongside a biometric. Keys are created by [`set`](https://docs.rs/day-part-keychain/latest/day_part_keychain/fn.set.html), never by a
   read, so a wiped keystore reads as `Unreadable` rather than silently starting over.
 - **Windows**: DPAPI binds the bytes to the signed-in account on this machine and adds its own
   integrity check; another account, or another machine, cannot open them, and an administrator's
   password reset makes them `Unreadable`. `UserPresence` is Windows Hello in front of the read,
-  reported as `Emulated` because DPAPI itself does not know about the check. A [`set`](https://daybrite.dev/api/day_part_keychain/fn.set.html) at that level
+  reported as `Emulated` because DPAPI itself does not know about the check. A [`set`](https://docs.rs/day-part-keychain/latest/day_part_keychain/fn.set.html) at that level
   confirms Hello is set up first, so no item is stored that nothing could read.
 - **Linux**: one Secret Service item per key in the default collection, under the schema
   `dev.daybrite.day.keychain` with `application` and `key` attributes, the secret stored as base64
@@ -167,7 +166,7 @@ Platform guidance: [Apple: keychain services](https://developer.apple.com/docume
 - **HarmonyOS**: three AES-256-GCM keys the Universal Keystore generates on first use, one per
   level: `WhenUnlocked` at the ECE storage level (usable only while unlocked), `AfterFirstUnlock`
   at CE, and `UserPresence` at ECE with user authentication required for decryption only, so a
-  [`set`](https://daybrite.dev/api/day_part_keychain/fn.set.html) never prompts. The item's key name is the cipher's associated data. Reading a protected
+  [`set`](https://docs.rs/day-part-keychain/latest/day_part_keychain/fn.set.html) never prompts. The item's key name is the cipher's associated data. Reading a protected
   item opens a keystore session (which issues a challenge), shows the user-authentication dialog
   through `day-part-biometrics` with that challenge, and finishes the session with the token the
   dialog returned. Removing the lock-screen password invalidates the protected key.

@@ -8,10 +8,8 @@ export default function apiLinks() {
       if (node.type === 'element' && ['pre', 'code'].includes(node.tagName)) return;
       if (node.type === 'element' && node.tagName === 'a') {
         const href = node.properties?.href;
-        if (typeof href === 'string' &&
-            (/^(?:https:\/\/daybrite\.dev)?\/api\/[^?#]+\.html(?:[?#]|$)/.test(href) ||
-             /^https:\/\/docs\.rs\/[^/]+\/[^/]+\/[^?#]+\.html(?:[?#]|$)/.test(href))) {
-          node.properties.href = new URL(href, 'https://daybrite.dev').href;
+        // Every API link goes to docs.rs (scripts/docs/check-api-links.py checks them).
+        if (typeof href === 'string' && /^https:\/\/docs\.rs\/[^/]+\/[^/]+\/[^?#]+\.html(?:[?#]|$)/.test(href)) {
           node.properties.className = [...[node.properties.className ?? []].flat(), 'api-link'];
           node.properties.title ??= 'Rust API reference';
         }

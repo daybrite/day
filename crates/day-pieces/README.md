@@ -26,7 +26,7 @@ components may depend on this crate directly.
 - [Compose an interface](https://daybrite.dev/docs/explanation/pieces/)
 - [Component reference](https://daybrite.dev/docs/reference/)
 - [Writing Day extensions](https://daybrite.dev/contributing/extending/)
-- [Rust API](https://daybrite.dev/api/day_pieces/index.html)
+- [Rust API](https://docs.rs/day-pieces/latest/day_pieces/index.html)
 
 [Source](https://github.com/daybrite/day/tree/main/crates/day-pieces) ·
 [Contributing](https://daybrite.dev/contributing/setup/) · [MPL-2.0

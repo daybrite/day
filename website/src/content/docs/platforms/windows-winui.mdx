@@ -50,7 +50,7 @@ To run the same codebase against GTK or Qt on a Windows machine, see
 
 Canvas elements use Microsoft's Win2D drawing API. Screen drawing and offscreen bitmap
 export share the same renderer, including paths, geometric clipping, gradients, transformed
-images and bundled fonts. [`Drawing::to_png(scale)`](https://daybrite.dev/api/day_pieces/struct.Drawing.html#method.to_png) supports transparent PNG export; vector
+images and bundled fonts. [`Drawing::to_png(scale)`](https://docs.rs/day-pieces/latest/day_pieces/struct.Drawing.html#method.to_png) supports transparent PNG export; vector
 PDF export is not yet supported.
 
 Day automatically fetches the pinned `Microsoft.Graphics.Win2D` package with the other SDK
@@ -82,15 +82,15 @@ entry, and offers a silent `/S` mode for managed deployment. The Microsoft Store
   Windows 10. Day uses WinUI 3's own
   [`WebView2`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.webview2)
   control.
-- [`picker`](https://daybrite.dev/api/day_pieces/fn.picker.html)`()`[`.segmented`](https://daybrite.dev/api/day_pieces/trait.PickerBuilder.html#tymethod.segmented)`()` is a horizontal row of radio buttons, since WinUI has no native segmented
+- [`picker`](https://docs.rs/day-pieces/latest/day_pieces/fn.picker.html)`()`[`.segmented`](https://docs.rs/day-pieces/latest/day_pieces/trait.PickerBuilder.html#tymethod.segmented)`()` is a horizontal row of radio buttons, since WinUI has no native segmented
   control.
 - The inline time picker falls back to a flyout, because WinUI has no inline clock.
 - Text-area read-only and spell-check are native ([`TextBox.IsReadOnly`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.textbox) /
-  `IsSpellCheckEnabled`). [`.selectable(false)`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.selectable) is emulated, because [`TextBox`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.textbox) has no
+  `IsSpellCheckEnabled`). [`.selectable(false)`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.selectable) is emulated, because [`TextBox`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.textbox) has no
   selection-enable property: the shim collapses each selection as it is reported and suppresses
   the context menu.
 - Lottie plays through lottie-web in the web view. Map has no WinUI arm and renders its placeholder.
-  [`cover()`](https://daybrite.dev/api/day_pieces/fn.cover.html) presents as a topmost window-sized child (no transition, programmatic dismissal only).
+  [`cover()`](https://docs.rs/day-pieces/latest/day_pieces/fn.cover.html) presents as a topmost window-sized child (no transition, programmatic dismissal only).
 - **Screenshots** read the window's real pixels, **frame included**, through
   Windows.Graphics.Capture, so they show web view and video content and work while the window is
   covered.
@@ -102,8 +102,8 @@ entry, and offers a silent `/S` mode for managed deployment. The Microsoft Store
 A native piece enables WinUI through a `winui` feature that implies the piece's
 `xaml` feature and turns on both `day-toolkit-winui/winui` and `day-toolkit-xaml-sys/winui`, with `"winui"` in
 `[package.metadata.day.piece] backends`. Its `build.rs` uses
-[`day_toolchain::winappsdk::shim_includes(&cppwinrt)`](https://daybrite.dev/api/day_toolchain/winappsdk/fn.shim_includes.html) and defines `DAY_WINUI` when
-[`day_toolchain::winappsdk::shim_is_winui()`](https://daybrite.dev/api/day_toolchain/winappsdk/fn.shim_is_winui.html), and the shim switches its includes and namespace on
+[`day_toolchain::winappsdk::shim_includes(&cppwinrt)`](https://docs.rs/day-toolchain/latest/day_toolchain/winappsdk/fn.shim_includes.html) and defines `DAY_WINUI` when
+[`day_toolchain::winappsdk::shim_is_winui()`](https://docs.rs/day-toolchain/latest/day_toolchain/winappsdk/fn.shim_is_winui.html), and the shim switches its includes and namespace on
 `DAY_WINUI`. `day new piece --toolkits winui` scaffolds this; the
 [native piece tutorial](/contributing/tutorials/native-piece) walks through it.
 
@@ -114,36 +114,36 @@ this table adds links and notes.
 
 | Day piece | WinUI 3 control (`Microsoft.UI.Xaml.Controls`) |
 |---|---|
-| [`column`](https://daybrite.dev/api/day_pieces/fn.column.html) / [`row`](https://daybrite.dev/api/day_pieces/fn.row.html) / [`nav_stack`](https://daybrite.dev/api/day_pieces/fn.nav_stack.html) / [`section`](https://daybrite.dev/api/day_pieces/fn.section.html) | [`Canvas`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.canvas) (Day positions children absolutely) |
-| [`label`](https://daybrite.dev/api/day_pieces/fn.label.html) | [`TextBlock`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.textblock) |
-| [`button`](https://daybrite.dev/api/day_pieces/fn.button.html) | [`Button`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.button) (`AccentButtonStyle` when prominent) |
-| [`toggle`](https://daybrite.dev/api/day_pieces/fn.toggle.html) | [`ToggleSwitch`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.toggleswitch) |
-| [`slider`](https://daybrite.dev/api/day_pieces/fn.slider.html) | [`Slider`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.slider) |
-| [`text_field`](https://daybrite.dev/api/day_pieces/fn.text_field.html) | [`TextBox`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.textbox) |
-| [`secure_field`](https://daybrite.dev/api/day_pieces/fn.secure_field.html) | [`PasswordBox`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.passwordbox) |
-| [`text_area`](https://daybrite.dev/api/day_pieces/fn.text_area.html) | [`TextBox`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.textbox) with `AcceptsReturn` |
-| [`picker`](https://daybrite.dev/api/day_pieces/fn.picker.html)`()`[`.menu`](https://daybrite.dev/api/day_pieces/trait.PickerBuilder.html#tymethod.menu)`()` | [`ComboBox`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.combobox) |
-| [`picker`](https://daybrite.dev/api/day_pieces/fn.picker.html)`()`[`.segmented`](https://daybrite.dev/api/day_pieces/trait.PickerBuilder.html#tymethod.segmented)`()` / [`.inline()`](https://daybrite.dev/api/day_pieces/trait.PickerBuilder.html#tymethod.inline) | [`RadioButton`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.radiobutton)s in a horizontal / vertical stack |
-| [`progress(f)`](https://daybrite.dev/api/day_pieces/fn.progress.html) | [`ProgressBar`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.progressbar) |
-| [`spinner()`](https://daybrite.dev/api/day_pieces/fn.spinner.html) | [`ProgressRing`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.progressring) |
-| [`divider`](https://daybrite.dev/api/day_pieces/fn.divider.html) | [`Border`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.border), 1px, themed stroke |
-| [`scroll`](https://daybrite.dev/api/day_pieces/fn.scroll.html) | [`ScrollViewer`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.scrollviewer) |
-| [`list`](https://daybrite.dev/api/day_pieces/fn.list.html) | [`ScrollViewer`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.scrollviewer) with Day-side cell pooling |
-| [`nav`](https://daybrite.dev/api/day_pieces/fn.nav.html) (split and stack) | [`NavigationView`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.navigationview) |
+| [`column`](https://docs.rs/day-pieces/latest/day_pieces/fn.column.html) / [`row`](https://docs.rs/day-pieces/latest/day_pieces/fn.row.html) / [`nav_stack`](https://docs.rs/day-pieces/latest/day_pieces/fn.nav_stack.html) / [`section`](https://docs.rs/day-pieces/latest/day_pieces/fn.section.html) | [`Canvas`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.canvas) (Day positions children absolutely) |
+| [`label`](https://docs.rs/day-pieces/latest/day_pieces/fn.label.html) | [`TextBlock`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.textblock) |
+| [`button`](https://docs.rs/day-pieces/latest/day_pieces/fn.button.html) | [`Button`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.button) (`AccentButtonStyle` when prominent) |
+| [`toggle`](https://docs.rs/day-pieces/latest/day_pieces/fn.toggle.html) | [`ToggleSwitch`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.toggleswitch) |
+| [`slider`](https://docs.rs/day-pieces/latest/day_pieces/fn.slider.html) | [`Slider`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.slider) |
+| [`text_field`](https://docs.rs/day-pieces/latest/day_pieces/fn.text_field.html) | [`TextBox`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.textbox) |
+| [`secure_field`](https://docs.rs/day-pieces/latest/day_pieces/fn.secure_field.html) | [`PasswordBox`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.passwordbox) |
+| [`text_area`](https://docs.rs/day-pieces/latest/day_pieces/fn.text_area.html) | [`TextBox`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.textbox) with `AcceptsReturn` |
+| [`picker`](https://docs.rs/day-pieces/latest/day_pieces/fn.picker.html)`()`[`.menu`](https://docs.rs/day-pieces/latest/day_pieces/trait.PickerBuilder.html#tymethod.menu)`()` | [`ComboBox`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.combobox) |
+| [`picker`](https://docs.rs/day-pieces/latest/day_pieces/fn.picker.html)`()`[`.segmented`](https://docs.rs/day-pieces/latest/day_pieces/trait.PickerBuilder.html#tymethod.segmented)`()` / [`.inline()`](https://docs.rs/day-pieces/latest/day_pieces/trait.PickerBuilder.html#tymethod.inline) | [`RadioButton`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.radiobutton)s in a horizontal / vertical stack |
+| [`progress(f)`](https://docs.rs/day-pieces/latest/day_pieces/fn.progress.html) | [`ProgressBar`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.progressbar) |
+| [`spinner()`](https://docs.rs/day-pieces/latest/day_pieces/fn.spinner.html) | [`ProgressRing`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.progressring) |
+| [`divider`](https://docs.rs/day-pieces/latest/day_pieces/fn.divider.html) | [`Border`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.border), 1px, themed stroke |
+| [`scroll`](https://docs.rs/day-pieces/latest/day_pieces/fn.scroll.html) | [`ScrollViewer`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.scrollviewer) |
+| [`list`](https://docs.rs/day-pieces/latest/day_pieces/fn.list.html) | [`ScrollViewer`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.scrollviewer) with Day-side cell pooling |
+| [`nav`](https://docs.rs/day-pieces/latest/day_pieces/fn.nav.html) (split and stack) | [`NavigationView`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.navigationview) |
 | `nav_menu` | [`NavigationViewItem`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.navigationviewitem)s, or a [`ListView`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.listview) standalone |
 | `tabs` | [`Pivot`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.pivot) |
-| [`image`](https://daybrite.dev/api/day_pieces/fn.image.html) | [`Image`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.image) |
-| [`vector`](https://daybrite.dev/api/day_pieces/fn.vector.html) | a [`Path`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.shapes.path) in a scaling [`Viewbox`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.viewbox) ([XAML geometry](/docs/how-to/resources#what-each-target-ships)); an [`Image`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.image) of the raster cache PNG for art outside the convertible subset |
-| [`canvas`](https://daybrite.dev/api/day_pieces/fn.canvas.html) | [`Canvas`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.canvas) with a `Path` per shape |
+| [`image`](https://docs.rs/day-pieces/latest/day_pieces/fn.image.html) | [`Image`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.image) |
+| [`vector`](https://docs.rs/day-pieces/latest/day_pieces/fn.vector.html) | a [`Path`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.shapes.path) in a scaling [`Viewbox`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.viewbox) ([XAML geometry](/docs/how-to/resources#what-each-target-ships)); an [`Image`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.image) of the raster cache PNG for art outside the convertible subset |
+| [`canvas`](https://docs.rs/day-pieces/latest/day_pieces/fn.canvas.html) | [`Canvas`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.canvas) with a `Path` per shape |
 | dialogs / alerts / prompts | [`ContentDialog`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.contentdialog) |
 | file dialogs | [`FileOpenPicker`](https://learn.microsoft.com/en-us/uwp/api/windows.storage.pickers.fileopenpicker) / `FileSavePicker` |
 | menu bar | [`MenuBar`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.menubar) |
 | context menus | [`MenuFlyout`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.menuflyout) |
-| *external* [`spinner()`](https://daybrite.dev/api/day_pieces/fn.spinner.html) | [`ProgressRing`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.progressring) |
+| *external* [`spinner()`](https://docs.rs/day-pieces/latest/day_pieces/fn.spinner.html) | [`ProgressRing`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.progressring) |
 | *external* `combobox()` | editable [`ComboBox`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.combobox) |
-| *external* [`search_field()`](https://daybrite.dev/api/day_pieces/searchfield/fn.search_field.html) | [`AutoSuggestBox`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.autosuggestbox) |
-| *external* [`date_picker()`](https://daybrite.dev/api/day_pieces/datetime/fn.date_picker.html) | [`CalendarDatePicker`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.calendardatepicker), or [`CalendarView`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.calendarview) inline |
-| *external* [`time_picker()`](https://daybrite.dev/api/day_pieces/datetime/fn.time_picker.html) | [`TimePicker`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.timepicker) |
+| *external* [`search_field()`](https://docs.rs/day-pieces/latest/day_pieces/searchfield/fn.search_field.html) | [`AutoSuggestBox`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.autosuggestbox) |
+| *external* [`date_picker()`](https://docs.rs/day-pieces/latest/day_pieces/datetime/fn.date_picker.html) | [`CalendarDatePicker`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.calendardatepicker), or [`CalendarView`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.calendarview) inline |
+| *external* [`time_picker()`](https://docs.rs/day-pieces/latest/day_pieces/datetime/fn.time_picker.html) | [`TimePicker`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.timepicker) |
 | *external* `media()` | [`MediaPlayerElement`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.mediaplayerelement) |
 | *external* `webview()` | [`WebView2`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.webview2) |
 

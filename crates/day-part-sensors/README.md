@@ -17,11 +17,10 @@ report unavailable.
 
 ## Use
 
-Add this entry to your app’s `Cargo.toml`, at the same Day version as the rest of the app:
+Add it to your app:
 
-```toml
-[dependencies]
-day-part-sensors = "0.6"
+```sh
+cargo add day-part-sensors
 ```
 
 ## Documentation
@@ -29,7 +28,7 @@ day-part-sensors = "0.6"
 - [Usage and platform limits](https://daybrite.dev/docs/reference/sensors/)
 - [Background work and UI state](https://daybrite.dev/docs/explanation/async/)
 - [Using platform services](https://daybrite.dev/docs/reference/parts/)
-- [Rust API](https://daybrite.dev/api/day_part_sensors/index.html)
+- [Rust API](https://docs.rs/day-part-sensors/latest/day_part_sensors/index.html)
 
 [Source](https://github.com/daybrite/day/tree/main/crates/day-part-sensors) ·
 [Contributing](https://daybrite.dev/contributing/setup/) · [MPL-2.0

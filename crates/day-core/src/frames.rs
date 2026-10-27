@@ -5,10 +5,10 @@
 //! remember_frame` keys a window's last size, position and maximized state, kept in one small
 //! file in the app's configuration directory.
 //!
-//! The file is `day-windows.txt` under `$XDG_CONFIG_HOME/<app id>/` when that variable is set (on
-//! every platform), else the platform's own configuration directory: `~/.config` on Linux,
-//! `~/Library/Application Support` on macOS, `%APPDATA%` on Windows. One line per key:
-//! `key<TAB>x<TAB>y<TAB>width<TAB>height<TAB>maximized`.
+//! The file is `day-windows.txt` in the app's configuration directory
+//! (`day_spec::storage::config_dir()`): `~/Library/Application Support/<app id>` on macOS,
+//! `%APPDATA%\<app id>` on Windows, `$XDG_CONFIG_HOME/<app id>` (else `~/.config/<app id>`) on
+//! Linux. One line per key: `key<TAB>x<TAB>y<TAB>width<TAB>height<TAB>maximized`.
 
 use std::path::PathBuf;
 
@@ -21,30 +21,8 @@ pub struct Remembered {
     pub maximized: bool,
 }
 
-fn app_id() -> Option<String> {
-    std::env::var("DAY_APP_ID")
-        .ok()
-        .filter(|s| !s.is_empty())
-        .or_else(|| option_env!("DAY_APP_ID").map(str::to_owned))
-}
-
-fn config_root() -> Option<PathBuf> {
-    if let Some(dir) = std::env::var_os("XDG_CONFIG_HOME").filter(|d| !d.is_empty()) {
-        return Some(PathBuf::from(dir));
-    }
-    if cfg!(target_os = "windows") {
-        return std::env::var_os("APPDATA").map(PathBuf::from);
-    }
-    let home = PathBuf::from(std::env::var_os("HOME")?);
-    if cfg!(target_os = "macos") {
-        Some(home.join("Library/Application Support"))
-    } else {
-        Some(home.join(".config"))
-    }
-}
-
 fn store() -> Option<PathBuf> {
-    Some(config_root()?.join(app_id()?).join("day-windows.txt"))
+    Some(day_spec::storage::config_dir()?.join("day-windows.txt"))
 }
 
 fn parse(line: &str) -> Option<(&str, Remembered)> {

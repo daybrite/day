@@ -28,11 +28,10 @@ biometric prompt alone does not sign the person in to that service.
 
 ## Add to your app
 
-Add [`day-part-auth`](https://crates.io/crates/day-part-auth) to your app’s Cargo dependencies:
+Add [`day-part-auth`](https://crates.io/crates/day-part-auth) to your app:
 
-```toml
-[dependencies]
-day-part-auth = "0.1"
+```sh
+cargo add day-part-auth
 ```
 
 It takes Day from crates.io like the other [parts](/docs/reference/parts). Build the app with the
@@ -41,7 +40,7 @@ It takes Day from crates.io like the other [parts](/docs/reference/parts). Build
 and platform entitlements are separate requirements.
 
 [Crate](https://crates.io/crates/day-part-auth) ·
-[API reference](https://docs.rs/day-part-auth/0.1.0/day_part_auth/) ·
+[API reference](https://docs.rs/day-part-auth/latest/day_part_auth/) ·
 [Source](https://github.com/daybrite/day-part-auth).
 The API reference describes the published 0.1.0 release, including feature-gated entry points.
 
@@ -62,12 +61,12 @@ provider, or signing entitlement is configured. Handle failure when opening ever
 
 | App requirement | API | Result and responsibility |
 | --- | --- | --- |
-| Open a provider page and receive its callback | [`session::open(url, callback_prefix, &options)`](https://docs.rs/day-part-auth/0.1.0/day_part_auth/session/fn.open.html) | `Result<String, AuthError>` containing a URL; this layer does not verify identity. |
-| Run an OAuth / OpenID Connect code flow | [`Client::sign_in()`](https://docs.rs/day-part-auth/0.1.0/day_part_auth/authorize/struct.Client.html#method.sign_in) | `Result<TokenSet, AuthError>` after the code exchange and applicable ID-token checks. |
-| Supply a custom browser integration | [`Client::start()`](https://docs.rs/day-part-auth/0.1.0/day_part_auth/authorize/struct.Client.html#method.start) and [`Client::complete(request, callback_url)`](https://docs.rs/day-part-auth/0.1.0/day_part_auth/authorize/struct.Client.html#method.complete) | Keep the authorization request with the same client until completion. |
-| Request an Apple credential | [`apple::sign_in(SignInWithApple)`](https://docs.rs/day-part-auth/0.1.0/day_part_auth/apple/fn.sign_in.html) | [`AppleCredential`](https://docs.rs/day-part-auth/0.1.0/day_part_auth/apple/struct.AppleCredential.html); send its token/code to the account service for verification. |
-| Request a Google credential on Android | [`google::sign_in(GoogleSignIn)`](https://docs.rs/day-part-auth/0.1.0/day_part_auth/google/fn.sign_in.html) | [`GoogleCredential`](https://docs.rs/day-part-auth/0.1.0/day_part_auth/google/struct.GoogleCredential.html); verify the ID token at the account service. |
-| Register or use a passkey | [`passkeys::create(&options)`](https://docs.rs/day-part-auth/0.1.0/day_part_auth/passkeys/fn.create.html) / [`passkeys::get(&options)`](https://docs.rs/day-part-auth/0.1.0/day_part_auth/passkeys/fn.get.html) | Credential JSON; the relying-party server must verify it. |
+| Open a provider page and receive its callback | [`session::open(url, callback_prefix, &options)`](https://docs.rs/day-part-auth/latest/day_part_auth/session/fn.open.html) | `Result<String, AuthError>` containing a URL; this layer does not verify identity. |
+| Run an OAuth / OpenID Connect code flow | [`Client::sign_in()`](https://docs.rs/day-part-auth/latest/day_part_auth/authorize/struct.Client.html#method.sign_in) | `Result<TokenSet, AuthError>` after the code exchange and applicable ID-token checks. |
+| Supply a custom browser integration | [`Client::start()`](https://docs.rs/day-part-auth/latest/day_part_auth/authorize/struct.Client.html#method.start) and [`Client::complete(request, callback_url)`](https://docs.rs/day-part-auth/latest/day_part_auth/authorize/struct.Client.html#method.complete) | Keep the authorization request with the same client until completion. |
+| Request an Apple credential | [`apple::sign_in(SignInWithApple)`](https://docs.rs/day-part-auth/latest/day_part_auth/apple/fn.sign_in.html) | [`AppleCredential`](https://docs.rs/day-part-auth/latest/day_part_auth/apple/struct.AppleCredential.html); send its token/code to the account service for verification. |
+| Request a Google credential on Android | [`google::sign_in(GoogleSignIn)`](https://docs.rs/day-part-auth/latest/day_part_auth/google/fn.sign_in.html) | [`GoogleCredential`](https://docs.rs/day-part-auth/latest/day_part_auth/google/struct.GoogleCredential.html); verify the ID token at the account service. |
+| Register or use a passkey | [`passkeys::create(&options)`](https://docs.rs/day-part-auth/latest/day_part_auth/passkeys/fn.create.html) / [`passkeys::get(&options)`](https://docs.rs/day-part-auth/latest/day_part_auth/passkeys/fn.get.html) | Credential JSON; the relying-party server must verify it. |
 
 OAuth authorizes access to APIs. OpenID Connect adds an ID token describing the account that
 signed in. A plain OAuth access token does not establish an identity for the app. See
@@ -75,21 +74,21 @@ signed in. A plain OAuth access token does not establish an identity for the app
 
 ## Configure an OAuth or OpenID Connect client
 
-[`Client::new(provider, client_id)`](https://docs.rs/day-part-auth/0.1.0/day_part_auth/authorize/struct.Client.html#method.new) defaults to the `openid` scope, S256 PKCE, [`Redirect::Auto`](https://docs.rs/day-part-auth/0.1.0/day_part_auth/authorize/enum.Redirect.html#variant.Auto),
-and default [`SessionOptions`](https://docs.rs/day-part-auth/0.1.0/day_part_auth/session/struct.SessionOptions.html). PKCE binds the authorization code to the request that started the
+[`Client::new(provider, client_id)`](https://docs.rs/day-part-auth/latest/day_part_auth/authorize/struct.Client.html#method.new) defaults to the `openid` scope, S256 PKCE, [`Redirect::Auto`](https://docs.rs/day-part-auth/latest/day_part_auth/authorize/enum.Redirect.html#variant.Auto),
+and default [`SessionOptions`](https://docs.rs/day-part-auth/latest/day_part_auth/session/struct.SessionOptions.html). PKCE binds the authorization code to the request that started the
 flow. Leave it enabled for public clients such as installed apps.
 
 | Configuration | Contract |
 | --- | --- |
-| [`Provider::google()`](https://docs.rs/day-part-auth/0.1.0/day_part_auth/provider/struct.Provider.html#method.google) | Built-in Google endpoint configuration; register a client appropriate to the app and redirect. |
-| [`Provider::apple()`](https://docs.rs/day-part-auth/0.1.0/day_part_auth/provider/struct.Provider.html#method.apple) | Apple endpoint configuration, not a complete Apple web integration; see [Apple requirements](#sign-in-with-apple). |
-| [`Provider::discover(issuer).await`](https://docs.rs/day-part-auth/0.1.0/day_part_auth/provider/struct.Provider.html#method.discover) | Fetches the issuer's discovery document and compares its issuer after trimming trailing slashes. |
-| [`Provider::new(authorization_endpoint, token_endpoint)`](https://docs.rs/day-part-auth/0.1.0/day_part_auth/provider/struct.Provider.html#method.new) | Plain OAuth endpoint configuration. For OAuth without identity, replace the default `openid` scope. OIDC also needs an issuer and `jwks_uri`. |
-| [`.scopes([...])`](https://docs.rs/day-part-auth/0.1.0/day_part_auth/authorize/struct.Client.html#method.scopes) | Replaces the scope list. The provider decides which scopes and refresh-token grants are available. |
-| [`.redirect(Redirect)`](https://docs.rs/day-part-auth/0.1.0/day_part_auth/authorize/struct.Client.html#method.redirect) | Selects a callback registered with the provider and configured for the app. |
-| [`.param(name, value)`](https://docs.rs/day-part-auth/0.1.0/day_part_auth/authorize/struct.Client.html#method.param) | Appends a provider parameter such as `prompt` or `login_hint`. Do not repeat protocol fields such as `state`, `nonce`, or `redirect_uri`. |
-| [`.session(SessionOptions)`](https://docs.rs/day-part-auth/0.1.0/day_part_auth/authorize/struct.Client.html#method.session) | Configures the browser request and loopback response. |
-| [`.client_secret(secret)`](https://docs.rs/day-part-auth/0.1.0/day_part_auth/authorize/struct.Client.html#method.client_secret) | Sends HTTP Basic client authentication. A distributed native app cannot keep a client secret confidential. |
+| [`Provider::google()`](https://docs.rs/day-part-auth/latest/day_part_auth/provider/struct.Provider.html#method.google) | Built-in Google endpoint configuration; register a client appropriate to the app and redirect. |
+| [`Provider::apple()`](https://docs.rs/day-part-auth/latest/day_part_auth/provider/struct.Provider.html#method.apple) | Apple endpoint configuration, not a complete Apple web integration; see [Apple requirements](#sign-in-with-apple). |
+| [`Provider::discover(issuer).await`](https://docs.rs/day-part-auth/latest/day_part_auth/provider/struct.Provider.html#method.discover) | Fetches the issuer's discovery document and compares its issuer after trimming trailing slashes. |
+| [`Provider::new(authorization_endpoint, token_endpoint)`](https://docs.rs/day-part-auth/latest/day_part_auth/provider/struct.Provider.html#method.new) | Plain OAuth endpoint configuration. For OAuth without identity, replace the default `openid` scope. OIDC also needs an issuer and `jwks_uri`. |
+| [`.scopes([...])`](https://docs.rs/day-part-auth/latest/day_part_auth/authorize/struct.Client.html#method.scopes) | Replaces the scope list. The provider decides which scopes and refresh-token grants are available. |
+| [`.redirect(Redirect)`](https://docs.rs/day-part-auth/latest/day_part_auth/authorize/struct.Client.html#method.redirect) | Selects a callback registered with the provider and configured for the app. |
+| [`.param(name, value)`](https://docs.rs/day-part-auth/latest/day_part_auth/authorize/struct.Client.html#method.param) | Appends a provider parameter such as `prompt` or `login_hint`. Do not repeat protocol fields such as `state`, `nonce`, or `redirect_uri`. |
+| [`.session(SessionOptions)`](https://docs.rs/day-part-auth/latest/day_part_auth/authorize/struct.Client.html#method.session) | Configures the browser request and loopback response. |
+| [`.client_secret(secret)`](https://docs.rs/day-part-auth/latest/day_part_auth/authorize/struct.Client.html#method.client_secret) | Sends HTTP Basic client authentication. A distributed native app cannot keep a client secret confidential. |
 
 > [!WARNING]
 > **Provider and callback validation.**
@@ -100,13 +99,13 @@ flow. Leave it enabled for public clients such as installed apps.
 > credentials. A configured issuer, PKCE, and matching `state` do not remove these limitations.
 
 An authorization request contains a fresh `state`, a nonce when `openid` is requested, and a
-PKCE verifier. [`Client::complete`](https://docs.rs/day-part-auth/0.1.0/day_part_auth/authorize/struct.Client.html#method.complete) consumes the request. It must be completed with the client that
+PKCE verifier. [`Client::complete`](https://docs.rs/day-part-auth/latest/day_part_auth/authorize/struct.Client.html#method.complete) consumes the request. It must be completed with the client that
 created it; the request does not currently enforce that association itself. The callback parser
-reports missing or different state as [`AuthError::StateMismatch`](https://docs.rs/day-part-auth/0.1.0/day_part_auth/enum.AuthError.html#variant.StateMismatch) and provider refusal as
-[`AuthError::Provider`](https://docs.rs/day-part-auth/0.1.0/day_part_auth/enum.AuthError.html#variant.Provider).
+reports missing or different state as [`AuthError::StateMismatch`](https://docs.rs/day-part-auth/latest/day_part_auth/enum.AuthError.html#variant.StateMismatch) and provider refusal as
+[`AuthError::Provider`](https://docs.rs/day-part-auth/latest/day_part_auth/enum.AuthError.html#variant.Provider).
 
 API excerpt; not a complete app. This helper retains the issuing client with its tokens. Call it
-from a UI action under [`day::task`](https://daybrite.dev/api/day/fn.task.html); the app supplies the configured
+from a UI action under [`day::task`](https://docs.rs/day-app/latest/day/fn.task.html); the app supplies the configured
 client and decides where to retain the returned session.
 
 ```rust
@@ -130,11 +129,11 @@ late result cannot restore the session.
 
 ## Redirects and browser lifetime
 
-| [`Redirect`](https://docs.rs/day-part-auth/0.1.0/day_part_auth/authorize/enum.Redirect.html) | Behavior |
+| [`Redirect`](https://docs.rs/day-part-auth/latest/day_part_auth/authorize/enum.Redirect.html) | Behavior |
 | --- | --- |
 | `Auto` | Uses the app scheme with `/auth/callback` on iOS, Android, and HarmonyOS; a loopback listener on desktops; the page URL without its fragment on Web. |
 | `Scheme(String)` | Uses a custom scheme registered by the app. The provider must allow that exact callback. |
-| `Loopback { port, path }` | Binds `127.0.0.1`; port `0` chooses a free port. [`Redirect::loopback()`](https://docs.rs/day-part-auth/0.1.0/day_part_auth/authorize/enum.Redirect.html#method.loopback) uses port `0` and `/callback`. Intended for desktops. |
+| `Loopback { port, path }` | Binds `127.0.0.1`; port `0` chooses a free port. [`Redirect::loopback()`](https://docs.rs/day-part-auth/latest/day_part_auth/authorize/enum.Redirect.html#method.loopback) uses port `0` and `/callback`. Intended for desktops. |
 | `Https(String)` | Requires a callback the app owns and can receive, such as a configured associated domain or Android App Link. Setting the enum alone does not configure that association. |
 
 For scheme callbacks, merge this into the app's existing `Day.toml` `[app]` table. The identifier
@@ -148,7 +147,7 @@ scheme = "exampleaccount"
 
 See the [deep-link reference](/docs/reference/deep-links) for routing and platform registration.
 
-[`SessionOptions`](https://docs.rs/day-part-auth/0.1.0/day_part_auth/session/struct.SessionOptions.html) defaults to `ephemeral = false`, a 300-second loopback timeout, and a built-in
+[`SessionOptions`](https://docs.rs/day-part-auth/latest/day_part_auth/session/struct.SessionOptions.html) defaults to `ephemeral = false`, a 300-second loopback timeout, and a built-in
 completion page. `ephemeral` asks Apple's authentication session for separate browser cookies;
 it has no effect on the default desktop loopback flow. `timeout` applies to the loopback
 listener, not every native sheet. `completion_page` replaces the listener's HTML response;
@@ -157,10 +156,10 @@ provide localized content from generated accessors if the app uses it.
 > [!NOTE]
 > **AppKit / UIKit: HTTPS callbacks.**
 > The system session's HTTPS callback API requires macOS 14.4 or iOS 17.4 and the appropriate
-> associated-domain configuration. [`session::capabilities().https_callback`](https://docs.rs/day-part-auth/0.1.0/day_part_auth/session/fn.capabilities.html) currently reports
+> associated-domain configuration. [`session::capabilities().https_callback`](https://docs.rs/day-part-auth/latest/day_part_auth/session/fn.capabilities.html) currently reports
 > the Apple target family without checking that OS version.
 
-[`session::cancel()`](https://docs.rs/day-part-auth/0.1.0/day_part_auth/session/fn.cancel.html) requests cancellation of the native browser session. It does not cancel the
+[`session::cancel()`](https://docs.rs/day-part-auth/latest/day_part_auth/session/fn.cancel.html) requests cancellation of the native browser session. It does not cancel the
 separate desktop loopback wait. Dropping a future does not reliably dismiss the browser or stop
 the listener. Treat cancellation of UI state and cancellation of native work as separate steps.
 The loopback page can say the flow is complete before the code exchange succeeds; use the
@@ -168,25 +167,25 @@ The loopback page can say the flow is complete before the code exchange succeeds
 
 ## Tokens and account state
 
-[`TokenSet`](https://docs.rs/day-part-auth/0.1.0/day_part_auth/tokens/struct.TokenSet.html) contains the access token, token type, optional expiry, optional refresh token,
-optional [`IdToken`](https://docs.rs/day-part-auth/0.1.0/day_part_auth/tokens/struct.IdToken.html), granted scope, and the raw token response. For an OIDC sign-in, the current
+[`TokenSet`](https://docs.rs/day-part-auth/latest/day_part_auth/tokens/struct.TokenSet.html) contains the access token, token type, optional expiry, optional refresh token,
+optional [`IdToken`](https://docs.rs/day-part-auth/latest/day_part_auth/tokens/struct.IdToken.html), granted scope, and the raw token response. For an OIDC sign-in, the current
 client requires an ID token. Its signature is checked against provider keys using RS256 or
 ES256; claim checks cover audience, authorized party, expiry, issued-at, not-before, the request
 nonce, and the access-token hash when present. Issuer checking applies when the provider has an
 issuer configured. Clock leeway is 60 seconds. Key sets are cached for an hour, with one forced
 fetch after signature verification fails.
 
-[`TokenSet::subject()`](https://docs.rs/day-part-auth/0.1.0/day_part_auth/tokens/struct.TokenSet.html#method.subject) reads the ID token's subject. Identify an account by **issuer and subject**,
-not by email or subject alone. [`expires_in()`](https://docs.rs/day-part-auth/0.1.0/day_part_auth/tokens/struct.TokenSet.html#method.expires_in) returns `None` when expiry is unknown, and
-[`expires_within(margin)`](https://docs.rs/day-part-auth/0.1.0/day_part_auth/tokens/struct.TokenSet.html#method.expires_within) returns `false` in that case; neither result guarantees an access token
+[`TokenSet::subject()`](https://docs.rs/day-part-auth/latest/day_part_auth/tokens/struct.TokenSet.html#method.subject) reads the ID token's subject. Identify an account by **issuer and subject**,
+not by email or subject alone. [`expires_in()`](https://docs.rs/day-part-auth/latest/day_part_auth/tokens/struct.TokenSet.html#method.expires_in) returns `None` when expiry is unknown, and
+[`expires_within(margin)`](https://docs.rs/day-part-auth/latest/day_part_auth/tokens/struct.TokenSet.html#method.expires_within) returns `false` in that case; neither result guarantees an access token
 will still be accepted by its service.
 
 | Operation | Contract |
 | --- | --- |
-| [`client.refresh(refresh_token).await`](https://docs.rs/day-part-auth/0.1.0/day_part_auth/authorize/struct.Client.html#method.refresh) | Requests replacement tokens and retains the old refresh token if the response omits one. See the refresh limitation below. |
-| [`client.userinfo(access_token).await`](https://docs.rs/day-part-auth/0.1.0/day_part_auth/authorize/struct.Client.html#method.userinfo) | Returns JSON. Before using it as identity, compare `sub` with the verified ID token's subject. |
-| [`client.revoke(token, hint).await`](https://docs.rs/day-part-auth/0.1.0/day_part_auth/authorize/struct.Client.html#method.revoke) | Requests revocation; `hint` is `access_token` or `refresh_token`. Missing provider support returns `Unsupported`. |
-| [`client.end_session_url(id_token_hint, post_logout_redirect_uri)`](https://docs.rs/day-part-auth/0.1.0/day_part_auth/authorize/struct.Client.html#method.end_session_url) | Returns an optional provider logout URL. It does not open the URL or clear local state. |
+| [`client.refresh(refresh_token).await`](https://docs.rs/day-part-auth/latest/day_part_auth/authorize/struct.Client.html#method.refresh) | Requests replacement tokens and retains the old refresh token if the response omits one. See the refresh limitation below. |
+| [`client.userinfo(access_token).await`](https://docs.rs/day-part-auth/latest/day_part_auth/authorize/struct.Client.html#method.userinfo) | Returns JSON. Before using it as identity, compare `sub` with the verified ID token's subject. |
+| [`client.revoke(token, hint).await`](https://docs.rs/day-part-auth/latest/day_part_auth/authorize/struct.Client.html#method.revoke) | Requests revocation; `hint` is `access_token` or `refresh_token`. Missing provider support returns `Unsupported`. |
+| [`client.end_session_url(id_token_hint, post_logout_redirect_uri)`](https://docs.rs/day-part-auth/latest/day_part_auth/authorize/struct.Client.html#method.end_session_url) | Returns an optional provider logout URL. It does not open the URL or clear local state. |
 
 > [!WARNING]
 > **Refresh compatibility.**
@@ -199,7 +198,7 @@ will still be accepted by its service.
 The crate does not persist tokens. Store retained refresh tokens through
 [`day-part-keychain`](/docs/reference/keychain), accounting for that store's platform limits.
 Do not put tokens in [preferences](/docs/reference/prefs), URLs, logs, or screenshots. Current
-`Debug` implementations print credentials, and [`TokenSet::raw`](https://docs.rs/day-part-auth/0.1.0/day_part_auth/tokens/struct.TokenSet.html#structfield.raw) also contains token material.
+`Debug` implementations print credentials, and [`TokenSet::raw`](https://docs.rs/day-part-auth/latest/day_part_auth/tokens/struct.TokenSet.html#structfield.raw) also contains token material.
 
 Local sign-out means clearing memory, stored credentials, and pending account operations.
 Revoking a token and signing out of the provider's browser session are separate operations.
@@ -220,15 +219,15 @@ alongside an untrusted token is not sufficient evidence of a pending sign-in.
 
 ### Sign in with Apple
 
-[`apple::sign_in(SignInWithApple::new())`](https://docs.rs/day-part-auth/0.1.0/day_part_auth/apple/fn.sign_in.html) requests the native sheet. The request can select name
-and email scopes and supply a nonce and state. [`AppleCredential`](https://docs.rs/day-part-auth/0.1.0/day_part_auth/apple/struct.AppleCredential.html) contains the user identifier,
+[`apple::sign_in(SignInWithApple::new())`](https://docs.rs/day-part-auth/latest/day_part_auth/apple/fn.sign_in.html) requests the native sheet. The request can select name
+and email scopes and supply a nonce and state. [`AppleCredential`](https://docs.rs/day-part-auth/latest/day_part_auth/apple/struct.AppleCredential.html) contains the user identifier,
 identity token, authorization code, optional profile fields, and nonce information. Profile data
 may be supplied only on the first authorization; retain needed values after server verification.
-[`apple::credential_state(user)`](https://docs.rs/day-part-auth/0.1.0/day_part_auth/apple/fn.credential_state.html) checks Apple's authorization state for a previously returned user.
+[`apple::credential_state(user)`](https://docs.rs/day-part-auth/latest/day_part_auth/apple/fn.credential_state.html) checks Apple's authorization state for a previously returned user.
 
 > [!WARNING]
 > **AppKit / UIKit: nonce and state.**
-> The native request sends a hexadecimal SHA-256 nonce, but [`AppleCredential::hashed_nonce`](https://docs.rs/day-part-auth/0.1.0/day_part_auth/apple/struct.AppleCredential.html#structfield.hashed_nonce)
+> The native request sends a hexadecimal SHA-256 nonce, but [`AppleCredential::hashed_nonce`](https://docs.rs/day-part-auth/latest/day_part_auth/apple/struct.AppleCredential.html#structfield.hashed_nonce)
 > currently contains a base64url digest. Those values differ. The helper also substitutes the
 > requested state when the returned state is absent instead of validating it. Correct these
 > contracts before using the helper to establish accounts.
@@ -238,14 +237,14 @@ Enable Sign in with Apple for the app identifier and signing configuration. Foll
 [`ASAuthorizationAppleIDProvider`](https://developer.apple.com/documentation/authenticationservices/asauthorizationappleidprovider).
 
 Apple's web flow needs a registered Services ID, an HTTPS return URL, and server-held signing
-credentials for token exchange. [`Provider::apple()`](https://docs.rs/day-part-auth/0.1.0/day_part_auth/provider/struct.Provider.html#method.apple) supplies endpoints; entering a client ID
+credentials for token exchange. [`Provider::apple()`](https://docs.rs/day-part-auth/latest/day_part_auth/provider/struct.Provider.html#method.apple) supplies endpoints; entering a client ID
 alone does not implement this flow. The current generic client does not supply Apple's complete
 server exchange or a `form_post` callback handler. Keep the signing key on the server. See
 [Apple's token exchange requirements](https://developer.apple.com/documentation/signinwithapplerestapi/generate-and-validate-tokens).
 
 ### Sign in with Google
 
-On Android, [`google::sign_in(GoogleSignIn::new(server_client_id))`](https://docs.rs/day-part-auth/0.1.0/day_part_auth/google/fn.sign_in.html) requests a Google ID credential
+On Android, [`google::sign_in(GoogleSignIn::new(server_client_id))`](https://docs.rs/day-part-auth/latest/day_part_auth/google/fn.sign_in.html) requests a Google ID credential
 through Credential Manager. Use the **web application/server** OAuth client ID for the token
 audience, with the Android app registration and signing certificate configured in the same
 project. The result includes `id_token`, account/profile fields, and the request nonce.
@@ -262,15 +261,15 @@ and [Google ID-token verification](https://developers.google.com/identity/sign-i
 
 A passkey lets a person prove possession of an account credential using their device or a
 security key. The **relying party** is the service that registers the credential and verifies
-later assertions. [`passkeys::create`](https://docs.rs/day-part-auth/0.1.0/day_part_auth/passkeys/fn.create.html) and [`passkeys::get`](https://docs.rs/day-part-auth/0.1.0/day_part_auth/passkeys/fn.get.html) open the platform request and return
+later assertions. [`passkeys::create`](https://docs.rs/day-part-auth/latest/day_part_auth/passkeys/fn.create.html) and [`passkeys::get`](https://docs.rs/day-part-auth/latest/day_part_auth/passkeys/fn.get.html) open the platform request and return
 JSON; they do not maintain an account database or verify a server session.
 
 | Operation | Input | Output |
 | --- | --- | --- |
-| [`passkeys::create(&options).await`](https://docs.rs/day-part-auth/0.1.0/day_part_auth/passkeys/fn.create.html) | Server-issued creation options with `rp`, `user`, `challenge`, and credential parameters. | Registration credential JSON, including `clientDataJSON` and `attestationObject`. |
-| [`passkeys::get(&options).await`](https://docs.rs/day-part-auth/0.1.0/day_part_auth/passkeys/fn.get.html) | Server-issued request options with a challenge and relying-party information. | Assertion JSON, including authenticator data, signature, and optional user handle. |
-| [`passkeys::support()`](https://docs.rs/day-part-auth/0.1.0/day_part_auth/passkeys/fn.support.html) | No arguments. | Whether the target has an implementation. |
-| [`passkeys::platform_authenticator_available().await`](https://docs.rs/day-part-auth/0.1.0/day_part_auth/passkeys/fn.platform_authenticator_available.html) | No arguments. | A capability hint, not proof of a configured account, entitlement, or available credential. Apple and Android currently use broad OS/API checks. |
+| [`passkeys::create(&options).await`](https://docs.rs/day-part-auth/latest/day_part_auth/passkeys/fn.create.html) | Server-issued creation options with `rp`, `user`, `challenge`, and credential parameters. | Registration credential JSON, including `clientDataJSON` and `attestationObject`. |
+| [`passkeys::get(&options).await`](https://docs.rs/day-part-auth/latest/day_part_auth/passkeys/fn.get.html) | Server-issued request options with a challenge and relying-party information. | Assertion JSON, including authenticator data, signature, and optional user handle. |
+| [`passkeys::support()`](https://docs.rs/day-part-auth/latest/day_part_auth/passkeys/fn.support.html) | No arguments. | Whether the target has an implementation. |
+| [`passkeys::platform_authenticator_available().await`](https://docs.rs/day-part-auth/latest/day_part_auth/passkeys/fn.platform_authenticator_available.html) | No arguments. | A capability hint, not proof of a configured account, entitlement, or available credential. Apple and Android currently use broad OS/API checks. |
 
 Binary fields use base64url in the JSON. Obtain challenges from the server, bind each to a
 pending operation, and expire it after use. Send the returned credential to that server, which
@@ -322,7 +321,7 @@ returned credential in that demo is not evidence of an authenticated account.
 
 ## Errors, threading, and localized UI
 
-| [`AuthError`](https://docs.rs/day-part-auth/0.1.0/day_part_auth/enum.AuthError.html) | App response |
+| [`AuthError`](https://docs.rs/day-part-auth/latest/day_part_auth/enum.AuthError.html) | App response |
 | --- | --- |
 | `Unsupported` | Hide or disable the unavailable operation and offer a supported flow. |
 | `Cancelled` | Return to the signed-out UI without treating dismissal as a failed account. |
@@ -335,7 +334,7 @@ returned credential in that demo is not evidence of an authenticated account.
 | `Platform(reason)` | Explain that the native request failed and retain a supported alternative. |
 
 Start browser and credential calls on the UI thread. Their futures are `Send`; await them under
-[`day::task`](https://daybrite.dev/api/day/fn.task.html) to resume on the UI thread before updating signals or
+[`day::task`](https://docs.rs/day-app/latest/day/fn.task.html) to resume on the UI thread before updating signals or
 formatting UI messages. The native APIs may start work when called, before their future is polled.
 
 Use generated Fluent accessors for app-owned labels and error messages, and symbolic IDs for
@@ -356,8 +355,8 @@ account_sign_in_failed = Sign-in could not be completed. Try again.
 account_sign_in_cancelled = Sign-in cancelled.
 ```
 
-Map error variants to messages such as [`res::str::account_sign_in_failed().format()`](https://daybrite.dev/api/day_localization_ui/struct.LocalizedText.html#method.format) on the UI
-thread. [`AuthError::to_string()`](https://docs.rs/day-part-auth/0.1.0/day_part_auth/enum.AuthError.html#method.to_string) contains diagnostic English and provider details; it is not a
+Map error variants to messages such as [`res::str::account_sign_in_failed().format()`](https://docs.rs/day-localization-ui/latest/day_localization_ui/struct.LocalizedText.html#method.format) on the UI
+thread. [`AuthError::to_string()`](https://docs.rs/day-part-auth/latest/day_part_auth/enum.AuthError.html#method.to_string) contains diagnostic English and provider details; it is not a
 localized user-message API. See [localization](/docs/reference/localization) and
 [symbolic element IDs](/docs/reference/accessibility). Keep tokens out of diagnostic reports.
 

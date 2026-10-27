@@ -54,12 +54,9 @@ scaffold has a larger starter app.
 
 <!-- tutorial-step: first-app/cargo -->
 
-Cargo fetches the Day crates from crates.io and records the selected versions in `Cargo.lock`.
-Keep that lockfile with your app. The umbrella crate's package is `day-app`, and its library is `day`,
-so the dependency keeps the key `day` and the code says `use day::prelude::*`. The empty `[workspace]` makes this project independent of any enclosing
-Cargo workspace. The default `mock` feature supports editor checks; `day build` selects the
-feature for the requested toolkit instead. `[lib] name = "dayapp"` gives the shared library the
-name used by `main.rs` and generated native hosts.
+The empty `[workspace]` makes this project independent of any enclosing Cargo workspace.
+`[lib] name = "dayapp"` gives the shared library the name used by `main.rs` and generated native
+hosts. Create the source files before adding dependencies.
 
 <!-- tutorial-step: first-app/manifest -->
 
@@ -83,6 +80,22 @@ catalog and supplies the localized window title and manifest geometry. `root()` 
 window's content. `Space::L` is a framework spacing token. The `day_start!` macro provides the
 entry point used by generated native hosts; `main.rs` supplies a Rust desktop entry point.
 The symbolic `welcome_label` ID lets UI tests find this label even after its text is translated.
+
+Now add Day from crates.io:
+
+<!-- tutorial-step: first-app/dependencies -->
+
+`cargo add` takes the newest release and records it in `Cargo.toml`, and Cargo records the exact
+versions in `Cargo.lock`; keep that lockfile with your app. The umbrella crate's package is
+`day-app`, and its library is `day`, so `--rename day` keeps the key `day` and the code says
+`use day::prelude::*`. `day-build` is a build dependency, for `build.rs`.
+
+Then give the app its toolkit features:
+
+<!-- tutorial-step: first-app/features -->
+
+The default `mock` feature supports editor checks; `day build` selects the feature for the
+requested toolkit instead.
 
 ## 4. Prepare the native host
 

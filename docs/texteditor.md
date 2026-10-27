@@ -12,18 +12,17 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 # Styled text editor
 
 Let people write and format rich text in the platform’s native editor.
-[`text_editor(doc)`](https://daybrite.dev/api/day_piece_text_editor/fn.text_editor.html) edits a [`StyledText`](#document-and-selection), the same document a label renders and
-[`.markdown()`](https://daybrite.dev/api/day_spec/styled/struct.StyledText.html#method.markdown) produces, live in each platform's text editor: bold, italic, underline,
+[`text_editor(doc)`](https://docs.rs/day-piece-text-editor/latest/day_piece_text_editor/fn.text_editor.html) edits a [`StyledText`](#document-and-selection), the same document a label renders and
+[`.markdown()`](https://docs.rs/day-spec/latest/day_spec/styled/struct.StyledText.html#method.markdown) produces, live in each platform's text editor: bold, italic, underline,
 strikethrough, relative size, text and highlight color, plus paragraph alignment, indent, spacing
 and list markers.
 
 ## Add to your app
 
-Add [`day-piece-text-editor`](https://github.com/daybrite/day/tree/main/crates/day-piece-text-editor) to your app’s Cargo dependencies, using the same Day version as the rest of your app:
+Add [`day-piece-text-editor`](https://github.com/daybrite/day/tree/main/crates/day-piece-text-editor) to your app:
 
-```toml
-[dependencies]
-day-piece-text-editor = "0.6"
+```sh
+cargo add day-piece-text-editor
 ```
 
 `day build -t <target>` enables this direct dependency’s matching toolkit feature
@@ -72,27 +71,27 @@ The UI snippets use generated `res::str` accessors from an app's Fluent catalog;
 
 ## Document and selection
 
-[`StyledText`](https://daybrite.dev/api/day_spec/styled/struct.StyledText.html) contains the text,
+[`StyledText`](https://docs.rs/day-spec/latest/day_spec/styled/struct.StyledText.html) contains the text,
 character runs, and paragraph runs. Character styles include font, color, background,
 underline, strikethrough, and links. Paragraph styles include alignment, indentation, list
 markers, and spacing. Labels can render the same document; see [Styled text](/docs/reference/text-runs).
 
 Selections are byte ranges into the Rust string, including on platforms that use other index
 units internally. A collapsed range is a caret. Bind the range with
-[`.selection(binding)`](https://daybrite.dev/api/day_piece_text_editor/trait.TextEditorBuilder.html#tymethod.selection)
+[`.selection(binding)`](https://docs.rs/day-piece-text-editor/latest/day_piece_text_editor/trait.TextEditorBuilder.html#tymethod.selection)
 to observe or move it. Keep programmatic ranges on valid UTF-8 boundaries.
 
-Use [`style_of`](https://daybrite.dev/api/day_spec/styled/struct.StyledText.html#method.style_of)
+Use [`style_of`](https://docs.rs/day-spec/latest/day_spec/styled/struct.StyledText.html#method.style_of)
 to inspect the selected style and
-[`apply`](https://daybrite.dev/api/day_spec/styled/struct.StyledText.html#method.apply) to change
-character styles. [`apply_paragraph`](https://daybrite.dev/api/day_spec/styled/struct.StyledText.html#method.apply_paragraph)
+[`apply`](https://docs.rs/day-spec/latest/day_spec/styled/struct.StyledText.html#method.apply) to change
+character styles. [`apply_paragraph`](https://docs.rs/day-spec/latest/day_spec/styled/struct.StyledText.html#method.apply_paragraph)
 changes the paragraphs touched by a range. For an empty selection, update the
-[`.typing_style(binding)`](https://daybrite.dev/api/day_piece_text_editor/trait.TextEditorBuilder.html#tymethod.typing_style)
+[`.typing_style(binding)`](https://docs.rs/day-piece-text-editor/latest/day_piece_text_editor/trait.TextEditorBuilder.html#tymethod.typing_style)
 binding to style the next characters the person types.
 
 `FontSpec::scale` scales a semantic font while retaining its response to text-size settings.
 `Font::System(points)` specifies an absolute size. The editor's
-[`.base(font)`](https://daybrite.dev/api/day_piece_text_editor/trait.TextEditorBuilder.html#tymethod.base)
+[`.base(font)`](https://docs.rs/day-piece-text-editor/latest/day_piece_text_editor/trait.TextEditorBuilder.html#tymethod.base)
 defaults to `Font::Body`.
 
 ## Editing and formatting
@@ -105,23 +104,23 @@ Pasting styled text keeps the characters and uses the surrounding style. Native 
 controls are disabled where supported because formatting is owned by the bound document.
 Use app commands for bold, italic, and other formatting, and check the platform limits below.
 
-[`.editable(false)`](https://daybrite.dev/api/day_piece_text_editor/trait.TextEditorBuilder.html#tymethod.editable)
+[`.editable(false)`](https://docs.rs/day-piece-text-editor/latest/day_piece_text_editor/trait.TextEditorBuilder.html#tymethod.editable)
 makes the editor read-only. Use
-[`.placeholder(text)`](https://daybrite.dev/api/day_piece_text_editor/trait.TextEditorBuilder.html#tymethod.placeholder)
+[`.placeholder(text)`](https://docs.rs/day-piece-text-editor/latest/day_piece_text_editor/trait.TextEditorBuilder.html#tymethod.placeholder)
 for a localized empty-state prompt and
-[`.min_lines(n)`](https://daybrite.dev/api/day_piece_text_editor/trait.TextEditorBuilder.html#tymethod.min_lines) /
-[`.max_lines(n)`](https://daybrite.dev/api/day_piece_text_editor/trait.TextEditorBuilder.html#tymethod.max_lines)
+[`.min_lines(n)`](https://docs.rs/day-piece-text-editor/latest/day_piece_text_editor/trait.TextEditorBuilder.html#tymethod.min_lines) /
+[`.max_lines(n)`](https://docs.rs/day-piece-text-editor/latest/day_piece_text_editor/trait.TextEditorBuilder.html#tymethod.max_lines)
 to control its height.
 
 ## Import and export
 
 `StyledText` provides
-[`markdown`](https://daybrite.dev/api/day_spec/styled/struct.StyledText.html#method.markdown),
-[`html`](https://daybrite.dev/api/day_spec/styled/struct.StyledText.html#method.html), and
-[`rtf`](https://daybrite.dev/api/day_spec/styled/struct.StyledText.html#method.rtf) parsers, with
-[`to_markdown`](https://daybrite.dev/api/day_spec/styled/struct.StyledText.html#method.to_markdown),
-[`to_html`](https://daybrite.dev/api/day_spec/styled/struct.StyledText.html#method.to_html), and
-[`to_rtf`](https://daybrite.dev/api/day_spec/styled/struct.StyledText.html#method.to_rtf) exporters.
+[`markdown`](https://docs.rs/day-spec/latest/day_spec/styled/struct.StyledText.html#method.markdown),
+[`html`](https://docs.rs/day-spec/latest/day_spec/styled/struct.StyledText.html#method.html), and
+[`rtf`](https://docs.rs/day-spec/latest/day_spec/styled/struct.StyledText.html#method.rtf) parsers, with
+[`to_markdown`](https://docs.rs/day-spec/latest/day_spec/styled/struct.StyledText.html#method.to_markdown),
+[`to_html`](https://docs.rs/day-spec/latest/day_spec/styled/struct.StyledText.html#method.to_html), and
+[`to_rtf`](https://docs.rs/day-spec/latest/day_spec/styled/struct.StyledText.html#method.to_rtf) exporters.
 
 These conversions are lossy. Markdown cannot retain arbitrary color, background, or font size;
 a heading scale outside its six levels exports as bold. The RTF reader handles Day's output
@@ -130,27 +129,27 @@ user document when an import/export round trip must preserve unsupported formatt
 
 ## Code and single-line editors
 
-[`text_editor_text(binding)`](https://daybrite.dev/api/day_piece_text_editor/fn.text_editor_text.html)
+[`text_editor_text(binding)`](https://docs.rs/day-piece-text-editor/latest/day_piece_text_editor/fn.text_editor_text.html)
 edits a string binding when the app does not store a styled document.
-[`.highlight(f)`](https://daybrite.dev/api/day_piece_text_editor/trait.TextEditorBuilder.html#tymethod.highlight)
+[`.highlight(f)`](https://docs.rs/day-piece-text-editor/latest/day_piece_text_editor/trait.TextEditorBuilder.html#tymethod.highlight)
 derives text runs after edits and when signals read by the highlighter change. The crate's
-[`highlighter`](https://daybrite.dev/api/day_piece_text_editor/highlight/fn.highlighter.html)
+[`highlighter`](https://docs.rs/day-piece-text-editor/latest/day_piece_text_editor/highlight/fn.highlighter.html)
 supports JSON with comments, XML, HTML, GraphQL, Rust, and plain text.
-[`Language::for_mime`](https://daybrite.dev/api/day_piece_text_editor/highlight/enum.Language.html#method.for_mime)
+[`Language::for_mime`](https://docs.rs/day-piece-text-editor/latest/day_piece_text_editor/highlight/enum.Language.html#method.for_mime)
 selects a language from a content type. Supply a palette appropriate for the editor's appearance.
 
-[`.single_line()`](https://daybrite.dev/api/day_piece_text_editor/trait.TextEditorBuilder.html#tymethod.single_line)
+[`.single_line()`](https://docs.rs/day-piece-text-editor/latest/day_piece_text_editor/trait.TextEditorBuilder.html#tymethod.single_line)
 disables wrapping, scrolls horizontally, and converts pasted newlines to spaces. Enter invokes
-[`.on_submit(f)`](https://daybrite.dev/api/day_piece_text_editor/trait.TextEditorBuilder.html#tymethod.on_submit)
+[`.on_submit(f)`](https://docs.rs/day-piece-text-editor/latest/day_piece_text_editor/trait.TextEditorBuilder.html#tymethod.on_submit)
 without inserting a newline.
 
-[`.code()`](https://daybrite.dev/api/day_piece_text_editor/trait.TextEditorBuilder.html#tymethod.code)
+[`.code()`](https://docs.rs/day-piece-text-editor/latest/day_piece_text_editor/trait.TextEditorBuilder.html#tymethod.code)
 adds indentation and paired bracket/quote insertion. Tab inserts spaces to the next stop;
-[`.indent(n)`](https://daybrite.dev/api/day_piece_text_editor/trait.TextEditorBuilder.html#tymethod.indent)
+[`.indent(n)`](https://docs.rs/day-piece-text-editor/latest/day_piece_text_editor/trait.TextEditorBuilder.html#tymethod.indent)
 sets its width, defaulting to two. Enter carries forward indentation and adds a level after
 an opening bracket. Code mode disables spell-check and automatic prose substitutions where
 the toolkit supports them. Use
-[`.no_spellcheck()`](https://daybrite.dev/api/day_piece_text_editor/trait.TextEditorBuilder.html#tymethod.no_spellcheck)
+[`.no_spellcheck()`](https://docs.rs/day-piece-text-editor/latest/day_piece_text_editor/trait.TextEditorBuilder.html#tymethod.no_spellcheck)
 when only spell-check should be disabled.
 
 ## Toolkit implementations

@@ -16,23 +16,22 @@ and error effects. Calls have no effect on devices without a supported haptic en
 
 ## Add to your app
 
-Add [`day-part-haptics`](https://github.com/daybrite/day/tree/main/crates/day-part-haptics) to your app’s Cargo dependencies, using the same Day version as the rest of your app:
+Add [`day-part-haptics`](https://github.com/daybrite/day/tree/main/crates/day-part-haptics) to your app:
 
-```toml
-[dependencies]
-day-part-haptics = "0.6"
+```sh
+cargo add day-part-haptics
 ```
 
 The implementation is selected by the compilation target; no toolkit feature flags
 or dependency entry in `Day.toml` are needed.
 
 Android and HarmonyOS vibration permissions are contributed by the crate during `day build`.
-[`is_supported()`](https://daybrite.dev/api/day_part_haptics/fn.is_supported.html) reports API availability, not the presence of physical haptic hardware.
+[`is_supported()`](https://docs.rs/day-part-haptics/latest/day_part_haptics/fn.is_supported.html) reports API availability, not the presence of physical haptic hardware.
 
 | Platforms / toolkits | Availability |
 | --- | --- |
 | iOS, macOS, Android, HarmonyOS | Haptic output on compatible hardware. macOS uses the Force Touch trackpad. |
-| Windows, Linux (GTK / Qt), Web | No haptic implementation; [`play()`](https://daybrite.dev/api/day_part_haptics/fn.play.html) has no effect. |
+| Windows, Linux (GTK / Qt), Web | No haptic implementation; [`play()`](https://docs.rs/day-part-haptics/latest/day_part_haptics/fn.play.html) has no effect. |
 
 ## Authoring
 
@@ -44,12 +43,12 @@ if day_part_haptics::is_supported() {
 }
 ```
 
-[`play(Haptic)`](https://daybrite.dev/api/day_part_haptics/fn.play.html) is **fire-and-forget**: it returns nothing, never blocks, never errors, and never
-panics. [`is_supported() -> bool`](https://daybrite.dev/api/day_part_haptics/fn.is_supported.html) reports whether the platform has a haptic engine wired here (it is
+[`play(Haptic)`](https://docs.rs/day-part-haptics/latest/day_part_haptics/fn.play.html) is **fire-and-forget**: it returns nothing, never blocks, never errors, and never
+panics. [`is_supported() -> bool`](https://docs.rs/day-part-haptics/latest/day_part_haptics/fn.is_supported.html) reports whether the platform has a haptic engine wired here (it is
 API availability, not a live hardware probe; a Simulator still reports `true`). Where support is
-`false`, [`play`](https://daybrite.dev/api/day_part_haptics/fn.play.html) is a no-op.
+`false`, [`play`](https://docs.rs/day-part-haptics/latest/day_part_haptics/fn.play.html) is a no-op.
 
-[`Haptic`](https://daybrite.dev/api/day_part_haptics/enum.Haptic.html) is modeled on iOS's three feedback-generator families so the same call maps to a native
+[`Haptic`](https://docs.rs/day-part-haptics/latest/day_part_haptics/enum.Haptic.html) is modeled on iOS's three feedback-generator families so the same call maps to a native
 pattern everywhere:
 
 | Style | Meaning |
@@ -72,7 +71,7 @@ Platform guidance: [Apple: playing haptics](https://developer.apple.com/design/h
 | macOS | [`NSHapticFeedbackManager.defaultPerformer`](https://developer.apple.com/documentation/appkit/nshapticfeedbackmanager) (Force Touch trackpad) | `objc2-app-kit` |
 | Android | [`Vibrator`](https://developer.android.com/reference/android/os/Vibrator) / [`VibrationEffect`](https://developer.android.com/reference/android/os/VibrationEffect) via a Java shim | `day-toolkit-material` + `[package.metadata.day.android]` |
 | HarmonyOS | [`vibrator.startVibration`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-sensor-service-kit/js-apis-vibrator.md) (Sensor Service Kit) via an ArkTS arm | [`day-bridge`](https://github.com/daybrite/day/blob/main/docs/bridge.md) + `[package.metadata.day.ohos]` |
-| Windows · desktop Linux (GTK/Qt) | — (no haptic engine wired) | none (no-op, [`is_supported() == false`](https://daybrite.dev/api/day_part_haptics/fn.is_supported.html)) |
+| Windows · desktop Linux (GTK/Qt) | — (no haptic engine wired) | none (no-op, [`is_supported() == false`](https://docs.rs/day-part-haptics/latest/day_part_haptics/fn.is_supported.html)) |
 
 ## How each platform realizes the styles
 

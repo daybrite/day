@@ -29,12 +29,12 @@ Replace all of `src/lib.rs`:
 <!-- tutorial-step: state/ui -->
 
 A **signal** is a reactive value: reading it through a binding connects the UI to future changes.
-[`Signal::new(0i64)`](https://daybrite.dev/api/day_reactive/struct.Signal.html#method.new) starts the count at zero in the root's current scope. Pass `count` to the
-localized accessor so the label follows changes. Passing [`count.get()`](https://daybrite.dev/api/day_reactive/struct.Signal.html#method.get) would take a snapshot
+[`Signal::new(0i64)`](https://docs.rs/day-reactive/latest/day_reactive/struct.Signal.html#method.new) starts the count at zero in the root's current scope. Pass `count` to the
+localized accessor so the label follows changes. Passing [`count.get()`](https://docs.rs/day-reactive/latest/day_reactive/struct.Signal.html#method.get) would take a snapshot
 instead.
 
 The `move` closure captures the signal handle. Handles are copyable; both the label and button
-refer to the same value. [`update`](https://daybrite.dev/api/day_reactive/struct.Signal.html#method.update) changes it and notifies its dependents. `saturating_add`
+refer to the same value. [`update`](https://docs.rs/day-reactive/latest/day_reactive/struct.Signal.html#method.update) changes it and notifies its dependents. `saturating_add`
 keeps this counter from overflowing at the integer limit. The callback runs on the UI
 thread; do not send a `Signal` to a worker thread.
 
@@ -49,8 +49,8 @@ Quit and relaunch: the count returns to zero. This app stores the count in memor
 
 ## Troubleshooting
 
-If the count never changes, check that the label receives `count`, not [`count.get()`](https://daybrite.dev/api/day_reactive/struct.Signal.html#method.get), and that
-the callback calls [`count.update(...)`](https://daybrite.dev/api/day_reactive/struct.Signal.html#method.update). If the generated function has the wrong arguments,
+If the count never changes, check that the label receives `count`, not [`count.get()`](https://docs.rs/day-reactive/latest/day_reactive/struct.Signal.html#method.get), and that
+the callback calls [`count.update(...)`](https://docs.rs/day-reactive/latest/day_reactive/struct.Signal.html#method.update). If the generated function has the wrong arguments,
 check that `counter_value` includes `{ $count }` in the catalog, then rebuild.
 
 ## Next step

@@ -10,10 +10,10 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 # Size classes and re-presenting navigation
 
-A window's width decides how much can be on screen at once. A [`nav`](https://daybrite.dev/api/day_pieces/fn.nav.html) in a wide window shows
+A window's width decides how much can be on screen at once. A [`nav`](https://docs.rs/day-pieces/latest/day_pieces/fn.nav.html) in a wide window shows
 its list beside the selected page; the same nav host in a narrow one shows the list, then pushes
 the page over it. Day resolves that from the window's **size class** and re-resolves it whenever
-the class changes, so one [`nav`](https://daybrite.dev/api/day_pieces/fn.nav.html) is right on a desktop, a tablet, a phone, and a browser
+the class changes, so one [`nav`](https://docs.rs/day-pieces/latest/day_pieces/fn.nav.html) is right on a desktop, a tablet, a phone, and a browser
 window someone is dragging narrower as they read.
 
 ## The breakpoints
@@ -40,7 +40,7 @@ browser, and on a tablet, so an app that lays out from the class gets the same l
 size everywhere. Apple publishes two buckets rather than five; those map onto this table instead
 of replacing it, with `Compact` the compact one and everything wider regular.
 
-Apps read the class with [`day::size_class()`](https://daybrite.dev/api/day/fn.size_class.html). The read is tracked, so a piece that lays out from
+Apps read the class with [`day::size_class()`](https://docs.rs/day-app/latest/day/fn.size_class.html). The read is tracked, so a piece that lays out from
 it rebuilds when the window crosses a breakpoint. It answers `None` on a toolkit that reports no
 window geometry.
 
@@ -61,7 +61,7 @@ A toolkit reports geometry and never a class, which keeps the breakpoint table i
 
 ## Adaptive navigation
 
-A [`nav`](https://daybrite.dev/api/day_pieces/fn.nav.html) presents as `Split` (list beside detail), `Stack` (one page at a time,
+A [`nav`](https://docs.rs/day-pieces/latest/day_pieces/fn.nav.html) presents as `Split` (list beside detail), `Stack` (one page at a time,
 back-navigable), `Tabs` (the rows as a tab bar) or `Rail` (the rows as a narrow strip). Left alone
 it resolves that automatically:
 
@@ -128,7 +128,7 @@ back.
 | windows-winui | ✅ | — | a [`NavigationView`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.navigationview) owns its own `PaneDisplayMode`; re-presenting means driving that rather than re-homing pages |
 | ios-uikit | ✅ | **observed** | [`UISplitViewController`](https://developer.apple.com/documentation/uikit/uisplitviewcontroller), both columns navigation controllers |
 | android-material | ✅ | **observed** | `SlidingPaneLayout`, list pane beside a detail pane |
-| harmony-arkui | ✅ | **observed** | ArkUI `Navigation` in `NavigationMode.Auto`: the nav bar (the rows) tiles beside the content where `navBarWidth` + `minContentWidth` fit, stacks otherwise; `onNavigationModeChange` reports which, through `navModeChanged`. A literal `Stack` host (a nested [`nav_stack`](https://daybrite.dev/api/day_pieces/fn.nav_stack.html)) runs `NavigationMode.Stack` |
+| harmony-arkui | ✅ | **observed** | ArkUI `Navigation` in `NavigationMode.Auto`: the nav bar (the rows) tiles beside the content where `navBarWidth` + `minContentWidth` fit, stacks otherwise; `onNavigationModeChange` reports which, through `navModeChanged`. A literal `Stack` host (a nested [`nav_stack`](https://docs.rs/day-pieces/latest/day_pieces/fn.nav_stack.html)) runs `NavigationMode.Stack` |
 
 GTK is the odd one out among the desktops. Everywhere else both presentations are the same
 container with different chrome, so a morph re-homes pages inside a host Day already holds. On
@@ -152,7 +152,7 @@ when there is room again — the presentation stays `Split` throughout.
 This policy determines one lowering rule: an `Emulated` toolkit's adaptive host is lowered
 with `presentation: Split` (meaning "build the adaptive container") even when the window is compact at
 build time, because the container collapses itself. `Stack` in `NavProps` is thereby literal: it
-marks a host that is a stack at *every* size (a pinned request, or the nested [`nav_stack()`](https://daybrite.dev/api/day_pieces/fn.nav_stack.html) piece
+marks a host that is a stack at *every* size (a pinned request, or the nested [`nav_stack()`](https://docs.rs/day-pieces/latest/day_pieces/fn.nav_stack.html) piece
 under a split host), and the toolkit realizes it as a plain navigation controller.
 
 ## Mobile windows
@@ -220,9 +220,9 @@ those releases *worse*, because the resolver's fallback lowers a different host 
 
 ## Row fit policies
 
-A [`row`](https://daybrite.dev/api/day_pieces/fn.row.html) keeps its children on one line no matter what. That is the right contract for a label
+A [`row`](https://docs.rs/day-pieces/latest/day_pieces/fn.row.html) keeps its children on one line no matter what. That is the right contract for a label
 beside a value, and the wrong one for five buttons on a phone: the line overflows the window and
-the remaining controls land offscreen. [`.fit(RowFit::…)`](https://daybrite.dev/api/day_pieces/trait.RowBuilder.html#tymethod.fit) names what should happen instead, with the same children and the same
+the remaining controls land offscreen. [`.fit(RowFit::…)`](https://docs.rs/day-pieces/latest/day_pieces/trait.RowBuilder.html#tymethod.fit) names what should happen instead, with the same children and the same
 call shape:
 
 ```rust
@@ -240,8 +240,8 @@ longer exists. Release builds skip the check entirely.
 
 `Wrap` breaks onto additional lines where the next child would overflow, like wrapped text, the
 shape a chip row, a button strip, or a tag cloud wants. Lines are `run_spacing` apart, and
-children align within their line via [`.align(VAlign::…)`](https://daybrite.dev/api/day_pieces/trait.AdaptiveBuilder.html#tymethod.align). Wrapping replaces main-axis
-negotiation, so [`.grow()`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.grow) and [`spacer()`](https://daybrite.dev/api/day_pieces/fn.spacer.html) are inert, and a single child wider than the window
+children align within their line via [`.align(VAlign::…)`](https://docs.rs/day-pieces/latest/day_pieces/trait.AdaptiveBuilder.html#tymethod.align). Wrapping replaces main-axis
+negotiation, so [`.grow()`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.grow) and [`spacer()`](https://docs.rs/day-pieces/latest/day_pieces/fn.spacer.html) are inert, and a single child wider than the window
 still overflows.
 
 `WrapColumns` wraps the same way but into aligned columns: every cell takes the widest child's
@@ -256,7 +256,7 @@ Wrap          [Item 1][ Item 2 ][Item 3][ Item 4 ]     WrapColumns   [ Item 1 ][
 
 The column count follows the available width, so it re-flows as the window changes. Left at
 that, the columns keep the widest child's width and whatever width is left over trails the last
-column. When any child grows ([`.grow_w()`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.grow_w)), the widest child's width becomes the narrowest a column
+column. When any child grows ([`.grow_w()`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.grow_w)), the widest child's width becomes the narrowest a column
 gets instead, and the columns stretch to share the whole width. That is the adaptive grid a
 gallery of tiles wants, SwiftUI's `GridItem(.adaptive(minimum:))`: tiles that can grow fill each
 line edge to edge, and a line with fewer tiles than columns leaves the rest of its columns
@@ -275,9 +275,9 @@ An authored, fixed column count with per-cell spans is a different job; that is
 
 A row that should become a leading-aligned column while the window's width class is compact
 (the shape a label-plus-control-plus-result line wants, where wrapping members independently
-would tear apart what reads as one sentence) is [`adaptive`](https://daybrite.dev/api/day_pieces/fn.adaptive.html)`((label, control, result))`[`.spacing`](https://daybrite.dev/api/day_pieces/trait.AdaptiveBuilder.html#tymethod.spacing)`(Space::S)`,
-with [`.stack_at(class)`](https://daybrite.dev/api/day_pieces/trait.AdaptiveBuilder.html#tymethod.stack_at) naming the widest class that stacks (default `Compact`) and [`.align(VAlign)`](https://daybrite.dev/api/day_pieces/trait.AdaptiveBuilder.html#tymethod.align)
-the cross-axis alignment of the row arrangement (stacked, the children align leading). An [`adaptive`](https://daybrite.dev/api/day_pieces/fn.adaptive.html)
+would tear apart what reads as one sentence) is [`adaptive`](https://docs.rs/day-pieces/latest/day_pieces/fn.adaptive.html)`((label, control, result))`[`.spacing`](https://docs.rs/day-pieces/latest/day_pieces/trait.AdaptiveBuilder.html#tymethod.spacing)`(Space::S)`,
+with [`.stack_at(class)`](https://docs.rs/day-pieces/latest/day_pieces/trait.AdaptiveBuilder.html#tymethod.stack_at) naming the widest class that stacks (default `Compact`) and [`.align(VAlign)`](https://docs.rs/day-pieces/latest/day_pieces/trait.AdaptiveBuilder.html#tymethod.align)
+the cross-axis alignment of the row arrangement (stacked, the children align leading). An [`adaptive`](https://docs.rs/day-pieces/latest/day_pieces/fn.adaptive.html)
 is re-laid out, never rebuilt, when the window crosses the breakpoint, so its children keep
 their local state (a focused field stays focused).
 

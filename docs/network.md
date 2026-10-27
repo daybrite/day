@@ -17,11 +17,10 @@ Show whether the device has a network connection and what kind it is, such as Wi
 
 ## Add to your app
 
-Add [`day-part-connectivity`](https://github.com/daybrite/day/tree/main/crates/day-part-connectivity) to your app’s Cargo dependencies, using the same Day version as the rest of your app:
+Add [`day-part-connectivity`](https://github.com/daybrite/day/tree/main/crates/day-part-connectivity) to your app:
 
-```toml
-[dependencies]
-day-part-connectivity = "0.6"
+```sh
+cargo add day-part-connectivity
 ```
 
 The implementation is selected by the compilation target; no toolkit feature flags
@@ -30,7 +29,7 @@ or dependency entry in `Day.toml` are needed.
 | Platforms / toolkits | Availability |
 | --- | --- |
 | macOS, iOS, Android, Windows, Linux (GTK / Qt), HarmonyOS | Connectivity information; available detail varies by OS. |
-| Web | Unavailable; [`status()`](https://daybrite.dev/api/day_part_connectivity/fn.status.html) returns `None`. |
+| Web | Unavailable; [`status()`](https://docs.rs/day-part-connectivity/latest/day_part_connectivity/fn.status.html) returns `None`. |
 
 ## Authoring
 
@@ -40,9 +39,9 @@ if let Some(n) = day_part_connectivity::status() {
 }
 ```
 
-[`status() -> Option<NetworkStatus>`](https://daybrite.dev/api/day_part_connectivity/fn.status.html) returns `None` where there's no connectivity API (or the reading
+[`status() -> Option<NetworkStatus>`](https://docs.rs/day-part-connectivity/latest/day_part_connectivity/fn.status.html) returns `None` where there's no connectivity API (or the reading
 failed), which is distinct from a successful reading that says offline (`Some` with `online: false`).
-[`NetworkStatus { online: bool, kind: NetworkKind, expensive: Option<bool> }`](https://daybrite.dev/api/day_part_connectivity/struct.NetworkStatus.html); [`NetworkKind`](https://daybrite.dev/api/day_part_connectivity/enum.NetworkKind.html) is
+[`NetworkStatus { online: bool, kind: NetworkKind, expensive: Option<bool> }`](https://docs.rs/day-part-connectivity/latest/day_part_connectivity/struct.NetworkStatus.html); [`NetworkKind`](https://docs.rs/day-part-connectivity/latest/day_part_connectivity/enum.NetworkKind.html) is
 `Wifi | Cellular | Ethernet | Other | None`.
 
 There are no crate features; platform selection is purely `#[cfg(target_os)]`, because connectivity is
@@ -79,7 +78,7 @@ Every field is best-effort; the platforms report different amounts of detail:
 - **HarmonyOS**: `online` = a default network is activated; `kind` from the bearer type, `expensive`
   from `NETCONN_NET_CAPABILITY_NOT_METERED`. The app must declare `ohos.permission.GET_NETWORK_INFO`
   in its `module.json5` (`requestPermissions`; normal permission, no prompt) or the calls fail with
-  201 and [`status()`](https://daybrite.dev/api/day_part_connectivity/fn.status.html) returns `None`.
+  201 and [`status()`](https://docs.rs/day-part-connectivity/latest/day_part_connectivity/fn.status.html) returns `None`.
 - **Linux**: no daemon-independent connectivity API is guaranteed (NetworkManager is optional), so
   the crate scans `/sys/class/net`: `online` = a non-loopback interface has operstate `up`
   (link-level, not validated internet); `kind` from the kernel's predictable name prefixes (`wl*`
@@ -87,7 +86,7 @@ Every field is best-effort; the platforms report different amounts of detail:
   `expensive` is always `None` (meteredness is a desktop-session concept).
 - **Windows**: [`GetNetworkConnectivityHint`](https://learn.microsoft.com/en-us/windows/win32/api/netioapi/nf-netioapi-getnetworkconnectivityhint) (Windows 10 2004+) gives a connectivity level (`online` = internet or constrained-internet access) and a cost
   (`expensive`) but no transport, so `kind` is `Other` when online. The symbol is resolved at runtime
-  via `LoadLibrary`/`GetProcAddress`, so apps still start on older Windows; [`status()`](https://daybrite.dev/api/day_part_connectivity/fn.status.html)
+  via `LoadLibrary`/`GetProcAddress`, so apps still start on older Windows; [`status()`](https://docs.rs/day-part-connectivity/latest/day_part_connectivity/fn.status.html)
   returns `None` there.
 
 A snapshot is a point-in-time poll; a change-notification rail ([`SCNetworkReachability`](https://developer.apple.com/documentation/systemconfiguration/scnetworkreachability) callbacks,

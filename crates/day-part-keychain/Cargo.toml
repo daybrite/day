@@ -75,6 +75,8 @@ windows = { workspace = true, features = [
     "Win32_Security_Cryptography",
 ] }
 day-part-biometrics = { workspace = true }
+# `storage::data_dir()`: where the DPAPI-sealed items are kept.
+day-spec = { workspace = true }
 
 # HarmonyOS: the keystore is C, the user-authentication dialog is ArkTS (day-part-biometrics).
 [target.'cfg(target_env = "ohos")'.dependencies]

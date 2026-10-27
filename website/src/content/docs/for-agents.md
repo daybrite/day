@@ -40,16 +40,16 @@ nothing diffs or rebuilds it.
 1. **One toolkit toolkit per binary.** A binary compiles exactly one toolkit (selected by a Cargo
    feature via the target). Never enable two. The build enforces this with a `compile_error!`.
 2. **Views are built once, then kept live by bindings, never rebuilt.** Never rebuild the view on state change. To make UI reactive, pass a
-   closure that reads a Signal ([`label`](https://daybrite.dev/api/day_pieces/fn.label.html)`(move || …count`[`.get`](https://daybrite.dev/api/day_reactive/struct.Signal.html#method.get)`()…)`), or pass a Signal to a control
-   ([`slider(volume)`](https://daybrite.dev/api/day_pieces/fn.slider.html)). Do not diff, re-run, or recreate Piece trees yourself.
+   closure that reads a Signal ([`label`](https://docs.rs/day-pieces/latest/day_pieces/fn.label.html)`(move || …count`[`.get`](https://docs.rs/day-reactive/latest/day_reactive/struct.Signal.html#method.get)`()…)`), or pass a Signal to a control
+   ([`slider(volume)`](https://docs.rs/day-pieces/latest/day_pieces/fn.slider.html)). Do not diff, re-run, or recreate Piece trees yourself.
 3. **`Signal<T>` is `Copy`.** Clone/move it into as many closures as you need; do not wrap it in `Rc`.
-4. **Give every interactive/asserted Piece a stable [`.id(id!(name))`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.id).** Tests and dayscript
+4. **Give every interactive/asserted Piece a stable [`.id(id!(name))`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.id).** Tests and dayscript
    use its canonical spelling (`name` in YAML). Recycled rows need
-   [`.id_of`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.id_of)`(move || id!(row, slot`[`.key`](https://daybrite.dev/api/day_pieces/struct.ItemSlot.html#method.key)`()))`. Route and model keys remain separate from element IDs.
+   [`.id_of`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.id_of)`(move || id!(row, slot`[`.key`](https://docs.rs/day-pieces/latest/day_pieces/struct.ItemSlot.html#method.key)`()))`. Route and model keys remain separate from element IDs.
 5. **Localize user-facing text** with Fluent files. Scaffolded apps generate a typed function
    per key (`res::str::my_key()`, parameters become typed arguments), so a missing key or
-   wrong arity is a compile error. Always call those, never [`tr("key")`](https://daybrite.dev/api/day/fn.tr.html) with a literal (`day lint`
-   reports it as `string-key`); Day's own strings are there too ([`res::str::day_cancel()`](https://daybrite.dev/api/day_localization_ui/res/str/fn.day_cancel.html)). Messages
+   wrong arity is a compile error. Always call those, never [`tr("key")`](https://docs.rs/day-app/latest/day/fn.tr.html) with a literal (`day lint`
+   reports it as `string-key`); Day's own strings are there too ([`res::str::day_cancel()`](https://docs.rs/day-localization-ui/latest/day_localization_ui/res/str/fn.day_cancel.html)). Messages
    with multiple variables take generated named-field structs. Include accessibility labels,
    hints, errors, and units in the catalog. Provider data and synthetic test inputs stay verbatim.
 6. **Edit `Day.toml` + Rust; never hand-edit the generated Xcode/Gradle scaffolds.** `day` regenerates
@@ -83,18 +83,18 @@ height = 640
 
 ## Core model (precise)
 
-- A **Piece** is a value produced by a function call ([`label(...)`](https://daybrite.dev/api/day_pieces/fn.label.html), [`button(...)`](https://daybrite.dev/api/day_pieces/fn.button.html), [`column((...))`](https://daybrite.dev/api/day_pieces/fn.column.html)).
-  Containers take a **tuple** of children. Builder methods ([`.padding`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.padding), [`.spacing`](https://daybrite.dev/api/day_pieces/trait.ColumnBuilder.html#tymethod.spacing), [`.id`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.id), [`.font`](https://daybrite.dev/api/day_pieces/trait.LabelBuilder.html#tymethod.font), …)
-  return the Piece. End a heterogeneous Piece with [`.any()`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.any) to get `AnyPiece`.
-- `Signal<T>`: [`get()`](https://daybrite.dev/api/day_reactive/struct.Signal.html#method.get) (tracked read), [`set(v)`](https://daybrite.dev/api/day_reactive/struct.Signal.html#method.set), [`update(|v| …)`](https://daybrite.dev/api/day_reactive/struct.Signal.html#method.update), [`with(|v| …)`](https://daybrite.dev/api/day_reactive/struct.Signal.html#method.with) (borrow),
-  [`get_untracked()`](https://daybrite.dev/api/day_reactive/struct.Signal.html#method.get_untracked). Reading a Signal inside a binding closure makes that binding re-run when the
+- A **Piece** is a value produced by a function call ([`label(...)`](https://docs.rs/day-pieces/latest/day_pieces/fn.label.html), [`button(...)`](https://docs.rs/day-pieces/latest/day_pieces/fn.button.html), [`column((...))`](https://docs.rs/day-pieces/latest/day_pieces/fn.column.html)).
+  Containers take a **tuple** of children. Builder methods ([`.padding`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.padding), [`.spacing`](https://docs.rs/day-pieces/latest/day_pieces/trait.ColumnBuilder.html#tymethod.spacing), [`.id`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.id), [`.font`](https://docs.rs/day-pieces/latest/day_pieces/trait.LabelBuilder.html#tymethod.font), …)
+  return the Piece. End a heterogeneous Piece with [`.any()`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.any) to get `AnyPiece`.
+- `Signal<T>`: [`get()`](https://docs.rs/day-reactive/latest/day_reactive/struct.Signal.html#method.get) (tracked read), [`set(v)`](https://docs.rs/day-reactive/latest/day_reactive/struct.Signal.html#method.set), [`update(|v| …)`](https://docs.rs/day-reactive/latest/day_reactive/struct.Signal.html#method.update), [`with(|v| …)`](https://docs.rs/day-reactive/latest/day_reactive/struct.Signal.html#method.with) (borrow),
+  [`get_untracked()`](https://docs.rs/day-reactive/latest/day_reactive/struct.Signal.html#method.get_untracked). Reading a Signal inside a binding closure makes that binding re-run when the
   Signal changes; nothing else re-runs.
 - **Reactivity rule:** pass a signal to a generated message, as in
-  [`label(res::str::counter_value(count))`](https://daybrite.dev/api/day_pieces/fn.label.html). For computed values, format the message inside
-  a label's closure. [`label(res::str::hi())`](https://daybrite.dev/api/day_pieces/fn.label.html) also follows locale changes.
+  [`label(res::str::counter_value(count))`](https://docs.rs/day-pieces/latest/day_pieces/fn.label.html). For computed values, format the message inside
+  a label's closure. [`label(res::str::hi())`](https://docs.rs/day-pieces/latest/day_pieces/fn.label.html) also follows locale changes.
 - A **target** is `(OS, toolkit)`: `macos-appkit`, `macos-gtk`, `macos-qt`, `ios-uikit`,
   `android-material`, `harmony-arkui`, `linux-gtk`, `linux-qt`, `windows-winui`, `web-dom` (wasm in a browser; no process
-  environment, so pass runtime flags with `day launch --env K=V` and read them with [`day::env("K")`](https://daybrite.dev/api/day/fn.env.html), which is portable to every target).
+  environment, so pass runtime flags with `day launch --env K=V` and read them with [`day::env("K")`](https://docs.rs/day-app/latest/day/fn.env.html), which is portable to every target).
 - Each target has a **support tier** ([definitions](/docs/reference/platforms#support-tiers)), which tells
   you how much to trust it: `ios-uikit`, `android-material`, `macos-appkit` are Tier 1 (thoroughly
   tested); `linux-gtk`, `linux-qt`, `windows-winui` are Tier 2; `harmony-arkui` and `web-dom` are
@@ -213,8 +213,8 @@ combo_box(items, text).id(id!(combo))
 ```
 
 SwiftUI views embed via [`day-piece-swiftui`](/docs/reference/swiftui) on macos-appkit / ios-uikit only:
-[`swiftui("name")`](https://daybrite.dev/api/day_piece_swiftui/fn.swiftui.html) resolves a provider class, or a local SwiftPM package's views become typed
-`crate::swiftui::MyView(…)` constructors. Gate the UI on the probe ([`support()`](https://daybrite.dev/api/day_piece_swiftui/fn.support.html) is fixed per
+[`swiftui("name")`](https://docs.rs/day-piece-swiftui/latest/day_piece_swiftui/fn.swiftui.html) resolves a provider class, or a local SwiftPM package's views become typed
+`crate::swiftui::MyView(…)` constructors. Gate the UI on the probe ([`support()`](https://docs.rs/day-piece-swiftui/latest/day_piece_swiftui/fn.support.html) is fixed per
 binary, so a plain `if` at build time is right):
 
 ```rust
@@ -225,7 +225,7 @@ if day_piece_swiftui::support() == Support::Native {
 }
 ```
 
-**Invariant:** [`support()`](https://daybrite.dev/api/day_piece_swiftui/fn.support.html) probes are the only correct gate for platform-limited pieces. Never
+**Invariant:** [`support()`](https://docs.rs/day-piece-swiftui/latest/day_piece_swiftui/fn.support.html) probes are the only correct gate for platform-limited pieces. Never
 gate on `target_os` or toolkit-feature cfgs; `target_os = "macos"` also covers macos-gtk and
 macos-qt, which have no AppKit view tree.
 
@@ -233,21 +233,21 @@ macos-qt, which have no AppKit view tree.
 
 | Need | Use |
 |---|---|
-| static / reactive text | [`label(res::str::sample_label())`](https://daybrite.dev/api/day_pieces/fn.label.html) / `label(move || …)` |
-| button | [`button`](https://daybrite.dev/api/day_pieces/fn.button.html)`(res::str::sample_label())`[`.action`](https://daybrite.dev/api/day_pieces/trait.ButtonBuilder.html#tymethod.action)`(\|\| …)` |
-| text input | [`text_field(sig)`](https://daybrite.dev/api/day_pieces/fn.text_field.html) · multiline: [`text_area(sig)`](https://daybrite.dev/api/day_pieces/fn.text_area.html) |
-| number input | [`slider`](https://daybrite.dev/api/day_pieces/fn.slider.html)`(sig)`[`.range`](https://daybrite.dev/api/day_pieces/trait.SliderBuilder.html#tymethod.range)`(a..=b)` |
-| boolean | [`toggle(sig)`](https://daybrite.dev/api/day_pieces/fn.toggle.html) |
-| choice | [`picker(sig, [(value, title), …])`](https://daybrite.dev/api/day_pieces/fn.picker.html) · editable: external [`combo_box(opts, text_sig)`](https://daybrite.dev/api/day_pieces/combobox/fn.combo_box.html) |
-| vertical / horizontal / z-stack | [`column((…))`](https://daybrite.dev/api/day_pieces/fn.column.html) / [`row((…))`](https://daybrite.dev/api/day_pieces/fn.row.html) / [`zstack((…))`](https://daybrite.dev/api/day_pieces/fn.zstack.html) |
-| scroll · spacer · divider | [`scroll(child)`](https://daybrite.dev/api/day_pieces/fn.scroll.html) · [`spacer()`](https://daybrite.dev/api/day_pieces/fn.spacer.html) · [`divider()`](https://daybrite.dev/api/day_pieces/fn.divider.html) |
-| conditional · list | [`when(cond, view)`](https://daybrite.dev/api/day_pieces/fn.when.html) · [`each`](https://daybrite.dev/api/day_pieces/fn.each.html)`(`[`items`](https://daybrite.dev/api/day_pieces/fn.items.html)`(data, key), row)` |
-| progress · busy | [`progress(frac)`](https://daybrite.dev/api/day_pieces/fn.progress.html) · [`spinner()`](https://daybrite.dev/api/day_pieces/fn.spinner.html) |
-| custom drawing | [`canvas(\|d, size\| …)`](https://daybrite.dev/api/day_pieces/fn.canvas.html) (native 2D; Day never rasterizes) |
-| nav (one-of-N / stack) | [`nav(sig)`](https://daybrite.dev/api/day_pieces/fn.nav.html) / [`nav_stack(path, root)`](https://daybrite.dev/api/day_pieces/fn.nav_stack.html) |
+| static / reactive text | [`label(res::str::sample_label())`](https://docs.rs/day-pieces/latest/day_pieces/fn.label.html) / `label(move || …)` |
+| button | [`button`](https://docs.rs/day-pieces/latest/day_pieces/fn.button.html)`(res::str::sample_label())`[`.action`](https://docs.rs/day-pieces/latest/day_pieces/trait.ButtonBuilder.html#tymethod.action)`(\|\| …)` |
+| text input | [`text_field(sig)`](https://docs.rs/day-pieces/latest/day_pieces/fn.text_field.html) · multiline: [`text_area(sig)`](https://docs.rs/day-pieces/latest/day_pieces/fn.text_area.html) |
+| number input | [`slider`](https://docs.rs/day-pieces/latest/day_pieces/fn.slider.html)`(sig)`[`.range`](https://docs.rs/day-pieces/latest/day_pieces/trait.SliderBuilder.html#tymethod.range)`(a..=b)` |
+| boolean | [`toggle(sig)`](https://docs.rs/day-pieces/latest/day_pieces/fn.toggle.html) |
+| choice | [`picker(sig, [(value, title), …])`](https://docs.rs/day-pieces/latest/day_pieces/fn.picker.html) · editable: external [`combo_box(opts, text_sig)`](https://docs.rs/day-pieces/latest/day_pieces/combobox/fn.combo_box.html) |
+| vertical / horizontal / z-stack | [`column((…))`](https://docs.rs/day-pieces/latest/day_pieces/fn.column.html) / [`row((…))`](https://docs.rs/day-pieces/latest/day_pieces/fn.row.html) / [`zstack((…))`](https://docs.rs/day-pieces/latest/day_pieces/fn.zstack.html) |
+| scroll · spacer · divider | [`scroll(child)`](https://docs.rs/day-pieces/latest/day_pieces/fn.scroll.html) · [`spacer()`](https://docs.rs/day-pieces/latest/day_pieces/fn.spacer.html) · [`divider()`](https://docs.rs/day-pieces/latest/day_pieces/fn.divider.html) |
+| conditional · list | [`when(cond, view)`](https://docs.rs/day-pieces/latest/day_pieces/fn.when.html) · [`each`](https://docs.rs/day-pieces/latest/day_pieces/fn.each.html)`(`[`items`](https://docs.rs/day-pieces/latest/day_pieces/fn.items.html)`(data, key), row)` |
+| progress · busy | [`progress(frac)`](https://docs.rs/day-pieces/latest/day_pieces/fn.progress.html) · [`spinner()`](https://docs.rs/day-pieces/latest/day_pieces/fn.spinner.html) |
+| custom drawing | [`canvas(\|d, size\| …)`](https://docs.rs/day-pieces/latest/day_pieces/fn.canvas.html) (native 2D; Day never rasterizes) |
+| nav (one-of-N / stack) | [`nav(sig)`](https://docs.rs/day-pieces/latest/day_pieces/fn.nav.html) / [`nav_stack(path, root)`](https://docs.rs/day-pieces/latest/day_pieces/fn.nav_stack.html) |
 | localize | `res::str::counter_value(count)` |
-| accessibility | [`.a11y`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.a11y)`(\|a\| a`[`.role`](https://daybrite.dev/api/day_pieces/struct.A11yBuilder.html#method.role)`(Role::Meter)`[`.label`](https://daybrite.dev/api/day_pieces/struct.A11yBuilder.html#method.label)`(res::str::volume()))` |
-| identify for tests | [`.id(id!(stable_id))`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.id) / [`.id(id!(row, key))`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.id) |
+| accessibility | [`.a11y`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.a11y)`(\|a\| a`[`.role`](https://docs.rs/day-pieces/latest/day_pieces/struct.A11yBuilder.html#method.role)`(Role::Meter)`[`.label`](https://docs.rs/day-pieces/latest/day_pieces/struct.A11yBuilder.html#method.label)`(res::str::volume()))` |
+| identify for tests | [`.id(id!(stable_id))`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.id) / [`.id(id!(row, key))`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.id) |
 
 ## CLI reference
 
@@ -273,8 +273,8 @@ day mcp-server                        # serve all of the above as MCP tools (std
 
 ## Verifying your work (dayscript)
 
-Assert a *running* app with a cross-platform YAML script; Pieces are addressed by their [`.id`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.id), routes by
-[`nav`](https://daybrite.dev/api/day_pieces/fn.nav.html)/[`nav_stack`](https://daybrite.dev/api/day_pieces/fn.nav_stack.html) keys.
+Assert a *running* app with a cross-platform YAML script; Pieces are addressed by their [`.id`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.id), routes by
+[`nav`](https://docs.rs/day-pieces/latest/day_pieces/fn.nav.html)/[`nav_stack`](https://docs.rs/day-pieces/latest/day_pieces/fn.nav_stack.html) keys.
 
 ```yaml
 name: check
@@ -289,7 +289,7 @@ flow:
 ```
 
 For apps with network data, ship a deterministic mock behind a `day launch --env MY_MOCK=1`
-flag (read it with [`day::env`](https://daybrite.dev/api/day/fn.env.html), which also works on web-dom) and write the walkthrough against
+flag (read it with [`day::env`](https://docs.rs/day-app/latest/day/fn.env.html), which also works on web-dom) and write the walkthrough against
 the mock's exact values. Keep the mock's arithmetic integer-derived. Transcendentals can
 round differently across platforms and break cross-target `assert_text` on formatted numbers.
 
@@ -322,9 +322,9 @@ verify UI changes on every target you touched. The canonical loop: edit → `day
 
 - ❌ Enabling two toolkit features in one binary → `compile_error!`. Enable exactly one via the target.
 - ❌ Rebuilding the view tree to reflect state. ✅ Bind a Signal (closure read or pass the Signal).
-- ❌ Passing a `String`/value where dynamic content is wanted. ✅ Pass [`move || …sig.get()…`](https://daybrite.dev/api/day_reactive/struct.Signal.html#method.get).
+- ❌ Passing a `String`/value where dynamic content is wanted. ✅ Pass [`move || …sig.get()…`](https://docs.rs/day-reactive/latest/day_reactive/struct.Signal.html#method.get).
 - ❌ Wrapping `Signal` in `Rc`/`Arc`. ✅ It is `Copy`; move it directly.
-- ❌ Omitting [`.id(...)`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.id) on Pieces you need to test/script/deep-link.
+- ❌ Omitting [`.id(...)`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.id) on Pieces you need to test/script/deep-link.
 - ❌ Hand-editing generated projects under `build/day/xcode/`, `build/android/`, or `build/day/harmony/project/`. ✅ Edit `Day.toml`/Rust.
 - ❌ Concluding a target works from `cargo build`. ✅ `day launch -t <target>` (and `--script` to assert).
 - ❌ Declaring a UI change done without looking at it. ✅ `day_drive`/`day drive` → `screenshot` → inspect.

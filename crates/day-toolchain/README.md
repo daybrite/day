@@ -25,7 +25,7 @@ extension authors use this crate when compiling native code.
 - [Build requirements](https://daybrite.dev/docs/reference/system-requirements/)
 - [Environment configuration](https://daybrite.dev/docs/reference/environment/)
 - [Writing Day extensions](https://daybrite.dev/contributing/extending/)
-- [Rust API](https://daybrite.dev/api/day_toolchain/index.html)
+- [Rust API](https://docs.rs/day-toolchain/latest/day_toolchain/index.html)
 
 [Source](https://github.com/daybrite/day/tree/main/crates/day-toolchain) ·
 [Contributing](https://daybrite.dev/contributing/setup/) · [MPL-2.0

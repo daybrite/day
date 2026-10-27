@@ -19,15 +19,15 @@ available, with a composed control on other targets.
 
 This control is included in [`day-pieces`](https://github.com/daybrite/day/tree/main/crates/day-pieces)
 and re-exported through `day::prelude::*`. No additional crate or control feature is required.
-The selected toolkit supplies its native implementation; [`day::stepper::support()`](https://daybrite.dev/api/day_pieces/stepper/fn.support.html) reports
+The selected toolkit supplies its native implementation; [`day::stepper::support()`](https://docs.rs/day-pieces/latest/day_pieces/stepper/fn.support.html) reports
 its availability after the Day runtime starts.
 
 | Platforms / toolkits | Availability |
 | --- | --- |
 | AppKit, GTK, Qt | Native numeric stepper. |
-| UIKit, Android, WinUI, ArkUI, Web | Composed control. Forcing [`.native()`](https://daybrite.dev/api/day_pieces/stepper/struct.Stepper.html#method.native) on these targets shows a placeholder. |
+| UIKit, Android, WinUI, ArkUI, Web | Composed control. Forcing [`.native()`](https://docs.rs/day-pieces/latest/day_pieces/stepper/struct.Stepper.html#method.native) on these targets shows a placeholder. |
 
-[`stepper(value)`](https://daybrite.dev/api/day_pieces/stepper/fn.stepper.html) is a numeric **stepper field**: a text field with increment/decrement arrows,
+[`stepper(value)`](https://docs.rs/day-pieces/latest/day_pieces/stepper/fn.stepper.html) is a numeric **stepper field**: a text field with increment/decrement arrows,
 bound two-way to any `Binding<f64>` (a `Signal<f64>`, a [day-model](/docs/explanation/model) `Field`, or an app's own
 binding over a selection). Each arrow click, and each settled edit (Return, focus loss), lands
 through `write_commit`, so under an undo stack every click is one undoable step.
@@ -52,11 +52,11 @@ labeled(
 )
 ```
 
-- **[`.native()`](https://daybrite.dev/api/day_pieces/stepper/struct.Stepper.html#method.native) / [`.composed()`](https://daybrite.dev/api/day_pieces/stepper/struct.Stepper.html#method.composed) / [`.idiom(…)`](https://daybrite.dev/api/day_pieces/stepper/struct.Stepper.html#method.idiom)** pin one idiom; the default is `Automatic`:
-  native where an arm exists ([`support()`](https://daybrite.dev/api/day_pieces/stepper/fn.support.html) answers `Native` on appkit, gtk, qt), composed
+- **[`.native()`](https://docs.rs/day-pieces/latest/day_pieces/stepper/struct.Stepper.html#method.native) / [`.composed()`](https://docs.rs/day-pieces/latest/day_pieces/stepper/struct.Stepper.html#method.composed) / [`.idiom(…)`](https://docs.rs/day-pieces/latest/day_pieces/stepper/struct.Stepper.html#method.idiom)** pin one idiom; the default is `Automatic`:
+  native where an arm exists ([`support()`](https://docs.rs/day-pieces/latest/day_pieces/stepper/fn.support.html) answers `Native` on appkit, gtk, qt), composed
   everywhere else. `Native` is literal: pinned on a toolkit with no renderer it draws Day's
   visible placeholder.
-- **[`.id(…)`](https://daybrite.dev/api/day_pieces/stepper/struct.Stepper.html#method.id)** names the interactive field for dayscript on both idioms, wherever it sits in the
+- **[`.id(…)`](https://docs.rs/day-pieces/latest/day_pieces/stepper/struct.Stepper.html#method.id)** names the interactive field for dayscript on both idioms, wherever it sits in the
   chain.
 
 ## Platform guidance

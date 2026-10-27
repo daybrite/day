@@ -15,11 +15,10 @@ feedback: unsupported devices leave calls without an effect.
 
 ## Use
 
-Add this entry to your app’s `Cargo.toml`, at the same Day version as the rest of the app:
+Add it to your app:
 
-```toml
-[dependencies]
-day-part-haptics = "0.6"
+```sh
+cargo add day-part-haptics
 ```
 
 ## Documentation
@@ -27,7 +26,7 @@ day-part-haptics = "0.6"
 - [Usage and platform limits](https://daybrite.dev/docs/reference/haptics/)
 - [Pair feedback with sound](https://daybrite.dev/docs/reference/sound/)
 - [Using platform services](https://daybrite.dev/docs/reference/parts/)
-- [Rust API](https://daybrite.dev/api/day_part_haptics/index.html)
+- [Rust API](https://docs.rs/day-part-haptics/latest/day_part_haptics/index.html)
 
 [Source](https://github.com/daybrite/day/tree/main/crates/day-part-haptics) ·
 [Contributing](https://daybrite.dev/contributing/setup/) · [MPL-2.0

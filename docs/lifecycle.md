@@ -59,10 +59,10 @@ Once the `DidExit` handlers have run, Day logs one last line at `info`:
 Clean exit for Day Rise v0.4.5 (debug) after 00:03:12. Memory usage: 48.21 MB
 ```
 
-The name is the app's ([`WindowOptions::app_name`](https://daybrite.dev/api/day_spec/struct.WindowOptions.html#method.app_name), else its title), the version is
-[`WindowOptions::version`](https://daybrite.dev/api/day_spec/struct.WindowOptions.html#method.version) (the scaffold's `window()` sets it to the crate's `CARGO_PKG_VERSION`, and
+The name is the app's ([`WindowOptions::app_name`](https://docs.rs/day-spec/latest/day_spec/struct.WindowOptions.html#method.app_name), else its title), the version is
+[`WindowOptions::version`](https://docs.rs/day-spec/latest/day_spec/struct.WindowOptions.html#method.version) (the scaffold's `window()` sets it to the crate's `CARGO_PKG_VERSION`, and
 `day::day_start!` fills it in when it is unset), falling back to the `DAY_APP_VERSION` the `day` CLI
-sets on a launch; the profile is the build's; the time is since [`day::launch`](https://daybrite.dev/api/day/fn.launch.html); the memory is the
+sets on a launch; the profile is the build's; the time is since [`day::launch`](https://docs.rs/day-app/latest/day/fn.launch.html); the memory is the
 process's resident set as the platform counts it (the physical footprint on Apple platforms,
 `/proc/self/statm` on Linux and Android, the working set on Windows, the linear memory on the
 web). A handler registered for `DidExit` runs before the line, so it is the app's last word:
@@ -78,7 +78,7 @@ prevent the line entirely. The memory figure covers this process, not separate W
 
 ### When to register
 
-Register before [`day::launch`](https://daybrite.dev/api/day/fn.launch.html) (in `main`) to catch `WillLaunch`/`DidLaunch`. Registering later
+Register before [`day::launch`](https://docs.rs/day-app/latest/day/fn.launch.html) (in `main`) to catch `WillLaunch`/`DidLaunch`. Registering later
 (inside your root builder, say) still catches everything from `DidLaunch` onward. On the mobile
 shells, the root builder is the natural registration point (there is no `main` you own); those
 handlers see `DidLaunch` and after.
@@ -109,11 +109,11 @@ lifecycle (`onResume`/`onPause`/`onStart`/`onStop`/`onTrimMemory`/`onDestroy`); 
 The web backend delivers `WillLaunch`, `DidLaunch`, the active pair, and `DidExit` (on `pagehide`,
 the page's last moment).
 
-`DidExit` is the last moment each backend has: where the native loop returns to [`day::launch`](https://daybrite.dev/api/day/fn.launch.html)
+`DidExit` is the last moment each backend has: where the native loop returns to [`day::launch`](https://docs.rs/day-app/latest/day/fn.launch.html)
 (GTK, Qt, WinUI) it is emitted there; where the process ends inside the loop it follows
 `WillTerminate` at the same native moment (AppKit's and UIKit's `applicationWillTerminate`,
 Android's `onDestroy`, ArkUI's `onDestroy`); on the web it is `pagehide`. A backend whose host
-owns the loop, so that [`Platform::run`](https://daybrite.dev/api/day_spec/trait.Platform.html#tymethod.run) hands back at once with the app still to come (ArkUI,
+owns the loop, so that [`Platform::run`](https://docs.rs/day-spec/latest/day_spec/trait.Platform.html#tymethod.run) hands back at once with the app still to come (ArkUI,
 Android, the web), says so with `Platform::RUN_ENDS_APP = false`: day-core then leaves the
 phase to the host's callback instead of treating the return as the exit.
 
@@ -130,7 +130,7 @@ that phase, so it will not run. Guard it with `day::lifecycle_supported(..)` or 
 
 There are two ways to guard, depending on how strict you want to be.
 
-**Soft: register only where supported.** [`day::lifecycle::supported`](https://daybrite.dev/api/day/lifecycle/fn.supported.html) is a `const fn` that knows the
+**Soft: register only where supported.** [`day::lifecycle::supported`](https://docs.rs/day-app/latest/day/lifecycle/fn.supported.html) is a `const fn` that knows the
 backend compiled into this binary, so it's `false` on desktop and `true` on mobile for the mobile-only
 phases:
 
@@ -140,7 +140,7 @@ if day::lifecycle::supported(Lifecycle::DidEnterBackground) {
 }
 ```
 
-(There is also a runtime [`day::lifecycle_supported(phase)`](https://daybrite.dev/api/day/fn.lifecycle_supported.html) for checks after the app is up.)
+(There is also a runtime [`day::lifecycle_supported(phase)`](https://docs.rs/day-app/latest/day/fn.lifecycle_supported.html) for checks after the app is up.)
 
 **Hard: require it at compile time.** If your app depends on a phase, assert it and get a build
 error on a backend that can't deliver it:
@@ -151,7 +151,7 @@ day::require_lifecycle!(Lifecycle::DidEnterBackground);  // compile error on a d
 
 ## Quit
 
-An orderly quit can deliver `WillTerminate`: the `Quit` menu command ([`menu_role(MenuRole::Quit)`](https://daybrite.dev/api/day_pieces/fn.menu_role.html)), the
+An orderly quit can deliver `WillTerminate`: the `Quit` menu command ([`menu_role(MenuRole::Quit)`](https://docs.rs/day-pieces/latest/day_pieces/fn.menu_role.html)), the
 platform quit shortcut (⌘Q on macOS, Ctrl+Q elsewhere), and native shutdown callbacks. A forced kill or mobile process reclamation may deliver none. The `Quit`
 command exits the app. On GTK a standard `app.quit` action is registered so ⌘Q / Ctrl+Q and the menu
 item both work; on macOS the App-menu Quit is standard; Qt/WinUI quit their event loops.

@@ -24,7 +24,7 @@ these values to device pixels. App code normally obtains the shared types throug
 
 - [Layout and sizing](https://daybrite.dev/docs/explanation/layout/)
 - [Canvas drawing](https://daybrite.dev/docs/reference/canvas/)
-- [Rust API](https://daybrite.dev/api/day_geometry/index.html)
+- [Rust API](https://docs.rs/day-geometry/latest/day_geometry/index.html)
 
 [Source](https://github.com/daybrite/day/tree/main/crates/day-geometry) ·
 [Contributing](https://daybrite.dev/contributing/setup/) · [MPL-2.0

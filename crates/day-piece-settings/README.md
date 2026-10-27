@@ -25,7 +25,7 @@ direct use by extension crates.
 - [Setup and component reference](https://daybrite.dev/docs/reference/settings/)
 - [Persistent preferences](https://daybrite.dev/docs/reference/prefs/)
 - [Compose an interface](https://daybrite.dev/docs/explanation/pieces/)
-- [Rust API](https://daybrite.dev/api/day_piece_settings/index.html)
+- [Rust API](https://docs.rs/day-piece-settings/latest/day_piece_settings/index.html)
 
 [Source](https://github.com/daybrite/day/tree/main/crates/day-piece-settings) ·
 [Contributing](https://daybrite.dev/contributing/setup/) · [MPL-2.0

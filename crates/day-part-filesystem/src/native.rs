@@ -2,14 +2,11 @@
 // SPDX-License-Identifier: MPL-2.0
 
 // ---------------------------------------------------------------------------
-// Every non-wasm target: std::fs under the per-app data root. The root resolves once per call
-// (cheap, and env-driven so tests and hosts can redirect it):
-//   1. DAY_DATA_DIR, set by the mobile hosts (DayActivity passes the app's files dir on
-//      Android; the OpenHarmony host passes its files dir) and by tests.
-//   2. The platform's app-data convention: Application Support on Apple (the iOS sandbox HOME
-//      makes this the app container), XDG data on Linux, APPDATA on Windows.
-// Everything lives under a `day-fs/` leaf so the root never collides with other day state in
-// the same directory (day-part-preferences' store lives beside it, not inside it).
+// Every non-wasm target: std::fs under the app's data directory, `day_spec::storage::data_dir()`
+// (docs/fs.md "Where files live"): DAY_DATA_DIR when a mobile host or a test sets it, else the
+// platform's per-app folder. It resolves on every call (cheap, and env-driven so tests and hosts
+// can redirect it). Everything lives under a `day-fs/` leaf, so the paths this part hands out never
+// reach the app's other files there (its database, its settings file).
 // ---------------------------------------------------------------------------
 
 use std::path::PathBuf;
@@ -18,12 +15,7 @@ use super::{BytesResult, FsError, ListResult, UnitResult};
 
 /// The app's data directory, before the `day-fs/` leaf.
 pub(crate) fn data_dir() -> Result<PathBuf, FsError> {
-    if let Some(dir) = std::env::var_os("DAY_DATA_DIR")
-        && !dir.is_empty()
-    {
-        return Ok(PathBuf::from(dir));
-    }
-    platform_data_dir().map(|root| root.join("day"))
+    day_spec::storage::data_dir().ok_or(FsError::Unsupported)
 }
 
 /// The platform's application-data directory, the parent every app's data sits under.

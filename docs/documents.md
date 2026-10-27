@@ -98,13 +98,13 @@ let open = Command::new(id!(open_document), res::str::open_document(), move || {
 .shortcut(Shortcut::primary("o"));
 ```
 
-Put [`open.menu_item()`](https://daybrite.dev/api/day_pieces/struct.Command.html#method.menu_item) in a `MenuBarRole::File` submenu and [`open.toolbar_item()`](https://daybrite.dev/api/day_pieces/struct.Command.html#method.toolbar_item) in mobile
+Put [`open.menu_item()`](https://docs.rs/day-pieces/latest/day_pieces/struct.Command.html#method.menu_item) in a `MenuBarRole::File` submenu and [`open.toolbar_item()`](https://docs.rs/day-pieces/latest/day_pieces/struct.Command.html#method.toolbar_item) in mobile
 navigation chrome. [Commands](./commands.md), [file pickers](./files.md), and
 [windows](./windows.md) document those APIs.
 
 ## File access and lifetime
 
-[`FileUrl::read_limited(limit).await`](https://daybrite.dev/api/day_pieces/struct.FileUrl.html#method.read_limited) reads on a native worker and returns `InvalidData` when the
+[`FileUrl::read_limited(limit).await`](https://docs.rs/day-pieces/latest/day_pieces/struct.FileUrl.html#method.read_limited) reads on a native worker and returns `InvalidData` when the
 limit is exceeded. It holds and releases Apple security-scoped access around the read. Web
 files have already been read asynchronously into the browser's virtual file store.
 

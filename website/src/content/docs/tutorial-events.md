@@ -26,12 +26,12 @@ Replace all of `src/lib.rs` with this complete file:
 
 <!-- tutorial-step: events/ui -->
 
-[`column`](https://daybrite.dev/api/day_pieces/fn.column.html) arranges the label and button vertically. [`button`](https://daybrite.dev/api/day_pieces/fn.button.html) creates a button Piece; [`.action`](https://daybrite.dev/api/day_pieces/trait.ButtonBuilder.html#tymethod.action)
+[`column`](https://docs.rs/day-pieces/latest/day_pieces/fn.column.html) arranges the label and button vertically. [`button`](https://docs.rs/day-pieces/latest/day_pieces/fn.button.html) creates a button Piece; [`.action`](https://docs.rs/day-pieces/latest/day_pieces/trait.ButtonBuilder.html#tymethod.action)
 registers the closure Day calls when it receives a click. The `||` closure takes no arguments.
 `id!(try_button)` gives the control a stable identity for automation, independent of its translated
 label. IDs do not replace accessible text.
 
-An alert waits for a response. [`day::task`](https://daybrite.dev/api/day/fn.task.html) runs this asynchronous UI operation without blocking
+An alert waits for a response. [`day::task`](https://docs.rs/day-app/latest/day/fn.task.html) runs this asynchronous UI operation without blocking
 the native event loop; `await` waits for dismissal. This task stays on the UI thread. It is not
 a place for blocking network or file work. The message is constructed inside the UI task.
 
@@ -46,7 +46,7 @@ then press the button again to confirm the callback runs on each click.
 
 ## Troubleshooting
 
-If the alert does not appear, check that [`.action(...)`](https://daybrite.dev/api/day_pieces/trait.ButtonBuilder.html#tymethod.action) is attached to [`button`](https://daybrite.dev/api/day_pieces/fn.button.html), save the file,
+If the alert does not appear, check that [`.action(...)`](https://docs.rs/day-pieces/latest/day_pieces/trait.ButtonBuilder.html#tymethod.action) is attached to [`button`](https://docs.rs/day-pieces/latest/day_pieces/fn.button.html), save the file,
 quit the previous app, and relaunch. If `try_button` or `click_received` is missing at compile
 time, check the Fluent keys and rebuild.
 

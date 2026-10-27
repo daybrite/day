@@ -14,7 +14,7 @@ final class SearchTests: XCTestCase {
         continueAfterFailure = false
         let app = XCUIApplication(bundleIdentifier: bundle)
         // Separate offline fixture (seed-news.py); no production credentials or subscriptions.
-        app.launchEnvironment["DAY_NEWS_DATA_DIR"] = "/tmp/day-search-drawer-fixture"
+        app.launchEnvironment["DAY_DATA_DIR"] = "/tmp/day-search-drawer-fixture"
         app.launchEnvironment["DAY_NEWS_SYNC_TEST"] = "1"
         app.launch()
         let rootBar = app.navigationBars[title].firstMatch

@@ -25,7 +25,7 @@ connects localized text to UI updates.
 
 - [Localize an app](https://daybrite.dev/docs/how-to/localization/)
 - [Localization reference](https://daybrite.dev/docs/reference/localization/)
-- [Rust API](https://daybrite.dev/api/day_localization/index.html)
+- [Rust API](https://docs.rs/day-localization/latest/day_localization/index.html)
 
 [Source](https://github.com/daybrite/day/tree/main/crates/day-localization) ·
 [Contributing](https://daybrite.dev/contributing/setup/) · [MPL-2.0

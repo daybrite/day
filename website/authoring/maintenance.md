@@ -96,24 +96,22 @@ From the repository root, with the documented Node and Rust tools and dependenci
 ```sh
 npm --prefix website run build:force
 npm --prefix website run linkcheck
+npm --prefix website run docs:api
 npm --prefix website run preview
 ```
 
 These commands build and serve locally; they do not publish. The site build may fetch existing
-gallery/release inputs and rewrite generated data. The API script clears `target/doc`, runs Cargo,
-and replaces the destination bundle. Use an isolated checkout/copy when preserving local build
-output or lockfile edits. The full build generates Rustdoc after Astro, then checks the bundle
-and links into it. A later `build:site` or bare Astro build clears `dist`, including the API
-bundle; rerun `build:api` afterward. `scripts/website.sh preview` rebuilds both outputs; use the
-direct preview command above to inspect an existing artifact.
+gallery/release inputs and rewrite generated data. `docs:api` builds rustdoc as docs.rs does into
+`target/api-check/` (never into the site) and checks every API link against it. Use an isolated
+checkout/copy when preserving local build output or lockfile edits. `scripts/website.sh preview`
+rebuilds the site; use the direct preview command above to inspect an existing artifact.
 
-The artifact completeness check requires the gallery and Showcase pages, search entry files,
-sitemap, custom-domain file, API bridge, root API landing page, and every crate
-entry from the shared manifest. The API link checker validates guide-to-API links as well as
-Rustdoc item destinations and fragments; Rustdoc warnings fail
-the build. The completeness check itself does not replace either check.
-The website link checker excludes Rustdoc and external URLs; review those separately. Search
-indexes the Astro site before Rustdoc is added and is not evidence of full API-item search.
+The API link checker validates every docs.rs link to this workspace's crates, to its item page
+and fragment, and requires the API reference page to list every crate from the shared manifest;
+rustdoc warnings fail the checking build. A link to an API added since the last release passes
+here and resolves on docs.rs once that release is published. The website link checker excludes
+external URLs, docs.rs included; review links to external crates separately. Search covers the
+guides; API items are searched on docs.rs.
 
 Before any authorized publication, review the exact artifact, its screenshot/release inputs,
 known failures, and unrun checks. The current CI website lane can deploy independently of the

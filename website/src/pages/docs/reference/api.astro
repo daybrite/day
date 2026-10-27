@@ -13,12 +13,12 @@ const groups = api.groups.map((group) => ({
   crates: [
     ...group.crates.map((crate) => ({
       ...crate,
-      href: `https://daybrite.dev/api/${'lib' in crate ? crate.lib : crate.pkg.replace(/-/g, '_')}/index.html`,
+      href: `https://docs.rs/${crate.pkg}/latest/${'lib' in crate ? crate.lib : crate.pkg.replace(/-/g, '_')}/`,
       guide: guideFor(crate.pkg),
-      label: 'API on daybrite.dev',
+      label: 'API on docs.rs',
     })),
     ...external.filter((crate) => crate.group === group.name).map((crate) => ({
-      ...crate, href: crate.api, label: `API on docs.rs · ${crate.version}`,
+      ...crate, href: crate.api, label: 'API on docs.rs',
     })),
   ],
 }));
@@ -26,18 +26,18 @@ groups.push({
   name: 'Example libraries',
   blurb: 'Reusable examples with their own published APIs.',
   crates: external.filter((crate) => crate.group === 'Example libraries').map((crate) => ({
-    ...crate, href: crate.api, label: `API on docs.rs · ${crate.version}`,
+    ...crate, href: crate.api, label: 'API on docs.rs',
   })),
 });
 ---
-<DocsLayout title="API reference" description="Generated Rust API documentation (rustdoc) for the public Day crates.">
+<DocsLayout title="API reference" description="The Rust API documentation for the public Day crates, on docs.rs.">
   <h1>API reference</h1>
   <p class="lead">
-    Generated <code>rustdoc</code> for the public Day crates. The guides explain the concepts;
-    rustdoc provides signatures, methods, variants, and source links for the crates below.
-    Built-in APIs are built from the same Day checkout as this site, using the portable mock
-    backend for the umbrella crate. External crates link to versioned releases on docs.rs.
-    Target-specific APIs may require documentation built for that target.
+    Browse API signatures, types, and source for the latest published release of each crate on docs.rs.
+  </p>
+  <p>
+    New APIs appear after publication. The <code>day-app</code> reference uses the headless
+    <code>mock</code> toolkit; APIs available only with a native toolkit are omitted from that build.
   </p>
 
   {groups.map((g) => (

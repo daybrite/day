@@ -17,13 +17,14 @@ the day crates at 0.6.1):
     versions. `cargo update --workspace --offline`, run inside each lock's workspace, rewrites
     exactly those entries and nothing else.
 
-Each lock is then held to `cargo metadata --locked --offline`, the check CI's jobs run. Docs and
-READMEs name minor versions (`day-core = "0.6"`), which a patch release leaves alone; the
-website's doc-dependency-versions check covers them when the minor changes. Run from anywhere:
-paths resolve against the repository this script lives in.
+Each lock is then held to `cargo metadata --locked --offline`, the check CI's jobs run. The
+documentation names no release (`cargo add`, `--day-version latest`, docs.rs `latest`), so a
+release changes nothing there. Run from anywhere: paths resolve against the repository this script
+lives in.
 """
 
 import argparse
+import json
 import re
 import subprocess
 import sys
@@ -95,16 +96,11 @@ def lock_is_current(lock_dir):
                           text=True)
 
 
-def framework_names(root_manifest):
-    """The crates `[workspace.dependencies]` lists by path: the ones whose version is ours."""
-    text = root_manifest.read_text()
-    table = re.search(r"^\[workspace\.dependencies\]\s*$(.*?)(?=^\[|\Z)", text, re.M | re.S)
-    names = set()
-    for line in (table.group(1) if table else "").splitlines():
-        m = re.match(r'\s*([A-Za-z0-9_-]+)\s*=\s*\{[^}]*\bpath\s*=', line)
-        if m:
-            names.add(m.group(1))
-    return names
+def framework_names():
+    """Every workspace member's package name: the crates whose version is the release's."""
+    out = subprocess.run(["cargo", "metadata", "--no-deps", "--offline", "--format-version", "1"],
+                         cwd=ROOT, check=True, capture_output=True, text=True).stdout
+    return {p["name"] for p in json.loads(out)["packages"]}
 
 
 def lock_versions(lock, names):
@@ -132,7 +128,7 @@ def main():
     _, current = workspace_version(root_manifest)
     manifests = tracked("*Cargo.toml")
     locks = tracked("*Cargo.lock")
-    names = framework_names(root_manifest)
+    names = framework_names()
 
     if args.version:
         new = args.version.removeprefix("v")

@@ -1,19 +1,34 @@
 #!/usr/bin/env python3
 # Copyright © The Daybrite Project
 # SPDX-License-Identifier: MPL-2.0
-"""Check Rustdoc and guide-to-API links, including alias redirects and encoded IDs."""
-from pathlib import Path
+"""Check the site's API links against a docs.rs-equivalent rustdoc build.
+
+The site publishes no API reference of its own: every API link goes to docs.rs as
+https://docs.rs/<package>/latest/<library>/<path>[#anchor]. For each rendered page of the built site,
+each such link to a crate of this workspace (website/src/data/api-crates.json) must name a page and
+anchor in the build scripts/build-api-docs.sh makes, which documents what docs.rs documents: its
+default target and each crate's `[package.metadata.docs.rs]` features. A link that fails here would
+fail on docs.rs too, for a reason a release does not fix (a typo, or an item behind a platform or a
+feature docs.rs does not build). Rustdoc's redirect pages for re-exports are followed.
+
+Links to crates outside the workspace (external pieces and parts) are not built here and are not
+checked. A link to daybrite.dev/api/ or a site-relative /api/ fails: that reference no longer exists.
+
+    check-api-links.py [--site website/dist] [--docs target/api-check/x86_64-unknown-linux-gnu/doc]
+"""
 from html.parser import HTMLParser
+from pathlib import Path
 from urllib.parse import urlsplit, unquote
+import argparse
 import json
-import sys
 import os
 import re
 
 ROOT = Path(__file__).resolve().parents[2]
 WORK = ROOT / '.cache/docs'
-WORK.mkdir(parents=True, exist_ok=True)
-DIST = Path(sys.argv[1]).resolve() if len(sys.argv) > 1 else ROOT / 'website/dist'
+SITE = ROOT / 'website/dist'
+DOCS = ROOT / 'target/api-check/x86_64-unknown-linux-gnu/doc'
+DOCS_RS = re.compile(r'^https://docs\.rs/([^/]+)/[^/]+/([^/]+)/(.*)$')
 
 
 class Page(HTMLParser):
@@ -34,105 +49,93 @@ class Page(HTMLParser):
                 self.redirect = match[1].strip()
 
 
-def main():
-    pages = {path: Page(path) for path in (DIST / 'api').rglob('*.html')}
-    api_pages = list(pages)
-    files = {path for path in DIST.rglob('*') if path.is_file()}
-    failures = []
-    checked = external = 0
-    guide_links = 0
+def crates():
+    """{package: library} for every crate the site documents."""
+    manifest = json.loads((ROOT / 'website/src/data/api-crates.json').read_text())
+    return {c['pkg']: c.get('lib') or c['pkg'].replace('-', '_')
+            for group in manifest['groups'] for c in group['crates']}
 
-    def destination(source, href):
-        parsed = urlsplit(href)
-        if (parsed.scheme or parsed.netloc) and parsed.netloc != 'daybrite.dev':
-            return None, parsed.fragment
-        path = unquote(parsed.path)
-        target = DIST / path.lstrip('/') if path.startswith('/') else source.parent / path if path else source
-        target = Path(os.path.normpath(target))
-        if target not in files and not target.suffix:
-            target /= 'index.html'
-        return target, parsed.fragment
 
-    # Guide links used to escape both checkers: the site checker skips /api/, while this
-    # checker only walked Rustdoc. Include every guide's API links in the same fragment check.
-    guide_pages = []
-    for source in sorted(files):
-        if source.suffix != '.html' or source in pages:
-            continue
-        page = Page(source)
-        api_links = []
-        for href in page.links:
-            target, _ = destination(source, href)
-            if target is not None and target.is_relative_to(DIST / 'api'):
-                api_links.append(href)
-        if api_links:
-            page.links = api_links
-            pages[source] = page
-            guide_pages.append(source)
-            guide_links += len(api_links)
+def check(site, docs):
+    workspace = crates()
+    cache = {}
 
-    for source in api_pages + guide_pages:
-        for href in pages[source].links:
-            target, fragment = destination(source, href)
-            if target is None:
+    def page(path):
+        if path not in cache:
+            cache[path] = Page(path)
+        return cache[path]
+
+    def resolve(path, fragment):
+        """The reason a local rustdoc path and fragment do not resolve, or None."""
+        for _ in range(10):
+            if not path.is_file():
+                if path.suffix:
+                    return 'missing page'
+                path /= 'index.html'
+                continue
+            target = page(path)
+            if target.redirect:
+                parsed = urlsplit(target.redirect)
+                path = Path(os.path.normpath(path.parent / unquote(parsed.path)))
+                fragment = parsed.fragment or fragment
+                continue
+            # Browsers try the literal ID before percent-decoding the fragment.
+            if fragment and fragment not in target.ids and unquote(fragment) not in target.ids:
+                return 'missing anchor'
+            return None
+        return 'redirect loop'
+
+    failures, checked, external = [], 0, 0
+    for source in sorted(site.rglob('*.html')):
+        for href in page(source).links:
+            parsed = urlsplit(href)
+            where = str(source.relative_to(site))
+            if (parsed.netloc == 'daybrite.dev' and parsed.path.startswith('/api/')) or \
+                    (not parsed.netloc and parsed.path.startswith('/api/')):
+                failures.append({'page': where, 'href': href, 'reason': 'self-hosted API link; use docs.rs'})
+                continue
+            match = DOCS_RS.match(f'{parsed.scheme}://{parsed.netloc}{parsed.path}')
+            if not match:
+                continue
+            package, library, rest = match.groups()
+            if package not in workspace:
                 external += 1
                 continue
             checked += 1
-            reason = None
-            for _ in range(10):
-                if target not in files:
-                    reason = 'missing file'
-                    break
-                if target.suffix != '.html':
-                    break
-                if target not in pages:
-                    pages[target] = Page(target)
-                page = pages[target]
-                if page.redirect:
-                    target, next_fragment = destination(target, page.redirect)
-                    fragment = next_fragment or fragment
-                    if target is None:
-                        external += 1
-                        break
-                    continue
-                # Browsers try the literal ID before percent-decoding the fragment.
-                if fragment and fragment not in page.ids and unquote(fragment) not in page.ids:
-                    reason = 'missing anchor'
-                break
-            else:
-                reason = 'redirect loop'
+            if workspace[package] != library:
+                failures.append({'page': where, 'href': href,
+                                 'reason': f'{package} documents as {workspace[package]}, not {library}'})
+                continue
+            reason = resolve(docs / library / unquote(rest), parsed.fragment)
             if reason:
-                failures.append({'page': str(source.relative_to(DIST)), 'href': href, 'reason': reason})
+                failures.append({'page': where, 'href': href, 'reason': reason})
 
-    manifest = json.loads((ROOT / 'website/src/data/api-crates.json').read_text())
-    crates = [crate.get('lib') or crate['pkg'].replace('-', '_')
-              for group in manifest['groups'] for crate in group['crates']]
-    bridge_path = DIST / 'docs/reference/api/index.html'
-    bridge = Page(bridge_path)
-    bridge_targets = {destination(bridge_path, href)[0] for href in bridge.links}
-    navigation_failures = []
-    for crate in crates:
-        route = f'/api/{crate}/index.html'
-        target = DIST / route.lstrip('/')
-        if target not in bridge_targets or target not in files:
-            navigation_failures.append(route)
-    for path in api_pages:
-        page = pages[path]
-        if page.redirect:
-            continue
-        for href in ['/docs/reference/api', '/docs/explanation/overview', '/']:
-            if href not in page.links:
-                navigation_failures.append(str(path.relative_to(DIST)) + ': ' + href)
+    # The API reference page lists every documented crate at its docs.rs home.
+    index = site / 'docs/reference/api/index.html'
+    listed = set(page(index).links) if index.is_file() else set()
+    for package, library in sorted(workspace.items()):
+        if not any(h.startswith(f'https://docs.rs/{package}/latest/{library}/') for h in listed):
+            failures.append({'page': 'docs/reference/api/index.html', 'href': package,
+                             'reason': 'crate missing from the API reference page'})
+    return {'checked': checked, 'external_skipped': external, 'crates': len(workspace), 'failures': failures}
 
-    result = {'html_pages': len(api_pages), 'guide_api_links': guide_links,
-              'checked': checked, 'external_skipped': external,
-              'crates': len(crates), 'navigation_failures': navigation_failures, 'failures': failures}
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument('--site', type=Path, default=SITE)
+    parser.add_argument('--docs', type=Path, default=DOCS)
+    args = parser.parse_args(argv)
+    if not (args.docs / 'day' / 'index.html').is_file():
+        print(f'No rustdoc in {args.docs}; run scripts/build-api-docs.sh first.')
+        return 1
+    result = check(args.site.resolve(), args.docs.resolve())
+    WORK.mkdir(parents=True, exist_ok=True)
     (WORK / 'api-links.json').write_text(json.dumps(result, indent=2) + '\n')
     print(json.dumps({key: value for key, value in result.items() if key != 'failures'}))
-    print(f'Broken API links: {len(failures)}; full details in {WORK / "api-links.json"}')
-    for failure in failures:
+    print(f'Broken API links: {len(result["failures"])}; full details in {WORK / "api-links.json"}')
+    for failure in result['failures']:
         print(f'{failure["page"]}: {failure["reason"]}: {failure["href"]}')
-    return int(bool(failures or navigation_failures))
+    return int(bool(result['failures']))
 
 
 if __name__ == '__main__':

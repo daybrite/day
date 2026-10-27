@@ -12,7 +12,7 @@ test('unlinked calls, methods, qualified references, and nested calls require ow
   assert.ok(refs.every(r => !('url' in r)), 'ambiguous names must never auto-select an owner');
 });
 test('links, reference links and fenced samples are excluded, generated app accessors are not Day APIs', async () => {
-  const refs = await unlinkedReferences('[`.on_submit(f)`](/api/day_pieces/trait.TextAreaBuilder.html#tymethod.on_submit)\n\n[`Search::on_submit`][submit]\n\n[submit]: /api/day_pieces/struct.Search.html#method.on_submit\n\n```rust\ntext_area(s).on_submit(f)\n```\n\n`res::str::get()`; `res::str::day_cancel()`', names);
+  const refs = await unlinkedReferences('[`.on_submit(f)`](https://docs.rs/day-pieces/latest/day_pieces/trait.TextAreaBuilder.html#tymethod.on_submit)\n\n[`Search::on_submit`][submit]\n\n[submit]: https://docs.rs/day-pieces/latest/day_pieces/struct.Search.html#method.on_submit\n\n```rust\ntext_area(s).on_submit(f)\n```\n\n`res::str::get()`; `res::str::day_cancel()`', names);
   assert.deepEqual(refs.map(r => r.code), ['res::str::day_cancel()']);
 });
 test('diagnostic lines include front matter; ordinary words and fields are not inferred as calls', async () => {

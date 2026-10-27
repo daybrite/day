@@ -63,7 +63,7 @@ the built binary to decide.
 
 ## Caveats
 
-- [`toggle`](https://daybrite.dev/api/day_pieces/fn.toggle.html) is a [`QCheckBox`](https://doc.qt.io/qt-6/qcheckbox.html), because Qt Widgets has no native switch control, so the same Day code
+- [`toggle`](https://docs.rs/day-pieces/latest/day_pieces/fn.toggle.html) is a [`QCheckBox`](https://doc.qt.io/qt-6/qcheckbox.html), because Qt Widgets has no native switch control, so the same Day code
   shows a checkbox here and a switch elsewhere.
 - The list is emulated. Day drives a [`QScrollArea`](https://doc.qt.io/qt-6/qscrollarea.html) with its own recycling rather than
   [`QListView`](https://doc.qt.io/qt-6/qlistview.html), so very large lists behave differently than a model/view Qt app would.
@@ -71,7 +71,7 @@ the built binary to decide.
   (Ubuntu 24.04 ships 6.4) Day falls back to the Fusion style with a hand-built dark palette.
 - No spell-check, because Qt ships none; `Cap::TextSpellCheck` reports unsupported and the
   patch is a no-op.
-- Lottie and map have no Qt arm; each renders its placeholder. [`cover()`](https://daybrite.dev/api/day_pieces/fn.cover.html) presents as
+- Lottie and map have no Qt arm; each renders its placeholder. [`cover()`](https://docs.rs/day-pieces/latest/day_pieces/fn.cover.html) presents as
   a topmost window-sized child (no transition, programmatic dismissal only).
 - Qt on macOS (`macos-qt`) is a development combo, and stays at
   [Tier 4](/docs/reference/platforms#support-tiers), so `day pack` skips it. On Windows, build `linux-qt`
@@ -84,37 +84,37 @@ this table adds links and notes.
 
 | Day piece | Qt class |
 |---|---|
-| [`column`](https://daybrite.dev/api/day_pieces/fn.column.html) / [`row`](https://daybrite.dev/api/day_pieces/fn.row.html) / [`nav_stack`](https://daybrite.dev/api/day_pieces/fn.nav_stack.html) / [`section`](https://daybrite.dev/api/day_pieces/fn.section.html) | [`QWidget`](https://doc.qt.io/qt-6/qwidget.html) (Day owns layout) |
-| [`label`](https://daybrite.dev/api/day_pieces/fn.label.html) | [`QLabel`](https://doc.qt.io/qt-6/qlabel.html) |
-| [`button`](https://daybrite.dev/api/day_pieces/fn.button.html) | [`QPushButton`](https://doc.qt.io/qt-6/qpushbutton.html) |
-| [`toggle`](https://daybrite.dev/api/day_pieces/fn.toggle.html) | [`QCheckBox`](https://doc.qt.io/qt-6/qcheckbox.html); see the caveat above |
-| [`slider`](https://daybrite.dev/api/day_pieces/fn.slider.html) | [`QSlider`](https://doc.qt.io/qt-6/qslider.html) |
-| [`text_field`](https://daybrite.dev/api/day_pieces/fn.text_field.html) | [`QLineEdit`](https://doc.qt.io/qt-6/qlineedit.html) |
-| [`secure_field`](https://daybrite.dev/api/day_pieces/fn.secure_field.html) | [`QLineEdit`](https://doc.qt.io/qt-6/qlineedit.html) in [`Password`](https://doc.qt.io/qt-6/qlineedit.html#EchoMode-enum) echo mode |
-| [`text_area`](https://daybrite.dev/api/day_pieces/fn.text_area.html) | [`QPlainTextEdit`](https://doc.qt.io/qt-6/qplaintextedit.html) |
-| [`picker`](https://daybrite.dev/api/day_pieces/fn.picker.html)`()`[`.menu`](https://daybrite.dev/api/day_pieces/trait.PickerBuilder.html#tymethod.menu)`()` | [`QComboBox`](https://doc.qt.io/qt-6/qcombobox.html) |
-| [`picker`](https://daybrite.dev/api/day_pieces/fn.picker.html)`()`[`.segmented`](https://daybrite.dev/api/day_pieces/trait.PickerBuilder.html#tymethod.segmented)`()` | checkable [`QPushButton`](https://doc.qt.io/qt-6/qpushbutton.html)s in an exclusive group |
-| [`picker`](https://daybrite.dev/api/day_pieces/fn.picker.html)`()`[`.inline`](https://daybrite.dev/api/day_pieces/trait.PickerBuilder.html#tymethod.inline)`()` | [`QRadioButton`](https://doc.qt.io/qt-6/qradiobutton.html)s in an exclusive group |
-| [`progress(f)`](https://daybrite.dev/api/day_pieces/fn.progress.html) | [`QProgressBar`](https://doc.qt.io/qt-6/qprogressbar.html) |
-| [`spinner()`](https://daybrite.dev/api/day_pieces/fn.spinner.html) | [`QProgressBar`](https://doc.qt.io/qt-6/qprogressbar.html) in busy mode (Qt has no spinner widget) |
-| [`divider`](https://daybrite.dev/api/day_pieces/fn.divider.html) | [`QFrame`](https://doc.qt.io/qt-6/qframe.html) (`HLine`) |
-| [`scroll`](https://daybrite.dev/api/day_pieces/fn.scroll.html) | [`QScrollArea`](https://doc.qt.io/qt-6/qscrollarea.html) |
-| [`list`](https://daybrite.dev/api/day_pieces/fn.list.html) | [`QScrollArea`](https://doc.qt.io/qt-6/qscrollarea.html) with Day-side recycling |
-| [`nav`](https://daybrite.dev/api/day_pieces/fn.nav.html) (split) | [`QSplitter`](https://doc.qt.io/qt-6/qsplitter.html); the stack header adds a [`QToolButton`](https://doc.qt.io/qt-6/qtoolbutton.html) |
+| [`column`](https://docs.rs/day-pieces/latest/day_pieces/fn.column.html) / [`row`](https://docs.rs/day-pieces/latest/day_pieces/fn.row.html) / [`nav_stack`](https://docs.rs/day-pieces/latest/day_pieces/fn.nav_stack.html) / [`section`](https://docs.rs/day-pieces/latest/day_pieces/fn.section.html) | [`QWidget`](https://doc.qt.io/qt-6/qwidget.html) (Day owns layout) |
+| [`label`](https://docs.rs/day-pieces/latest/day_pieces/fn.label.html) | [`QLabel`](https://doc.qt.io/qt-6/qlabel.html) |
+| [`button`](https://docs.rs/day-pieces/latest/day_pieces/fn.button.html) | [`QPushButton`](https://doc.qt.io/qt-6/qpushbutton.html) |
+| [`toggle`](https://docs.rs/day-pieces/latest/day_pieces/fn.toggle.html) | [`QCheckBox`](https://doc.qt.io/qt-6/qcheckbox.html); see the caveat above |
+| [`slider`](https://docs.rs/day-pieces/latest/day_pieces/fn.slider.html) | [`QSlider`](https://doc.qt.io/qt-6/qslider.html) |
+| [`text_field`](https://docs.rs/day-pieces/latest/day_pieces/fn.text_field.html) | [`QLineEdit`](https://doc.qt.io/qt-6/qlineedit.html) |
+| [`secure_field`](https://docs.rs/day-pieces/latest/day_pieces/fn.secure_field.html) | [`QLineEdit`](https://doc.qt.io/qt-6/qlineedit.html) in [`Password`](https://doc.qt.io/qt-6/qlineedit.html#EchoMode-enum) echo mode |
+| [`text_area`](https://docs.rs/day-pieces/latest/day_pieces/fn.text_area.html) | [`QPlainTextEdit`](https://doc.qt.io/qt-6/qplaintextedit.html) |
+| [`picker`](https://docs.rs/day-pieces/latest/day_pieces/fn.picker.html)`()`[`.menu`](https://docs.rs/day-pieces/latest/day_pieces/trait.PickerBuilder.html#tymethod.menu)`()` | [`QComboBox`](https://doc.qt.io/qt-6/qcombobox.html) |
+| [`picker`](https://docs.rs/day-pieces/latest/day_pieces/fn.picker.html)`()`[`.segmented`](https://docs.rs/day-pieces/latest/day_pieces/trait.PickerBuilder.html#tymethod.segmented)`()` | checkable [`QPushButton`](https://doc.qt.io/qt-6/qpushbutton.html)s in an exclusive group |
+| [`picker`](https://docs.rs/day-pieces/latest/day_pieces/fn.picker.html)`()`[`.inline`](https://docs.rs/day-pieces/latest/day_pieces/trait.PickerBuilder.html#tymethod.inline)`()` | [`QRadioButton`](https://doc.qt.io/qt-6/qradiobutton.html)s in an exclusive group |
+| [`progress(f)`](https://docs.rs/day-pieces/latest/day_pieces/fn.progress.html) | [`QProgressBar`](https://doc.qt.io/qt-6/qprogressbar.html) |
+| [`spinner()`](https://docs.rs/day-pieces/latest/day_pieces/fn.spinner.html) | [`QProgressBar`](https://doc.qt.io/qt-6/qprogressbar.html) in busy mode (Qt has no spinner widget) |
+| [`divider`](https://docs.rs/day-pieces/latest/day_pieces/fn.divider.html) | [`QFrame`](https://doc.qt.io/qt-6/qframe.html) (`HLine`) |
+| [`scroll`](https://docs.rs/day-pieces/latest/day_pieces/fn.scroll.html) | [`QScrollArea`](https://doc.qt.io/qt-6/qscrollarea.html) |
+| [`list`](https://docs.rs/day-pieces/latest/day_pieces/fn.list.html) | [`QScrollArea`](https://doc.qt.io/qt-6/qscrollarea.html) with Day-side recycling |
+| [`nav`](https://docs.rs/day-pieces/latest/day_pieces/fn.nav.html) (split) | [`QSplitter`](https://doc.qt.io/qt-6/qsplitter.html); the stack header adds a [`QToolButton`](https://doc.qt.io/qt-6/qtoolbutton.html) |
 | `nav_menu` | [`QListWidget`](https://doc.qt.io/qt-6/qlistwidget.html) |
 | `tabs` | [`QTabWidget`](https://doc.qt.io/qt-6/qtabwidget.html) |
-| [`image`](https://daybrite.dev/api/day_pieces/fn.image.html) | [`QLabel`](https://doc.qt.io/qt-6/qlabel.html) subclass painting a scaled pixmap |
-| [`vector`](https://daybrite.dev/api/day_pieces/fn.vector.html) | the same [`QLabel`](https://doc.qt.io/qt-6/qlabel.html) subclass painting the raster cache PNG ([`.tint`](https://daybrite.dev/api/day_pieces/trait.VectorBuilder.html#tymethod.tint) has no Qt arm yet; glyphs draw as authored) |
-| [`canvas`](https://daybrite.dev/api/day_pieces/fn.canvas.html) | [`QWidget`](https://doc.qt.io/qt-6/qwidget.html) subclass painting with [`QPainter`](https://doc.qt.io/qt-6/qpainter.html) |
+| [`image`](https://docs.rs/day-pieces/latest/day_pieces/fn.image.html) | [`QLabel`](https://doc.qt.io/qt-6/qlabel.html) subclass painting a scaled pixmap |
+| [`vector`](https://docs.rs/day-pieces/latest/day_pieces/fn.vector.html) | the same [`QLabel`](https://doc.qt.io/qt-6/qlabel.html) subclass painting the raster cache PNG ([`.tint`](https://docs.rs/day-pieces/latest/day_pieces/trait.VectorBuilder.html#tymethod.tint) has no Qt arm yet; glyphs draw as authored) |
+| [`canvas`](https://docs.rs/day-pieces/latest/day_pieces/fn.canvas.html) | [`QWidget`](https://doc.qt.io/qt-6/qwidget.html) subclass painting with [`QPainter`](https://doc.qt.io/qt-6/qpainter.html) |
 | dialogs / alerts | [`QMessageBox`](https://doc.qt.io/qt-6/qmessagebox.html) |
 | prompts | [`QInputDialog`](https://doc.qt.io/qt-6/qinputdialog.html) |
 | file dialogs | [`QFileDialog`](https://doc.qt.io/qt-6/qfiledialog.html) |
 | menu bar / context menus | [`QMenuBar`](https://doc.qt.io/qt-6/qmenubar.html) / [`QMenu`](https://doc.qt.io/qt-6/qmenu.html) |
-| *external* [`spinner()`](https://daybrite.dev/api/day_pieces/fn.spinner.html) | [`QProgressBar`](https://doc.qt.io/qt-6/qprogressbar.html) (busy) |
+| *external* [`spinner()`](https://docs.rs/day-pieces/latest/day_pieces/fn.spinner.html) | [`QProgressBar`](https://doc.qt.io/qt-6/qprogressbar.html) (busy) |
 | *external* `combobox()` | editable [`QComboBox`](https://doc.qt.io/qt-6/qcombobox.html) |
-| *external* [`search_field()`](https://daybrite.dev/api/day_pieces/searchfield/fn.search_field.html) | [`QLineEdit`](https://doc.qt.io/qt-6/qlineedit.html) with a clear button and a find icon |
-| *external* [`date_picker()`](https://daybrite.dev/api/day_pieces/datetime/fn.date_picker.html) | [`QDateEdit`](https://doc.qt.io/qt-6/qdateedit.html) with a calendar popup, or [`QCalendarWidget`](https://doc.qt.io/qt-6/qcalendarwidget.html) inline |
-| *external* [`time_picker()`](https://daybrite.dev/api/day_pieces/datetime/fn.time_picker.html) | [`QTimeEdit`](https://doc.qt.io/qt-6/qtimeedit.html) |
+| *external* [`search_field()`](https://docs.rs/day-pieces/latest/day_pieces/searchfield/fn.search_field.html) | [`QLineEdit`](https://doc.qt.io/qt-6/qlineedit.html) with a clear button and a find icon |
+| *external* [`date_picker()`](https://docs.rs/day-pieces/latest/day_pieces/datetime/fn.date_picker.html) | [`QDateEdit`](https://doc.qt.io/qt-6/qdateedit.html) with a calendar popup, or [`QCalendarWidget`](https://doc.qt.io/qt-6/qcalendarwidget.html) inline |
+| *external* [`time_picker()`](https://docs.rs/day-pieces/latest/day_pieces/datetime/fn.time_picker.html) | [`QTimeEdit`](https://doc.qt.io/qt-6/qtimeedit.html) |
 | *external* `webview()` | [`QWebEngineView`](https://doc.qt.io/qt-6/qwebengineview.html) |
 | *external* `media()` | [`QMediaPlayer`](https://doc.qt.io/qt-6/qmediaplayer.html) + [`QVideoWidget`](https://doc.qt.io/qt-6/qvideowidget.html) |
 

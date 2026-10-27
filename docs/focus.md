@@ -19,7 +19,7 @@ The UI snippets use generated `res::str` accessors from an app's Fluent catalog;
 
 ## Authoring
 
-Focus binds to a signal with [`.focused(…)`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.focused), exactly like every other two-way control binding.
+Focus binds to a signal with [`.focused(…)`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.focused), exactly like every other two-way control binding.
 Use a boolean for one control, or an optional key to coordinate a group:
 
 ```rust
@@ -49,9 +49,9 @@ column((
 - **Signal → native:** writing `Some(K)` / `true` requests native focus for the bound control.
   Writing `None` / `false` resigns it; on iOS and Android that dismisses the soft keyboard,
   matching the platform convention SwiftUI set.
-- **Read the binding.** [`focus.get() == Some(Field::User)`](https://daybrite.dev/api/day_reactive/struct.Signal.html#method.get) is a tracked read like any other,
+- **Read the binding.** [`focus.get() == Some(Field::User)`](https://docs.rs/day-reactive/latest/day_reactive/struct.Signal.html#method.get) is a tracked read like any other,
   with nothing else to wire.
-- **Field chaining** is a write in [`on_submit(f)`](https://daybrite.dev/api/day_pieces/trait.TextFieldBuilder.html#tymethod.on_submit), to move to the next field after submission.
+- **Field chaining** is a write in [`on_submit(f)`](https://docs.rs/day-pieces/latest/day_pieces/trait.TextFieldBuilder.html#tymethod.on_submit), to move to the next field after submission.
 
 ## Focus requests and lifetime
 
@@ -73,9 +73,9 @@ not expose custom focus-order or dialog focus-scope builders.
 Text fields take focus on every toolkit. Desktop buttons, toggles, and sliders follow the
 platform's keyboard-access settings; macOS button traversal depends on Full Keyboard Access.
 On touch platforms, non-text controls generally do not take keyboard focus. A canvas can
-receive focus and key events; on Android, press-to-focus applies when it has an [`.on_key`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.on_key) handler.
+receive focus and key events; on Android, press-to-focus applies when it has an [`.on_key`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.on_key) handler.
 
-[`.focusable()`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.focusable) makes composed containers keyboard targets on AppKit, UIKit, GTK, Qt, Android,
+[`.focusable()`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.focusable) makes composed containers keyboard targets on AppKit, UIKit, GTK, Qt, Android,
 and DOM. On WinUI and ArkUI, bind focus to a native control or canvas inside the container.
 
 ## Mobile keyboards

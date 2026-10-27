@@ -20,7 +20,7 @@ to compile the example without making a network request.
 
 Keep the endpoint in a signal. Use `day::reactive::Resource` for a request owned by the current
 page scope: it starts on construction, supersedes the previous request when the endpoint changes,
-and aborts its task when the scope is disposed. This differs from an ordinary [`day::task`](https://daybrite.dev/api/day/fn.task.html), which
+and aborts its task when the scope is disposed. This differs from an ordinary [`day::task`](https://docs.rs/day-app/latest/day/fn.task.html), which
 continues after the page closes unless you abort it.
 
 Complete module for `src/http.rs` in the [technical recipe harness](https://github.com/daybrite/day/blob/main/docs/snippet-catalog.md#technical-recipes).
@@ -78,17 +78,17 @@ errors to localized UI messages.
 
 | Contract | Behavior in the checked-out source |
 | --- | --- |
-| [`fetch_future(Request) -> FetchFuture`](https://daybrite.dev/api/day_part_http/fn.fetch_future.html) | Starts immediately; awaiting yields `Result<Response, HttpError>` |
+| [`fetch_future(Request) -> FetchFuture`](https://docs.rs/day-part-http/latest/day_part_http/fn.fetch_future.html) | Starts immediately; awaiting yields `Result<Response, HttpError>` |
 | HTTP 4xx/5xx | Arrive as a response; the example explicitly converts rejected statuses to `HttpError::Status` |
-| [`Request::timeout(Duration)`](https://daybrite.dev/api/day_part_http/struct.Request.html#method.timeout) | Overrides the client's idle timeout, normally 30 seconds |
-| [`Request::timeout_total(Duration)`](https://daybrite.dev/api/day_part_http/struct.Request.html#method.timeout_total) | Bounds the whole request; the default client has no total limit |
+| [`Request::timeout(Duration)`](https://docs.rs/day-part-http/latest/day_part_http/struct.Request.html#method.timeout) | Overrides the client's idle timeout, normally 30 seconds |
+| [`Request::timeout_total(Duration)`](https://docs.rs/day-part-http/latest/day_part_http/struct.Request.html#method.timeout_total) | Bounds the whole request; the default client has no total limit |
 | Redirects | The default client follows up to 10; use `ClientBuilder` for another policy |
-| [`Response::text()`](https://daybrite.dev/api/day_part_http/struct.Response.html#method.text) | Lossy UTF-8; inspect `body` directly for binary data or strict decoding |
-| [`Response::header(name)`](https://daybrite.dev/api/day_part_http/struct.Response.html#method.header) | First matching header, ASCII case-insensitive; duplicates remain in `headers` |
+| [`Response::text()`](https://docs.rs/day-part-http/latest/day_part_http/struct.Response.html#method.text) | Lossy UTF-8; inspect `body` directly for binary data or strict decoding |
+| [`Response::header(name)`](https://docs.rs/day-part-http/latest/day_part_http/struct.Response.html#method.header) | First matching header, ASCII case-insensitive; duplicates remain in `headers` |
 | Request defaults | Empty headers/body; expensive and constrained networking allowed; default cache policy; no explicit priority |
 
-[`Request::get`](https://daybrite.dev/api/day_part_http/struct.Request.html#method.get), [`head`](https://daybrite.dev/api/day_part_http/struct.Request.html#method.head), and [`delete`](https://daybrite.dev/api/day_part_http/struct.Request.html#method.delete) accept a URL. [`post`](https://daybrite.dev/api/day_part_http/struct.Request.html#method.post), [`put`](https://daybrite.dev/api/day_part_http/struct.Request.html#method.put), and [`patch`](https://daybrite.dev/api/day_part_http/struct.Request.html#method.patch) also accept body
-bytes. [`.header(name, value)`](https://daybrite.dev/api/day_part_http/struct.Request.html#method.header) appends a header; [`.body_file`](https://daybrite.dev/api/day_part_http/struct.Request.html#method.body_file), [`.body_stream`](https://daybrite.dev/api/day_part_http/struct.Request.html#method.body_stream), and [`.form`](https://daybrite.dev/api/day_part_http/struct.Request.html#method.form) offer
+[`Request::get`](https://docs.rs/day-part-http/latest/day_part_http/struct.Request.html#method.get), [`head`](https://docs.rs/day-part-http/latest/day_part_http/struct.Request.html#method.head), and [`delete`](https://docs.rs/day-part-http/latest/day_part_http/struct.Request.html#method.delete) accept a URL. [`post`](https://docs.rs/day-part-http/latest/day_part_http/struct.Request.html#method.post), [`put`](https://docs.rs/day-part-http/latest/day_part_http/struct.Request.html#method.put), and [`patch`](https://docs.rs/day-part-http/latest/day_part_http/struct.Request.html#method.patch) also accept body
+bytes. [`.header(name, value)`](https://docs.rs/day-part-http/latest/day_part_http/struct.Request.html#method.header) appends a header; [`.body_file`](https://docs.rs/day-part-http/latest/day_part_http/struct.Request.html#method.body_file), [`.body_stream`](https://docs.rs/day-part-http/latest/day_part_http/struct.Request.html#method.body_stream), and [`.form`](https://docs.rs/day-part-http/latest/day_part_http/struct.Request.html#method.form) offer
 other payload sources. JSON parsing is an app dependency, not a built-in HTTP response method.
 See the [HTTP reference](/docs/reference/http) for clients, cookies, redirects, credentials,
 streaming, body limits, and the complete non-exhaustive error enum.
@@ -98,16 +98,16 @@ streaming, body limits, and the complete non-exhaustive error enum.
 Dropping a `FetchFuture` stops delivery and invokes the platform cancellation hook when available.
 Aborting its `TaskHandle` drops that future. Cancellation is not a rollback of a request the
 server has already accepted. Callback APIs take `Send + 'static` closures and may complete on an
-unspecified thread; capture a `Setter`, not a `Signal`. Awaiting inside [`day::task`](https://daybrite.dev/api/day/fn.task.html) resumes on
+unspecified thread; capture a `Setter`, not a `Signal`. Awaiting inside [`day::task`](https://docs.rs/day-app/latest/day/fn.task.html) resumes on
 the UI thread. Format generated messages there or in a reactive label closure.
 
 ## Account for the target
 
 The source selects NSURLSession on Apple, OkHttp on Android, WinHTTP on Windows, the browser
-transport on wasm32, and an ArkTS bridge on OpenHarmony. Linux uses system libcurl loaded at runtime. Unknown targets have no transport. [`tier()`](https://daybrite.dev/api/day_part_http/fn.tier.html) describes the HTTP implementation, not the website's maintenance tier;
-[`capabilities()`](https://daybrite.dev/api/day_part_http/fn.capabilities.html) describes available options.
+transport on wasm32, and an ArkTS bridge on OpenHarmony. Linux uses system libcurl loaded at runtime. Unknown targets have no transport. [`tier()`](https://docs.rs/day-part-http/latest/day_part_http/fn.tier.html) describes the HTTP implementation, not the website's maintenance tier;
+[`capabilities()`](https://docs.rs/day-part-http/latest/day_part_http/fn.capabilities.html) describes available options.
 
-Blocking [`fetch`](https://daybrite.dev/api/day_part_http/fn.fetch.html), [`fetch_to_file`](https://daybrite.dev/api/day_part_http/fn.fetch_to_file.html), and [`fetch_streamed`](https://daybrite.dev/api/day_part_http/fn.fetch_streamed.html) must stay off the UI thread. Browser
+Blocking [`fetch`](https://docs.rs/day-part-http/latest/day_part_http/fn.fetch.html), [`fetch_to_file`](https://docs.rs/day-part-http/latest/day_part_http/fn.fetch_to_file.html), and [`fetch_streamed`](https://docs.rs/day-part-http/latest/day_part_http/fn.fetch_streamed.html) must stay off the UI thread. Browser
 blocking calls return `Unsupported`; OpenHarmony also rejects blocking waits on its JS thread.
 Browser requests remain subject to CORS and restricted headers. TLS, cleartext, proxy, and
 credential behavior depend on the selected transport and host configuration.

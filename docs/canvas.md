@@ -9,10 +9,10 @@ description: "The canvas piece records a display list each toolkit replays throu
 
 # Canvas
 
-Draw charts, diagrams, and custom controls with paths, text, images, and gradients. A [`canvas`](https://daybrite.dev/api/day_pieces/fn.canvas.html)
+Draw charts, diagrams, and custom controls with paths, text, images, and gradients. A [`canvas`](https://docs.rs/day-pieces/latest/day_pieces/fn.canvas.html)
 redraws when the state read by its drawing closure changes.
 
-The [`canvas`](https://daybrite.dev/api/day_pieces/fn.canvas.html) piece records a display list (a `Vec<DrawOp>`) that each toolkit replays with its
+The [`canvas`](https://docs.rs/day-pieces/latest/day_pieces/fn.canvas.html) piece records a display list (a `Vec<DrawOp>`) that each toolkit replays with its
 own native 2-D API: CoreGraphics on Apple, cairo on GTK, [`QPainter`](https://doc.qt.io/qt-6/qpainter.html) on Qt, `android.graphics` on
 Android, [`OH_Drawing`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-arkgraphics2d/capi-drawing.md) on HarmonyOS, Win2D on Windows, and Canvas2D on the web. The closure
 re-records on any tracked read and on `FrameChanged`, and replay is equality-gated, so a canvas
@@ -41,15 +41,15 @@ and [localization setup](/docs/how-to/localization).
 
 | Op | What it does |
 | --- | --- |
-| [`fill(shape, paint)`](https://daybrite.dev/api/day_pieces/struct.Draw.html#method.fill) | Fill with a color or a linear/radial gradient |
-| [`stroke(shape, color, width)`](https://daybrite.dev/api/day_pieces/struct.Draw.html#method.stroke) | Stroke at a width, everything else default |
-| [`stroke_styled(shape, paint, style)`](https://daybrite.dev/api/day_pieces/struct.Draw.html#method.stroke_styled) | Stroke with dash, cap, join, and any paint |
-| [`stamp(shape, at, paint)`](https://daybrite.dev/api/day_pieces/struct.Draw.html#method.stamp) | Fill ONE shape at many positions, as one op ([Stamping](#stamping)) |
-| [`stamp_styled(shape, at, paint, style)`](https://daybrite.dev/api/day_pieces/struct.Draw.html#method.stamp_styled) | The same, stroking each copy |
-| [`clip(shape)`](https://daybrite.dev/api/day_pieces/struct.Draw.html#method.clip) / [`clipped(shape, f)`](https://daybrite.dev/api/day_pieces/struct.Draw.html#method.clipped) | Confine what follows to a shape |
-| [`text(text, at, style)`](https://daybrite.dev/api/day_pieces/struct.Draw.html#method.text) | One line of text at a point, in a size, color and [font](fonts.md) |
-| [`image(&bitmap, rect)`](https://daybrite.dev/api/day_pieces/fn.image.html) / [`image_with_opacity(…)`](https://daybrite.dev/api/day_pieces/struct.Draw.html#method.image_with_opacity) | A decoded [image](images.md) scaled into a rect — the handle, never bytes |
-| [`save`](https://daybrite.dev/api/day_pieces/struct.Draw.html#method.save) / [`restore`](https://daybrite.dev/api/day_pieces/struct.Draw.html#method.restore) / [`concat(affine)`](https://daybrite.dev/api/day_pieces/struct.Draw.html#method.concat) | Transform and clip state |
+| [`fill(shape, paint)`](https://docs.rs/day-pieces/latest/day_pieces/struct.Draw.html#method.fill) | Fill with a color or a linear/radial gradient |
+| [`stroke(shape, color, width)`](https://docs.rs/day-pieces/latest/day_pieces/struct.Draw.html#method.stroke) | Stroke at a width, everything else default |
+| [`stroke_styled(shape, paint, style)`](https://docs.rs/day-pieces/latest/day_pieces/struct.Draw.html#method.stroke_styled) | Stroke with dash, cap, join, and any paint |
+| [`stamp(shape, at, paint)`](https://docs.rs/day-pieces/latest/day_pieces/struct.Draw.html#method.stamp) | Fill ONE shape at many positions, as one op ([Stamping](#stamping)) |
+| [`stamp_styled(shape, at, paint, style)`](https://docs.rs/day-pieces/latest/day_pieces/struct.Draw.html#method.stamp_styled) | The same, stroking each copy |
+| [`clip(shape)`](https://docs.rs/day-pieces/latest/day_pieces/struct.Draw.html#method.clip) / [`clipped(shape, f)`](https://docs.rs/day-pieces/latest/day_pieces/struct.Draw.html#method.clipped) | Confine what follows to a shape |
+| [`text(text, at, style)`](https://docs.rs/day-pieces/latest/day_pieces/struct.Draw.html#method.text) | One line of text at a point, in a size, color and [font](fonts.md) |
+| [`image(&bitmap, rect)`](https://docs.rs/day-pieces/latest/day_pieces/fn.image.html) / [`image_with_opacity(…)`](https://docs.rs/day-pieces/latest/day_pieces/struct.Draw.html#method.image_with_opacity) | A decoded [image](images.md) scaled into a rect — the handle, never bytes |
+| [`save`](https://docs.rs/day-pieces/latest/day_pieces/struct.Draw.html#method.save) / [`restore`](https://docs.rs/day-pieces/latest/day_pieces/struct.Draw.html#method.restore) / [`concat(affine)`](https://docs.rs/day-pieces/latest/day_pieces/struct.Draw.html#method.concat) | Transform and clip state |
 
 `Shape` covers `Rect`, `RoundedRect`, `Ellipse`, `Arc`, `Line`, `Polygon`, and `Path`.
 
@@ -71,8 +71,8 @@ d.fill(ring, TEAL);
 the opposite way. `FillRule::EvenOdd` makes any contour inside another a hole regardless of
 winding, which is what PDF's `f*` and SVG's `fill-rule: evenodd` mean.
 
-[`arc_to(center, radius, start_deg, sweep_deg)`](https://daybrite.dev/api/day_pieces/struct.PathBuilder.html#method.arc_to) appends a circular arc — degrees, `0` = the +x
-axis, positive sweeping **clockwise**, the same convention `Shape::Arc` and [`circle`](https://daybrite.dev/api/day_pieces/fn.circle.html) use. It is a
+[`arc_to(center, radius, start_deg, sweep_deg)`](https://docs.rs/day-pieces/latest/day_pieces/struct.PathBuilder.html#method.arc_to) appends a circular arc — degrees, `0` = the +x
+axis, positive sweeping **clockwise**, the same convention `Shape::Arc` and [`circle`](https://docs.rs/day-pieces/latest/day_pieces/fn.circle.html) use. It is a
 *segment*, not a shape, which is what lets a figure made of arcs be one closed contour:
 
 ```rust
@@ -85,8 +85,8 @@ let wedge = PathBuilder::new()
 ```
 
 An arc joins whatever came before it — reached by a line when the subpath has a current point,
-opening a new one when it does not (including straight after a [`close`](https://daybrite.dev/api/day_pieces/struct.PathBuilder.html#method.close)). That is the difference
-that matters: `Shape::Arc` draws an arc, [`arc_to`](https://daybrite.dev/api/day_pieces/struct.PathBuilder.html#method.arc_to) builds a figure *out of* arcs, and a donut hole,
+opening a new one when it does not (including straight after a [`close`](https://docs.rs/day-pieces/latest/day_pieces/struct.PathBuilder.html#method.close)). That is the difference
+that matters: `Shape::Arc` draws an arc, [`arc_to`](https://docs.rs/day-pieces/latest/day_pieces/struct.PathBuilder.html#method.arc_to) builds a figure *out of* arcs, and a donut hole,
 an angular inset and a corner radius can only compose in the second form. `day-piece-charts` drew
 every pie and donut wedge from forty lines of hand-rolled cubics until this existed.
 
@@ -97,7 +97,7 @@ at 2.7 × 10⁻⁴ of the radius on the quarter turns this splits into — a qua
 circle a thousand points across — which is the same tradeoff Core Graphics, cairo and every SVG
 renderer make.
 
-[`smooth_polyline(&points, tension)`](https://daybrite.dev/api/day_pieces/struct.PathBuilder.html#method.smooth_polyline) fits a Catmull-Rom spline through points and emits it as
+[`smooth_polyline(&points, tension)`](https://docs.rs/day-pieces/latest/day_pieces/struct.PathBuilder.html#method.smooth_polyline) fits a Catmull-Rom spline through points and emits it as
 cubics. It passes through every point, so it is a drawing of the data rather than a fit to it.
 A spline still implies values between the samples, which is why Day Trader smooths its
 sparklines and not the chart someone reads prices off.
@@ -119,10 +119,10 @@ through; converting once at build time is cheaper than converting separately in 
 
 ## Rounded corners
 
-`Shape::RoundedRect(rect, r)` rounds every corner alike. [`Shape::rounded_rect(rect, radii)`](https://daybrite.dev/api/day_spec/enum.Shape.html#method.rounded_rect) takes
+`Shape::RoundedRect(rect, r)` rounds every corner alike. [`Shape::rounded_rect(rect, radii)`](https://docs.rs/day-spec/latest/day_spec/enum.Shape.html#method.rounded_rect) takes
 a `CornerRadii`, one radius per corner, for the shapes that round only some of them: a bar
-standing on its axis ([`CornerRadii::top(r)`](https://daybrite.dev/api/day_spec/struct.CornerRadii.html#method.top)), one growing rightward from it
-([`CornerRadii::right(r)`](https://daybrite.dev/api/day_spec/struct.CornerRadii.html#method.right)), a tab, a card joined to its neighbor.
+standing on its axis ([`CornerRadii::top(r)`](https://docs.rs/day-spec/latest/day_spec/struct.CornerRadii.html#method.top)), one growing rightward from it
+([`CornerRadii::right(r)`](https://docs.rs/day-spec/latest/day_spec/struct.CornerRadii.html#method.right)), a tab, a card joined to its neighbor.
 
 ```rust
 // Rounded where the bar ends, square where it meets the baseline.
@@ -134,13 +134,13 @@ are square, and when the two radii along a side add up to more than the side, al
 the same factor. A generous radius on a short bar degrades to a pill instead of a bow tie, with no
 clamping at the call site. The result is the simplest shape that draws it: `Shape::Rect` when every
 corner is square, `Shape::RoundedRect` (each toolkit's own) when they agree, and a path of
-[`arc_to`](https://daybrite.dev/api/day_pieces/struct.PathBuilder.html#method.arc_to) quarter turns otherwise, so nothing new crosses the wire and every toolkit draws the same
-curves. [`PathBuilder::rounded_rect(rect, radii)`](https://daybrite.dev/api/day_pieces/struct.PathBuilder.html#method.rounded_rect) appends the same contour to a path, for a figure
+[`arc_to`](https://docs.rs/day-pieces/latest/day_pieces/struct.PathBuilder.html#method.arc_to) quarter turns otherwise, so nothing new crosses the wire and every toolkit draws the same
+curves. [`PathBuilder::rounded_rect(rect, radii)`](https://docs.rs/day-pieces/latest/day_pieces/struct.PathBuilder.html#method.rounded_rect) appends the same contour to a path, for a figure
 made of several (a rounded frame with a hole cut out of it).
 
 ## Strokes
 
-`StrokeStyle` carries width, cap, join, miter limit, and a dash pattern. [`StrokeStyle::width(w)`](https://daybrite.dev/api/day_spec/struct.StrokeStyle.html#method.width),
+`StrokeStyle` carries width, cap, join, miter limit, and a dash pattern. [`StrokeStyle::width(w)`](https://docs.rs/day-spec/latest/day_spec/struct.StrokeStyle.html#method.width),
 `::dashed(w, pattern)` and `::round(w)` cover the common cases; the rest is struct-update syntax.
 
 ```rust
@@ -153,8 +153,8 @@ API. Request round caps explicitly for lines with rounded ends.
 
 ## Clipping
 
-[`clip`](https://daybrite.dev/api/day_pieces/struct.Draw.html#method.clip) intersects the current clip, and the only way to widen it again is [`restore`](https://daybrite.dev/api/day_pieces/struct.Draw.html#method.restore). Every
-native 2-D context works this way, so there is no "unclip". [`clipped(shape, f)`](https://daybrite.dev/api/day_pieces/struct.Draw.html#method.clipped) wraps the
+[`clip`](https://docs.rs/day-pieces/latest/day_pieces/struct.Draw.html#method.clip) intersects the current clip, and the only way to widen it again is [`restore`](https://docs.rs/day-pieces/latest/day_pieces/struct.Draw.html#method.restore). Every
+native 2-D context works this way, so there is no "unclip". [`clipped(shape, f)`](https://docs.rs/day-pieces/latest/day_pieces/struct.Draw.html#method.clipped) wraps the
 save/clip/restore for you.
 
 ## Toolkit support
@@ -169,8 +169,8 @@ Everything above works on every toolkit except where noted.
 | **windows-winui** | Win2D supports geometric clips, including paths and ellipses, with the same painter for screen and bitmap export. |
 | **appkit** | Quadratic segments are elevated to cubics, exactly ([`NSBezierPath`](https://developer.apple.com/documentation/appkit/nsbezierpath)'s own quadratic API is macOS 14+). No visual difference. |
 | **gtk**, **arkui** | Same quadratic elevation, for the same reason: cairo and [`OH_Drawing`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-arkgraphics2d/capi-drawing.md) have cubics. |
-| **Web** | [`font_families()`](https://daybrite.dev/api/day_core/fn.font_families.html) is the CSS generic families plus the bundled fonts, not the machine's: a browser lists local fonts only through `queryLocalFonts()`, which is Chromium-only, asynchronous, and behind a permission prompt. `Cap::FontList` answers `Emulated`. |
-| **android** | [`font_families()`](https://daybrite.dev/api/day_core/fn.font_families.html) is read from `/system/etc/fonts.xml`, the configuration `Typeface.create` resolves names from, so the system's alias families (`sans-serif-condensed`, `sans-serif-medium`, …) appear as families of their own. |
+| **Web** | [`font_families()`](https://docs.rs/day-core/latest/day_core/fn.font_families.html) is the CSS generic families plus the bundled fonts, not the machine's: a browser lists local fonts only through `queryLocalFonts()`, which is Chromium-only, asynchronous, and behind a permission prompt. `Cap::FontList` answers `Emulated`. |
+| **android** | [`font_families()`](https://docs.rs/day-core/latest/day_core/fn.font_families.html) is read from `/system/etc/fonts.xml`, the configuration `Typeface.create` resolves names from, so the system's alias families (`sans-serif-condensed`, `sans-serif-medium`, …) appear as families of their own. |
 | **arkui** | Canvas fonts and the font list compile against the SDK's `OH_Drawing_FontMgr` API and are exercised by CI on a device, not by a local emulator run. |
 | all | A weight or slant the family does not ship is synthesized where the platform does that (Skia, DirectWrite, CSS) and rounded to the nearest face elsewhere (Pango, CoreText). `face_for` on the family's `FontFamilyInfo` says which face will actually draw. |
 | **Qt**, **Android**, **WinUI** | Dash patterns are specified in pixels by Day and converted to those APIs' stroke-width units on the way in. A zero-width stroke falls back to a width of 1 for the conversion. |
@@ -214,7 +214,7 @@ drawn as the engine draws it, not as a line break.
 
 Canvas text takes a size, not a `FontSpec`: it is for labels and type inside a drawing, and it
 carries neither the reader's font-scale setting nor RTL mirroring. Anything a user reads as
-content belongs in a [`label`](https://daybrite.dev/api/day_pieces/fn.label.html) piece, which does.
+content belongs in a [`label`](https://docs.rs/day-pieces/latest/day_pieces/fn.label.html) piece, which does.
 
 ### Anchors
 
@@ -241,8 +241,8 @@ TextAnchor::TRAILING                                           // top-trailing c
 | `Bottom` | the bottom of the line box |
 
 Top, Middle and Bottom are edges of the **line box** — the ascent-plus-descent box
-[`day::measure_text`](https://daybrite.dev/api/day/fn.measure_text.html) reports for the same text, size and font — so a drawing that frames its text
-from [`measure_text`](https://daybrite.dev/api/day_core/fn.measure_text.html) gets a frame that hugs what is drawn on every toolkit, and
+[`day::measure_text`](https://docs.rs/day-app/latest/day/fn.measure_text.html) reports for the same text, size and font — so a drawing that frames its text
+from [`measure_text`](https://docs.rs/day-core/latest/day_core/fn.measure_text.html) gets a frame that hugs what is drawn on every toolkit, and
 `TextVAlign::Baseline` is `at.y + metrics.ascent` below `Top`.
 
 Use a trailing text anchor for right-aligned labels. It aligns the text without a separate
@@ -251,7 +251,7 @@ measurement and subtraction at each call site.
 (Before fonts arrived, gtk, qt, android, arkui and Web put a `Leading` anchor on the baseline
 instead; a caller that compensated for that with an offset can drop it.)
 
-The platform's font families, with the faces each ships, come from [`day::font_families()`](https://daybrite.dev/api/day/fn.font_families.html); the
+The platform's font families, with the faces each ships, come from [`day::font_families()`](https://docs.rs/day-app/latest/day/fn.font_families.html); the
 font menu of a drawing app is that list, and [docs/fonts](fonts.md) covers it and the
 measurement API.
 
@@ -269,7 +269,7 @@ canvas(draw)
 
 Both points are in the canvas's own coordinate space, origin at its top-leading corner, which
 lets a drawn control (a color wheel, a map, a waveform scrubber) turn "the user pressed here"
-into a value. [`on_tap`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.on_tap) (no location) stays for the common case.
+into a value. [`on_tap`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.on_tap) (no location) stays for the common case.
 
 Wire both when a press should count as a pick: a press that never moves is a tap on some toolkits
 and a zero-length drag on others, and since both handlers write the same value, a toolkit that
@@ -284,7 +284,7 @@ canvas(draw).on_hover(move |at| pointer.set(at))     // Some(point) inside, None
 
 `Some(point)` in the canvas's own coordinates while the pointer is over it, `None` when it leaves.
 **Pointer input only.** Touch-only devices do not produce hover events. Actions available on hover must also be accessible by touch.
-For chart selection, handle [`on_tap_at`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.on_tap_at), [`on_drag`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.on_drag), and [`on_hover`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.on_hover).
+For chart selection, handle [`on_tap_at`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.on_tap_at), [`on_drag`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.on_drag), and [`on_hover`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.on_hover).
 
 | Toolkit | Hover | Underneath |
 | --- | --- | --- |
@@ -304,7 +304,7 @@ tap look like a hover.
 On exit, `location` is the last point seen INSIDE the node — none of these platforms reports a
 useful coordinate with the leave event itself, and "where the pointer went out" is what a handler
 wants. Put them on the canvas **before** any wrapping decorator, because
-[`.frame`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.frame) and [`.corner_radius`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.corner_radius) build layout nodes of their own, and a point in a wrapper's space
+[`.frame`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.frame) and [`.corner_radius`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.corner_radius) build layout nodes of their own, and a point in a wrapper's space
 is not a point in the canvas's.
 
 The reference use is [`day-pieces`](/docs/reference/colorpicker)'s composed panel
@@ -333,11 +333,11 @@ the fingers; a toolkit that cannot know it (GTK's scroll controller) reports `Po
 Where they come from: trackpad magnify and two-finger scroll on macOS (a plain mouse wheel also
 pans), [`GtkGestureZoom`](https://docs.gtk.org/gtk4/class.GestureZoom.html) and the scroll controller on GTK, native zoom gestures and wheel events
 on Qt, and pinch plus a two-finger pan recognizer on iOS; one-finger drags still go to
-[`.on_drag`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.on_drag), so selection and panning coexist. DOM also delivers wheel pans (Changed phase,
+[`.on_drag`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.on_drag), so selection and panning coexist. DOM also delivers wheel pans (Changed phase,
 with negative browser wheel deltas to express content displacement). Android delivers horizontal
 pointer-wheel pans. Pinch remains unavailable on those toolkits.
 
-On AppKit, GTK, Qt and DOM, a non-canvas container with [`.on_pan`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.on_pan) receives horizontal wheel
+On AppKit, GTK, Qt and DOM, a non-canvas container with [`.on_pan`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.on_pan) receives horizontal wheel
 movement over its descendants, while vertical scrolling keeps its native behavior. Android
 containers likewise intercept horizontal pointer-wheel input. Accumulate deltas and suppress
 inertial repeats when using a gesture to navigate. Keep visible navigation buttons: WinUI and
@@ -359,7 +359,7 @@ is what `day-piece-charts` does: it groups its point marks by symbol, size, colo
 and emits a stamp per group.
 
 **Why it exists.** A `DrawOp` is 168 bytes, and a canvas re-records its whole op list on any
-tracked read. Fifty thousand points drawn one [`fill`](https://daybrite.dev/api/day_pieces/struct.Draw.html#method.fill) at a time is 8.4 MB of ops to build, compare
+tracked read. Fifty thousand points drawn one [`fill`](https://docs.rs/day-pieces/latest/day_pieces/struct.Draw.html#method.fill) at a time is 8.4 MB of ops to build, compare
 against the previous frame and clone into the tree — about **3.6 ms per frame before a toolkit
 draws anything**. As one stamp it is 800 KB and 1.2 ms: the equality check is 9× faster, the clone
 23×, and the whole per-frame overhead 3.1×. On the wire to a serializing toolkit it is a quarter
@@ -397,12 +397,12 @@ day::task(async move {
 });
 ```
 
-- [`drawing.to_bitmap(scale)`](https://daybrite.dev/api/day_pieces/struct.Drawing.html#method.to_bitmap) resolves to a [`Bitmap`](images.md), the same handle a decode
-  returns, so [`image(&bitmap)`](https://daybrite.dev/api/day_pieces/fn.image.html), [`Draw::image`](https://daybrite.dev/api/day_pieces/struct.Draw.html#method.image) and [`bitmap.encode(…)`](https://daybrite.dev/api/day_core/image/struct.Bitmap.html#method.encode) all take it. Its pixel size
-  is the drawing's size times `scale`, each side rounded up, and its [`info().scale`](https://daybrite.dev/api/day_core/image/struct.Bitmap.html#method.info) is `scale`, so
+- [`drawing.to_bitmap(scale)`](https://docs.rs/day-pieces/latest/day_pieces/struct.Drawing.html#method.to_bitmap) resolves to a [`Bitmap`](images.md), the same handle a decode
+  returns, so [`image(&bitmap)`](https://docs.rs/day-pieces/latest/day_pieces/fn.image.html), [`Draw::image`](https://docs.rs/day-pieces/latest/day_pieces/struct.Draw.html#method.image) and [`bitmap.encode(…)`](https://docs.rs/day-core/latest/day_core/image/struct.Bitmap.html#method.encode) all take it. Its pixel size
+  is the drawing's size times `scale`, each side rounded up, and its [`info().scale`](https://docs.rs/day-core/latest/day_core/image/struct.Bitmap.html#method.info) is `scale`, so
   it shows at the drawing's point size.
-- [`drawing.to_png(scale)`](https://daybrite.dev/api/day_pieces/struct.Drawing.html#method.to_png) is [`to_bitmap`](https://daybrite.dev/api/day_pieces/struct.Drawing.html#method.to_bitmap) followed by [`encode`](https://daybrite.dev/api/day_core/image/struct.Bitmap.html#method.encode) as PNG.
-- [`drawing.to_pdf()`](https://daybrite.dev/api/day_pieces/struct.Drawing.html#method.to_pdf) is a one-page PDF the size of the drawing. `PdfDocument` builds several pages,
+- [`drawing.to_png(scale)`](https://docs.rs/day-pieces/latest/day_pieces/struct.Drawing.html#method.to_png) is [`to_bitmap`](https://docs.rs/day-pieces/latest/day_pieces/struct.Drawing.html#method.to_bitmap) followed by [`encode`](https://docs.rs/day-core/latest/day_core/image/struct.Bitmap.html#method.encode) as PNG.
+- [`drawing.to_pdf()`](https://docs.rs/day-pieces/latest/day_pieces/struct.Drawing.html#method.to_pdf) is a one-page PDF the size of the drawing. `PdfDocument` builds several pages,
   each the size of its drawing:
 
 ```rust
@@ -416,15 +416,15 @@ let pdf = doc.render().await?;
 ```
 
 To fit a smaller drawing on a standard page, record at the page size and position the drawing
-inside it with [`d.transformed(…)`](https://daybrite.dev/api/day_pieces/struct.Draw.html#method.transformed).
+inside it with [`d.transformed(…)`](https://docs.rs/day-pieces/latest/day_pieces/struct.Draw.html#method.transformed).
 
 A drawing that rarely changes can also be rendered once and drawn as an image afterwards, which
 turns thousands of ops per frame into one.
 
 ### Offer only what the target can do
 
-[`day::canvas_exports()`](https://daybrite.dev/api/day/fn.canvas_exports.html) answers `CanvasExports { bitmap, pdf }` from `Cap::CanvasBitmap` and
-`Cap::CanvasPdf`, and [`.png()`](https://daybrite.dev/api/day_core/image/struct.CanvasExports.html#method.png) adds whether the toolkit encodes PNG. Keep export commands in the
+[`day::canvas_exports()`](https://docs.rs/day-app/latest/day/fn.canvas_exports.html) answers `CanvasExports { bitmap, pdf }` from `Cap::CanvasBitmap` and
+`Cap::CanvasPdf`, and [`.png()`](https://docs.rs/day-core/latest/day_core/image/struct.CanvasExports.html#method.png) adds whether the toolkit encodes PNG. Keep export commands in the
 menu everywhere and disable the ones the target cannot run:
 
 ```rust

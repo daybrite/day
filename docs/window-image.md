@@ -45,14 +45,14 @@ The UI snippets use generated `res::str` accessors from an app's Fluent catalog;
 
 ## What lands in the image
 
-By default the capture is the window's **content**, what the app itself drew. Ask for [`chrome()`](https://daybrite.dev/api/day/struct.WindowImage.html#method.chrome)
+By default the capture is the window's **content**, what the app itself drew. Ask for [`chrome()`](https://docs.rs/day-app/latest/day/struct.WindowImage.html#method.chrome)
 to include the frame the platform draws around it:
 
 ```rust
 day::window_image().chrome().capture()?
 ```
 
-| | content (default) | [`.chrome()`](https://daybrite.dev/api/day/struct.WindowImage.html#method.chrome) |
+| | content (default) | [`.chrome()`](https://docs.rs/day-app/latest/day/struct.WindowImage.html#method.chrome) |
 |---|---|---|
 | macOS | the content view | plus the titlebar and window toolbar |
 | iOS | the app's root view | plus the status bar |
@@ -62,7 +62,7 @@ day::window_image().chrome().capture()?
 | HarmonyOS | the window root node | same image |
 
 On Windows and Qt, the capture already includes the chrome drawn inside the window.
-Calling [`chrome()`](https://daybrite.dev/api/day/struct.WindowImage.html#method.chrome)
+Calling [`chrome()`](https://docs.rs/day-app/latest/day/struct.WindowImage.html#method.chrome)
 returns the same image.
 
 Nothing composited on top of the window by the system (a menu that has torn off into its own
@@ -70,7 +70,7 @@ window, an IME candidate popup, a screen-recording indicator) is part of any cap
 
 ## Capability
 
-[`day::window_image_support()`](https://daybrite.dev/api/day/fn.window_image_support.html) reports whether the running toolkit can capture at all:
+[`day::window_image_support()`](https://docs.rs/day-app/latest/day/fn.window_image_support.html) reports whether the running toolkit can capture at all:
 
 ```rust
 if day::window_image_support() == Support::Native { /* offer the command */ }
@@ -80,7 +80,7 @@ It answers `Support::Unsupported` on **Web**, where a
 DOM cannot rasterize itself. Gate the UI on it (the Showcase's Screenshot menu item
 does) rather than offering a command that can only fail.
 
-[`capture()`](https://daybrite.dev/api/day/struct.WindowImage.html#method.capture) still returns `Err` for the ordinary runtime reasons even where support is `Native`:
+[`capture()`](https://docs.rs/day-app/latest/day/struct.WindowImage.html#method.capture) still returns `Err` for the ordinary runtime reasons even where support is `Native`:
 no window on screen yet, a zero-size window, a compositor that declined.
 
 ## How each toolkit captures
@@ -111,7 +111,7 @@ screen, so the offscreen render remains the fallback.
 **ArkUI encodes natively.** The obvious route is the ArkTS host (that is how
 day-toolkit-arkui reaches the file picker and the browser), but `@ohos.multimedia.image` has no
 synchronous packer at all (`packToData` and `packing` are Promise/callback only), so bridging
-through the host would have forced [`window_image()`](https://daybrite.dev/api/day/fn.window_image.html) to be async on **every** toolkit to satisfy
+through the host would have forced [`window_image()`](https://docs.rs/day-app/latest/day/fn.window_image.html) to be async on **every** toolkit to satisfy
 this one. [`OH_ArkUI_GetNodeSnapshot`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-arkui/capi-arkui-nativemodule.md) and `OH_ImagePackerNative_PackToDataFromPixelmap` do the same
 work synchronously in-process, so the API stays sync everywhere. It costs two extra linked
 libraries (`libpixelmap.so`, `libimage_packer.so`), linked by the image kit's `ohos-sys` bindings (day-toolkit-arkui's `images` module).
@@ -152,7 +152,7 @@ point took the picture.
 ### Screenshot render checkpoints
 
 The dayscript engine flushes reactive work and waits for native transitions before asking
-[`Toolkit::prepare_snapshot(host, revision)`](https://daybrite.dev/api/day_spec/trait.Toolkit.html#method.prepare_snapshot) for a capture checkpoint. The revision belongs to
+[`Toolkit::prepare_snapshot(host, revision)`](https://docs.rs/day-spec/latest/day_spec/trait.Toolkit.html#method.prepare_snapshot) for a capture checkpoint. The revision belongs to
 one ordered screenshot request and stays the same across bounded retries. It is not an image
 hash or a global “everything is idle” flag. Each asynchronous window fence ignores callbacks
 from superseded requests. Missing windows, render errors and timed-out checkpoints fail the
@@ -173,7 +173,7 @@ A host that paints outside the toolkit's frame on every platform — an offscree
 presented through a Day canvas, whose frames arrive after an asynchronous read-back and
 decode — is invisible to all of these checkpoints: they see a committed frame, not that the
 host's latest frame was in it. Such a host registers a capture hold
-([`day_spec::capture::register_hold`](https://daybrite.dev/api/day_spec/capture/fn.register_hold.html), a `fn() -> bool` read on the UI thread) answering
+([`day_spec::capture::register_hold`](https://docs.rs/day-spec/latest/day_spec/capture/fn.register_hold.html), a `fn() -> bool` read on the UI thread) answering
 whether every frame it owes is on screen; `screenshot` and `sample_pixel` wait while any hold
 says no, before requesting the checkpoint, with the same 16 ms polling and the step's deadline.
 A hold is a statement about frames in flight, not about page content: a continuously

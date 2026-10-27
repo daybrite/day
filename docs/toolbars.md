@@ -43,10 +43,10 @@ reader_page(article).toolbar([
 | Declared on | Visible with |
 |---|---|
 | the window's root piece | every page of that window |
-| a nav host ([`Nav::toolbar`](https://daybrite.dev/api/day_pieces/struct.Nav.html#method.toolbar)) | its sidebar column, and the root list when collapsed |
+| a nav host ([`Nav::toolbar`](https://docs.rs/day-pieces/latest/day_pieces/struct.Nav.html#method.toolbar)) | its sidebar column, and the root list when collapsed |
 | a content-list pane | the list column, and the middle layer when collapsed |
 | a destination page | the detail column, and every page pushed onto it |
-| a page pushed onto a [`nav_stack`](https://daybrite.dev/api/day_pieces/fn.nav_stack.html) (or a standalone stack's root) | that page while it is on top; a page pushed over it takes its place |
+| a page pushed onto a [`nav_stack`](https://docs.rs/day-pieces/latest/day_pieces/fn.nav_stack.html) (or a standalone stack's root) | that page while it is on top; a page pushed over it takes its place |
 | any piece inside a page | that page's chrome |
 
 Nothing declares which bar it belongs to, and nothing declares when to hide: a command leaves the
@@ -54,7 +54,7 @@ bar when the content it acts on leaves the screen. A collapsed content-list pane
 the selection has moved off, and a list a detail has been pushed over all take their commands with
 them.
 
-[`Decorate::toolbar`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.toolbar) takes one item, a list of them, an array, or a closure that derives the list
+[`Decorate::toolbar`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.toolbar) takes one item, a list of them, an array, or a closure that derives the list
 and re-runs whenever its reactive reads change.
 
 ```rust
@@ -64,9 +64,9 @@ page.toolbar(vec![a, b, c])
 page.toolbar(move || vec![…])          // re-derived on change
 ```
 
-An item that should come and go is a piece that comes and goes — [`when`](https://daybrite.dev/api/day_pieces/fn.when.html) adds and withdraws it
+An item that should come and go is a piece that comes and goes — [`when`](https://docs.rs/day-pieces/latest/day_pieces/fn.when.html) adds and withdraws it
 through the same scope disposal that tears down any other subtree. Use a reactive
-[`.enabled(…)`](https://daybrite.dev/api/day_pieces/struct.ToolbarEntry.html#method.enabled) instead where the command should stay visible but unavailable; that patches the
+[`.enabled(…)`](https://docs.rs/day-pieces/latest/day_pieces/struct.ToolbarEntry.html#method.enabled) instead where the command should stay visible but unavailable; that patches the
 one item rather than rebuilding the bar.
 
 ## Placement
@@ -87,7 +87,7 @@ There is deliberately no `Cancel`/`Confirm`: a modal's affirmative and dismissiv
 dialog buttons with their own roles ([docs/dialogs](dialogs.md)), and a second, weaker spelling
 of the same idea would leave two right answers for one question.
 
-On UIKit, a [`toolbar_label`](https://daybrite.dev/api/day_pieces/fn.toolbar_label.html) with `Principal` placement uses a native single-line title label.
+On UIKit, a [`toolbar_label`](https://docs.rs/day-pieces/latest/day_pieces/fn.toolbar_label.html) with `Principal` placement uses a native single-line title label.
 The `Bottom` bar is laid out the way Mail and Notes lay out theirs: the items before the first
 label sit at the leading edge, the label is centered as the bar's status, and the items after
 it sit at the trailing edge. Each line of the label's text is a line of the status, the first in
@@ -103,9 +103,9 @@ remake every button on it each time).
 Removing that contribution restores the navigation item’s ordinary title. Only the first
 principal item is shown.
 
-[`.label_style(…)`](https://daybrite.dev/api/day_pieces/struct.ToolbarEntry.html#method.label_style) chooses the title, the icon, or both where a platform can draw more than one; an
+[`.label_style(…)`](https://docs.rs/day-pieces/latest/day_pieces/struct.ToolbarEntry.html#method.label_style) chooses the title, the icon, or both where a platform can draw more than one; an
 item folded into an overflow menu shows its title whatever it asks for, because a menu row with no
-words is not a menu row. [`.prominent()`](https://daybrite.dev/api/day_pieces/struct.ToolbarEntry.html#method.prominent) asks for the platform's emphasized style.
+words is not a menu row. [`.prominent()`](https://docs.rs/day-pieces/latest/day_pieces/struct.ToolbarEntry.html#method.prominent) asks for the platform's emphasized style.
 
 ## Columns
 
@@ -131,40 +131,40 @@ Degradation always removes the specialization and keeps the command.
 
 ## The sidebar affordance
 
-A [`nav(Sidebar)`](https://daybrite.dev/api/day_pieces/fn.nav.html) supplies its own, so an app declares nothing for it. It reaches the toolkits
+A [`nav(Sidebar)`](https://docs.rs/day-pieces/latest/day_pieces/fn.nav.html) supplies its own, so an app declares nothing for it. It reaches the toolkits
 as an ordinary button under the reserved id `day_spec::SIDEBAR_TOGGLE_ID` whose action names the
-host it was built for ([`Toolkit::toggle_sidebar(host)`](https://daybrite.dev/api/day_spec/trait.Toolkit.html#method.toggle_sidebar)), so a second window's button collapses
+host it was built for ([`Toolkit::toggle_sidebar(host)`](https://docs.rs/day-spec/latest/day_spec/trait.Toolkit.html#method.toggle_sidebar)), so a second window's button collapses
 that window's sidebar and a dayscript `toolbar:` step presses it like any other item. Each
 toolkit does what its platform expects: AppKit swaps in `NSToolbarToggleSidebarItemIdentifier`,
 Qt keeps the button on the bar when its pane collapses (the track shrinks to it), WinUI drops it because
 [`NavigationView`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.navigationview) draws its own pane button, and **UIKit drops it entirely** — [`UISplitViewController`](https://developer.apple.com/documentation/uikit/uisplitviewcontroller)
 and `.tabSidebar` each supply one, and Day's copy was both dead on a phone and doubled on an iPad.
-Suppress it with [`.no_sidebar_toggle()`](https://daybrite.dev/api/day_pieces/trait.NavBuilder.html#tymethod.no_sidebar_toggle).
+Suppress it with [`.no_sidebar_toggle()`](https://docs.rs/day-pieces/latest/day_pieces/trait.NavBuilder.html#tymethod.no_sidebar_toggle).
 
 ### The items
 
 | constructor | what it is |
 |---|---|
-| [`toolbar_button(id, label)`](https://daybrite.dev/api/day_pieces/fn.toolbar_button.html) | a command |
-| [`toolbar_toggle(id, label, on)`](https://daybrite.dev/api/day_pieces/fn.toolbar_toggle.html) | a two-state button, bound two-way (`on`: a `Signal<bool>` or any `Binding<bool>`) |
-| [`toolbar_segmented(id, segments, selected)`](https://daybrite.dev/api/day_pieces/fn.toolbar_segmented.html) | one native segmented control over a `usize` binding |
-| [`toolbar_menu(id, label, entries)`](https://daybrite.dev/api/day_pieces/fn.toolbar_menu.html) | a pull-down, from the same `MenuEntry`s the menu bar takes |
-| [`toolbar_label(id, text)`](https://daybrite.dev/api/day_pieces/fn.toolbar_label.html) | static text — a status or a caption |
-| [`toolbar_separator(id)`](https://daybrite.dev/api/day_pieces/fn.toolbar_separator.html) | a divider between neighbors in the same placement bucket |
+| [`toolbar_button(id, label)`](https://docs.rs/day-pieces/latest/day_pieces/fn.toolbar_button.html) | a command |
+| [`toolbar_toggle(id, label, on)`](https://docs.rs/day-pieces/latest/day_pieces/fn.toolbar_toggle.html) | a two-state button, bound two-way (`on`: a `Signal<bool>` or any `Binding<bool>`) |
+| [`toolbar_segmented(id, segments, selected)`](https://docs.rs/day-pieces/latest/day_pieces/fn.toolbar_segmented.html) | one native segmented control over a `usize` binding |
+| [`toolbar_menu(id, label, entries)`](https://docs.rs/day-pieces/latest/day_pieces/fn.toolbar_menu.html) | a pull-down, from the same `MenuEntry`s the menu bar takes |
+| [`toolbar_label(id, text)`](https://docs.rs/day-pieces/latest/day_pieces/fn.toolbar_label.html) | static text — a status or a caption |
+| [`toolbar_separator(id)`](https://docs.rs/day-pieces/latest/day_pieces/fn.toolbar_separator.html) | a divider between neighbors in the same placement bucket |
 
 There are no spacers. Alignment is [placement](#placement), which is a fact about what the command
 IS rather than about where it happens to sit in a list, and it survives a bar that has to fold.
 
 **Search is declared elsewhere.** It belongs to the navigation surface it filters
-([`Nav::searchable`](https://daybrite.dev/api/day_pieces/struct.Nav.html#method.searchable), [docs/search](search.md)), and Day merges the resulting field into this bar under the
+([`Nav::searchable`](https://docs.rs/day-pieces/latest/day_pieces/struct.Nav.html#method.searchable), [docs/search](search.md)), and Day merges the resulting field into this bar under the
 reserved id `day::search`. Declaring it on the surface lets the platform move it (into the
 navigation list on a window too narrow for a sidebar) without the app re-declaring anything.
 
-Modifiers: [`.icon(Symbol)`](https://daybrite.dev/api/day_pieces/struct.ToolbarEntry.html#method.icon), [`.image(name)`](https://daybrite.dev/api/day_pieces/struct.ToolbarEntry.html#method.image), [`.action(f)`](https://daybrite.dev/api/day_pieces/struct.ToolbarEntry.html#method.action), [`.tooltip(t)`](https://daybrite.dev/api/day_pieces/struct.ToolbarEntry.html#method.tooltip), [`.enabled(on)`](https://daybrite.dev/api/day_pieces/struct.ToolbarEntry.html#method.enabled) (a
-`bool`, a `Signal<bool>` or a closure; a reactive value patches the one item), [`.placement(…)`](https://daybrite.dev/api/day_pieces/struct.ToolbarEntry.html#method.placement),
-[`.label_style(…)`](https://daybrite.dev/api/day_pieces/struct.ToolbarEntry.html#method.label_style), [`.prominent()`](https://daybrite.dev/api/day_pieces/struct.ToolbarEntry.html#method.prominent).
+Modifiers: [`.icon(Symbol)`](https://docs.rs/day-pieces/latest/day_pieces/struct.ToolbarEntry.html#method.icon), [`.image(name)`](https://docs.rs/day-pieces/latest/day_pieces/struct.ToolbarEntry.html#method.image), [`.action(f)`](https://docs.rs/day-pieces/latest/day_pieces/struct.ToolbarEntry.html#method.action), [`.tooltip(t)`](https://docs.rs/day-pieces/latest/day_pieces/struct.ToolbarEntry.html#method.tooltip), [`.enabled(on)`](https://docs.rs/day-pieces/latest/day_pieces/struct.ToolbarEntry.html#method.enabled) (a
+`bool`, a `Signal<bool>` or a closure; a reactive value patches the one item), [`.placement(…)`](https://docs.rs/day-pieces/latest/day_pieces/struct.ToolbarEntry.html#method.placement),
+[`.label_style(…)`](https://docs.rs/day-pieces/latest/day_pieces/struct.ToolbarEntry.html#method.label_style), [`.prominent()`](https://docs.rs/day-pieces/latest/day_pieces/struct.ToolbarEntry.html#method.prominent).
 
-**Use [`toolbar_segmented`](https://daybrite.dev/api/day_pieces/fn.toolbar_segmented.html) wherever exactly one of a set is on at a time**, such as a theme
+**Use [`toolbar_segmented`](https://docs.rs/day-pieces/latest/day_pieces/fn.toolbar_segmented.html) wherever exactly one of a set is on at a time**, such as a theme
 chooser or a view mode. Three toggles instead say "three independent switches" to the eye and to
 a screen reader, leave the app to keep them exclusive, and take three times the width:
 
@@ -201,12 +201,12 @@ in their bindings lets an existing search field retain focus while surrounding i
 
 ### Icons
 
-[`.icon(Symbol::…)`](https://daybrite.dev/api/day_pieces/struct.ToolbarEntry.html#method.icon) names what the icon means, and each toolkit draws its platform's glyph:
+[`.icon(Symbol::…)`](https://docs.rs/day-pieces/latest/day_pieces/struct.ToolbarEntry.html#method.icon) names what the icon means, and each toolkit draws its platform's glyph:
 an SF Symbol on macOS, a freedesktop icon name on GTK and Qt, a Segoe Fluent glyph on Windows.
 This is the only way one icon looks native on four desktops; a bundled PNG cannot, because it is
-one artist's take on all of them. Use [`.image(name)`](https://daybrite.dev/api/day_pieces/struct.ToolbarEntry.html#method.image) only for something app-specific.
+one artist's take on all of them. Use [`.image(name)`](https://docs.rs/day-pieces/latest/day_pieces/struct.ToolbarEntry.html#method.image) only for something app-specific.
 
-[`.image(name)`](https://daybrite.dev/api/day_pieces/struct.ToolbarEntry.html#method.image) takes either a `resource/images/` file or a `resource/vectors/` glyph, the same
+[`.image(name)`](https://docs.rs/day-pieces/latest/day_pieces/struct.ToolbarEntry.html#method.image) takes either a `resource/images/` file or a `resource/vectors/` glyph, the same
 names the rest of the app uses. The vector is tried first, because on AppKit a vector asset stages
 as an SVG and nothing else: looking only for a raster found nothing and the item silently fell back
 to drawing its label, a button reading "Star" where a star belonged. Bundled glyphs are templates,
@@ -235,7 +235,7 @@ contribution — a title bar, a navigation bar, a Material app bar, a `Navigatio
 drawn strip — so an app never needs a fallback branch for "there is no toolbar here", and the ones
 that had them have been deleted. `Native` on the desktops and the phones, `Emulated` on Web
 (a strip docked above the app root, since a browser tab has no title bar to hang chrome on; a
-cover-tier window — the settings surface, anything [`open_window`](https://daybrite.dev/api/day_core/windows/fn.open_window.html) presents as a cover
+cover-tier window — the settings surface, anything [`open_window`](https://docs.rs/day-core/latest/day_core/windows/fn.open_window.html) presents as a cover
 ([docs/cover](cover.md)) — gets a strip of its own over the cover, where a navigation stack
 inside the cover also puts its back button and title, so the cover's Done and the stack's bar
 are one bar as on a phone's modal navigation controller) and on
@@ -323,7 +323,7 @@ Notes that are not obvious from the table:
 
 - **ArkUI**: the primary window's toolbar rides `Navigation` / `NavDestination.menus`.
   A custom menu builder uses native `Button`, `Menu`, and `MenuItem` components: template
-  images explicitly use system foreground colors (the array API's [`icon`](https://daybrite.dev/api/day_pieces/struct.ToolbarEntry.html#method.icon) loads black SVGs
+  images explicitly use system foreground colors (the array API's [`icon`](https://docs.rs/day-pieces/latest/day_pieces/struct.ToolbarEntry.html#method.icon) loads black SVGs
   literally in dark mode). Page commands take the visible slots before window commands;
   text-only and excess commands go into a labeled overflow popup. Toggles show an accent
   and expose selected state; segmented items open checked choices. System color resources
@@ -333,7 +333,7 @@ Notes that are not obvious from the table:
   entries still flatten into the action list. A future bottom-placement implementation
   should use native `toolbarConfiguration`, preserving its landscape adaptation.
 
-- **AppKit**: macOS toolbars have no separator item, so [`toolbar_separator(id)`](https://daybrite.dev/api/day_pieces/fn.toolbar_separator.html) renders as the
+- **AppKit**: macOS toolbars have no separator item, so [`toolbar_separator(id)`](https://docs.rs/day-pieces/latest/day_pieces/fn.toolbar_separator.html) renders as the
   system's own fixed space, which is what macOS uses between groups. The toolbar is created once
   per window and edited in place (a replaced [`NSToolbar`](https://developer.apple.com/documentation/appkit/nstoolbar) flashes the title bar and drops
   focus). User customization is off: the item list is app-declared and reactive, so an autosaved
@@ -374,8 +374,8 @@ Notes that are not obvious from the table:
   renders in `Content` (on the leading side) whatever placement it asked for.
   A segmented item draws as compact `AppBarToggleButton`s, flat like the bar's other toggles;
   placed `Secondary`, it becomes one overflow command titled by the choice in force, whose flyout
-  lists the choices as checkable rows. [`.label_style(…)`](https://daybrite.dev/api/day_pieces/struct.ToolbarEntry.html#method.label_style) is honored (`IconOnly` collapses the
-  label, `TitleOnly` drops the icon); [`.prominent()`](https://daybrite.dev/api/day_pieces/struct.ToolbarEntry.html#method.prominent) is not drawn yet. The bar is docked only
+  lists the choices as checkable rows. [`.label_style(…)`](https://docs.rs/day-pieces/latest/day_pieces/struct.ToolbarEntry.html#method.label_style) is honored (`IconOnly` collapses the
+  label, `TitleOnly` drops the icon); [`.prominent()`](https://docs.rs/day-pieces/latest/day_pieces/struct.ToolbarEntry.html#method.prominent) is not drawn yet. The bar is docked only
   while it draws something: the sidebar toggle alone (which [`NavigationView`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.navigationview) draws itself) leaves
   no empty strip under the title bar. It comes first in tab order, before the content it acts
   on, and Tab wraps around the window rather than stopping at its last control. Secondary

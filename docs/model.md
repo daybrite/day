@@ -12,7 +12,7 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 # Observable models
 
 `day-model` is a store whose writes wake only the readers of the field that changed. With one
-`Signal<Vec<Item>>`, every observer re-runs when any field of any element changes; [`bind`](https://daybrite.dev/api/day_reactive/fn.bind.html)'s
+`Signal<Vec<Item>>`, every observer re-runs when any field of any element changes; [`bind`](https://docs.rs/day-reactive/latest/day_reactive/fn.bind.html)'s
 equality gate keeps the native side precise, so the waste is compute; every row's closures
 re-run and re-clone on every keystroke, and the waste grows with the list. Here each
 (element, field) is its own dependency node: editing one item's name re-runs one closure instead
@@ -22,9 +22,8 @@ of every row's.
 
 Enable the `model` feature on your existing Day dependency:
 
-```toml
-[dependencies]
-day = { package = "day-app", version = "0.6", features = ["model"] }
+```sh
+cargo add day-app --rename day --features model
 ```
 
 `use day::prelude::*` then brings `Store`, `Keyed`, `Elem`, `Field`, `Source`, the
@@ -47,7 +46,7 @@ pub struct Item {
 ```
 
 The derive generates an `ItemFields` trait with one typed accessor per field, implemented for
-**every** `Source<Item>` (so `store.name()`, [`store.elem(id).name()`](https://daybrite.dev/api/day_model/struct.Store.html#method.elem) and
+**every** `Source<Item>` (so `store.name()`, [`store.elem(id).name()`](https://docs.rs/day-model/latest/day_model/struct.Store.html#method.elem) and
 `item.address().city()` all work), plus `Identified` from the `#[obs(key)]` field and an
 `Item::OBSERVED_FIELDS` list for tests. Import the trait (`use crate::model::ItemFields;`)
 where the accessors are called.
@@ -81,9 +80,9 @@ A key field is an integer, a `Uuid`, or a `String`, whatever implements `AsKey`.
 their own path handle, so an integer key costs nothing beyond the value itself. Wide keys intern
 process-globally to a handle on first use, so paths stay 12 bytes and every collection index
 stays `u64`-keyed; a handle, once minted, is stable for the process's
-life (undo records and long-lived ids rely on it) and reverses through [`Key::of_handle`](https://daybrite.dev/api/day_model/enum.Key.html#method.of_handle). The
+life (undo records and long-lived ids rely on it) and reverses through [`Key::of_handle`](https://docs.rs/day-model/latest/day_model/enum.Key.html#method.of_handle). The
 interner is global rather than thread-local, because a background transaction's reindex must
-mint the same handles the main thread resolves. [`interned_keys()`](https://daybrite.dev/api/day_model/fn.interned_keys.html) reports its size.
+mint the same handles the main thread resolves. [`interned_keys()`](https://docs.rs/day-model/latest/day_model/fn.interned_keys.html) reports its size.
 
 **`Uuid` is the default to teach**, and [`Uuid::now_v7()`](https://docs.rs/uuid/1.28.0/uuid/struct.Uuid.html#method.now_v7) the way to mint one: v7 is
 time-ordered, so inserts cluster at the B-tree's edge instead of scattering pages, ids sort by
@@ -94,11 +93,11 @@ dependency of its own. (Generation is native-target only until the web pipeline'
 import lands; the type works everywhere, and a web build receives ids rather than minting
 them.)
 
-`ModelId<M>` is the typed surface: `Copy`, 8 bytes, opaque, and what [`elem`](https://daybrite.dev/api/day_model/struct.Store.html#method.elem), query results,
+`ModelId<M>` is the typed surface: `Copy`, 8 bytes, opaque, and what [`elem`](https://docs.rs/day-model/latest/day_model/struct.Store.html#method.elem), query results,
 list slots and destinations all speak, so a wrong-model id is a compile error rather than a
-wrong row. Everything converts into one (a raw handle from [`keys()`](https://daybrite.dev/api/day_model/struct.Store.html#method.keys), an integer literal, a
-`Uuid`, a `&str`), so [`store.elem(5)`](https://daybrite.dev/api/day_model/struct.Store.html#method.elem), [`store.elem(uuid)`](https://daybrite.dev/api/day_model/struct.Store.html#method.elem) and [`store.elem(id)`](https://daybrite.dev/api/day_model/struct.Store.html#method.elem) are all
-[`elem`](https://daybrite.dev/api/day_model/struct.Store.html#method.elem). [`ModelId::key()`](https://daybrite.dev/api/day_model/struct.ModelId.html#method.key) recovers the real key for display or a deep link; `Debug` prints it.
+wrong row. Everything converts into one (a raw handle from [`keys()`](https://docs.rs/day-model/latest/day_model/struct.Store.html#method.keys), an integer literal, a
+`Uuid`, a `&str`), so [`store.elem(5)`](https://docs.rs/day-model/latest/day_model/struct.Store.html#method.elem), [`store.elem(uuid)`](https://docs.rs/day-model/latest/day_model/struct.Store.html#method.elem) and [`store.elem(id)`](https://docs.rs/day-model/latest/day_model/struct.Store.html#method.elem) are all
+[`elem`](https://docs.rs/day-model/latest/day_model/struct.Store.html#method.elem). [`ModelId::key()`](https://docs.rs/day-model/latest/day_model/struct.ModelId.html#method.key) recovers the real key for display or a deep link; `Debug` prints it.
 
 ```rust
 #[derive(Observable, Clone, Default, PartialEq)]
@@ -115,7 +114,7 @@ assert_eq!(ids[0].key().as_uuid(), Some(id));
 ```
 
 Integer keys reserve the top bit (`1 << 63` and up is the interned-handle space); a debug build
-refuses a key at or above it rather than letting it alias a wide handle. [`next_key()`](https://daybrite.dev/api/day_model/struct.Store.html#method.next_key) hands out
+refuses a key at or above it rather than letting it alias a wide handle. [`next_key()`](https://docs.rs/day-model/latest/day_model/struct.Store.html#method.next_key) hands out
 the next free integer key (one past the largest in use, starting at 1), filling the lowest gap
 once counting up would reach the reserved bit. Two rows sharing a key
 is an app bug the index cannot represent; the documented behavior is that the index resolves to
@@ -130,22 +129,22 @@ thread_local! {
 fn items() -> Store<Keyed<Item>> { ITEMS.with(|s| *s) }
 ```
 
-A `Store<T>` handle is `Copy` and process-lifetime, like [`Signal::global`](https://daybrite.dev/api/day_reactive/struct.Signal.html#method.global): created inside
+A `Store<T>` handle is `Copy` and process-lifetime, like [`Signal::global`](https://docs.rs/day-reactive/latest/day_reactive/struct.Signal.html#method.global): created inside
 whatever scope first touches it, it does not die with that scope. `Store<Keyed<T>>` is the
 collection case:
 
-- [`elem(key)`](https://daybrite.dev/api/day_model/struct.Store.html#method.elem) — one element, O(1) by key; a handle whose fields bind controls.
-- [`keys()`](https://daybrite.dev/api/day_model/struct.Store.html#method.keys) — a **tracked read of the collection's shape** (which keys, in what order). A field
+- [`elem(key)`](https://docs.rs/day-model/latest/day_model/struct.Store.html#method.elem) — one element, O(1) by key; a handle whose fields bind controls.
+- [`keys()`](https://docs.rs/day-model/latest/day_model/struct.Store.html#method.keys) — a **tracked read of the collection's shape** (which keys, in what order). A field
   write does not wake it; an insert, removal or reorder does.
-- [`push(item)`](https://daybrite.dev/api/day_model/struct.Store.html#method.push), [`remove(key) -> bool`](https://daybrite.dev/api/day_model/struct.Store.html#method.remove), [`move_row(from, to) -> bool`](https://daybrite.dev/api/day_model/struct.Store.html#method.move_row) — the common structural
+- [`push(item)`](https://docs.rs/day-model/latest/day_model/struct.Store.html#method.push), [`remove(key) -> bool`](https://docs.rs/day-model/latest/day_model/struct.Store.html#method.remove), [`move_row(from, to) -> bool`](https://docs.rs/day-model/latest/day_model/struct.Store.html#method.move_row) — the common structural
   writes: an append, a removal by key, and the index move a native reorder gesture reports. A
   removal of a missing key, or a move that is out of range or in place, returns `false` and
   announces nothing.
-- [`restructure(label, op, key, f)`](https://daybrite.dev/api/day_model/struct.Store.html#method.restructure) — the structural write those three are built on, for any
+- [`restructure(label, op, key, f)`](https://docs.rs/day-model/latest/day_model/struct.Store.html#method.restructure) — the structural write those three are built on, for any
   other edit. The `Op` (`Insert`/`Delete`/`Move`) and the key ride the change log so a
-  persistence layer can tell an insert from a delete; the UI, which only re-reads [`keys()`](https://daybrite.dev/api/day_model/struct.Store.html#method.keys), does
+  persistence layer can tell an insert from a delete; the UI, which only re-reads [`keys()`](https://docs.rs/day-model/latest/day_model/struct.Store.html#method.keys), does
   not care.
-- [`update(label, f)`](https://daybrite.dev/api/day_model/struct.Store.html#method.update) — mutate the whole value; every reader wakes. It is the coarse option, right for
+- [`update(label, f)`](https://docs.rs/day-model/latest/day_model/struct.Store.html#method.update) — mutate the whole value; every reader wakes. It is the coarse option, right for
   wholesale loads.
 
 ## Fields are bindings
@@ -161,9 +160,9 @@ toggle(it.done())
 day_pieces::datetime::date_picker(it.date().map(date_of, iso_of))   // converted, still two-way
 ```
 
-[`.map(to, from)`](https://daybrite.dev/api/day_model/struct.Field.html#method.map) converts on both sides with plain `fn`s (an ISO string as a date, `#RRGGBB` as
+[`.map(to, from)`](https://docs.rs/day-model/latest/day_model/struct.Field.html#method.map) converts on both sides with plain `fn`s (an ISO string as a date, `#RRGGBB` as
 a `Color`) and the result is still `Copy` and still a binding. Reads track the **most specific
-path touched**: [`field.with(f)`](https://daybrite.dev/api/day_model/struct.Field.html#method.with) wakes only for that field, [`source.with(f)`](https://daybrite.dev/api/day_model/struct.Store.html#method.with) is the coarse
+path touched**: [`field.with(f)`](https://docs.rs/day-model/latest/day_model/struct.Field.html#method.with) wakes only for that field, [`source.with(f)`](https://docs.rs/day-model/latest/day_model/struct.Store.html#method.with) is the coarse
 subscription that wakes for anything under it. A reader opts into precision by what it reads;
 writes never need to know.
 
@@ -176,8 +175,8 @@ it.
 
 ## Driving a list
 
-A store is a row source ([docs/list](list.md)): [`list(store, row)`](https://daybrite.dev/api/day_pieces/fn.list.html) shows the collection in its own
-order, and [`list(store.rows(projection), row)`](https://daybrite.dev/api/day_pieces/fn.list.html) orders it through a **key projection**, a
+A store is a row source ([docs/list](list.md)): [`list(store, row)`](https://docs.rs/day-pieces/latest/day_pieces/fn.list.html) shows the collection in its own
+order, and [`list(store.rows(projection), row)`](https://docs.rs/day-pieces/latest/day_pieces/fn.list.html) orders it through a **key projection**, a
 tracked read of key ids that reads only the fields the order depends on. The row builder
 receives a `ModelSlot`, itself a `Source`, so the derive's accessors hang off it and follow the
 row across cell recycling:
@@ -196,16 +195,16 @@ The costs land where they should: a field edit patches only the control showing 
 projection reads re-runs only the projection and reloads natively; and a cell scrolled across the whole collection leaves no claims behind.
 `day-pieces/tests/model_rows.rs` measures all three.
 
-A row's slot outlives the row's own teardown. [`each`](https://daybrite.dev/api/day_pieces/fn.each.html) and [`list`](https://daybrite.dev/api/day_pieces/fn.list.html) build a row's pieces in a scope
+A row's slot outlives the row's own teardown. [`each`](https://docs.rs/day-pieces/latest/day_pieces/fn.each.html) and [`list`](https://docs.rs/day-pieces/latest/day_pieces/fn.list.html) build a row's pieces in a scope
 nested inside the one that owns the slot, and disposal runs the inner scope first, so a cleanup
 the row registered still reaches its row through the slot. The case that needs it is a text
-field removed mid-edit: it seals the edit in progress on the way out ([`write_teardown`](https://daybrite.dev/api/day_model/struct.Field.html#method.write_teardown)), whether
+field removed mid-edit: it seals the edit in progress on the way out ([`write_teardown`](https://docs.rs/day-model/latest/day_model/struct.Field.html#method.write_teardown)), whether
 the row was deleted under it or the view around it closed.
 
 ## Deleted rows
 
 Reading a field of a deleted row returns the field's `Default` (never a panic), and
-[`elem.exists()`](https://daybrite.dev/api/day_model/struct.Elem.html#method.exists) is the **tracked** guard: it re-runs its reader when the row is deleted or comes
+[`elem.exists()`](https://docs.rs/day-model/latest/day_model/struct.Elem.html#method.exists) is the **tracked** guard: it re-runs its reader when the row is deleted or comes
 back. A write to a gone row is a silent no-op and announces nothing, and that includes the
 commit that would seal a preview session: a field deleted mid-edit ends its session with no
 record, since there is no value left for a change to describe.
@@ -226,7 +225,7 @@ store.elem(2).name().touch(tx.paths());   // name what changed, as portable comp
 drop(tx);                                  // the drop commits and queues the announcements
 ```
 
-Announcing is the main thread's job: [`store.pump()`](https://daybrite.dev/api/day_model/struct.Store.html#method.pump) wakes exactly the paths the worker named.
+Announcing is the main thread's job: [`store.pump()`](https://docs.rs/day-model/latest/day_model/struct.Store.html#method.pump) wakes exactly the paths the worker named.
 The trigger tables are thread-local to the main thread; what crosses the boundary is plain path
 components, re-established on arrival.
 
@@ -242,43 +241,43 @@ let (_, log) = day_model::record(|| {
 assert_eq!(log, vec!["name"]);
 ```
 
-[`record_changes`](https://daybrite.dev/api/day_model/fn.record_changes.html) yields the full `Change` records; [`record_values`](https://daybrite.dev/api/day_model/fn.record_values.html) additionally captures each
+[`record_changes`](https://docs.rs/day-model/latest/day_model/fn.record_changes.html) yields the full `Change` records; [`record_values`](https://docs.rs/day-model/latest/day_model/fn.record_values.html) additionally captures each
 write's **prior and new value** (the form an undo unit needs: one clone per write while a
 consumer asks, nothing when none does). Those two are scoped test hooks;
-[`install_change_sink(f)`](https://daybrite.dev/api/day_model/fn.install_change_sink.html) registers a standing consumer of every announced change until
-[`remove_change_sink`](https://daybrite.dev/api/day_model/fn.remove_change_sink.html), which is how [day-persistence](persistence.md)'s container watches the
-stores it loaded; [`store.store_id()`](https://daybrite.dev/api/day_model/struct.Store.html#method.store_id) names a store the way a change's first path component does.
-[`observed_paths()`](https://daybrite.dev/api/day_model/fn.observed_paths.html) and [`interned_nodes()`](https://daybrite.dev/api/day_model/fn.interned_nodes.html) expose the cost of observation itself, so a test can
+[`install_change_sink(f)`](https://docs.rs/day-model/latest/day_model/fn.install_change_sink.html) registers a standing consumer of every announced change until
+[`remove_change_sink`](https://docs.rs/day-model/latest/day_model/fn.remove_change_sink.html), which is how [day-persistence](persistence.md)'s container watches the
+stores it loaded; [`store.store_id()`](https://docs.rs/day-model/latest/day_model/struct.Store.html#method.store_id) names a store the way a change's first path component does.
+[`observed_paths()`](https://docs.rs/day-model/latest/day_model/fn.observed_paths.html) and [`interned_nodes()`](https://docs.rs/day-model/latest/day_model/fn.interned_nodes.html) expose the cost of observation itself, so a test can
 assert that triggers and interner slots are reclaimed when the scopes observing them die.
 
-Changes can also flow the other way. [`with_author("name", f)`](https://daybrite.dev/api/day_model/fn.with_author.html) stamps every change announced
+Changes can also flow the other way. [`with_author("name", f)`](https://docs.rs/day-model/latest/day_model/fn.with_author.html) stamps every change announced
 inside `f` with an author tag (`None` is the user), so consumers can tell an import, a replay
 or a merge from the user's own edits, and decline their own echoes.
-[`store.merge_row(key, value, &["field", …])`](https://daybrite.dev/api/day_model/struct.Store.html#method.merge_row) feeds one row's new value in from outside the
+[`store.merge_row(key, value, &["field", …])`](https://docs.rs/day-model/latest/day_model/struct.Store.html#method.merge_row) feeds one row's new value in from outside the
 app's editing (another connection's committed write, an import), replacing the stored row and
 announcing exactly the named fields, so their readers wake and nothing else does. An absent
-row announces nothing (an insert is [`restructure`](https://daybrite.dev/api/day_model/struct.Store.html#method.restructure)'s job); [persistence](persistence.md)'s external-changes
+row announces nothing (an insert is [`restructure`](https://docs.rs/day-model/latest/day_model/struct.Store.html#method.restructure)'s job); [persistence](persistence.md)'s external-changes
 section describes how a persistence container uses the pair.
 
 ## Sessions and undo
 
 Two consumers of the change log live here rather than in persistence, because neither needs a
 database. **Sessions** are the write-side of `ValueChanged`/`ValueCommitted`:
-[`field.write_preview(v)`](https://daybrite.dev/api/day_model/struct.Field.html#method.write_preview) updates the value and wakes this field's readers but records nothing;
-[`field.write_commit(v)`](https://daybrite.dev/api/day_model/struct.Field.html#method.write_commit) seals the gesture as one record whose prior is the pre-session value;
-[`field.session()`](https://daybrite.dev/api/day_model/struct.Field.html#method.session) adds [`cancel()`](https://daybrite.dev/api/day_model/struct.FieldSession.html#method.cancel) (Escape restores, zero records). Bound controls drive the
-pair automatically. **[`UndoStack::new(levels)`](https://daybrite.dev/api/day_model/struct.UndoStack.html#method.new)** + [`stack.watch(store)`](https://daybrite.dev/api/day_model/struct.UndoStack.html#method.watch) turns the same log into
+[`field.write_preview(v)`](https://docs.rs/day-model/latest/day_model/struct.Field.html#method.write_preview) updates the value and wakes this field's readers but records nothing;
+[`field.write_commit(v)`](https://docs.rs/day-model/latest/day_model/struct.Field.html#method.write_commit) seals the gesture as one record whose prior is the pre-session value;
+[`field.session()`](https://docs.rs/day-model/latest/day_model/struct.Field.html#method.session) adds [`cancel()`](https://docs.rs/day-model/latest/day_model/struct.FieldSession.html#method.cancel) (Escape restores, zero records). Bound controls drive the
+pair automatically. **[`UndoStack::new(levels)`](https://docs.rs/day-model/latest/day_model/struct.UndoStack.html#method.new)** + [`stack.watch(store)`](https://docs.rs/day-model/latest/day_model/struct.UndoStack.html#method.watch) turns the same log into
 history: units are turns, inversion comes from the captured prior values (a `Delete` carries
 its row and index, so undo puts it back where it was; a `Move` its two indexes, so a reorder
-undoes too), the menu names each unit through [`set_label_resolver`](https://daybrite.dev/api/day_model/struct.UndoStack.html#method.set_label_resolver) (the starter maps labels to
+undoes too), the menu names each unit through [`set_label_resolver`](https://docs.rs/day-model/latest/day_model/struct.UndoStack.html#method.set_label_resolver) (the starter maps labels to
 its own localized strings), replay is tagged `author: "undo"` so consumers can tell it from the user, and
-[`can_undo`](https://daybrite.dev/api/day_model/struct.UndoStack.html#method.can_undo)/[`undo_label`](https://daybrite.dev/api/day_model/struct.UndoStack.html#method.undo_label) are signals. `#[derive(Observable)]` emits the `ApplyField` impl replay
-writes back through. [`day::install_undo(&stack)`](https://daybrite.dev/api/day/fn.install_undo.html) fronts the stack natively where the platform
+[`can_undo`](https://docs.rs/day-model/latest/day_model/struct.UndoStack.html#method.can_undo)/[`undo_label`](https://docs.rs/day-model/latest/day_model/struct.UndoStack.html#method.undo_label) are signals. `#[derive(Observable)]` emits the `ApplyField` impl replay
+writes back through. [`day::install_undo(&stack)`](https://docs.rs/day-app/latest/day/fn.install_undo.html) fronts the stack natively where the platform
 has an undo system ([docs/persistence](persistence.md) has the platform table).
 
 ### Transient UI state
 
-[`stack.set_transient_context(capture, restore)`](https://daybrite.dev/api/day_model/struct.UndoStack.html#method.set_transient_context) rides UI state that is not model data (a
+[`stack.set_transient_context(capture, restore)`](https://docs.rs/day-model/latest/day_model/struct.UndoStack.html#method.set_transient_context) rides UI state that is not model data (a
 selection, a scroll position) along the history. `capture` runs as each unit seals and its
 snapshot belongs to that point of history; undo restores the snapshot of the unit history
 lands on (the previous unit's, or the base snapshot taken at install once the stack empties),
@@ -302,15 +301,15 @@ restore would fork history from inside a replay.
   and once per nested struct, not per read.
 
 The scaffold's own editor (`day new`, `src/pages.rs`) is the worked example: each form control
-binds a field accessor directly, and one [`day::prefs::bind_json`](https://daybrite.dev/api/day/prefs/fn.bind_json.html) call in `src/model.rs` handles
+binds a field accessor directly, and one [`day::prefs::bind_json`](https://docs.rs/day-app/latest/day/prefs/fn.bind_json.html) call in `src/model.rs` handles
 all of its persistence ([docs/prefs](prefs.md)). When a coarse watch stops being enough, [docs/persistence](persistence.md)
 is the next step: the same store, loaded from and autosaved to SQLite.
 
 ### Undo groups spanning input events
 
-[`UndoStack::begin_group(label)`](https://daybrite.dev/api/day_model/struct.UndoStack.html#method.begin_group) returns a must-use `UndoGroup` guard. Keep it in the
+[`UndoStack::begin_group(label)`](https://docs.rs/day-model/latest/day_model/struct.UndoStack.html#method.begin_group) returns a must-use `UndoGroup` guard. Keep it in the
 interaction state and drop it after the final commit to seal one unit across event
-turns. Nested [`grouped`](https://daybrite.dev/api/day_model/struct.UndoStack.html#method.grouped) calls join the outer unit and retain its label. The last guard
+turns. Nested [`grouped`](https://docs.rs/day-model/latest/day_model/struct.UndoStack.html#method.grouped) calls join the outer unit and retain its label. The last guard
 seals the changes, even on an early return; an empty group creates no history entry.
 All watched edits during the interval belong to that group, so keep its lifetime
 limited to the interaction. This groups Day-Sketch's Option/Alt-drag insertion and

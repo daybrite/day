@@ -16,9 +16,9 @@ for the platform’s native packaging and loading tools.
 
 | Project dir | Kind | API (typed) | Native store |
 |---|---|---|---|
-| `resource/images/` | processed images | [`image(res::images::logo)`](https://daybrite.dev/api/day_pieces/fn.image.html) | SwiftPM `.process` → `Assets.car` (iOS) · bundle file (macOS) · `res/drawable` → `R` (Android) · GResource (GTK) · `.qrc` (Qt) · MRT / loose (WinUI) · rawfile (ArkUI) |
-| `resource/assets/` | arbitrary data | [`resource(res::assets::stations_json)`](https://daybrite.dev/api/day_core/fn.resource.html) | bundle file + mmap (Apple) · [`AAssetManager`](https://developer.android.com/ndk/reference/group/asset) (Android) · [`g_resources_lookup_data`](https://docs.gtk.org/gio/func.resources_lookup_data.html) (GTK) · [`QResource`](https://doc.qt.io/qt-6/qresource.html) (Qt) · loose file (WinUI) · rawfile fd (ArkUI) |
-| `resource/fonts/` | custom fonts | [`Font::custom(res::fonts::family, pt)`](https://daybrite.dev/api/day_spec/enum.Font.html#method.custom) | CoreText registration (Apple) · `res/font` → `R.font` (Android) · fontconfig/CoreText (GTK) · [`QFontDatabase`](https://doc.qt.io/qt-6/qfontdatabase.html) (Qt) · WinUI `ms-appx:///fonts/<file>#family` (WinUI) · rawfile + ArkTS `registerFont` (ArkUI) |
+| `resource/images/` | processed images | [`image(res::images::logo)`](https://docs.rs/day-pieces/latest/day_pieces/fn.image.html) | SwiftPM `.process` → `Assets.car` (iOS) · bundle file (macOS) · `res/drawable` → `R` (Android) · GResource (GTK) · `.qrc` (Qt) · MRT / loose (WinUI) · rawfile (ArkUI) |
+| `resource/assets/` | arbitrary data | [`resource(res::assets::stations_json)`](https://docs.rs/day-core/latest/day_core/fn.resource.html) | bundle file + mmap (Apple) · [`AAssetManager`](https://developer.android.com/ndk/reference/group/asset) (Android) · [`g_resources_lookup_data`](https://docs.gtk.org/gio/func.resources_lookup_data.html) (GTK) · [`QResource`](https://doc.qt.io/qt-6/qresource.html) (Qt) · loose file (WinUI) · rawfile fd (ArkUI) |
+| `resource/fonts/` | custom fonts | [`Font::custom(res::fonts::family, pt)`](https://docs.rs/day-spec/latest/day_spec/enum.Font.html#method.custom) | CoreText registration (Apple) · `res/font` → `R.font` (Android) · fontconfig/CoreText (GTK) · [`QFontDatabase`](https://doc.qt.io/qt-6/qfontdatabase.html) (Qt) · WinUI `ms-appx:///fonts/<file>#family` (WinUI) · rawfile + ArkTS `registerFont` (ArkUI) |
 
 ## Referencing resources: typed constants
 
@@ -78,10 +78,10 @@ resource(AssetName::dynamic(format!("page-{n}.json")))
 `logo.png`), or if two files **collide** on one symbol. The same crate is the single source of the
 name→identifier rule the CLI stagers use, so a constant's string is exactly the name staged natively.
 
-## Images: [`image(res::images::name)`](https://daybrite.dev/api/day_pieces/fn.image.html)
+## Images: [`image(res::images::name)`](https://docs.rs/day-pieces/latest/day_pieces/fn.image.html)
 
 Drop `resource/images/logo.png` (optionally `logo@2x.png`, `logo@3x.png`) in the project. `day build` stages
-each image into the target's native image pipeline; [`image(res::images::logo)`](https://daybrite.dev/api/day_pieces/fn.image.html) (the piece) then
+each image into the target's native image pipeline; [`image(res::images::logo)`](https://docs.rs/day-pieces/latest/day_pieces/fn.image.html) (the piece) then
 resolves the name through the native by-name API. Nothing about the piece API changes, only how
 the toolkit resolves the name.
 
@@ -104,9 +104,9 @@ the toolkit resolves the name.
 - **ArkUI:** staged into `resources/rawfile/day/`; the native NodeAPI image node is set to
   `resource://RAWFILE/day/logo.png` (rawfile is the only store the OpenHarmony NDK can reach).
 
-## Data: [`resource(res::assets::name)`](https://daybrite.dev/api/day_core/fn.resource.html)
+## Data: [`resource(res::assets::name)`](https://docs.rs/day-core/latest/day_core/fn.resource.html)
 
-[`day::resource(res::assets::stations_json)`](https://daybrite.dev/api/day/fn.resource.html) returns a `Resource` with efficient random read-only
+[`day::resource(res::assets::stations_json)`](https://docs.rs/day-app/latest/day/fn.resource.html) returns a `Resource` with efficient random read-only
 access, backed directly by the native store (zero-copy where the platform exposes a stable pointer):
 
 ```rust
@@ -122,17 +122,17 @@ Backing per platform: Apple = mmap of the bundle file (the "plain file handle");
 [`AAssetManager`](https://developer.android.com/ndk/reference/group/asset) (`AAsset_getBuffer` on an uncompressed asset, zero copy); GTK =
 [`g_resources_lookup_data`](https://docs.gtk.org/gio/func.resources_lookup_data.html); Qt = [`QResource::data`](https://doc.qt.io/qt-6/qresource.html); ArkUI = `OH_ResourceManager_GetRawFileDescriptor`
 + mmap; desktop dev / host tests = mmap of `DAY_ASSET_ROOT/<name>`. The active toolkit registers its
-opener once via [`day_core::set_resource_opener`](https://daybrite.dev/api/day_core/fn.set_resource_opener.html); absent that, the default mmap-file opener is used
+opener once via [`day_core::set_resource_opener`](https://docs.rs/day-core/latest/day_core/fn.set_resource_opener.html); absent that, the default mmap-file opener is used
 (which is exactly the Apple path). See `crates/day-core/src/resource.rs`.
 
-## Fonts: [`Font::custom(res::fonts::family, pt)`](https://daybrite.dev/api/day_spec/enum.Font.html#method.custom)
+## Fonts: [`Font::custom(res::fonts::family, pt)`](https://docs.rs/day-spec/latest/day_spec/enum.Font.html#method.custom)
 
-Bundled families also appear in [`day::font_families()`](https://daybrite.dev/api/day/fn.font_families.html) and draw on a canvas through
+Bundled families also appear in [`day::font_families()`](https://docs.rs/day-app/latest/day/fn.font_families.html) and draw on a canvas through
 `CanvasFont` — see [docs/fonts](fonts.md).
 
 `resource/fonts/*.{ttf,otf}` are referenced by the **family name** embedded in the file's sfnt `name`
 table, never by file name. One invariant makes the name resolve everywhere without a side
-table. `day build` parses the name table ([`day_spec::fonts::parse_font_names`](https://daybrite.dev/api/day_fonts/fn.parse_font_names.html), a ~100-line
+table. `day build` parses the name table ([`day_spec::fonts::parse_font_names`](https://docs.rs/day-fonts/latest/day_fonts/fn.parse_font_names.html), a ~100-line
 bounds-checked sfnt reader shared by the CLI and the runtimes) and derives every staged name from
 the family via `font_ident` ("Special Elite" → `special_elite`), so a runtime can re-derive it
 from the requested name. The size scales with the platform accessibility text scale exactly like
@@ -141,7 +141,7 @@ from the requested name. The size scales with the platform accessibility text sc
 Per platform:
 
 - **macOS (AppKit):** files register with [`CTFontManagerRegisterFontsForURL`](https://developer.apple.com/documentation/coretext/ctfontmanagerregisterfontsforurl(_:_:_:)) (process scope) in
-  [`run()`](https://daybrite.dev/api/day_pieces/struct.TextBuilder.html#method.run); [`NSFont(name:size:)`](https://developer.apple.com/documentation/appkit/nsfont) then resolves family/full/PostScript names. Dev launch reads
+  [`run()`](https://docs.rs/day-pieces/latest/day_pieces/struct.TextBuilder.html#method.run); [`NSFont(name:size:)`](https://developer.apple.com/documentation/appkit/nsfont) then resolves family/full/PostScript names. Dev launch reads
   `DAY_FONT_ROOT` (set by `day launch` to the project's `resource/fonts/`); packed apps read
   `Contents/Resources/fonts` (copied by `day pack`).
 - **iOS (UIKit):** fonts ride the DayPieces SwiftPM bundle as a `.copy("fonts")` resource
@@ -159,11 +159,11 @@ Per platform:
   The label carries a Pango `AttrString::new_family` attribute.
 - **Qt:** [`QFontDatabase::addApplicationFont`](https://doc.qt.io/qt-6/qfontdatabase.html) per file at startup (shim `day_qt_register_font`);
   labels get [`QFont::setFamily`](https://doc.qt.io/qt-6/qfont.html) on top of the size/weight/italic font.
-- **WinUI:** [`run()`](https://daybrite.dev/api/day_pieces/struct.TextBuilder.html#method.run) stages every bundled font into `<exe>/fonts/` (a no-op when packed;
+- **WinUI:** [`run()`](https://docs.rs/day-pieces/latest/day_pieces/struct.TextBuilder.html#method.run) stages every bundled font into `<exe>/fonts/` (a no-op when packed;
   `day pack` already ships them there). The shim sets
   `FontFamily("ms-appx:///fonts/<file>#<family>")`, resolving the font relative to the executable.
   The family→file mapping is resolved (and cached)
-  through [`day_spec::fonts::resolve_font_file`](https://daybrite.dev/api/day_fonts/fn.resolve_font_file.html) against `DAY_FONT_ROOT` / the exe-relative `fonts/` dir.
+  through [`day_spec::fonts::resolve_font_file`](https://docs.rs/day-fonts/latest/day_fonts/fn.resolve_font_file.html) against `DAY_FONT_ROOT` / the exe-relative `fonts/` dir.
 - **ArkUI:** staged into rawfile `day/fonts/` plus a `day/fonts.json` manifest
   (`[{family, file}]`); the platform/harmony scaffold's EntryAbility feeds it to ArkTS
   `font.registerFont` (building the rawfile `Resource` object by hand; `$rawfile()` only takes
@@ -176,11 +176,11 @@ unknown family logs `day: unknown font family …` and falls back to the system 
 font is a visual bug, never a crash. Weight overrides on custom fonts map to synthesized bold
 (`>= Semibold`) where the family has no such face.
 
-## Scaling: [`image`](https://daybrite.dev/api/day_pieces/fn.image.html)`(res::images::logo)`[`.content_mode`](https://daybrite.dev/api/day_pieces/trait.ImageBuilder.html#tymethod.content_mode)`(…)` / [`.aspect_ratio(…)`](https://daybrite.dev/api/day_pieces/trait.ImageBuilder.html#tymethod.aspect_ratio)
+## Scaling: [`image`](https://docs.rs/day-pieces/latest/day_pieces/fn.image.html)`(res::images::logo)`[`.content_mode`](https://docs.rs/day-pieces/latest/day_pieces/trait.ImageBuilder.html#tymethod.content_mode)`(…)` / [`.aspect_ratio(…)`](https://docs.rs/day-pieces/latest/day_pieces/trait.ImageBuilder.html#tymethod.aspect_ratio)
 
 Images scale with `ContentMode::Fit` by default (preserve aspect, letterbox, never stretch). Tune
-with [`.content_mode(ContentMode::Fill)`](https://daybrite.dev/api/day_pieces/trait.ImageBuilder.html#tymethod.content_mode) (preserve aspect, crop), [`.stretch()`](https://daybrite.dev/api/day_pieces/trait.ImageBuilder.html#tymethod.stretch), or the shorthands
-[`.fit()`](https://daybrite.dev/api/day_pieces/trait.ImageBuilder.html#tymethod.fit)/[`.fill()`](https://daybrite.dev/api/day_pieces/trait.ImageBuilder.html#tymethod.fill); constrain the frame to a ratio with [`.aspect_ratio(16.0/9.0)`](https://daybrite.dev/api/day_pieces/trait.ImageBuilder.html#tymethod.aspect_ratio). Each maps to the
+with [`.content_mode(ContentMode::Fill)`](https://docs.rs/day-pieces/latest/day_pieces/trait.ImageBuilder.html#tymethod.content_mode) (preserve aspect, crop), [`.stretch()`](https://docs.rs/day-pieces/latest/day_pieces/trait.ImageBuilder.html#tymethod.stretch), or the shorthands
+[`.fit()`](https://docs.rs/day-pieces/latest/day_pieces/trait.ImageBuilder.html#tymethod.fit)/[`.fill()`](https://docs.rs/day-pieces/latest/day_pieces/trait.ImageBuilder.html#tymethod.fill); constrain the frame to a ratio with [`.aspect_ratio(16.0/9.0)`](https://docs.rs/day-pieces/latest/day_pieces/trait.ImageBuilder.html#tymethod.aspect_ratio). Each maps to the
 native scaler: NSImageView `imageScaling`, [UIImageView](https://developer.apple.com/documentation/uikit/uiimageview) `contentMode`, [GtkPicture](https://docs.gtk.org/gtk4/class.Picture.html) `content-fit`, a
 Qt aspect-painting label, Android `ImageView.ScaleType`, WinUI `Image.Stretch`, ArkUI
 `NODE_IMAGE_OBJECT_FIT`.

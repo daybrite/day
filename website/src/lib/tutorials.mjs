@@ -52,7 +52,7 @@ export function validateRecipe(recipe) {
       if (typeof body === 'object') for (const key of Object.keys(body)) check(platformIds.includes(key), `${step.id}: unknown platform variant ${key}`);
       if (step.kind === 'launch') check(Array.isArray(step.checks) && step.checks.length > 0, `${step.id}: launch needs UI checks`);
       if (step.checks) check(step.kind === 'launch' && step.checks.every(s => s && typeof s === 'object' && Object.keys(s).length === 1), 'invalid UI checks');
-      if (step.compatibility) check(step.compatibility === 'install' && step.kind === 'run', 'invalid compatibility action');
+      if (step.compatibility) check(['install', 'dependencies'].includes(step.compatibility) && step.kind === 'run', 'invalid compatibility action');
       for (const platform of platformIds) if (applies(step, platform)) resolveStep(recipe, lesson, step, platform);
     }
   }

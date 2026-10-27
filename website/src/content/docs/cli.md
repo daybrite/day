@@ -543,7 +543,7 @@ packaged size are printed at the end.
 day doctor verify                                   # every target this machine can build
 day doctor verify -t ios-uikit,macos-appkit         # only these
 day doctor verify --no-pack --profile release       # stop after the build; use the release profile
-day doctor verify --day-version 0.6.1               # check that release, not the CLI you have
+day doctor verify --day-version latest              # the newest release, not the CLI you have
 ```
 
 Run it with no arguments and a target whose prerequisites are missing is skipped, with the same fix
@@ -564,7 +564,7 @@ other:
 
 ```bash
 day doctor verify --day-version main       # the main branch on GitHub
-day doctor verify --day-version 0.6.1      # that release
+day doctor verify --day-version X.Y.Z      # that release
 day doctor verify --day-version latest     # the newest release on crates.io
 day doctor verify --day-version a1b2c3d    # that commit
 ```
@@ -575,7 +575,7 @@ temporary directory (`cargo install`), so nothing on your PATH changes. The same
 
 ```bash
 day new app my-app --day-version main       # day = { package = "day-app", git = "…", branch = "main" }
-day new app my-app --day-version 0.6.1      # day = { package = "day-app", version = "0.6.1" }
+day new app my-app --day-version X.Y.Z      # day = { package = "day-app", version = "X.Y.Z" }
 ```
 
 A release selects the matching crates.io version. Add `--git` to select its `vX.Y.Z` Git tag
@@ -724,8 +724,8 @@ app on iOS, an unknown target in `Day.toml` is not read. Coverage gaps and store
 **warnings**. Both kinds fail `--strict`, so the split changes what you read rather than what CI
 does.
 
-One rule that would pass that test stays a warning anyway. `unknown-key` (a [`tr("…")`](https://daybrite.dev/api/day/fn.tr.html) with no
-message, which renders the key itself on screen) is found by scanning for the literal after [`tr("`](https://daybrite.dev/api/day/fn.tr.html),
+One rule that would pass that test stays a warning anyway. `unknown-key` (a [`tr("…")`](https://docs.rs/day-app/latest/day/fn.tr.html) with no
+message, which renders the key itself on screen) is found by scanning for the literal after [`tr("`](https://docs.rs/day-app/latest/day/fn.tr.html),
 and that two-character name turns up inside other identifiers, where what follows it is not always a
 key.
 
@@ -783,8 +783,8 @@ the per-target build pipelines, and how [resources](/docs/reference/glossary#res
 ## dayscript
 
 **dayscript** is a YAML language that drives and asserts a *running* app over a socket, using the
-same script on every platform. Pieces are addressed by the same stable [`.id`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.id) you give them in Rust,
-and routes are the same keys your [`nav`](https://daybrite.dev/api/day_pieces/fn.nav.html)/[`nav_stack`](https://daybrite.dev/api/day_pieces/fn.nav_stack.html) use. It has its own guide: [Testing with
+same script on every platform. Pieces are addressed by the same stable [`.id`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.id) you give them in Rust,
+and routes are the same keys your [`nav`](https://docs.rs/day-pieces/latest/day_pieces/fn.nav.html)/[`nav_stack`](https://docs.rs/day-pieces/latest/day_pieces/fn.nav_stack.html) use. It has its own guide: [Testing with
 dayscript](/docs/how-to/dayscript).
 
 ## Tests in the app
@@ -793,7 +793,7 @@ dayscript](/docs/how-to/dayscript).
 it: pages driven on the real toolkit, and headless logic in the app's own environment. One line
 per test, the evidence and captures beside the run's screenshots. A test is named after its
 function (`button_press` runs as `button-press`), a GUI case's page shows alone in the app's
-[`day::test_host`](https://daybrite.dev/api/day/fn.test_host.html), and a case that panics or passes its time limit (`--case-timeout`, 30 s by
+[`day::test_host`](https://docs.rs/day-app/latest/day/fn.test_host.html), and a case that panics or passes its time limit (`--case-timeout`, 30 s by
 default) fails without stopping the run. The guide is
 [Tests in the app](/docs/how-to/testing).
 

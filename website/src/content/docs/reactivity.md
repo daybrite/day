@@ -48,13 +48,13 @@ Use [the state lesson](/docs/tutorials/state) for a complete app.
 | Surface | Contract |
 | --- | --- |
 | `Signal<T: 'static>` | Copyable handle to a scope-owned cell; copying does not clone `T`; the handle is not `Send` |
-| [`Signal::new(value)`](https://daybrite.dev/api/day_reactive/struct.Signal.html#method.new) | Allocates in the current scope; use [`new_in(scope, value)`](https://daybrite.dev/api/day_reactive/struct.Signal.html#method.new_in) for an explicit owner |
-| [`get()`](https://daybrite.dev/api/day_reactive/struct.Signal.html#method.get) | Tracked read requiring `T: Clone` |
-| [`with(f)`](https://daybrite.dev/api/day_reactive/struct.Signal.html#method.with) | Tracked borrowed read; avoids cloning the stored value |
-| [`get_untracked()`](https://daybrite.dev/api/day_reactive/struct.Signal.html#method.get_untracked) | Clone without subscribing |
-| [`set(value)`](https://daybrite.dev/api/day_reactive/struct.Signal.html#method.set) / [`update(f)`](https://daybrite.dev/api/day_reactive/struct.Signal.html#method.update) | Notify observers even if the resulting value compares equal |
-| [`set_if_changed(value)`](https://daybrite.dev/api/day_reactive/struct.Signal.html#method.set_if_changed) | Uses `PartialEq` to avoid a write notification when unchanged |
-| [`Memo::new(f)`](https://daybrite.dev/api/day_reactive/struct.Memo.html#method.new) | Cached derived value with equality gating; dependents need not run when its output is unchanged |
+| [`Signal::new(value)`](https://docs.rs/day-reactive/latest/day_reactive/struct.Signal.html#method.new) | Allocates in the current scope; use [`new_in(scope, value)`](https://docs.rs/day-reactive/latest/day_reactive/struct.Signal.html#method.new_in) for an explicit owner |
+| [`get()`](https://docs.rs/day-reactive/latest/day_reactive/struct.Signal.html#method.get) | Tracked read requiring `T: Clone` |
+| [`with(f)`](https://docs.rs/day-reactive/latest/day_reactive/struct.Signal.html#method.with) | Tracked borrowed read; avoids cloning the stored value |
+| [`get_untracked()`](https://docs.rs/day-reactive/latest/day_reactive/struct.Signal.html#method.get_untracked) | Clone without subscribing |
+| [`set(value)`](https://docs.rs/day-reactive/latest/day_reactive/struct.Signal.html#method.set) / [`update(f)`](https://docs.rs/day-reactive/latest/day_reactive/struct.Signal.html#method.update) | Notify observers even if the resulting value compares equal |
+| [`set_if_changed(value)`](https://docs.rs/day-reactive/latest/day_reactive/struct.Signal.html#method.set_if_changed) | Uses `PartialEq` to avoid a write notification when unchanged |
+| [`Memo::new(f)`](https://docs.rs/day-reactive/latest/day_reactive/struct.Memo.html#method.new) | Cached derived value with equality gating; dependents need not run when its output is unchanged |
 
 A memo does not turn arbitrary mutation into reactive state. Its inputs must be tracked reads.
 Keep derived calculations in memos or bindings; an effect that writes one of its own dependencies
@@ -63,14 +63,14 @@ deferral behavior. That guard is a diagnostic, not an application control-flow m
 
 ## Effects, bindings, and watches
 
-[`Effect::new(f)`](https://daybrite.dev/api/day_reactive/struct.Effect.html#method.new) runs immediately and tracks reads. [`bind(compute, apply)`](https://daybrite.dev/api/day_reactive/fn.bind.html) tracks `compute`,
-then applies the initial value and unequal later values outside tracking. [`bind_always`](https://daybrite.dev/api/day_reactive/fn.bind_always.html) has no
-equality gate. [`watch(source, callback)`](https://daybrite.dev/api/day_reactive/fn.watch.html) records the initial source without calling the callback;
+[`Effect::new(f)`](https://docs.rs/day-reactive/latest/day_reactive/struct.Effect.html#method.new) runs immediately and tracks reads. [`bind(compute, apply)`](https://docs.rs/day-reactive/latest/day_reactive/fn.bind.html) tracks `compute`,
+then applies the initial value and unequal later values outside tracking. [`bind_always`](https://docs.rs/day-reactive/latest/day_reactive/fn.bind_always.html) has no
+equality gate. [`watch(source, callback)`](https://docs.rs/day-reactive/latest/day_reactive/fn.watch.html) records the initial source without calling the callback;
 later reruns pass references to the new and previous values. It has a `Clone` bound, not a
-`PartialEq` bound, so it is not an equality-filtered version of [`bind`](https://daybrite.dev/api/day_reactive/fn.bind.html).
+`PartialEq` bound, so it is not an equality-filtered version of [`bind`](https://docs.rs/day-reactive/latest/day_reactive/fn.bind.html).
 
 Day's control builders establish bindings when built. A changed signal can update a native
-attribute without rebuilding the root. Structural pieces such as [`when`](https://daybrite.dev/api/day_pieces/fn.when.html), [`each`](https://daybrite.dev/api/day_pieces/fn.each.html), and navigation
+attribute without rebuilding the root. Structural pieces such as [`when`](https://docs.rs/day-pieces/latest/day_pieces/fn.when.html), [`each`](https://docs.rs/day-pieces/latest/day_pieces/fn.each.html), and navigation
 hosts can still build and dispose subtrees. A source change is not guaranteed to produce exactly
 one native call: fan-out, structure, layout, and backend implementations determine the work.
 
@@ -81,7 +81,7 @@ inside a page is owned by that page's scope. Re-entering the page creates a new 
 its state was retained above the page. [State ownership](/docs/explanation/state) explains scene
 and environment patterns; [navigation](/docs/how-to/navigation) describes page lifetime.
 
-Disposed signal reads panic in all builds; use [`try_with`](https://daybrite.dev/api/day_reactive/struct.Signal.html#method.try_with) when a callback may outlive its owner.
+Disposed signal reads panic in all builds; use [`try_with`](https://docs.rs/day-reactive/latest/day_reactive/struct.Signal.html#method.try_with) when a callback may outlive its owner.
 Writes to a disposed signal are ignored (debug builds can warn). A `Setter` delivery after
 disposal silently does nothing. These rules do not make a stale read safe.
 
@@ -91,25 +91,25 @@ hold native handles past their owning tree's lifetime.
 
 ## Threading and async work
 
-Signals, memos, and UI trees belong to the UI thread. [`Signal::setter()`](https://daybrite.dev/api/day_reactive/struct.Signal.html#method.setter) requires `T: Send` and
+Signals, memos, and UI trees belong to the UI thread. [`Signal::setter()`](https://docs.rs/day-reactive/latest/day_reactive/struct.Signal.html#method.setter) requires `T: Send` and
 returns a copyable, write-only `Setter<T>` for data delivery from workers. The backend's main
-poster must already be installed. [`on_main(f)`](https://daybrite.dev/api/day_reactive/fn.on_main.html) also requires `FnOnce() + Send + 'static`; it
+poster must already be installed. [`on_main(f)`](https://docs.rs/day-reactive/latest/day_reactive/fn.on_main.html) also requires `FnOnce() + Send + 'static`; it
 cannot capture a `Signal` merely because the closure will eventually run on the UI thread.
 Calling it before backend initialization panics.
 
-Use [`day::task`](https://daybrite.dev/api/day/fn.task.html) for a future that reads or writes signals after an await. It polls first before
+Use [`day::task`](https://docs.rs/day-app/latest/day/fn.task.html) for a future that reads or writes signals after an await. It polls first before
 returning and resumes on the UI loop; it does not move blocking work to a worker. Use
-[`day::spawn_blocking`](https://daybrite.dev/api/day/fn.spawn_blocking.html) for blocking native work. On web, blocking jobs run inline when polled.
+[`day::spawn_blocking`](https://docs.rs/day-app/latest/day/fn.spawn_blocking.html) for blocking native work. On web, blocking jobs run inline when polled.
 Send result data back and format localized messages on the UI thread.
 
-Tasks are not scope-owned. [`TaskHandle::abort`](https://daybrite.dev/api/day_core/struct.TaskHandle.html#method.abort) drops a pending future; dropping the handle alone
+Tasks are not scope-owned. [`TaskHandle::abort`](https://docs.rs/day-core/latest/day_core/struct.TaskHandle.html#method.abort) drops a pending future; dropping the handle alone
 does not cancel it. `day::reactive::Resource` supplies scope-owned, latest-result-wins loading.
 See [async ownership and shutdown](/docs/explanation/async) and the
 [HTTP recipe](/docs/how-to/guide-http).
 
 ## Batches and limits
 
-Event dispatch batches signal writes, then drains reactions. [`batch(f)`](https://daybrite.dev/api/day_reactive/fn.batch.html) groups explicit writes.
+Event dispatch batches signal writes, then drains reactions. [`batch(f)`](https://docs.rs/day-reactive/latest/day_reactive/fn.batch.html) groups explicit writes.
 The scheduler orders structural reactions before attribute reactions and uses scope depth to
 avoid running disposed children. Layout and native event delivery add their own scheduling;
 this is not a frame-rate or timing guarantee.
@@ -117,8 +117,8 @@ this is not a frame-rate or timing guarantee.
 
 ## Handle an event and update state
 
-A native button action handles pointer, keyboard, and accessibility activation. Use [`.action`](https://daybrite.dev/api/day_pieces/trait.ButtonBuilder.html#tymethod.action)
-for buttons rather than installing a separate [`.on_tap`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.on_tap) gesture. Keep the count in the caller's
+A native button action handles pointer, keyboard, and accessibility activation. Use [`.action`](https://docs.rs/day-pieces/latest/day_pieces/trait.ButtonBuilder.html#tymethod.action)
+for buttons rather than installing a separate [`.on_tap`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.on_tap) gesture. Keep the count in the caller's
 scope when it must survive page replacement. The saturating increment avoids integer overflow.
 
 Complete module for `src/events.rs` in the
@@ -153,5 +153,5 @@ event_reset = Reset
 ```
 
 These action closures return `()`. When starting asynchronous work, use a block with a
-semicolon after [`day::task(...)`](https://daybrite.dev/api/day/fn.task.html) so its `TaskHandle` is not the callback's return value.
+semicolon after [`day::task(...)`](https://docs.rs/day-app/latest/day/fn.task.html) so its `TaskHandle` is not the callback's return value.
 The task can outlive this page; abort it on cleanup when it owns page-specific work.

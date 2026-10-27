@@ -9,8 +9,8 @@ title: Fonts
 Labels pick their type through [`FontSpec`](text.md) — semantic styles the reader's text-size
 setting scales. A drawing has different needs: it names a family from the machine's own list,
 sets an absolute size, and has to know how big the result is before it draws a frame around it.
-This is that surface: [`day::font_families()`](https://daybrite.dev/api/day/fn.font_families.html), `CanvasFont` on canvas text, and
-[`day::measure_text()`](https://daybrite.dev/api/day/fn.measure_text.html).
+This is that surface: [`day::font_families()`](https://docs.rs/day-app/latest/day/fn.font_families.html), `CanvasFont` on canvas text, and
+[`day::measure_text()`](https://docs.rs/day-app/latest/day/fn.measure_text.html).
 
 Text samples use generated Fluent accessors; see the [example catalog](/docs/reference/localization#reference-example-messages)
 and [localization setup](/docs/how-to/localization).
@@ -29,7 +29,7 @@ for f in families.iter() {
 
 `FontFamilyInfo { family, faces }` names one family and every face it ships; `FontFace { name,
 weight, italic }` is one face, with its display name ("Bold Italic") and its `FontWeight` rung.
-[`has_bold()`](https://daybrite.dev/api/day_spec/struct.FontFamilyInfo.html#method.has_bold) / [`has_italic()`](https://daybrite.dev/api/day_spec/struct.FontFamilyInfo.html#method.has_italic) answer the style-picker question, and [`face_for(weight, italic)`](https://daybrite.dev/api/day_spec/struct.FontFamilyInfo.html#method.face_for)
+[`has_bold()`](https://docs.rs/day-spec/latest/day_spec/struct.FontFamilyInfo.html#method.has_bold) / [`has_italic()`](https://docs.rs/day-spec/latest/day_spec/struct.FontFamilyInfo.html#method.has_italic) answer the style-picker question, and [`face_for(weight, italic)`](https://docs.rs/day-spec/latest/day_spec/struct.FontFamilyInfo.html#method.face_for)
 picks the face that will draw for a request: an exact slant first, then the nearest weight,
 ties going heavier (the CSS rule).
 
@@ -39,7 +39,7 @@ app — the OS font panels cache too), enumeration is slow on every platform, an
 synchronous on the UI thread. The bundled fonts the app ships under `resource/fonts/` are always
 in it, even where the platform's database does not report them.
 
-Ask [`capability(Cap::FontList)`](https://daybrite.dev/api/day_core/fn.capability.html) before offering a font menu:
+Ask [`capability(Cap::FontList)`](https://docs.rs/day-core/latest/day_core/fn.capability.html) before offering a font menu:
 
 | Toolkit | `Cap::FontList` | Source |
 | --- | --- | --- |
@@ -77,13 +77,13 @@ d.text(
 ```
 
 `CanvasFont` is a family (`None` = the platform's UI face), a weight (`None` = Regular) and a
-slant. The family is a name as [`font_families()`](https://daybrite.dev/api/day_core/fn.font_families.html) lists it, or a bundled family's name; an unknown
+slant. The family is a name as [`font_families()`](https://docs.rs/day-core/latest/day_core/fn.font_families.html) lists it, or a bundled family's name; an unknown
 name draws in the default face with one warning in the log. Size stays absolute — see
 [docs/canvas](canvas.md) for why canvas text ignores the reader's text-size setting.
 
 A weight or slant the family does not ship is synthesized where the platform does that (Skia on
 Android and HarmonyOS, DirectWrite, CSS) and rounded to the nearest face elsewhere (Pango,
-CoreText); [`face_for`](https://daybrite.dev/api/day_spec/struct.FontFamilyInfo.html#method.face_for) says which.
+CoreText); [`face_for`](https://docs.rs/day-spec/latest/day_spec/struct.FontFamilyInfo.html#method.face_for) says which.
 
 ## Measurement
 
@@ -100,7 +100,7 @@ let marks = Rect::new(
 ); // the ink box
 ```
 
-[`measure_text`](https://daybrite.dev/api/day_core/fn.measure_text.html) measures one line in the same engine `replay` draws it with, so what it reports is
+[`measure_text`](https://docs.rs/day-core/latest/day_core/fn.measure_text.html) measures one line in the same engine `replay` draws it with, so what it reports is
 what gets drawn.
 
 **Two boxes, and which one you want depends on the question.**
@@ -124,7 +124,7 @@ it sits every label a little low. The cap middle is `ascent - cap_height / 2.0` 
 box's top. `day-piece-charts` shifts its y-axis labels by exactly that difference, which is what
 puts them ON their gridlines instead of just under them.
 
-A toolkit that cannot measure at all answers [`TextMetrics::approximate`](https://daybrite.dev/api/day_spec/struct.TextMetrics.html#method.approximate) — 0.6 × size per character,
+A toolkit that cannot measure at all answers [`TextMetrics::approximate`](https://docs.rs/day-spec/latest/day_spec/struct.TextMetrics.html#method.approximate) — 0.6 × size per character,
 1.2 × size tall, the baseline at 0.9 × size, caps at 0.7 × size, ink equal to the line box. There
 is no capability to probe for measurement; a caller always gets a usable box.
 
@@ -150,7 +150,7 @@ for measurements, screen drawing and bitmap export, including bundled families.
 
 A measurement is a pure function of `(text, size, font)`: canvas text takes absolute points, so
 it carries neither the reader's font-scale setting nor the window's scale factor, and no toolkit's
-measurement reads anything else. [`measure_text`](https://daybrite.dev/api/day_core/fn.measure_text.html) therefore memoizes, and a repeat costs a hash of
+measurement reads anything else. [`measure_text`](https://docs.rs/day-core/latest/day_core/fn.measure_text.html) therefore memoizes, and a repeat costs a hash of
 the key instead of a trip into the toolkit — around **0.26 µs against 23 µs** on AppKit, which
 builds an [`NSString`](https://developer.apple.com/documentation/foundation/nsstring) and an attribute dictionary for every measurement it is asked for.
 
@@ -168,12 +168,12 @@ let s = day::text_metrics_cache_stats();   // { hits, misses, entries } — a di
 day::clear_text_metrics_cache();           // for a face registered at RUNTIME (see below)
 ```
 
-Nothing in day calls [`clear_text_metrics_cache`](https://daybrite.dev/api/day_core/fn.clear_text_metrics_cache.html). The font set is fixed for the process
+Nothing in day calls [`clear_text_metrics_cache`](https://docs.rs/day-core/latest/day_core/fn.clear_text_metrics_cache.html). The font set is fixed for the process
 ([the font list](#the-font-list) is enumerated once for the same reason), so a cached measurement
 cannot go stale on its own. It exists for an app or toolkit that registers a face while running
 and so genuinely does change what a family name measures to.
 
-One answer is deliberately **not** cached: the [`TextMetrics::approximate`](https://daybrite.dev/api/day_spec/struct.TextMetrics.html#method.approximate) fallback. "The toolkit
+One answer is deliberately **not** cached: the [`TextMetrics::approximate`](https://docs.rs/day-spec/latest/day_spec/struct.TextMetrics.html#method.approximate) fallback. "The toolkit
 could not answer" is a fact about the moment — Android's measurement returns nothing until its VM
 is up — not about the text, and caching it would pin a guess for the life of the process.
 

@@ -13,8 +13,8 @@ Schedule animation or rendering work in step with the display. A frame clock run
 on the UI thread and lets the app stop them by dropping their handle.
 
 `day::frame` schedules UI-thread work at native display frame opportunities. It is independent
-of canvas and pieces: capture a [`FrameClock::current()`](https://daybrite.dev/api/day_core/frame/struct.FrameClock.html#method.current) while building a page, or obtain one
-from [`WindowHandle::frame_clock()`](https://daybrite.dev/api/day_core/windows/struct.WindowHandle.html#method.frame_clock), then keep the returned `FrameHandle` in your controller.
+of canvas and pieces: capture a [`FrameClock::current()`](https://docs.rs/day-core/latest/day_core/frame/struct.FrameClock.html#method.current) while building a page, or obtain one
+from [`WindowHandle::frame_clock()`](https://docs.rs/day-core/latest/day_core/windows/struct.WindowHandle.html#method.frame_clock), then keep the returned `FrameHandle` in your controller.
 
 ```rust,ignore
 use day::frame::FrameClock;
@@ -30,11 +30,11 @@ let handle = clock.subscribe(move |frame| {
 // Own `handle` until done, or call handle.in_scope() for reactive-scope ownership.
 ```
 
-[`clock.request(callback)`](https://daybrite.dev/api/day_core/frame/struct.FrameClock.html#method.request) delivers once. [`clock.subscribe(callback)`](https://daybrite.dev/api/day_core/frame/struct.FrameClock.html#method.subscribe) continues while the
-callback returns `Continue(())`. `Break(())` pauses the subscription; [`handle.resume()`](https://daybrite.dev/api/day_core/frame/struct.FrameHandle.html#method.resume) wakes it.
-[`pause()`](https://daybrite.dev/api/day_core/frame/struct.FrameHandle.html#method.pause) resets the elapsed-time baseline; [`cancel()`](https://daybrite.dev/api/day_core/frame/struct.FrameHandle.html#method.cancel) permanently removes a registration.
+[`clock.request(callback)`](https://docs.rs/day-core/latest/day_core/frame/struct.FrameClock.html#method.request) delivers once. [`clock.subscribe(callback)`](https://docs.rs/day-core/latest/day_core/frame/struct.FrameClock.html#method.subscribe) continues while the
+callback returns `Continue(())`. `Break(())` pauses the subscription; [`handle.resume()`](https://docs.rs/day-core/latest/day_core/frame/struct.FrameHandle.html#method.resume) wakes it.
+[`pause()`](https://docs.rs/day-core/latest/day_core/frame/struct.FrameHandle.html#method.pause) resets the elapsed-time baseline; [`cancel()`](https://docs.rs/day-core/latest/day_core/frame/struct.FrameHandle.html#method.cancel) permanently removes a registration.
 Dropping the handle cancels too. A one-shot callback cannot be replayed by resuming its handle.
-The module-level [`request`](https://daybrite.dev/api/day_core/frame/fn.request.html) and [`subscribe`](https://daybrite.dev/api/day_core/frame/fn.subscribe.html) functions use the current window. Prefer capturing
+The module-level [`request`](https://docs.rs/day-core/latest/day_core/frame/fn.request.html) and [`subscribe`](https://docs.rs/day-core/latest/day_core/frame/fn.subscribe.html) functions use the current window. Prefer capturing
 the clock when building UI rather than discovering the current window later in an input handler.
 
 The service coalesces clients into one outstanding native request **per window**, batches their
@@ -56,7 +56,7 @@ App backgrounding cancels pending requests; foregrounding resumes active clients
 baseline. Closing a window cancels its registrations. Desktop focus loss alone does not pause
 visible animations. Hidden/unmapped-window throttling follows the native scheduler; it is not a
 portable per-view visibility signal. Clients should pause when their animation is no longer
-needed (including retained, offscreen pages). [`in_scope()`](https://daybrite.dev/api/day_core/frame/struct.FrameHandle.html#method.in_scope) cancels at scope disposal.
+needed (including retained, offscreen pages). [`in_scope()`](https://docs.rs/day-core/latest/day_core/frame/struct.FrameHandle.html#method.in_scope) cancels at scope disposal.
 
 | Toolkit | Native source |
 | --- | --- |
@@ -79,15 +79,15 @@ window-ID association. macOS 13's Core Video adapter selects the host's display 
 modern AppKit follows the view's display automatically. Predicted timestamps are currently
 available on CADisplayLink; other adapters leave them absent.
 
-[`Toolkit::request_frame(host, callback) -> CancelFrame`](https://daybrite.dev/api/day_spec/trait.Toolkit.html#method.request_frame) is the toolkit seam. It must never
+[`Toolkit::request_frame(host, callback) -> CancelFrame`](https://docs.rs/day-spec/latest/day_spec/trait.Toolkit.html#method.request_frame) is the toolkit seam. It must never
 invoke the callback inline; delivery is one-shot and cancellation must be safe before or after
 delivery. A toolkit can keep a paused native source during delivery to reuse it if Day re-arms,
 but must release it when demand ends. Qt keeps only an inert event filter after cancellation;
 its pending window update, if any, still belongs to Qt's backing-store machinery.
 
-The existing [`frame_clock`](https://daybrite.dev/api/day_pieces/fn.frame_clock.html) piece uses this same service. Its compatibility contract still gives
+The existing [`frame_clock`](https://docs.rs/day-pieces/latest/day_pieces/fn.frame_clock.html) piece uses this same service. Its compatibility contract still gives
 an initial 1/60 s step and clamps subsequent deltas to 100 ms. New clients should use the explicit
-handle API so they can stop while idle. Native-widget [`with_animation`](https://daybrite.dev/api/day_core/fn.with_animation.html) continues to use toolkit
+handle API so they can stop while idle. Native-widget [`with_animation`](https://docs.rs/day-core/latest/day_core/fn.with_animation.html) continues to use toolkit
 animators; this primitive does not replace them. Interpolation, timing and a frame-driven
 transition driver built on it are in [tween](tween.md).
 

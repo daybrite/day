@@ -7,6 +7,11 @@ description.workspace = true
 repository.workspace = true
 license.workspace = true
 
+# docs.rs documents the `model` integration the guides link to (scripts/build-api-docs.sh checks
+# those links against the same build).
+[package.metadata.docs.rs]
+features = ["model"]
+
 [dependencies]
 log = { workspace = true }
 day-geometry = { workspace = true }

@@ -3,7 +3,7 @@
 import { checkRepository } from './doc-dependency-versions.mjs';
 try {
   const result = checkRepository();
-  console.log(`Documentation versions OK: ${result.documents} documents, ${result.crates} crate versions, and tutorial recipes.`);
+  console.log(`Documentation names no Day release: ${result.documents} documents and ${result.recipes} tutorial recipes.`);
 } catch (error) {
   console.error(error.message);
   process.exitCode = 1;

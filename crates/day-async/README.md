@@ -24,7 +24,7 @@ uses the task APIs exposed by [`day`](https://github.com/daybrite/day/tree/main/
 
 - [Asynchronous work](https://daybrite.dev/docs/explanation/async/)
 - [Using platform services](https://daybrite.dev/docs/reference/parts/)
-- [Rust API](https://daybrite.dev/api/day_async/index.html)
+- [Rust API](https://docs.rs/day-async/latest/day_async/index.html)
 
 [Source](https://github.com/daybrite/day/tree/main/crates/day-async) ·
 [Contributing](https://daybrite.dev/contributing/setup/) · [MPL-2.0

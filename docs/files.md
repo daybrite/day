@@ -43,7 +43,7 @@ button(res::str::save()).action(move || {
 ```
 
 For OS file associations, Finder/Dock drops, and cold/warm document delivery, see
-[Document types and file activation](./documents.md). Use [`FileUrl::read_limited(limit).await`](https://daybrite.dev/api/day_pieces/struct.FileUrl.html#method.read_limited)
+[Document types and file activation](./documents.md). Use [`FileUrl::read_limited(limit).await`](https://docs.rs/day-pieces/latest/day_pieces/struct.FileUrl.html#method.read_limited)
 for bounded reads that do not block the native UI thread.
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
@@ -67,28 +67,28 @@ with accessors:
 
 | method | result |
 |---|---|
-| [`as_str()`](https://daybrite.dev/api/day_pieces/struct.FileUrl.html#method.as_str) | the raw locator |
-| [`local_path() -> Option<PathBuf>`](https://daybrite.dev/api/day_pieces/struct.FileUrl.html#method.local_path) | `Some` for filesystem paths (and `file://`), `None` for `content://` |
-| [`file_name() -> Option<String>`](https://daybrite.dev/api/day_pieces/struct.FileUrl.html#method.file_name) | the last path component, for display |
-| [`read`](https://daybrite.dev/api/day_pieces/struct.FileUrl.html#method.read)` () /  `[`read_to_string`](https://daybrite.dev/api/day_pieces/struct.FileUrl.html#method.read_to_string)`()` | the bytes / UTF-8 text (local paths; `content://` errors) |
+| [`as_str()`](https://docs.rs/day-pieces/latest/day_pieces/struct.FileUrl.html#method.as_str) | the raw locator |
+| [`local_path() -> Option<PathBuf>`](https://docs.rs/day-pieces/latest/day_pieces/struct.FileUrl.html#method.local_path) | `Some` for filesystem paths (and `file://`), `None` for `content://` |
+| [`file_name() -> Option<String>`](https://docs.rs/day-pieces/latest/day_pieces/struct.FileUrl.html#method.file_name) | the last path component, for display |
+| [`read`](https://docs.rs/day-pieces/latest/day_pieces/struct.FileUrl.html#method.read)` () /  `[`read_to_string`](https://docs.rs/day-pieces/latest/day_pieces/struct.FileUrl.html#method.read_to_string)`()` | the bytes / UTF-8 text (local paths; `content://` errors) |
 
 **Opened files are always readable.** Where a platform doesn't hand back a usable path, the
 toolkit materializes one first: Android copies the picked document into the app cache, and iOS
-imports it into the app sandbox. So [`open_file`](https://daybrite.dev/api/day_pieces/fn.open_file.html)`().await?`[`.read_to_string`](https://daybrite.dev/api/day_pieces/struct.FileUrl.html#method.read_to_string)`()` works on every
+imports it into the app sandbox. So [`open_file`](https://docs.rs/day-pieces/latest/day_pieces/fn.open_file.html)`().await?`[`.read_to_string`](https://docs.rs/day-pieces/latest/day_pieces/struct.FileUrl.html#method.read_to_string)`()` works on every
 target.
 
 ## The builders (`day-pieces`, in the prelude)
 
-- [`open_file()`](https://daybrite.dev/api/day_pieces/fn.open_file.html) → `OpenFile`: [`.title(..)`](https://daybrite.dev/api/day_pieces/struct.OpenFile.html#method.title), [`.filter(name, &["ext", …])`](https://daybrite.dev/api/day_pieces/struct.OpenFile.html#method.filter), `.await → Option<FileUrl>`.
-- [`open_files()`](https://daybrite.dev/api/day_pieces/fn.open_files.html) → `OpenFiles`: the same [`.title(..)`](https://daybrite.dev/api/day_pieces/struct.OpenFiles.html#method.title) and [`.filter(..)`](https://daybrite.dev/api/day_pieces/struct.OpenFiles.html#method.filter),
+- [`open_file()`](https://docs.rs/day-pieces/latest/day_pieces/fn.open_file.html) → `OpenFile`: [`.title(..)`](https://docs.rs/day-pieces/latest/day_pieces/struct.OpenFile.html#method.title), [`.filter(name, &["ext", …])`](https://docs.rs/day-pieces/latest/day_pieces/struct.OpenFile.html#method.filter), `.await → Option<FileUrl>`.
+- [`open_files()`](https://docs.rs/day-pieces/latest/day_pieces/fn.open_files.html) → `OpenFiles`: the same [`.title(..)`](https://docs.rs/day-pieces/latest/day_pieces/struct.OpenFiles.html#method.title) and [`.filter(..)`](https://docs.rs/day-pieces/latest/day_pieces/struct.OpenFiles.html#method.filter),
   `.await → Vec<FileUrl>`: every file the user picked, in the picker's order, and an empty
   `Vec` on cancel. The picker allows a multiple selection; a toolkit without one still answers
   with the single pick.
-- [`open_folder()`](https://daybrite.dev/api/day_pieces/fn.open_folder.html) → `OpenFolder`: [`.title(..)`](https://daybrite.dev/api/day_pieces/struct.OpenFolder.html#method.title), `.await → Option<FileUrl>`: the chosen
+- [`open_folder()`](https://docs.rs/day-pieces/latest/day_pieces/fn.open_folder.html) → `OpenFolder`: [`.title(..)`](https://docs.rs/day-pieces/latest/day_pieces/struct.OpenFolder.html#method.title), `.await → Option<FileUrl>`: the chosen
   directory, or `None` on cancel. Only toolkits that answer `Cap::FolderDialog` as `Native` show
   a chooser; the others resolve `None` at once, so an app checks the capability before offering
   an "Add Folder…" command (the phones answer `Unsupported`).
-- [`save_file(data)`](https://daybrite.dev/api/day_pieces/fn.save_file.html) → `SaveFile`: [`.title(..)`](https://daybrite.dev/api/day_pieces/struct.OpenFile.html#method.title), [`.suggested_name(..)`](https://daybrite.dev/api/day_pieces/struct.SaveFile.html#method.suggested_name), [`.filter(..)`](https://daybrite.dev/api/day_pieces/struct.OpenFile.html#method.filter),
+- [`save_file(data)`](https://docs.rs/day-pieces/latest/day_pieces/fn.save_file.html) → `SaveFile`: [`.title(..)`](https://docs.rs/day-pieces/latest/day_pieces/struct.OpenFile.html#method.title), [`.suggested_name(..)`](https://docs.rs/day-pieces/latest/day_pieces/struct.SaveFile.html#method.suggested_name), [`.filter(..)`](https://docs.rs/day-pieces/latest/day_pieces/struct.OpenFile.html#method.filter),
   `.await → Option<FileUrl>`. The bytes are staged to an app-writable temp file that the toolkit
   hands to the native save UI; the pieces layer delivers them to a chosen local destination and
   cleans up.
@@ -108,7 +108,7 @@ if capability(Cap::FolderDialog) == Support::Native
 }
 ```
 
-Both probes and the enums are in the prelude ([`capability`](https://daybrite.dev/api/day_core/fn.capability.html), `Cap`, `Support`).
+Both probes and the enums are in the prelude ([`capability`](https://docs.rs/day-core/latest/day_core/fn.capability.html), `Cap`, `Support`).
 
 ## Toolkit implementations
 
@@ -127,7 +127,7 @@ Platform guidance: [Apple: file management](https://developer.apple.com/design/h
 | WinUI  | WinRT `FileOpenPicker` (`PickSingleFileAsync` / `PickMultipleFilesAsync`) | WinRT `FolderPicker` | WinRT `FileSavePicker` |
 
 `Cap::FolderDialog` is `Native` exactly where the Folder column names a chooser: the four
-desktops. The phone and web toolkits answer `Unsupported` and resolve an [`open_folder()`](https://daybrite.dev/api/day_pieces/fn.open_folder.html) request
+desktops. The phone and web toolkits answer `Unsupported` and resolve an [`open_folder()`](https://docs.rs/day-pieces/latest/day_pieces/fn.open_folder.html) request
 as cancelled at once, so the await never hangs; an app that offers "Add Folder…" asks the
 capability first and hides the command elsewhere.
 
@@ -138,8 +138,8 @@ callback, wired in the framework's ArkTS host page (`crates/day-toolkit-arkui/pl
 staged into every app's hvigor project by `day build` — [docs/harmonyos](harmonyos.md)).
 
 A browser has no filesystem, so on Web the bytes ride a per-page store instead of paths:
-an opened file's content lands under a virtual `/day-web/<name>` path that [`FileUrl::read`](https://daybrite.dev/api/day_pieces/struct.FileUrl.html#method.read)
-resolves, and a save's staged bytes leave as a download named by [`suggested_name`](https://daybrite.dev/api/day_pieces/struct.SaveFile.html#method.suggested_name). The app uses
+an opened file's content lands under a virtual `/day-web/<name>` path that [`FileUrl::read`](https://docs.rs/day-pieces/latest/day_pieces/struct.FileUrl.html#method.read)
+resolves, and a save's staged bytes leave as a download named by [`suggested_name`](https://docs.rs/day-pieces/latest/day_pieces/struct.SaveFile.html#method.suggested_name). The app uses
 the same builders and the same `FileUrl` surface on web as on every other target.
 
 All toolkits present the picker non-blocking (sheet / `open()` / delegate / Activity result),
@@ -155,7 +155,7 @@ Open filters become `.ext` entries, with `*` when no filters are supplied (the f
 always carries `*`, which the desktop requires); save filters retain their names. The WinRT API
 does not expose a custom dialog title. A several-files pick goes through
 `PickMultipleFilesAsync` and reports every chosen path.
-The selected local path becomes a `FileUrl`, so [`read()`](https://daybrite.dev/api/day_pieces/struct.FileUrl.html#method.read) returns the original bytes.
+The selected local path becomes a `FileUrl`, so [`read()`](https://docs.rs/day-pieces/latest/day_pieces/struct.FileUrl.html#method.read) returns the original bytes.
 
 Registration precedes native setup. Missing owners, activation/filter/initialization
 failures, canceled operations, and errors retrieving the result or path resolve as
@@ -171,6 +171,6 @@ it does not select a file through the real Windows picker UI.
 ## macOS sandboxing
 
 See [macOS App Sandbox](sandbox.md) for Day.toml configuration and persistent file access.
-[`FileUrl::bookmark(read_only)`](https://daybrite.dev/api/day_pieces/struct.FileUrl.html#method.bookmark) returns opaque bookmark bytes;
-[`FileUrl::resolve_bookmark(bytes)`](https://daybrite.dev/api/day_pieces/struct.FileUrl.html#method.resolve_bookmark) returns a `FileAccess` guard. Keep it alive through I/O and
+[`FileUrl::bookmark(read_only)`](https://docs.rs/day-pieces/latest/day_pieces/struct.FileUrl.html#method.bookmark) returns opaque bookmark bytes;
+[`FileUrl::resolve_bookmark(bytes)`](https://docs.rs/day-pieces/latest/day_pieces/struct.FileUrl.html#method.resolve_bookmark) returns a `FileAccess` guard. Keep it alive through I/O and
 renew stale bookmarks while the guard is held. A saved path alone does not preserve permission.

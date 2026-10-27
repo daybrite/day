@@ -19,7 +19,7 @@ and suggestion list to app state. For a choice restricted to listed values, use 
 
 This control is included in [`day-pieces`](https://github.com/daybrite/day/tree/main/crates/day-pieces)
 and re-exported through `day::prelude::*`. No additional crate or control feature is required.
-The selected toolkit supplies its native implementation; [`day::combobox::support()`](https://daybrite.dev/api/day_pieces/combobox/fn.support.html) reports
+The selected toolkit supplies its native implementation; [`day::combobox::support()`](https://docs.rs/day-pieces/latest/day_pieces/combobox/fn.support.html) reports
 its availability after the Day runtime starts.
 
 | Platforms / toolkits | Availability |
@@ -45,11 +45,11 @@ combo_box(flavors, flavor)
     .id(id!(flavor))
 ```
 
-[`combo_box(items, text)`](https://daybrite.dev/api/day_pieces/combobox/fn.combo_box.html) binds `text` two-way: typing updates the signal, picking a
+[`combo_box(items, text)`](https://docs.rs/day-pieces/latest/day_pieces/combobox/fn.combo_box.html) binds `text` two-way: typing updates the signal, picking a
 dropdown item writes the item's string, and setting the signal updates the control. `items` is reactive: a change patches the native dropdown live,
-and the typed text survives the swap. [`.placeholder(impl IntoText)`](https://daybrite.dev/api/day_pieces/combobox/trait.ComboBoxBuilder.html#tymethod.placeholder) sets the empty-state prompt
-(read once at build). `ComboBox` implements `Piece`, so [`.id()`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.id)/[`.a11y()`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.a11y)/[`.frame()`](https://daybrite.dev/api/day_pieces/trait.Decorate.html#method.frame) chain via
-`Decorate`. Like [`text_field`](https://daybrite.dev/api/day_pieces/fn.text_field.html) it is a **width-growing leaf** (`grow_w = true`, natural
+and the typed text survives the swap. [`.placeholder(impl IntoText)`](https://docs.rs/day-pieces/latest/day_pieces/combobox/trait.ComboBoxBuilder.html#tymethod.placeholder) sets the empty-state prompt
+(read once at build). `ComboBox` implements `Piece`, so [`.id()`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.id)/[`.a11y()`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.a11y)/[`.frame()`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.frame) chain via
+`Decorate`. Like [`text_field`](https://docs.rs/day-pieces/latest/day_pieces/fn.text_field.html) it is a **width-growing leaf** (`grow_w = true`, natural
 single-line height).
 
 ## Toolkit implementations
