@@ -82,6 +82,11 @@ public class DayNavHost extends LinearLayout {
     static final WeakHashMap<View, DayNavHost> pageHosts = new WeakHashMap<>();
 
     final MaterialToolbar toolbar;
+    /** The bottom app bar for items placed `Bottom` (docs/toolbars.md), made the first time
+     *  any are, and hidden while none are. */
+    private com.google.android.material.bottomappbar.BottomAppBar bottomBar;
+    /** The bottom bar's status view, if it carries one. */
+    private LinearLayout bottomStatus;
     final AppBarLayout appBar;
     /** The window toolbar on this host's app bar (docs/toolbars.md) — the shared painter, bound
      *  to the bar this host already has. Assigned with `toolbar`, in the constructor. */
@@ -167,6 +172,7 @@ public class DayNavHost extends LinearLayout {
 
         toolbar = new MaterialToolbar(ctx);
         windowBar = new WindowBar(toolbar);
+        windowBar.host = this;
         toolbar.setTitle(title);
         toolbar.setNavigationOnClickListener(new OnClickListener() {
             @Override public void onClick(View v) {
@@ -849,6 +855,161 @@ public class DayNavHost extends LinearLayout {
         syncBarActions();
     }
 
+    /** The bottom bar (docs/toolbars.md "Placement"): Material's BottomAppBar under the pages,
+     *  laid out the way Mail lays out its own. The item before the status is the bar's
+     *  navigation icon at the leading edge, the status (a `label` item) sits centered between
+     *  the ends, and the items after it are the bar's actions at the trailing edge, always
+     *  shown. Hidden while no item is placed there. */
+    void paintBottom(WindowBar bar, List<String[]> recs) {
+        bar.statuses.clear();
+        if (recs.isEmpty()) {
+            if (bottomBar != null) bottomBar.setVisibility(GONE);
+            return;
+        }
+        Context ctx = getContext();
+        if (bottomBar == null) {
+            bottomBar = new com.google.android.material.bottomappbar.BottomAppBar(ctx);
+            // Material 3 puts a bottom bar's actions at its start, leaving the end to a floating
+            // action button; with no such button, AUTO puts them at the end, where Mail-shaped
+            // bars keep them and where the centered status expects them.
+            bottomBar.setMenuAlignmentMode(
+                    com.google.android.material.bottomappbar.BottomAppBar.MENU_ALIGNMENT_MODE_AUTO);
+        }
+        // The last child, under the pages, whichever layout the host's chrome took since.
+        if (indexOfChild(bottomBar) != getChildCount() - 1) {
+            removeView(bottomBar);
+            addView(bottomBar, new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT));
+        }
+        bottomBar.setVisibility(VISIBLE);
+        Menu menu = bottomBar.getMenu();
+        menu.clear();
+        bottomBar.setNavigationIcon(null);
+        bottomBar.setNavigationOnClickListener(null);
+        if (bottomStatus != null) {
+            bottomBar.removeView(bottomStatus);
+            bottomStatus = null;
+        }
+        int status = -1;
+        for (int i = 0; i < recs.size(); i++) {
+            if (recs.get(i).length > 1 && recs.get(i)[1].equals("label")) {
+                status = i;
+                break;
+            }
+        }
+        // Material 3's bottom bar draws every icon on it, its navigation icon included, in
+        // colorOnSurfaceVariant; the actions take the same so the ends match.
+        int tint = com.google.android.material.color.MaterialColors.getColor(
+                bottomBar, com.google.android.material.R.attr.colorOnSurfaceVariant);
+        boolean leading = false;
+        int order = 1;
+        for (int i = 0; i < recs.size(); i++) {
+            String[] f = recs.get(i);
+            final String id = f[0];
+            String kind = f.length > 1 ? f[1] : "";
+            String label = f.length > 2 ? f[2] : "";
+            String icon = f.length > 3 ? f[3] : "";
+            boolean enabled = f.length > 4 && f[4].equals("1");
+            final long action = f.length > 5 ? WindowBar.parseActionId(f[5]) : 0L;
+            String extra = f.length > 6 ? f[6] : "";
+            if (i == status) {
+                bottomStatus = makeStatus(ctx, label);
+                bottomBar.addView(bottomStatus, new androidx.appcompat.widget.Toolbar.LayoutParams(
+                        ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT,
+                        android.view.Gravity.CENTER));
+                bar.statuses.put(id, bottomStatus);
+                continue;
+            }
+            if (!kind.equals("button") && !kind.equals("toggle")) continue;
+            android.graphics.drawable.Drawable glyph = DayBridge.drawableByName(ctx, icon);
+            if (glyph != null) {
+                glyph = glyph.mutate();
+                glyph.setTint(tint);
+            }
+            if (i < status && !leading && glyph != null) {
+                // The leading item: the bar's navigation icon, at its start.
+                leading = true;
+                bottomBar.setNavigationIcon(glyph);
+                bottomBar.setNavigationContentDescription(label);
+                bottomBar.setNavigationOnClickListener(new OnClickListener() {
+                    @Override public void onClick(View v) {
+                        DayBridge.nativeOnEvent(action, DayBridge.K_MENU_ACTION, 0.0, "");
+                    }
+                });
+                continue;
+            }
+            MenuItem it = menu.add(Menu.NONE, Menu.NONE, order++, label);
+            it.setEnabled(enabled);
+            if (glyph != null) {
+                it.setIcon(glyph);
+                it.setShowAsAction(MenuItem.SHOW_AS_ACTION_ALWAYS);
+            } else {
+                it.setShowAsAction(MenuItem.SHOW_AS_ACTION_ALWAYS | MenuItem.SHOW_AS_ACTION_WITH_TEXT);
+            }
+            final boolean toggle = kind.equals("toggle");
+            if (toggle) {
+                it.setCheckable(true);
+                it.setChecked(extra.equals("1"));
+                WindowBar.paintToggle(it);
+            }
+            it.setOnMenuItemClickListener(new MenuItem.OnMenuItemClickListener() {
+                @Override public boolean onMenuItemClick(MenuItem mi) {
+                    if (toggle) {
+                        boolean on = !mi.isChecked();
+                        mi.setChecked(on);
+                        WindowBar.paintToggle(mi);
+                        DayBridge.nativeOnEvent(action, DayBridge.K_TOOLBAR_CHANGED,
+                                on ? 1.0 : 0.0, "on");
+                    } else {
+                        DayBridge.nativeOnEvent(action, DayBridge.K_MENU_ACTION, 0.0, "");
+                    }
+                    return true;
+                }
+            });
+            bar.items.put(id, it);
+        }
+    }
+
+    /** The bottom bar's status: one line per line of `text`, the first in the body style and the
+     *  rest in the smaller, quieter label style, each ellipsized at its end inside the room
+     *  between the bar's icons. */
+    private static LinearLayout makeStatus(Context ctx, String text) {
+        LinearLayout status = new LinearLayout(ctx);
+        status.setOrientation(VERTICAL);
+        status.setGravity(android.view.Gravity.CENTER);
+        fillStatus(status, text);
+        return status;
+    }
+
+    static void fillStatus(LinearLayout status, String text) {
+        String[] lines = text.split("\n", -1);
+        Context ctx = status.getContext();
+        for (int i = 0; i < lines.length; i++) {
+            android.widget.TextView line;
+            if (i < status.getChildCount()) {
+                line = (android.widget.TextView) status.getChildAt(i);
+            } else {
+                line = new android.widget.TextView(ctx);
+                line.setSingleLine(true);
+                line.setEllipsize(android.text.TextUtils.TruncateAt.END);
+                line.setGravity(android.view.Gravity.CENTER);
+                line.setTextAppearance(i == 0
+                        ? com.google.android.material.R.style.TextAppearance_Material3_BodyMedium
+                        : com.google.android.material.R.style.TextAppearance_Material3_LabelMedium);
+                line.setTextColor(com.google.android.material.color.MaterialColors.getColor(
+                        status, i == 0 ? com.google.android.material.R.attr.colorOnSurface
+                                : com.google.android.material.R.attr.colorOnSurfaceVariant));
+                status.addView(line, new LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+            }
+            line.setText(lines[i]);
+        }
+        while (status.getChildCount() > lines.length) {
+            status.removeViewAt(status.getChildCount() - 1);
+        }
+        status.setContentDescription(text.replace('\n', ' '));
+    }
+
     /** A targeted change to one live item: op 0 = enabled, 1 = toggle on, 2 = segment index,
      *  3 = focus the search field. */
     void updateWindowToolbar(String id, int op, double num) {
@@ -874,6 +1035,11 @@ public class DayNavHost extends LinearLayout {
         private final MaterialToolbar toolbar;
         /** The bar's own container when this is a docked bar; null on a nav host's app bar. */
         private AppBarLayout docked;
+        /** The navigation host whose app bar this is, which also carries the bottom bar; null
+         *  on a docked bar, where `Bottom` items fold into the overflow as before. */
+        DayNavHost host;
+        /** The bottom bar's status views, by day id, so new words go into the live view. */
+        final HashMap<String, LinearLayout> statuses = new HashMap<>();
         /** The spec as the app last set it, retained so the menu can be repainted from it
          *  whenever the page's own bar actions change. Empty until an app sets one. */
         private String spec = "";
@@ -958,6 +1124,7 @@ public class DayNavHost extends LinearLayout {
             // apps keep it.
             int order = 1;
             int groupSeq = 1;
+            ArrayList<String[]> bottom = new ArrayList<>();
             for (String rec : spec.split("\u001e", -1)) {
                 if (rec.isEmpty()) continue;
                 String[] f = rec.split("\u001f", -1);
@@ -973,6 +1140,15 @@ public class DayNavHost extends LinearLayout {
                 // overflow first; `Automatic` keeps the old rule — an icon earns a slot IF ROOM,
                 // and a wordless item would be a blank square, so it goes to the overflow.
                 String placement = f.length > 7 ? f[7] : "auto";
+                if (placement.equals("bottom")) {
+                    // The bottom bar's, where there is one (paintBottom); otherwise folded into
+                    // the overflow, which is where a bar with no bottom bar put them before.
+                    if (host != null) {
+                        bottom.add(f);
+                        continue;
+                    }
+                    placement = "secondary";
+                }
                 android.graphics.drawable.Drawable glyph = DayBridge.drawableByName(ctx, icon);
                 if (kind.equals("button") || kind.equals("toggle")) {
                     MenuItem it = menu.add(Menu.NONE, Menu.NONE, order++, label);
@@ -1077,6 +1253,7 @@ public class DayNavHost extends LinearLayout {
                 // "sep", "space", "flex": the app bar spaces its own actions.
             }
             if (!searched) dropSearch(menu);
+            if (host != null) host.paintBottom(this, bottom);
         }
 
         /** Put the page's search action on the bar, or bring the one already there up to date. */
@@ -1215,6 +1392,13 @@ public class DayNavHost extends LinearLayout {
 
         /** The app wrote the search field's text (ToolbarPatch::Text). */
         void updateText(String id, String text) {
+            LinearLayout status = statuses.get(id);
+            if (status != null) {
+                // New words for the bottom bar's status, into the live view: a repaint of the
+                // whole bar would rebuild its buttons for every step of a sync.
+                fillStatus(status, text);
+                return;
+            }
             if (items.get(id) != null && items.get(id) == searchItem) showSearchText(text);
         }
 
@@ -1320,11 +1504,17 @@ public class DayNavHost extends LinearLayout {
                 // fit folds into the overflow, in declaration order — which is why an app declares
                 // its least-used items last.
                 it.setShowAsAction(MenuItem.SHOW_AS_ACTION_IF_ROOM);
+            } else if ("primary".equals(placement)) {
+                // The one action this chrome offers, in words: a sheet's Done. It shows as its
+                // text however crowded the bar is, as Material's own dialogs carry their
+                // confirming action, rather than hiding behind the overflow's ⋮.
+                it.setShowAsAction(MenuItem.SHOW_AS_ACTION_ALWAYS | MenuItem.SHOW_AS_ACTION_WITH_TEXT);
             } else {
                 // No glyph, no place in the bar. A Material top app bar carries icon buttons and
                 // sends the rest to its overflow; a titled text action sits there as wide as its
                 // label, and two of them squeezed the Showcase's own title to "Day Showc…" on a
-                // phone. In the overflow the same item reads as a full menu row.
+                // phone. In the overflow the same item reads as a full menu row. An app that
+                // marks one Primary gets it in the bar regardless (above).
                 it.setShowAsAction(MenuItem.SHOW_AS_ACTION_NEVER);
             }
         }

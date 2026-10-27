@@ -1913,7 +1913,7 @@ mod imp {
             .cloned()
             .collect();
         let mut targets = Vec::new();
-        let bot = bottom_bar_items(mtm, root, &bottom, &mut targets);
+        let bot = bottom_bar_items(mtm, root, &bottom, &mut targets, vc);
         unsafe {
             vc.setToolbarItems(
                 (!bot.is_empty())
@@ -1935,6 +1935,7 @@ mod imp {
         root: usize,
         items: &[day_spec::ToolbarItem],
         targets: &mut Vec<Retained<DayToolbarTarget>>,
+        vc: &UIViewController,
     ) -> Vec<Retained<UIBarButtonItem>> {
         let flexible = || unsafe { UIBarButtonItem::flexibleSpaceItem(mtm) };
         let status = items
@@ -1944,11 +1945,17 @@ mod imp {
         for (index, item) in items.iter().enumerate() {
             if status == Some(index) {
                 out.push(flexible());
-                out.push(bottom_status_item(mtm, &item.label));
+                out.push(bottom_status_item(mtm, &item.id, &item.label, vc));
                 out.push(flexible());
                 continue;
             }
             let built = build_toolbar_items(mtm, root, std::slice::from_ref(item), targets);
+            for bar in &built {
+                remember_bottom(
+                    &item.id,
+                    BottomView::Button(objc2::rc::Weak::from_retained(bar)),
+                );
+            }
             if status.is_none() && !out.is_empty() && !built.is_empty() {
                 out.push(flexible());
             }
@@ -1957,39 +1964,194 @@ mod imp {
         out
     }
 
+    /// A bottom bar's live views, by item id: what a patch changes in place.
+    enum BottomView {
+        /// A status item's outer view, and the page whose toolbar items carry it.
+        Status(objc2::rc::Weak<UIView>, objc2::rc::Weak<UIViewController>),
+        Button(objc2::rc::Weak<UIBarButtonItem>),
+    }
+
+    thread_local! {
+        /// Every page carries its own copy of the bottom bar, so an id can have several.
+        static BOTTOM_VIEWS: RefCell<Vec<(String, BottomView)>> = const { RefCell::new(Vec::new()) };
+    }
+
+    fn remember_bottom(id: &str, view: BottomView) {
+        BOTTOM_VIEWS.with(|v| {
+            let mut v = v.borrow_mut();
+            v.retain(|(_, view)| match view {
+                BottomView::Status(w, _) => w.load().is_some(),
+                BottomView::Button(w) => w.load().is_some(),
+            });
+            v.push((id.to_owned(), view));
+        });
+    }
+
+    /// Apply `patch` to a bottom bar's live views without rebuilding the bar, where the patch
+    /// is one a view can take in place: the status's words, a button's enabled state, a
+    /// toggle's state. A status that changes a few times a second during a sync otherwise
+    /// rebuilt every button on the bar each time, and a toggle on it flashed as it was made
+    /// again. Answers whether the patch was the bottom bar's alone and is fully applied.
+    fn patch_bottom_in_place(
+        items: &[day_spec::ToolbarItem],
+        patch: &day_spec::ToolbarPatch,
+    ) -> bool {
+        use day_spec::{ToolbarItemKind as K, ToolbarPatch as P};
+        let Some(item) = items.iter().find(|i| i.id == patch.item()) else {
+            return false;
+        };
+        if item.placement != day_spec::ToolbarPlacement::Bottom {
+            return false;
+        }
+        let views: Vec<BottomView> = BOTTOM_VIEWS.with(|v| {
+            v.borrow()
+                .iter()
+                .filter(|(id, _)| *id == item.id)
+                .map(|(_, view)| match view {
+                    BottomView::Status(w, vc) => BottomView::Status(w.clone(), vc.clone()),
+                    BottomView::Button(w) => BottomView::Button(w.clone()),
+                })
+                .collect()
+        });
+        if views.is_empty() {
+            return false;
+        }
+        match (patch, &item.kind) {
+            (P::Label { label, .. }, K::Label) => {
+                // A fresh status item in the old one's place, among the same button objects:
+                // the toolbar fits a custom view to the room between its neighbors only when
+                // its items are set, so new words in the old view could outgrow that room and
+                // run over the buttons. The buttons themselves are not rebuilt, so nothing on
+                // the bar redraws but the status.
+                let Some(mtm) = MainThreadMarker::new() else {
+                    return false;
+                };
+                for view in &views {
+                    let BottomView::Status(row, vc) = view else {
+                        continue;
+                    };
+                    let (Some(row), Some(vc)) = (row.load(), vc.load()) else {
+                        continue;
+                    };
+                    let Some(bar) = (unsafe { vc.toolbarItems() }) else {
+                        continue;
+                    };
+                    let mut list = bar.to_vec();
+                    let Some(i) = list.iter().position(|b| {
+                        unsafe { b.customView() }.is_some_and(|v| std::ptr::eq(&*v, &*row))
+                    }) else {
+                        continue;
+                    };
+                    list[i] = bottom_status_item(mtm, &item.id, label, &vc);
+                    unsafe {
+                        vc.setToolbarItems_animated(
+                            Some(&objc2_foundation::NSArray::from_retained_slice(&list)),
+                            false,
+                        );
+                    }
+                }
+                true
+            }
+            (P::Enabled { on, .. }, _) => {
+                for view in &views {
+                    if let BottomView::Button(w) = view
+                        && let Some(bar) = w.load()
+                    {
+                        unsafe { bar.setEnabled(*on) };
+                    }
+                }
+                true
+            }
+            (P::On { on, .. }, K::Toggle { .. }) => {
+                for view in &views {
+                    if let BottomView::Button(w) = view
+                        && let Some(bar) = w.load()
+                    {
+                        unsafe { bar.setSelected(*on) };
+                    }
+                }
+                true
+            }
+            _ => false,
+        }
+    }
+
     /// The bottom bar's status: Mail's "Updated Just Now" over its unread count. Each line of
     /// `text` is one line of the status, the first in the primary label color and the rest in
-    /// the secondary, all in the footnote style so they follow the reader's text size.
-    fn bottom_status_item(mtm: MainThreadMarker, text: &str) -> Retained<UIBarButtonItem> {
-        let stack = unsafe { objc2_ui_kit::UIStackView::new(mtm) };
+    /// the secondary, all in the footnote style so they follow the reader's text size. The
+    /// toolbar gives the status the room between its buttons, with its own spacing beside them;
+    /// the lines fill that width and truncate inside it, their text centered.
+    fn bottom_status_item(
+        mtm: MainThreadMarker,
+        id: &str,
+        text: &str,
+        vc: &UIViewController,
+    ) -> Retained<UIBarButtonItem> {
+        let lines = unsafe { objc2_ui_kit::UIStackView::new(mtm) };
         unsafe {
-            stack.setAxis(objc2_ui_kit::UILayoutConstraintAxis::Vertical);
-            stack.setAlignment(objc2_ui_kit::UIStackViewAlignment::Center);
+            lines.setAxis(objc2_ui_kit::UILayoutConstraintAxis::Vertical);
+            // Fill, with the text centered in each line: a centered stack lets a line grow past
+            // its own width, so a long status ran under the buttons beside it.
+            lines.setAlignment(objc2_ui_kit::UIStackViewAlignment::Fill);
         }
+        fill_status(&lines, text);
+        let outer: Retained<UIView> = Retained::into_super(lines.clone());
+        remember_bottom(
+            id,
+            BottomView::Status(
+                objc2::rc::Weak::from_retained(&outer),
+                objc2::rc::Weak::from_retained(&vc.retain()),
+            ),
+        );
+        unsafe { UIBarButtonItem::initWithCustomView(UIBarButtonItem::alloc(mtm), &lines) }
+    }
+
+    /// Put `text` in a status view, one label a line, reusing the labels it already has.
+    fn fill_status(stack: &objc2_ui_kit::UIStackView, text: &str) {
+        let mtm = stack.mtm();
         let font = unsafe {
             objc2_ui_kit::UIFont::preferredFontForTextStyle(objc2_ui_kit::UIFontTextStyleFootnote)
         };
-        for (index, line) in text.lines().enumerate() {
-            let label = UILabel::new(mtm);
-            label.setText(Some(&NSString::from_str(line)));
-            unsafe {
-                label.setFont(Some(&font));
-                let _: () = msg_send![&*label, setAdjustsFontForContentSizeCategory: true];
-            }
-            let color = if index == 0 {
-                UIColor::labelColor()
-            } else {
-                UIColor::secondaryLabelColor()
+        let lines: Vec<&str> = text.lines().collect();
+        let existing: Vec<Retained<UIView>> = unsafe { stack.arrangedSubviews() }.to_vec();
+        for (index, line) in lines.iter().enumerate() {
+            let label = match existing
+                .get(index)
+                .and_then(|v| v.clone().downcast::<UILabel>().ok())
+            {
+                Some(label) => label,
+                None => {
+                    let label = UILabel::new(mtm);
+                    let color = if index == 0 {
+                        UIColor::labelColor()
+                    } else {
+                        UIColor::secondaryLabelColor()
+                    };
+                    unsafe {
+                        label.setFont(Some(&font));
+                        let _: () = msg_send![&*label, setAdjustsFontForContentSizeCategory: true];
+                        label.setTextColor(Some(&color));
+                        label.setTextAlignment(objc2_ui_kit::NSTextAlignment::Center);
+                        // Just under the buttons' resistance, so a long status truncates before a
+                        // button gives way, but well over the flexible spaces', which would
+                        // otherwise squeeze the status to nothing.
+                        label.setContentCompressionResistancePriority_forAxis(
+                            objc2_ui_kit::UILayoutPriorityDefaultHigh - 1.0,
+                            objc2_ui_kit::UILayoutConstraintAxis::Horizontal,
+                        );
+                        stack.addArrangedSubview(&label);
+                    }
+                    label
+                }
             };
-            unsafe {
-                label.setTextColor(Some(&color));
-                stack.addArrangedSubview(&label);
-            }
+            label.setText(Some(&NSString::from_str(line)));
+        }
+        for extra in existing.iter().skip(lines.len()) {
+            extra.removeFromSuperview();
         }
         // One element for VoiceOver, read as the whole status rather than line by line.
         stack.setIsAccessibilityElement(true, mtm);
         stack.setAccessibilityLabel(Some(&NSString::from_str(&text.replace('\n', ", "))), mtm);
-        unsafe { UIBarButtonItem::initWithCustomView(UIBarButtonItem::alloc(mtm), &stack) }
     }
 
     /// Lower `all` onto one navigation item, split by placement across its leading, title and
@@ -10723,12 +10885,13 @@ mod imp {
 
         fn update_toolbar(&mut self, h: &Handle, patch: &day_spec::ToolbarPatch) {
             let root = ptr_of(h);
-            let changed = WINDOW_TOOLBARS.with(|t| {
-                t.borrow_mut()
-                    .get_mut(&root)
-                    .is_some_and(|w| patch_toolbar_model(&mut w.items, patch))
+            let (changed, in_place) = WINDOW_TOOLBARS.with(|t| {
+                t.borrow_mut().get_mut(&root).map_or((false, false), |w| {
+                    let changed = patch_toolbar_model(&mut w.items, patch);
+                    (changed, changed && patch_bottom_in_place(&w.items, patch))
+                })
             });
-            if changed {
+            if changed && !in_place {
                 reapply_window_toolbar(root);
             }
             // A search item's values go to the live field on the page showing, never through

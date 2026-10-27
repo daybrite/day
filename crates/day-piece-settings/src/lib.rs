@@ -2099,7 +2099,10 @@ fn navigation_stack(inst: Rc<Installed>, done: bool) -> AnyPiece {
                 if let Some(w) = day_core::window_by_key(day_core::windows::PREFERENCES_KEY) {
                     w.close();
                 }
-            }),
+            })
+            // The cover's way out, on the bar on every platform: without an icon, an Automatic
+            // item folds into Android's overflow menu.
+            .placement(day_spec::ToolbarPlacement::Primary),
         );
     }
     stack.id(day_core::id!(settings_stack)).any()

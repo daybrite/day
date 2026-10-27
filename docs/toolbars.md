@@ -80,9 +80,9 @@ already follows from where it was declared.
 | `Automatic` (default) | after the leading group | trailing item group | menu action, `IF_ROOM` | strip, declaration order |
 | `Navigation` | leading edge of its column | `leftBarButtonItems`, after the back button | leading | leading |
 | `Principal` | centered in its column | `titleView` | the bar's centered slot | centered |
-| `Primary` | trailing, before secondaries | trailing, folds last | `SHOW_AS_ACTION_ALWAYS` | trailing |
+| `Primary` | trailing, before secondaries | trailing, folds last | `SHOW_AS_ACTION_ALWAYS`, as its words when it has no icon (a sheet's Done) | trailing |
 | `Secondary` | trailing, after primaries | folds into ⋯ first | `SHOW_AS_ACTION_NEVER` | overflow |
-| `Bottom` | falls back to `Secondary` | `toolbarItems`, the bottom bar | falls back to `Secondary` | falls back |
+| `Bottom` | falls back to `Secondary` | `toolbarItems`, the bottom bar | a Material `BottomAppBar` under a navigation host's pages (a docked bar folds these into its overflow) | falls back |
 
 There is deliberately no `Cancel`/`Confirm`: a modal's affirmative and dismissive buttons are
 dialog buttons with their own roles ([docs/dialogs](dialogs.md)), and a second, weaker spelling
@@ -94,6 +94,13 @@ label sit at the leading edge, the label is centered as the bar's status, and th
 it sit at the trailing edge. Each line of the label's text is a line of the status, the first in
 the primary text color and the rest in the secondary, in the footnote text style. A bottom bar
 with no label spreads its items across the width.
+Android's is a Material `BottomAppBar` laid out the same way: the leading item is the bar's
+navigation icon, the label is a centered two-line status ellipsized between the icons, and the
+trailing items are its actions, always shown; the status takes new words in place too.
+The status keeps UIKit's default side margins, so a long one stops short of the buttons beside
+it, and a change to its words, or to a bottom button's enabled or on state, updates the views in
+place rather than building the bar again (a status that changes during a sync would otherwise
+remake every button on it each time).
 Removing that contribution restores the navigation item’s ordinary title. Only the first
 principal item is shown.
 

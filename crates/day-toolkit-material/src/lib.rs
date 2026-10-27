@@ -2205,9 +2205,9 @@ mod imp {
                 day_spec::ToolbarPlacement::Navigation => "nav",
                 day_spec::ToolbarPlacement::Principal => "mid",
                 day_spec::ToolbarPlacement::Primary => "primary",
-                day_spec::ToolbarPlacement::Secondary | day_spec::ToolbarPlacement::Bottom => {
-                    "secondary"
-                }
+                day_spec::ToolbarPlacement::Secondary => "secondary",
+                // The nav host's bottom app bar; a docked bar folds these into its overflow.
+                day_spec::ToolbarPlacement::Bottom => "bottom",
                 day_spec::ToolbarPlacement::Automatic => "auto",
             };
             out.push_str(
@@ -4473,6 +4473,32 @@ mod imp {
                 P::Suggestions { .. } => return,
                 // New words or a new prompt: the menu is repainted from the model, which is how
                 // an Android app bar takes a changed item (its SearchView survives the repaint).
+                // The bottom bar's status takes new words in place, the way the page's search
+                // field takes its text: a repaint would rebuild the bar's buttons for every
+                // step of a sync.
+                P::Label { item, label, .. }
+                    if WINDOW_BARS.with(|m| {
+                        m.borrow().get(&key).is_some_and(|bar| {
+                            bar.items().iter().any(|i| {
+                                i.id == *item
+                                    && i.placement == day_spec::ToolbarPlacement::Bottom
+                                    && matches!(i.kind, day_spec::ToolbarItemKind::Label)
+                            })
+                        })
+                    }) =>
+                {
+                    with_env(|env| {
+                        let jid = jstr(env, item);
+                        let jtext = jstr(env, label);
+                        let _ = java_in(env, |env| {
+                            DayBridge::updateWindowToolbarText(env, h.0.as_obj(), &jid, &jtext)
+                        });
+                        if env.exception_check() {
+                            env.exception_clear();
+                        }
+                    });
+                    return;
+                }
                 P::Label { .. } | P::Placeholder { .. } => {
                     let spec = WINDOW_BARS.with(|m| {
                         m.borrow()
