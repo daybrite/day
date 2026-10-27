@@ -208,8 +208,10 @@ jobs:
           target: ${{ matrix.target }}
           pack: false
           extras: true
-      - uses: ilammy/msvc-dev-cmd@v1
-        if: runner.os == 'Windows'
+      # No Visual Studio developer environment on Windows: a reader follows the tutorial in a
+      # plain PowerShell, where rustc finds MSVC's linker itself. With VCINSTALLDIR set, rustc
+      # takes `link.exe` from PATH instead, and under this job's bash that is Git's coreutils
+      # `link`, which failed every build script.
       - run: npm --prefix website ci
       # The release lane reads the recipe shipped with the live site. The main lane uses this
       # checkout's recipe, CLI, and framework, and records its dependency substitutions.

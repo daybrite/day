@@ -311,8 +311,11 @@ with the binary tool in `day-cli` producing a binary named `day`. An app writes
 **Workspace versions.** Every framework crate inherits `[workspace.package].version` through
 `version.workspace = true`. Every internal entry in `[workspace.dependencies]` carries an
 explicit `version` equal to it: crates.io requires one, and Cargo cannot inherit a dependency
-requirement from `[workspace.package]`. Releases update the shared package version and those
-requirements together; member manifests need no version edits. Internal dev-dependencies are
+requirement from `[workspace.package]`. A release moves the shared package version, those
+requirements, the few member manifests that name a sibling with a version (day-toolkit-qt's
+`day-platform-macos`), and every committed `Cargo.lock` together:
+`scripts/release/bump-version.py <x.y.z>` does all four and holds each lock to
+`cargo metadata --locked`, and `--check` reports anything behind. Internal dev-dependencies are
 plain paths with no version, so `cargo publish` drops them; that is what lets `day-model` test
 against `day-pieces`, which depends on it.
 
@@ -4146,8 +4149,8 @@ ArkUI; emulator acceptance remains in CI.
 > ([§8](#8-the-toolkit-specification-day-spec)). Nothing about
 > the layout or the aggregation changed; what an external repository adds is a dependency rule
 > and a test harness. Its day dependencies are crates.io versions (`day-core = "0.6"`), and the
-> repository publishes its own crates to crates.io on a version tag (`dayapp.yml`'s
-> `publish-crates`), so an app takes pieces and day the same way and cargo unifies them by
+> repository publishes its own crates to crates.io on a version tag (daybrite/actions'
+> `daylib.yml`, [§20](#20-continuous-integration)), so an app takes pieces and day the same way and cargo unifies them by
 > version. (Until 2026-10-25 they named the bare canonical git URL, since cargo unifies a git
 > dependency only when URL and ref match.) A push builds against everything's `main` through
 > `day patch --main`, which follows each `day-*` crate to the repository crates.io records for

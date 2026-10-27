@@ -94,7 +94,7 @@ dependencies = [
 
 [[package]]
 name = "day-async"
-version = "0.6.1"
+version = "0.6.2"
 
 [[package]]
 name = "day-conformance-registry-fixture"
@@ -108,7 +108,7 @@ dependencies = [
 
 [[package]]
 name = "day-core"
-version = "0.6.1"
+version = "0.6.2"
 dependencies = [
  "anstream",
  "anstyle",
@@ -126,15 +126,15 @@ dependencies = [
 
 [[package]]
 name = "day-fonts"
-version = "0.6.1"
+version = "0.6.2"
 
 [[package]]
 name = "day-geometry"
-version = "0.6.1"
+version = "0.6.2"
 
 [[package]]
 name = "day-localization"
-version = "0.6.1"
+version = "0.6.2"
 dependencies = [
  "day-reactive",
  "fluent-bundle",
@@ -153,7 +153,7 @@ dependencies = [
 
 [[package]]
 name = "day-localization-ui"
-version = "0.6.1"
+version = "0.6.2"
 dependencies = [
  "day-core",
  "day-localization",
@@ -162,11 +162,11 @@ dependencies = [
 
 [[package]]
 name = "day-macros"
-version = "0.6.1"
+version = "0.6.2"
 
 [[package]]
 name = "day-pieces"
-version = "0.6.1"
+version = "0.6.2"
 dependencies = [
  "day-core",
  "day-geometry",
@@ -182,7 +182,7 @@ dependencies = [
 
 [[package]]
 name = "day-reactive"
-version = "0.6.1"
+version = "0.6.2"
 dependencies = [
  "log",
  "slotmap",
@@ -190,7 +190,7 @@ dependencies = [
 
 [[package]]
 name = "day-script"
-version = "0.6.1"
+version = "0.6.2"
 dependencies = [
  "day-core",
  "day-localization-ui",
@@ -204,7 +204,7 @@ dependencies = [
 
 [[package]]
 name = "day-script-protocol"
-version = "0.6.1"
+version = "0.6.2"
 dependencies = [
  "serde",
  "serde_json",
@@ -213,7 +213,7 @@ dependencies = [
 
 [[package]]
 name = "day-spec"
-version = "0.6.1"
+version = "0.6.2"
 dependencies = [
  "day-fonts",
  "day-geometry",
