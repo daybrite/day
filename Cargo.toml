@@ -94,7 +94,7 @@ default-members = [
 # behind the newest release: an app's CI builds against main through a `[patch.crates-io]` table,
 # and cargo passes over a patch older than what crates.io offers.
 [workspace.package]
-version = "0.6.1"
+version = "0.6.2"
 authors = ["Daybrite <hello@daybrite.dev>"]
 edition = "2024"
 description = "Declarative app development API using native UI toolkits"
@@ -111,63 +111,63 @@ rust-version = "1.89"
 # release updates these with [workspace.package].version. (A requirement that falls behind fails
 # resolution, so CI catches it.) Internal dev-dependencies are written as plain paths in each
 # member instead, so `cargo publish` drops them; `day-model` tests against `day-pieces` that way.
-day-geometry = { path = "crates/day-geometry", version = "0.6.1" }
-day-fonts = { path = "crates/day-fonts", version = "0.6.1" }
-day-reactive = { path = "crates/day-reactive", version = "0.6.1" }
-day-spec = { path = "crates/day-spec", version = "0.6.1" }
-day-mock = { path = "crates/day-mock", version = "0.6.1" }
-day-core = { path = "crates/day-core", version = "0.6.1" }
-day-pieces = { path = "crates/day-pieces", version = "0.6.1" }
-day-localization = { path = "crates/day-localization", version = "0.6.1" }
-day-localization-ui = { path = "crates/day-localization-ui", version = "0.6.1" }
-day-script = { path = "crates/day-script", version = "0.6.1" }
-day-script-protocol = { path = "crates/day-script-protocol", version = "0.6.1" }
-day-vector = { path = "crates/day-vector", version = "0.6.1" }
-day-model = { path = "crates/day-model", version = "0.6.1" }
-day-macros = { path = "crates/day-macros", version = "0.6.1" }
+day-geometry = { path = "crates/day-geometry", version = "0.6.2" }
+day-fonts = { path = "crates/day-fonts", version = "0.6.2" }
+day-reactive = { path = "crates/day-reactive", version = "0.6.2" }
+day-spec = { path = "crates/day-spec", version = "0.6.2" }
+day-mock = { path = "crates/day-mock", version = "0.6.2" }
+day-core = { path = "crates/day-core", version = "0.6.2" }
+day-pieces = { path = "crates/day-pieces", version = "0.6.2" }
+day-localization = { path = "crates/day-localization", version = "0.6.2" }
+day-localization-ui = { path = "crates/day-localization-ui", version = "0.6.2" }
+day-script = { path = "crates/day-script", version = "0.6.2" }
+day-script-protocol = { path = "crates/day-script-protocol", version = "0.6.2" }
+day-vector = { path = "crates/day-vector", version = "0.6.2" }
+day-model = { path = "crates/day-model", version = "0.6.2" }
+day-macros = { path = "crates/day-macros", version = "0.6.2" }
 # Persistence is maintained separately: https://github.com/daybrite/day-persistence.
-day = { package = "day-app", path = "crates/day", version = "0.6.1" }
-day-part-device = { path = "crates/day-part-device", version = "0.6.1" }
-day-part-sensors = { path = "crates/day-part-sensors", version = "0.6.1" }
-day-part-clipboard = { path = "crates/day-part-clipboard", version = "0.6.1" }
-day-part-connectivity = { path = "crates/day-part-connectivity", version = "0.6.1" }
-day-part-haptics = { path = "crates/day-part-haptics", version = "0.6.1" }
-day-part-sound = { path = "crates/day-part-sound", version = "0.6.1" }
-day-part-wakelock = { path = "crates/day-part-wakelock", version = "0.6.1" }
-day-part-preferences = { path = "crates/day-part-preferences", version = "0.6.1" }
-day-part-http = { path = "crates/day-part-http", version = "0.6.1" }
-day-part-downloads = { path = "crates/day-part-downloads", version = "0.6.1" }
-day-part-permissions = { path = "crates/day-part-permissions", version = "0.6.1" }
-day-part-location = { path = "crates/day-part-location", version = "0.6.1" }
-day-part-local-notify = { path = "crates/day-part-local-notify", version = "0.6.1" }
-day-part-filesystem = { path = "crates/day-part-filesystem", version = "0.6.1" }
-day-part-biometrics = { path = "crates/day-part-biometrics", version = "0.6.1" }
-day-part-keychain = { path = "crates/day-part-keychain", version = "0.6.1" }
-day-piece-swiftui = { path = "crates/day-piece-swiftui", version = "0.6.1" }
-day-piece-settings = { path = "crates/day-piece-settings", version = "0.6.1" }
-day-piece-text-editor = { path = "crates/day-piece-text-editor", version = "0.6.1" }
+day = { package = "day-app", path = "crates/day", version = "0.6.2" }
+day-part-device = { path = "crates/day-part-device", version = "0.6.2" }
+day-part-sensors = { path = "crates/day-part-sensors", version = "0.6.2" }
+day-part-clipboard = { path = "crates/day-part-clipboard", version = "0.6.2" }
+day-part-connectivity = { path = "crates/day-part-connectivity", version = "0.6.2" }
+day-part-haptics = { path = "crates/day-part-haptics", version = "0.6.2" }
+day-part-sound = { path = "crates/day-part-sound", version = "0.6.2" }
+day-part-wakelock = { path = "crates/day-part-wakelock", version = "0.6.2" }
+day-part-preferences = { path = "crates/day-part-preferences", version = "0.6.2" }
+day-part-http = { path = "crates/day-part-http", version = "0.6.2" }
+day-part-downloads = { path = "crates/day-part-downloads", version = "0.6.2" }
+day-part-permissions = { path = "crates/day-part-permissions", version = "0.6.2" }
+day-part-location = { path = "crates/day-part-location", version = "0.6.2" }
+day-part-local-notify = { path = "crates/day-part-local-notify", version = "0.6.2" }
+day-part-filesystem = { path = "crates/day-part-filesystem", version = "0.6.2" }
+day-part-biometrics = { path = "crates/day-part-biometrics", version = "0.6.2" }
+day-part-keychain = { path = "crates/day-part-keychain", version = "0.6.2" }
+day-piece-swiftui = { path = "crates/day-piece-swiftui", version = "0.6.2" }
+day-piece-settings = { path = "crates/day-piece-settings", version = "0.6.2" }
+day-piece-text-editor = { path = "crates/day-piece-text-editor", version = "0.6.2" }
 # Tweaks (docs/tweaks.md): packaged per-backend configuration of built-in pieces.
-day-tweak-button-bezel = { path = "crates/day-tweak-button-bezel", version = "0.6.1" }
-day-tweak-tooltip = { path = "crates/day-tweak-tooltip", version = "0.6.1" }
-day-tweak-tree-style = { path = "crates/day-tweak-tree-style", version = "0.6.1" }
-day-tweak-slider-tick-marks = { path = "crates/day-tweak-slider-tick-marks", version = "0.6.1" }
-day-toolchain = { path = "crates/day-toolchain", version = "0.6.1" }
-day-build = { path = "crates/day-build", version = "0.6.1" }
-day-async = { path = "crates/day-async", version = "0.6.1" }
-day-bridge = { path = "crates/day-bridge", version = "0.6.1" }
-day-platform-linux = { path = "crates/day-platform-linux", version = "0.6.1" }
-day-toolkit-appkit = { path = "crates/day-toolkit-appkit", version = "0.6.1" }
-day-toolkit-gtk = { path = "crates/day-toolkit-gtk", version = "0.6.1" }
-day-toolkit-qt = { path = "crates/day-toolkit-qt", version = "0.6.1" }
-day-toolkit-qt-sys = { path = "crates/day-toolkit-qt-sys", version = "0.6.1" }
-day-toolkit-uikit = { path = "crates/day-toolkit-uikit", version = "0.6.1" }
-day-platform-android = { path = "crates/day-platform-android", version = "0.6.1" }
-day-toolkit-material = { path = "crates/day-toolkit-material", version = "0.6.1" }
-day-platform-windows = { path = "crates/day-platform-windows", version = "0.6.1" }
-day-toolkit-winui = { path = "crates/day-toolkit-winui", version = "0.6.1" }
-day-toolkit-xaml-sys = { path = "crates/day-toolkit-xaml-sys", version = "0.6.1" }
-day-toolkit-arkui = { path = "crates/day-toolkit-arkui", version = "0.6.1" }
-day-toolkit-dom = { path = "crates/day-toolkit-dom", version = "0.6.1" }
+day-tweak-button-bezel = { path = "crates/day-tweak-button-bezel", version = "0.6.2" }
+day-tweak-tooltip = { path = "crates/day-tweak-tooltip", version = "0.6.2" }
+day-tweak-tree-style = { path = "crates/day-tweak-tree-style", version = "0.6.2" }
+day-tweak-slider-tick-marks = { path = "crates/day-tweak-slider-tick-marks", version = "0.6.2" }
+day-toolchain = { path = "crates/day-toolchain", version = "0.6.2" }
+day-build = { path = "crates/day-build", version = "0.6.2" }
+day-async = { path = "crates/day-async", version = "0.6.2" }
+day-bridge = { path = "crates/day-bridge", version = "0.6.2" }
+day-platform-linux = { path = "crates/day-platform-linux", version = "0.6.2" }
+day-toolkit-appkit = { path = "crates/day-toolkit-appkit", version = "0.6.2" }
+day-toolkit-gtk = { path = "crates/day-toolkit-gtk", version = "0.6.2" }
+day-toolkit-qt = { path = "crates/day-toolkit-qt", version = "0.6.2" }
+day-toolkit-qt-sys = { path = "crates/day-toolkit-qt-sys", version = "0.6.2" }
+day-toolkit-uikit = { path = "crates/day-toolkit-uikit", version = "0.6.2" }
+day-platform-android = { path = "crates/day-platform-android", version = "0.6.2" }
+day-toolkit-material = { path = "crates/day-toolkit-material", version = "0.6.2" }
+day-platform-windows = { path = "crates/day-platform-windows", version = "0.6.2" }
+day-toolkit-winui = { path = "crates/day-toolkit-winui", version = "0.6.2" }
+day-toolkit-xaml-sys = { path = "crates/day-toolkit-xaml-sys", version = "0.6.2" }
+day-toolkit-arkui = { path = "crates/day-toolkit-arkui", version = "0.6.2" }
+day-toolkit-dom = { path = "crates/day-toolkit-dom", version = "0.6.2" }
 # Repeated third-party dependencies share versions here. Consumers retain their own
 # features, optional flags, and target conditions. day-build keeps its documented cc 1.4
 # minimum; the native shims inherit the broader cc 1 requirement.
