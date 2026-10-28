@@ -101,6 +101,15 @@ pub enum Method {
     Delete,
     Patch,
     Head,
+    Options,
+    Propfind,
+    Proppatch,
+    Mkcol,
+    Copy,
+    Move,
+    Lock,
+    Unlock,
+    Report,
 }
 
 impl Method {
@@ -113,6 +122,15 @@ impl Method {
             Method::Delete => "DELETE",
             Method::Patch => "PATCH",
             Method::Head => "HEAD",
+            Method::Options => "OPTIONS",
+            Method::Propfind => "PROPFIND",
+            Method::Proppatch => "PROPPATCH",
+            Method::Mkcol => "MKCOL",
+            Method::Copy => "COPY",
+            Method::Move => "MOVE",
+            Method::Lock => "LOCK",
+            Method::Unlock => "UNLOCK",
+            Method::Report => "REPORT",
         }
     }
 
@@ -125,6 +143,15 @@ impl Method {
             Method::Delete,
             Method::Patch,
             Method::Head,
+            Method::Options,
+            Method::Propfind,
+            Method::Proppatch,
+            Method::Mkcol,
+            Method::Copy,
+            Method::Move,
+            Method::Lock,
+            Method::Unlock,
+            Method::Report,
         ]
         .into_iter()
         .find(|m| m.as_str().eq_ignore_ascii_case(token))

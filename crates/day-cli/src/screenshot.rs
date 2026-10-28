@@ -2143,6 +2143,252 @@ fn embeds_icc_profile(path: &Path) -> bool {
         })
 }
 
+// ---------------------------------------------------------------------------
+// Video recording (`day launch --script … --video`, DESIGN.md §16.5)
+// ---------------------------------------------------------------------------
+
+/// How long a recorder may take to report its first frame before the run gives up on it.
+const VIDEO_START_SECS: u64 = 30;
+/// How long a recorder may take to finish its file after it is asked to stop.
+const VIDEO_STOP_SECS: u64 = 30;
+
+/// A screen recording of one scripted run (`day launch --video`): started once the app is
+/// launched and before the first step, finished when the run ends.
+///
+/// Beside the video, `<video>.json` records when the recording began and ended on this
+/// machine's clock, plus each script's step timings from its run report (script_report.rs),
+/// so takes of the same script on different targets can be cut step by step onto one shared
+/// timeline. The sidecar copies the timings rather than pointing at the report, because the
+/// report lives in the build tree and the take usually outlives it.
+pub struct VideoRecording {
+    child: std::process::Child,
+    path: PathBuf,
+    target: &'static str,
+    device: String,
+    recorder: &'static str,
+    started_at: u64,
+    log: std::sync::Arc<std::sync::Mutex<Vec<String>>>,
+}
+
+fn unix_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+impl VideoRecording {
+    /// Start recording `target`'s screen to `path`. Android records through scrcpy, which
+    /// streams the device's own encoder output with its frame times, so the file has no
+    /// length limit (unlike `adb shell screenrecord`) and no frame is retimed.
+    pub fn start(target: &'static crate::targets::Target, path: &Path) -> Result<Self, String> {
+        if let Some(dir) = path.parent().filter(|d| !d.as_os_str().is_empty()) {
+            std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+        }
+        if path.exists() {
+            std::fs::remove_file(path).map_err(|e| format!("{}: {e}", path.display()))?;
+        }
+        match target.kind {
+            crate::targets::TargetKind::Android => Self::scrcpy(target, path),
+            _ => Err(format!(
+                "--video does not record {} yet (Android records through scrcpy)",
+                target.name
+            )),
+        }
+    }
+
+    fn scrcpy(target: &'static crate::targets::Target, path: &Path) -> Result<Self, String> {
+        use std::io::BufRead as _;
+        use std::process::{Command, Stdio};
+        // The device the run launched on, as the screenshots pick it (script.rs).
+        let serial = crate::ops::selected_android_serial()
+            .map(str::to_string)
+            .or_else(|| {
+                std::env::var("ANDROID_SERIAL")
+                    .ok()
+                    .filter(|s| !s.is_empty())
+            })
+            .or_else(|| {
+                crate::mobile::android_devices()
+                    .into_iter()
+                    .next()
+                    .map(|dev| dev.serial)
+            })
+            .ok_or("no Android device to record")?;
+        let mut command = Command::new("scrcpy");
+        // scrcpy stops cleanly (writing the file's index) on an interrupt, which is how
+        // `finish` ends it. A command started in the background by a non-interactive shell
+        // inherits SIGINT ignored, and exec keeps that, so put the default action back.
+        #[cfg(unix)]
+        // SAFETY: signal(2) is async-signal-safe, so it may run between fork and exec.
+        unsafe {
+            std::os::unix::process::CommandExt::pre_exec(&mut command, || {
+                libc::signal(libc::SIGINT, libc::SIG_DFL);
+                Ok(())
+            });
+        }
+        let mut child = command
+            .args([
+                "--serial",
+                &serial,
+                // No window, no input, no sound: the recording is the device's screen only,
+                // and the script, not scrcpy, drives the app.
+                "--no-window",
+                "--no-control",
+                "--no-audio",
+                "--video-bit-rate=16M",
+                "--max-fps=60",
+            ])
+            .arg(format!("--record={}", path.display()))
+            // scrcpy finds adb through ADB; point it at the SDK's, the one the run uses.
+            .env("ADB", day_toolchain::adb_bin())
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .map_err(|e| format!("scrcpy: {e} (--video on Android needs scrcpy 2.0 or later)"))?;
+        // Both streams are drained for the recorder's whole life, or a full pipe would stall
+        // it; the lines are kept for the error when it fails.
+        let log = std::sync::Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+        let drain = |stream: Box<dyn std::io::Read + Send>| {
+            let log = log.clone();
+            std::thread::spawn(move || {
+                for line in std::io::BufReader::new(stream)
+                    .lines()
+                    .map_while(Result::ok)
+                {
+                    if let Ok(mut log) = log.lock() {
+                        log.push(line);
+                    }
+                }
+            });
+        };
+        if let Some(out) = child.stdout.take() {
+            drain(Box::new(out));
+        }
+        if let Some(err) = child.stderr.take() {
+            drain(Box::new(err));
+        }
+        // The recording's time zero is its first frame, so the clock is read when scrcpy
+        // writes the file's header, which it does on the stream's first packet. Neither the
+        // frames after it (the muxer buffers them, so a still screen can keep the file at its
+        // header for seconds) nor the "Recording started" line (stdout, block-buffered into a
+        // pipe until scrcpy exits) say so in time.
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(VIDEO_START_SECS);
+        let started_at = loop {
+            if std::fs::metadata(path).is_ok_and(|m| m.len() > 0) {
+                break unix_ms();
+            }
+            std::thread::sleep(std::time::Duration::from_millis(20));
+            let exited = child.try_wait().ok().flatten();
+            if exited.is_some() || std::time::Instant::now() >= deadline {
+                let _ = child.kill();
+                let _ = child.wait();
+                let said = log.lock().map(|l| l.join("\n")).unwrap_or_default();
+                return Err(format!(
+                    "scrcpy did not start recording {serial}{}:\n{said}",
+                    match exited {
+                        Some(status) => format!(" ({status})"),
+                        None => format!(" within {VIDEO_START_SECS}s"),
+                    }
+                ));
+            }
+        };
+        crate::ops::status(
+            "Recording",
+            &format!("{} → {}", target.name, path.display()),
+        );
+        Ok(Self {
+            child,
+            path: path.to_path_buf(),
+            target: target.name,
+            device: serial,
+            recorder: "scrcpy",
+            started_at,
+            log,
+        })
+    }
+
+    /// Stop recording, let the recorder finish its file, and write the sidecar beside it
+    /// with the step timings of `reports` (the run's report files, script_report.rs).
+    pub fn finish(mut self, reports: &[PathBuf]) -> Result<PathBuf, String> {
+        let stopped_at = unix_ms();
+        // An interrupt is scrcpy's own "stop": it writes the container's index and exits.
+        // A kill would leave an MP4 without one, unplayable.
+        #[cfg(unix)]
+        // SAFETY: kill(2) on the pid of a child this struct owns and has not reaped yet.
+        unsafe {
+            libc::kill(self.child.id() as i32, libc::SIGINT);
+        }
+        #[cfg(not(unix))]
+        let _ = self.child.kill();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(VIDEO_STOP_SECS);
+        let status = loop {
+            match self.child.try_wait() {
+                Ok(Some(status)) => break Some(status),
+                Ok(None) if std::time::Instant::now() < deadline => {
+                    std::thread::sleep(std::time::Duration::from_millis(100))
+                }
+                _ => {
+                    let _ = self.child.kill();
+                    let _ = self.child.wait();
+                    break None;
+                }
+            }
+        };
+        if status.is_none() || !self.path.is_file() {
+            let said = self.log.lock().map(|l| l.join("\n")).unwrap_or_default();
+            return Err(format!(
+                "{} did not finish {}:\n{said}",
+                self.recorder,
+                self.path.display()
+            ));
+        }
+        let scripts: Vec<serde_json::Value> = reports
+            .iter()
+            .filter_map(|path| std::fs::read_to_string(path).ok())
+            .filter_map(|text| serde_json::from_str::<serde_json::Value>(&text).ok())
+            .map(|report| {
+                let steps: Vec<serde_json::Value> = report["step_results"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .map(|step| {
+                        serde_json::json!({
+                            "index": step["index"],
+                            "op": step["op"],
+                            "status": step["status"],
+                            "started_at_unix_ms": step["started_at_unix_ms"],
+                            "finished_at_unix_ms": step["finished_at_unix_ms"],
+                        })
+                    })
+                    .collect();
+                serde_json::json!({
+                    "script": report["script"],
+                    "status": report["status"],
+                    "locale": report["locale"],
+                    "variant": report["variant"],
+                    "steps": steps,
+                })
+            })
+            .collect();
+        let sidecar = self.path.with_extension("json");
+        let doc = serde_json::json!({
+            "schema_version": 1,
+            "video": self.path.file_name().map(|n| n.to_string_lossy().into_owned()),
+            "target": self.target,
+            "device": self.device,
+            "recorder": self.recorder,
+            "started_at_unix_ms": self.started_at,
+            "stopped_at_unix_ms": stopped_at,
+            "scripts": scripts,
+        });
+        let text = serde_json::to_string_pretty(&doc).map_err(|e| e.to_string())?;
+        std::fs::write(&sidecar, text).map_err(|e| format!("{}: {e}", sidecar.display()))?;
+        Ok(self.path.clone())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

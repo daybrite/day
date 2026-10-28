@@ -31,6 +31,12 @@ or dependency entry in `Day.toml` are needed.
 The optional `reqwest` feature selects the alternative Rust transport; it is not required
 for the native platform transports.
 
+`Request::new` also accepts `Method::Options`, `Propfind`, `Proppatch`, `Mkcol`, `Copy`,
+`Move`, `Lock`, `Unlock` and `Report`. HTTP sends these tokens and bodies through the same
+transport and interception paths. Callers interpret DAV XML and per-resource 207 statuses;
+the HTTP part does not implement synchronization or replay failed mutations. Check server and
+platform method support, and configure redirects deliberately when building a DAV client.
+
 | Platforms / toolkits | Availability |
 | --- | --- |
 | macOS, iOS, Android, Windows, Linux (GTK / Qt), HarmonyOS | Platform HTTP transports; Linux requires a system libcurl. |

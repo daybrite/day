@@ -188,6 +188,13 @@ public class DayActivity extends androidx.fragment.app.FragmentActivity {
         // of a launch-time snapshot.
         final Runnable start = new Runnable() {
             public void run() {
+                // A newer instance has taken Day over (a launch that clears the task, such as a
+                // package update's relaunch, can create it before this one's first layout): the
+                // tree belongs to that one. Mounting here would build its pages with the newer
+                // instance's FragmentManager (DayBridge.ctx) over containers in this window,
+                // which the FragmentManager cannot find when it next moves state, and a stop
+                // then throws "No view found for id" and takes the process down.
+                if (!isPrimary() || isFinishing()) return;
                 // Composed here, not in onCreate: by the first laid-out size the inset pass has
                 // run, so the seed (DAY_SAFE_AREA_TOP, points) carries the real status-bar
                 // height plus the standard app-bar height. Live K_SAFE_AREA reports keep the

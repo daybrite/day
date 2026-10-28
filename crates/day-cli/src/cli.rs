@@ -3,7 +3,7 @@
 
 //! Command tree and grouped root help (DESIGN.md §16.5).
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use clap::{CommandFactory, FromArgMatches, Parser, Subcommand, ValueEnum};
 
@@ -305,6 +305,15 @@ enum Cmd {
         /// Skip decorative animations for functional tests; preserve real timers and pauses
         #[arg(long, requires = "scripts")]
         fast: bool,
+        /// Hold for MS milliseconds after each script step that changes the screen, so a
+        /// recording of the run can be followed by eye; asserts and waits do not hold
+        #[arg(long, requires = "scripts", conflicts_with = "fast", value_name = "MS")]
+        pace: Option<u64>,
+        /// Record the screen while the scripts run, to PATH (an .mp4 or .mkv), with a .json
+        /// sidecar of the same name holding step timings. Several runs (targets, themes,
+        /// locales) add a suffix each
+        #[arg(long, requires = "scripts", value_name = "PATH")]
+        video: Option<PathBuf>,
         /// Day dialog/file-picker presentation during scripts (default: scripted).
         /// Scripted requests still require assert_presented/respond; native shows system UI
         #[arg(long, requires = "scripts", value_parser = ["scripted", "native"])]
@@ -1841,6 +1850,8 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
                     scripts: vec![script],
                     grants: Vec::new(),
                     fast: false,
+                    pace: None,
+                    video: None,
                     memory_profile: true,
                     dialogs: None,
                     variant: None,
@@ -2269,6 +2280,8 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
             scripts,
             grants,
             fast,
+            pace,
+            video,
             dialogs,
             variant,
             device,
@@ -2288,6 +2301,11 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
                     .rev()
                     .find_map(|kv| kv.strip_prefix("DAY_TEST_FAST="))
                     == Some("1");
+            let tempo = match pace {
+                Some(ms) => crate::script::Tempo::Paced(std::time::Duration::from_millis(ms)),
+                None if fast => crate::script::Tempo::Fast,
+                None => crate::script::Tempo::Normal,
+            };
             // `--git` only decides where the launch starts from. It clones (or updates) the
             // repository and hands back the Day project directory inside it, so `find_project`
             // and the whole launch body below see an ordinary checkout (crate::git).
@@ -2578,7 +2596,24 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
                             if !script_mode {
                                 break;
                             }
-                            match crate::script::run_scripts(
+                            // `--video`: one file per run, named after the run when there are
+                            // several. A retry records afresh over the failed attempt's file.
+                            let recording = match &video {
+                                Some(base) => Some(
+                                    crate::screenshot::VideoRecording::start(
+                                        target,
+                                        &video_path(
+                                            base,
+                                            target.name,
+                                            capture.variant.as_deref(),
+                                            platforms.len() * matrix.len() > 1,
+                                        ),
+                                    )
+                                    .map_err(CliError::failure)?,
+                                ),
+                                None => None,
+                            };
+                            let result = crate::script::run_scripts(
                                 project,
                                 target,
                                 port,
@@ -2589,11 +2624,22 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
                                 device.as_deref(),
                                 keep_alive,
                                 spec.attached,
-                                fast,
+                                tempo,
                                 memory_profile,
                                 dialogs.is_none()
                                     && !envs.iter().any(|kv| kv.starts_with("DAY_TEST_DIALOGS=")),
-                            ) {
+                            );
+                            if let Some(recording) = recording {
+                                let reports = result
+                                    .as_ref()
+                                    .map(|run| run.reports.clone())
+                                    .unwrap_or_default();
+                                match recording.finish(&reports) {
+                                    Ok(path) => ops::status("Video", &path.display().to_string()),
+                                    Err(why) => eprintln!("warning: --video: {why}"),
+                                }
+                            }
+                            match result {
                                 // A single retryable failure and nothing else: the shape a race
                                 // leaves behind (an element not realized yet, an assert that lost
                                 // to a transition or a page load) rather than a broken app. Re-run
@@ -2925,6 +2971,28 @@ pub(crate) fn split_list(raw: &[String]) -> Vec<String> {
 ///
 /// The `en` asymmetry between the modes is kept for compatibility: renaming artifact
 /// directories would break every consumer that globs them.
+/// Where `day launch --video BASE` puts one run's recording: BASE itself for a launch that
+/// makes a single run, else BASE with the target (and the capture variant, when the run has
+/// one) before the extension, so the runs of a matrix do not overwrite each other.
+fn video_path(base: &Path, target: &str, variant: Option<&str>, many: bool) -> PathBuf {
+    if !many {
+        return base.to_path_buf();
+    }
+    let stem = base
+        .file_stem()
+        .map(|s| s.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "video".into());
+    let ext = base
+        .extension()
+        .map(|e| e.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "mp4".into());
+    let name = match variant {
+        Some(variant) => format!("{stem}-{target}-{variant}.{ext}"),
+        None => format!("{stem}-{target}.{ext}"),
+    };
+    base.with_file_name(name)
+}
+
 fn capture_matrix(
     themes_raw: &[String],
     locales_raw: &[String],

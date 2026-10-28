@@ -4613,9 +4613,22 @@ mod imp {
                     kept,
                 )
             });
-            Some((state.host_node, strand))
+            // A TRIPLE-column collapse strands the content list the same way: at launch on
+            // iOS 18 the collapse takes the list as its top column (the delegate's answer
+            // below) but merges before the list is there to carry, so a phone opens on the
+            // sidebar while the model has the list open and nothing to pop. Put the list on
+            // the stack through UIKit's own column API, as a tap on its row would, whenever
+            // the delegate would have chosen it: no detail page, and a list that belongs to
+            // the destination. Already on the stack (iOS 26), it is left alone.
+            let list = !expanded
+                && parts.supplementary_nav.is_some()
+                && parts.list_shown.get()
+                && day_pages(&state.nav, parts.secondary_placeholder.as_deref()).is_empty();
+            Some((state.host_node, strand, list))
         });
-        let Some((node, strand)) = plan else { return };
+        let Some((node, strand, list)) = plan else {
+            return;
+        };
         if let Some((primary, secondary, mut merged, stranded, kept)) = strand
             && !stranded.is_empty()
         {
@@ -4631,6 +4644,18 @@ mod imp {
             merged.extend(stranded);
             let arr = objc2_foundation::NSArray::from_retained_slice(&merged);
             unsafe { primary.setViewControllers_animated(&arr, false) };
+        }
+        // A turn later, once Day's launch sync has settled the chrome. The list's back button
+        // takes its label from a bar still laid out at the expanded column's width, which
+        // shortens "Day News" to UIKit's generic "Back" and keeps it; the push's own `didShow`
+        // has the label measured again at the stack's width (`RELABEL_BACK`).
+        if list {
+            dispatch2::DispatchQueue::main().exec_async(move || {
+                day_spec::ffi_guard::contain((), || {
+                    RELABEL_BACK.with(|hosts| hosts.borrow_mut().insert(host));
+                    request_compact_list(host, true);
+                });
+            });
         }
         emit(
             node,
@@ -5568,6 +5593,29 @@ mod imp {
         })
     }
 
+    thread_local! {
+        /// Split hosts whose list went on the collapsed stack at launch, mid-collapse: the
+        /// next `didShow` with a page under the top has that page's back label measured again.
+        static RELABEL_BACK: std::cell::RefCell<std::collections::HashSet<usize>> =
+            std::cell::RefCell::new(std::collections::HashSet::new());
+    }
+
+    /// Re-set the title of the page under `nav`'s top, once, for a host in `RELABEL_BACK`.
+    /// Assigning it again has UIKit lay the top page's back button out against the bar as it
+    /// is now, so the label is the page's title rather than a "Back" chosen for a narrower bar.
+    fn relabel_back(host: usize, nav: &objc2_ui_kit::UINavigationController) {
+        let pages = unsafe { nav.viewControllers() };
+        if pages.count() < 2 || !RELABEL_BACK.with(|hosts| hosts.borrow_mut().remove(&host)) {
+            return;
+        }
+        let below = pages.objectAtIndex(pages.count() - 2);
+        unsafe {
+            let title = below.title();
+            below.navigationItem().setTitle(None);
+            below.navigationItem().setTitle(title.as_deref());
+        }
+    }
+
     fn request_compact_list(host: usize, show: bool) {
         static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
         let ticket = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -5751,6 +5799,7 @@ mod imp {
                         apply_window_toolbar_to(nav, vc);
                         sync_page_search_near(nav);
                     }
+                    relabel_back(self.ivars().host.get(), nav);
                     if *DIAG_NAV {
                         let host = self.ivars().host.get();
                         let (mirror, active) = NAV_STATE.with(|m| {

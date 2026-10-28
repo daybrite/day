@@ -342,7 +342,16 @@ impl Reports {
             evidence: Vec::new(),
             outcome: "failed",
             error: Some("runner interrupted while executing this step".into()),
+            started_at: unix_ms(),
         }
+    }
+    /// The report files this run writes, one per script, in script order: what a
+    /// `day launch --video` sidecar points at, so a recording can be cut step by step.
+    pub fn paths(&self) -> Vec<PathBuf> {
+        self.records
+            .iter()
+            .map(|r| r.lock().unwrap().path.clone())
+            .collect()
     }
     pub fn complete(&self) {
         if let Some(record) = self.active.0.lock().unwrap().take() {
@@ -404,6 +413,8 @@ pub(crate) struct StepGuard {
     op: String,
     outcome: &'static str,
     error: Option<String>,
+    /// Wall-clock start, so a recording of the run can be cut at step boundaries.
+    started_at: u64,
 }
 impl StepGuard {
     pub fn evidence(&mut self, evidence: &[day_script_protocol::IdEvidence]) {
@@ -422,7 +433,7 @@ impl Drop for StepGuard {
             let count = live.value["steps"][self.outcome].as_u64().unwrap() + 1;
             live.value["steps"][self.outcome] = json!(count);
             live.value["step_results"].as_array_mut().unwrap().push(
-                json!({"index":self.index,"op":self.op,"status":self.outcome,"error":self.error,"id_evidence":if self.outcome == "passed" { &self.evidence[..] } else { &[] }}),
+                json!({"index":self.index,"op":self.op,"status":self.outcome,"error":self.error,"started_at_unix_ms":self.started_at,"finished_at_unix_ms":unix_ms(),"id_evidence":if self.outcome == "passed" { &self.evidence[..] } else { &[] }}),
             );
             live.value["current_step"] = Value::Null;
             live.save();

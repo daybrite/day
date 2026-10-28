@@ -159,7 +159,7 @@ Use `WillTerminate` for synchronous cleanup, not as the sole durability point fo
 
 Mobile note: iOS/Android apps don't have a user-facing "quit". There, `WillTerminate` means the OS is
 tearing the app down (Android `onDestroy` while finishing, for the activity Day is mounted in: one a newer instance
-replaced, as a launch that clears the task does, finishes without ending the app; iOS `applicationWillTerminate:`). Prefer
+replaced, as a launch that clears the task does, finishes without ending the app, and never mounts Day's tree; iOS `applicationWillTerminate:`). Prefer
 `DidEnterBackground` for "the user left" on mobile.
 
 ## Launch memory profiling

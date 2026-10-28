@@ -30,6 +30,58 @@ pub struct ScriptRun {
     /// verdict and re-running would only spend the time again.
     pub retryable_failed: usize,
     pub screenshots: Vec<PathBuf>,
+    /// The run's report files (script_report.rs), one per script, when reports are on.
+    pub reports: Vec<PathBuf>,
+}
+
+/// How fast a scripted run moves from step to step.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Tempo {
+    /// Every step as soon as the previous one is answered.
+    Normal,
+    /// `--fast`: decorative `pause … animation: true` steps become `wait_idle`.
+    Fast,
+    /// `--pace`: after each step that changes what is on screen, hold for this long, so a
+    /// recording of the run can be followed by eye. Asserts and waits do not hold.
+    Paced(Duration),
+}
+
+/// Whether `op` changes what is on screen: the steps `--pace` holds after. Observations
+/// (asserts, waits, screenshots) leave the screen as it was, so holding after them would only
+/// lengthen a recording.
+fn changes_screen(op: &str) -> bool {
+    matches!(
+        op,
+        "tap"
+            | "drag"
+            | "hover"
+            | "pan"
+            | "pinch"
+            | "key"
+            | "input"
+            | "submit"
+            | "set_value"
+            | "toggle"
+            | "select"
+            | "activate"
+            | "reorder"
+            | "delete_row"
+            | "swipe_row"
+            | "expand"
+            | "tree_move"
+            | "menu"
+            | "context_menu"
+            | "toolbar"
+            | "close_window"
+            | "focus"
+            | "scroll_to"
+            | "navigate"
+            | "deep_link"
+            | "nav_back"
+            | "respond"
+            | "size_class"
+            | "resize"
+    )
 }
 
 /// Why a scripted run could not run to completion.
@@ -803,7 +855,7 @@ pub fn run_scripts(
     device: Option<&str>,
     keep_alive: bool,
     attached: bool,
-    fast: bool,
+    tempo: Tempo,
     memory_profile: bool,
     restore_native_dialogs: bool,
 ) -> Result<ScriptRun, ScriptError> {
@@ -827,11 +879,15 @@ pub fn run_scripts(
         device,
         keep_alive,
         attached,
-        fast,
+        tempo,
         restore_native_dialogs,
         &reports,
     );
     reports.finish(result.as_ref().err().map(|e| e.to_string()).as_deref());
+    let result = result.map(|mut run| {
+        run.reports = reports.paths();
+        run
+    });
     if result.is_ok() {
         reports
             .coverage(&project.manifest.dayscript.coverage)
@@ -852,7 +908,7 @@ fn run_scripts_inner(
     device: Option<&str>,
     keep_alive: bool,
     attached: bool,
-    fast: bool,
+    tempo: Tempo,
     restore_native_dialogs: bool,
     reports: &crate::script_report::Reports,
 ) -> Result<ScriptRun, ScriptError> {
@@ -956,6 +1012,7 @@ fn run_scripts_inner(
         steps_failed: 0,
         retryable_failed: 0,
         screenshots: Vec::new(),
+        reports: Vec::new(),
     };
     // Captures this run saved, for the per-target gallery index (screenshot.rs §14.7).
     let mut index_entries: Vec<crate::screenshot::TargetEntry> = Vec::new();
@@ -1087,6 +1144,10 @@ fn run_scripts_inner(
         // that until the job limit cancelled it). The flow is abandoned instead, after a stack
         // sample of the stuck app, and the run goes on to terminate it and start the next.
         let mut main_thread_stalled = false;
+        // `--pace`: the hold a screen-changing step leaves owing. It is spent before the next
+        // step's report entry opens, so it falls between that step's finish and the next one's
+        // start: a recording cut at step starts gives each hold to the step that caused it.
+        let mut hold: Option<Duration> = None;
         for (index, entry) in steps.into_iter().enumerate() {
             let mut op = entry.step.op().to_string();
             let step = entry.to_value();
@@ -1108,6 +1169,15 @@ fn run_scripts_inner(
                     script.display()
                 );
                 break;
+            }
+            if let Some(hold) = hold.take()
+                && let Some(detail) = sleep_watching_engine(&stream, hold)
+            {
+                return Err(ScriptError::EngineLost {
+                    steps_failed: run.steps_failed,
+                    before_steps: false,
+                    detail,
+                });
             }
             let mut step_report = reports.step(index, &op);
             let failures_before_step = run.steps_failed;
@@ -1176,10 +1246,15 @@ fn run_scripts_inner(
                 }
             }
             let mut step = step;
+            if let Tempo::Paced(each) = tempo
+                && changes_screen(&op)
+            {
+                hold = Some(each);
+            }
             // Only explicitly decorative pauses may be omitted in fast mode. Still
             // drain UI work and honor the toolkit transition gate. Literal pauses retain
             // their duration, including playback, physics and crash-watch tests.
-            if fast
+            if tempo == Tempo::Fast
                 && app_fast
                 && op == "pause"
                 && step.get("animation").and_then(|v| v.as_bool()) == Some(true)
@@ -2198,7 +2273,7 @@ mod gate_tests {
             None,
             true,
             false,
-            true,
+            super::Tempo::Fast,
             false,
             false,
         )
@@ -2285,7 +2360,7 @@ mod gate_tests {
             None,
             true,
             false,
-            true,
+            super::Tempo::Fast,
             false,
             false,
         );
@@ -2353,7 +2428,7 @@ mod gate_tests {
             None,
             true,
             false,
-            true,
+            super::Tempo::Fast,
             false,
             false,
         )
@@ -2468,7 +2543,7 @@ mod gate_tests {
             None,
             true,
             false,
-            true,
+            super::Tempo::Fast,
             false,
             false,
         )
@@ -2554,7 +2629,7 @@ mod gate_tests {
                 None,
                 true,
                 false,
-                false,
+                super::Tempo::Normal,
                 false,
                 false,
             )
@@ -2657,7 +2732,7 @@ mod gate_tests {
                 None,
                 true,
                 false,
-                false,
+                super::Tempo::Normal,
                 false,
                 false,
             )
