@@ -14,9 +14,15 @@
 // and prints its id; the CLI passes the id to the app as DAY_WINDOW_SCREEN, and the app opens
 // its window there. The virtual display sits beside the real ones and rearranges nothing.
 //
+// A window server that never brings the display up at 2x (a GitHub macOS runner's, measured
+// 2026-10) gets the same display at 1x instead: still larger than the window, where the runner's
+// own 1024x768 display is not, and a window macOS shrinks to fit a display captures smaller than
+// any store takes.
+//
 // Output, one line on stdout:
 //   native              a display with the scale is already attached; nothing was created
-//   display <id>        the virtual display's CGDirectDisplayID; alive until stdin closes
+//   display <id> <s>    the virtual display's CGDirectDisplayID and the scale it came up at;
+//                       alive until stdin closes
 //   unavailable <why>   (exit 1) no virtual display could be made; the run captures at 1x
 //
 // CGVirtualDisplay is CoreGraphics API that ships without a header. It is declared here and
@@ -109,21 +115,35 @@ int main(int argc, const char *argv[]) {
         // there yet. (CoreGraphics rather than NSScreen: this process runs no event loop, and
         // NSScreen only refreshes its list from one.)
         CGDirectDisplayID wanted = display.displayID;
-        BOOL up = NO;
-        for (int i = 0; i < 100 && !up; i++) {
-            [[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.1]];
-            CGDisplayModeRef mode = CGDisplayCopyDisplayMode(wanted);
-            if (mode) {
-                size_t points = CGDisplayModeGetWidth(mode), pixels = CGDisplayModeGetPixelWidth(mode);
-                up = CGDisplayIsOnline(wanted) && points > 0 && (double)pixels / points >= scale;
-                CGDisplayModeRelease(mode);
+        BOOL (^online_at)(double) = ^BOOL(double s) {
+            for (int i = 0; i < 100; i++) {
+                [[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.1]];
+                CGDisplayModeRef mode = CGDisplayCopyDisplayMode(wanted);
+                if (mode) {
+                    size_t points = CGDisplayModeGetWidth(mode);
+                    size_t pixels = CGDisplayModeGetPixelWidth(mode);
+                    CGDisplayModeRelease(mode);
+                    if (CGDisplayIsOnline(wanted) && points > 0 && (double)pixels / points >= s) {
+                        return YES;
+                    }
+                }
+            }
+            return NO;
+        };
+        double got = 0.0;
+        if (online_at(scale)) {
+            got = scale;
+        } else if (scale > 1.0) {
+            settings.hiDPI = 0;
+            if ([display applySettings:settings] && online_at(1.0)) {
+                got = 1.0;
             }
         }
-        if (!up) {
+        if (got == 0.0) {
             printf("unavailable the virtual display never came up at %gx\n", scale);
             return 1;
         }
-        printf("display %u\n", wanted);
+        printf("display %u %g\n", wanted, got);
         fflush(stdout);
 
         // Alive exactly as long as the `day` that started this: its end of the pipe closes when

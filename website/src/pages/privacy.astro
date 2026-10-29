@@ -10,15 +10,16 @@ import { url } from '../lib/site';
 ---
 <BaseLayout
   title="Privacy"
-  description="What the day command-line tool and daybrite.dev do with your data: one version check you can switch off, and a static site that runs no analytics."
+  description="How the day command-line tool checks for updates and how daybrite.dev uses GoatCounter for website analytics."
 >
   <section class="section">
     <div class="container prose">
       <p class="eyebrow">Privacy</p>
       <h1>Privacy policy</h1>
       <p class="lead">
-        This policy covers the <code>day</code> command-line tool and this website. Neither
-        collects personal data, and Daybrite runs no server that could receive any.
+        This policy covers the <code>day</code> command-line tool and this website. The CLI checks
+        for updates; the website uses GoatCounter to measure visits. Their network requests and
+        data use are described below.
       </p>
 
       <h2>The day CLI</h2>
@@ -46,13 +47,25 @@ import { url } from '../lib/site';
 
       <h2>This website</h2>
       <p>
-        daybrite.dev is a set of static pages served by GitHub Pages. It runs no analytics and sets
-        no cookie, and its search index runs in your browser rather than on a server. A theme you
-        pick with the light/dark control is remembered in your browser's local storage and goes
-        nowhere else. GitHub serves the files and records requests in its own logs, the way any web
-        server does, under{' '}
+        daybrite.dev is a set of static pages served by GitHub Pages. Its search index runs in your
+        browser rather than on a server. A theme you pick with the light/dark control is remembered
+        in your browser's local storage and goes nowhere else. GitHub serves the files and records
+        requests in its own logs under{' '}
         <a href="https://docs.github.com/site-policy/privacy-policies/github-general-privacy-statement">
           GitHub's privacy statement</a>.
+      </p>
+      <p>
+        We use <a href="https://www.goatcounter.com">GoatCounter</a> to measure which pages people
+        visit and how they reach the site. Your browser loads its analytics script and sends page
+        information, including the page address, title, referrer, and screen width, to our
+        <code>daybrite</code> GoatCounter account. GoatCounter also derives browser, operating-system,
+        language, and approximate location statistics from the request.
+      </p>
+      <p>
+        GoatCounter does not use cookies or store a tracking identifier in your browser. It
+        temporarily processes IP addresses and browser information to distinguish visits; see{' '}
+        <a href="https://www.goatcounter.com/help/privacy">GoatCounter's privacy policy</a> for
+        details about processing and storage.
       </p>
       <p>
         The screenshot gallery links each capture where the app that took it publishes it, so
@@ -77,7 +90,7 @@ import { url } from '../lib/site';
         Questions about this policy: <a href="mailto:hello@daybrite.dev">hello@daybrite.dev</a>, or
         open an issue on <a href="https://github.com/daybrite/day">GitHub</a>.
       </p>
-      <p class="gen">Last updated 21 September 2026.</p>
+      <p class="gen">Last updated 29 October 2026.</p>
       <p><a href={url('')}>← Back to daybrite.dev</a></p>
     </div>
   </section>

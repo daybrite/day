@@ -2293,6 +2293,8 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
             patch_local,
             memory_profile,
         } => {
+            // A script's `env:NAME` gates read the same pairs the app is launched with.
+            crate::script::set_launch_env(&envs);
             // The existing workflow launch-env input can opt in without a new actions API.
             // --fast is the shorthand; otherwise the last explicit environment value wins.
             let fast = fast
@@ -2535,7 +2537,8 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
                         // its window there.
                         if target.toolkit == "appkit"
                             && !given.iter().any(|(k, _)| k == "DAY_WINDOW_SCREEN")
-                            && let Some(id) = crate::screenshot::capture_display(size)
+                            && let Some(id) =
+                                crate::screenshot::capture_display(size, video.is_some())
                         {
                             capture_keys.push("DAY_WINDOW_SCREEN".into());
                             spec.envs.push(("DAY_WINDOW_SCREEN".into(), id));
@@ -2608,6 +2611,7 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
                                             capture.variant.as_deref(),
                                             platforms.len() * matrix.len() > 1,
                                         ),
+                                        &project.manifest.resolve(p).id,
                                     )
                                     .map_err(CliError::failure)?,
                                 ),
@@ -2630,10 +2634,16 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
                                     && !envs.iter().any(|kv| kv.starts_with("DAY_TEST_DIALOGS=")),
                             );
                             if let Some(recording) = recording {
-                                let reports = result
-                                    .as_ref()
-                                    .map(|run| run.reports.clone())
-                                    .unwrap_or_default();
+                                // A failed run hands back no report paths, but its reports are
+                                // on disk all the same, and a partial take still wants its steps.
+                                let reports = match &result {
+                                    Ok(run) => run.reports.clone(),
+                                    Err(_) => crate::script_report::reports_since(
+                                        project,
+                                        target.name,
+                                        recording.started_at(),
+                                    ),
+                                };
                                 match recording.finish(&reports) {
                                     Ok(path) => ops::status("Video", &path.display().to_string()),
                                     Err(why) => eprintln!("warning: --video: {why}"),

@@ -522,6 +522,7 @@ dependencies = [
  "toml",
  "toml_edit",
  "ureq",
+ "windows",
  "ycode-project",
 ]
 

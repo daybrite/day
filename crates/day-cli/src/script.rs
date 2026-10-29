@@ -1210,9 +1210,14 @@ fn run_scripts_inner(
                 let hit = skips
                     .iter()
                     .filter_map(|v| v.as_str())
-                    .any(|s| gate_names(s, target, &flavor_gate));
-                if hit {
-                    eprintln!("  {WARN}–{WARN:#} {op} (skipped on {})", target.name);
+                    .find(|s| gate_names(s, target, &flavor_gate));
+                if let Some(token) = hit {
+                    // An `env:` gate skips it everywhere it is set, not on this target.
+                    if token.starts_with("env:") {
+                        eprintln!("  {WARN}–{WARN:#} {op} (skipped: {token})");
+                    } else {
+                        eprintln!("  {WARN}–{WARN:#} {op} (skipped on {})", target.name);
+                    }
                     run.steps_skipped += 1;
                     step_report.result("skipped", None);
                     continue;
@@ -1230,11 +1235,17 @@ fn run_scripts_inner(
                     // Name what actually excluded it: a step kept for one flavor reads as
                     // "not for flavor:none" on the base app, where "not for macos-appkit" would
                     // point at the wrong reason.
-                    let scope = if onlys
-                        .iter()
-                        .filter_map(|v| v.as_str())
-                        .any(|s| s.starts_with("flavor:"))
-                    {
+                    let tokens: Vec<&str> = onlys.iter().filter_map(|v| v.as_str()).collect();
+                    if !tokens.is_empty() && tokens.iter().all(|s| s.starts_with("env:")) {
+                        eprintln!(
+                            "  {WARN}\u{2013}{WARN:#} {op} (needs {})",
+                            tokens.join(" or ")
+                        );
+                        run.steps_skipped += 1;
+                        step_report.result("skipped", None);
+                        continue;
+                    }
+                    let scope = if tokens.iter().any(|s| s.starts_with("flavor:")) {
                         flavor_gate.as_str()
                     } else {
                         target.name
@@ -2126,13 +2137,59 @@ fn gate_names(token: &str, target: &crate::targets::Target, flavor_gate: &str) -
         || token == gate_platform(target.name)
         || token == flavor_gate
         || xaml_family
+        || token.strip_prefix("env:").is_some_and(|name| {
+            env_gate(name, LAUNCH_ENV.get().map_or(&[], Vec::as_slice), |n| {
+                std::env::var(n).ok()
+            })
+        })
+}
+
+/// The `--env K=V` pairs this run launches the app with, which `env:NAME` gates read before
+/// the CLI's own environment: CI's `launch-env` and a local `FOO=1 day launch …` both reach a
+/// step that way.
+static LAUNCH_ENV: std::sync::OnceLock<Vec<(String, String)>> = std::sync::OnceLock::new();
+
+/// Records the run's `--env` pairs for the `env:` gates (once per process).
+pub fn set_launch_env(pairs: &[String]) {
+    let _ = LAUNCH_ENV.set(
+        pairs
+            .iter()
+            .filter_map(|kv| kv.split_once('='))
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect(),
+    );
+}
+
+/// Whether an `env:NAME` gate holds: NAME is set (the last `--env` of it, else the CLI's own
+/// environment) to something other than empty, `0`, `false`, `no` or `off`.
+fn env_gate(
+    name: &str,
+    launch: &[(String, String)],
+    host: impl Fn(&str) -> Option<String>,
+) -> bool {
+    launch
+        .iter()
+        .rev()
+        .find(|(k, _)| k == name)
+        .map(|(_, v)| v.clone())
+        .or_else(|| host(name))
+        .is_some_and(|v| {
+            !matches!(
+                v.trim().to_ascii_lowercase().as_str(),
+                "" | "0" | "false" | "no" | "off"
+            )
+        })
 }
 
 /// Whether a gate token could name anything at all (some target, toolkit or platform in the
-/// catalog, or a `flavor:` token), so a misspelling is reported rather than matching nothing.
+/// catalog, or a `flavor:` or `env:` token), so a misspelling is reported rather than matching
+/// nothing.
 fn gate_is_known(token: &str) -> bool {
     let token = crate::targets::canonical(token);
     token.starts_with("flavor:")
+        || token
+            .strip_prefix("env:")
+            .is_some_and(|name| !name.is_empty())
         || crate::targets::TARGETS
             .iter()
             .any(|t| token == t.name || token == t.toolkit || token == gate_platform(t.name))
@@ -2810,12 +2867,49 @@ mod gate_tests {
             "arkui",
             "macos-appkit",
             "flavor:x",
+            "env:SHOWCASE_SKIP_PHYSICS",
         ] {
             assert!(gate_is_known(token), "{token}");
         }
-        for token in ["iso", "iOS", "phone", "ohos", "flavr:x", ""] {
+        for token in ["iso", "iOS", "phone", "ohos", "flavr:x", "env:", ""] {
             assert!(!gate_is_known(token), "{token}");
         }
+    }
+
+    /// An `env:NAME` gate holds while NAME is set to anything but an off word: the run's last
+    /// `--env` of it first, then the CLI's own environment.
+    #[test]
+    fn an_env_gate_reads_the_launch_env_then_the_host() {
+        let none = |_: &str| None::<String>;
+        let host = |n: &str| (n == "FROM_HOST").then(|| "1".to_string());
+        let launch = |pairs: &[(&str, &str)]| -> Vec<(String, String)> {
+            pairs
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect()
+        };
+        assert!(!super::env_gate("X", &[], none));
+        assert!(super::env_gate("FROM_HOST", &[], host));
+        for on in ["1", "true", "yes", "android"] {
+            assert!(super::env_gate("X", &launch(&[("X", on)]), none), "{on}");
+        }
+        for off in ["", "0", "false", "No", " off "] {
+            assert!(
+                !super::env_gate("X", &launch(&[("X", off)]), none),
+                "{off:?}"
+            );
+        }
+        // The launch's value wins over the host's, and a later `--env` over an earlier one.
+        assert!(!super::env_gate(
+            "FROM_HOST",
+            &launch(&[("FROM_HOST", "0")]),
+            host
+        ));
+        assert!(super::env_gate(
+            "X",
+            &launch(&[("X", "0"), ("X", "1")]),
+            none
+        ));
     }
 }
 

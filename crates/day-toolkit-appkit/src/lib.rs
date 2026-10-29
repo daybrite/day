@@ -10995,6 +10995,13 @@ impl Toolkit for AppKit {
             self.cascade = Some(unsafe { window.cascadeTopLeftFromPoint(from) });
         }
         window_chrome::place(&window, options.placement);
+        // `center` (a settings panel's, or a `Centered` placement's) uses the main screen, the
+        // one with the keyboard focus, which on a Mac with several displays need not be the
+        // app's: such a window goes to the primary's screen instead. A scripted run on the
+        // capture display relies on this to keep the window in its captures.
+        if prefs || matches!(options.placement, day_spec::WindowPlacement::Centered) {
+            center_on_screen_of(&window, self.window.as_deref());
+        }
         // Secondary windows need the same initial client-coordinate pinning as the
         // primary. Native document pages may move here before any resize notification.
         let _ = pin_below_title_bar(&window);
@@ -11115,6 +11122,7 @@ impl Toolkit for AppKit {
                 .setStyleMask(mask & !objc2_app_kit::NSWindowStyleMask::Resizable);
             w.window.center();
         }
+        center_on_screen_of(&w.window, self.window.as_deref());
     }
 
     fn set_window_title(&mut self, host: &Handle, title: &str) {
@@ -11974,6 +11982,22 @@ fn snapshot_view_cache(content: &NSView) -> Result<Vec<u8>, String> {
 /// The screen a scripted run asked to open on: `DAY_WINDOW_SCREEN`, the CGDirectDisplayID of the
 /// capture display `day launch --script` provides when no attached display has the capture's
 /// scale. `None` when unset or when no screen has that id, which leaves the window where it was.
+/// Center `window` on `primary`'s screen when `center` put it on another, as high as `center`
+/// places a window (a third of the free height above it, two below).
+fn center_on_screen_of(window: &NSWindow, primary: Option<&NSWindow>) {
+    let Some(screen) = primary.and_then(|w| w.screen()) else {
+        return;
+    };
+    if window.screen().is_some_and(|s| s.frame() == screen.frame()) {
+        return;
+    }
+    let (visible, frame) = (screen.visibleFrame(), window.frame());
+    window.setFrameOrigin(NSPoint::new(
+        visible.origin.x + ((visible.size.width - frame.size.width) / 2.0).max(0.0),
+        visible.origin.y + ((visible.size.height - frame.size.height) * 2.0 / 3.0).max(0.0),
+    ));
+}
+
 fn capture_screen(mtm: MainThreadMarker) -> Option<Retained<objc2_app_kit::NSScreen>> {
     let wanted: u32 = std::env::var("DAY_WINDOW_SCREEN")
         .ok()?

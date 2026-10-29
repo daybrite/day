@@ -39,6 +39,14 @@ const ogImage = Astro.site ? new URL(url('og-card.png'), Astro.site).href : unde
     <meta name="twitter:card" content="summary_large_image" />
     {ogImage && <meta name="twitter:image" content={ogImage} />}
     <meta name="theme-color" content="#090c15" />
+    {import.meta.env.PROD && (
+      <script
+        is:inline
+        data-goatcounter="https://daybrite.goatcounter.com/count"
+        async
+        src="https://gc.zgo.at/count.js"
+      ></script>
+    )}
   </head>
   <body>
     <a class="skip-link" href="#main">Skip to content</a>

@@ -110,7 +110,9 @@ script asked for instead of the size the developer last dragged. Every other des
 placement to its window manager, which is that platform's convention.
 
 `WindowKind::Preferences` is centered and kept out of the macOS Window menu, the convention stock
-apps follow.
+apps follow. On macOS it is centered on the screen the primary window is on, as is a window with
+`WindowPlacement::Centered`: AppKit's own `center` uses the screen with the keyboard focus, which
+on a Mac with several displays can be another one.
 
 ## Opening windows
 

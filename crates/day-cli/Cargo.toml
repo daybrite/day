@@ -85,3 +85,15 @@ day-build = { workspace = true }
 # Ctrl-C child cleanup uses POSIX signals only (Windows relies on console propagation).
 [target.'cfg(unix)'.dependencies]
 libc = { workspace = true }
+
+# `day launch --video` on Windows records the screen itself (GDI) and encodes it with the
+# system's Media Foundation H.264 encoder, so it needs no ffmpeg.
+[target.'cfg(windows)'.dependencies]
+windows = { workspace = true, features = [
+    "Win32_Foundation",
+    "Win32_Graphics_Gdi",
+    "Win32_Media_MediaFoundation",
+    "Win32_System_Com",
+    "Win32_UI_HiDpi",
+    "Win32_UI_WindowsAndMessaging",
+] }

@@ -13,6 +13,18 @@ The [App websites guide](src/content/docs/websites.md) covers their configuratio
 themes, custom Astro pages, built-in Actions deployment, and GitHub Pages/custom-domain setup.
 This directory maintains Day's own documentation and marketing site.
 
+## Analytics
+
+Production builds include [GoatCounter](https://www.goatcounter.com/help/start) in
+[`BaseLayout.astro`](src/layouts/BaseLayout.astro), shared by the marketing and documentation pages.
+Pageviews go to `https://daybrite.goatcounter.com/count`; the dashboard is at
+<https://daybrite.goatcounter.com>. The public counting endpoint needs no API key or account credentials.
+
+The script is omitted in development. GoatCounter also
+[ignores localhost pageviews](https://www.goatcounter.com/help/skip-dev) by default, including when
+previewing a production build locally. Keep the [privacy page](src/pages/privacy.astro) consistent
+with any tracking changes.
+
 ## Documentation authoring
 
 Use the [style guide](../website/authoring/style-guide.md),

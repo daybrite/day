@@ -31,7 +31,8 @@ or dependency entry in `Day.toml` are needed.
 The optional `reqwest` feature selects the alternative Rust transport; it is not required
 for the native platform transports.
 
-`Request::new` also accepts `Method::Options`, `Propfind`, `Proppatch`, `Mkcol`, `Copy`,
+[`Request::new`](https://docs.rs/day-part-http/latest/day_part_http/struct.Request.html#method.new)
+also accepts `Method::Options`, `Propfind`, `Proppatch`, `Mkcol`, `Copy`,
 `Move`, `Lock`, `Unlock` and `Report`. HTTP sends these tokens and bodies through the same
 transport and interception paths. Callers interpret DAV XML and per-resource 207 statuses;
 the HTTP part does not implement synchronization or replay failed mutations. Check server and

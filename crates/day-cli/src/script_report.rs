@@ -177,6 +177,31 @@ impl Active {
     }
 }
 
+/// The report files of `target`'s runs that started at or after `since` (Unix milliseconds),
+/// oldest first: how a recording finds its run's reports when the run failed and handed back
+/// none (`day launch --video`).
+pub(crate) fn reports_since(
+    project: &crate::meta::Project,
+    target: &str,
+    since: u64,
+) -> Vec<PathBuf> {
+    let root = crate::ops::staged_root(project).join("reports/dayscript");
+    let mut found: Vec<(u64, PathBuf)> = std::fs::read_dir(&root)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|path| path.extension().is_some_and(|e| e == "json"))
+        .filter_map(|path| {
+            let report: Value = serde_json::from_str(&std::fs::read_to_string(&path).ok()?).ok()?;
+            let started = report["started_at_unix_ms"].as_u64()?;
+            (report["target"] == target && started >= since).then_some((started, path))
+        })
+        .collect();
+    found.sort();
+    found.into_iter().map(|(_, path)| path).collect()
+}
+
 pub(crate) struct Reports {
     records: Vec<Record>,
     pub active: Active,

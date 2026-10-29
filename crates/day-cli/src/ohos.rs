@@ -508,6 +508,12 @@ pub fn emulator_launch(headless: bool, panel: (u32, u32)) -> Result<(), String> 
         }
     };
 
+    // A QMP control socket beside the hdc forward, so `day launch --video` can read the panel
+    // (`screendump`) while a script runs: a headless guest has no window to capture.
+    let qmp = qmp_socket(host_port);
+    let _ = std::fs::remove_file(&qmp);
+    let qmp_arg = format!("unix:{},server=on,wait=off", qmp.display());
+
     let mut cmd = Command::new(qemu);
     cmd.current_dir(&images)
         .args([
@@ -520,7 +526,8 @@ pub fn emulator_launch(headless: bool, panel: (u32, u32)) -> Result<(), String> 
         .args(image.qemu_args())
         .args(["-serial", "none", "-append", image.append()])
         .args(["-accel", &accel, "-cpu", cpu])
-        .args(["-netdev", &hostfwd, "-device", "virtio-net-pci,netdev=net0"]);
+        .args(["-netdev", &hostfwd, "-device", "virtio-net-pci,netdev=net0"])
+        .args(["-qmp", &qmp_arg]);
     status(
         "Emulator",
         &format!(
@@ -582,6 +589,12 @@ pub fn emulator_launch(headless: bool, panel: (u32, u32)) -> Result<(), String> 
         std::thread::sleep(Duration::from_secs(5));
     }
     Err("emulator did not report boot within the timeout (still starting?)".into())
+}
+
+/// The QMP socket of the emulator [`emulator_launch`] started with its hdc forward on host port
+/// `port`, so whoever knows the target's connect key can find its emulator's control socket.
+pub(crate) fn qmp_socket(port: u16) -> PathBuf {
+    std::env::temp_dir().join(format!("day-ohos-{port}.qmp"))
 }
 
 /// The hdc target key (`-t`) for the emulator/device. Oniro's QEMU emulator is a networked target

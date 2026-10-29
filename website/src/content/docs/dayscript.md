@@ -163,6 +163,21 @@ The same two gates match a [build flavor](/docs/how-to/flavors), written `flavor
 - assert_text: { id: welcome_title, text: "Welcome to Notes Pro", only_on: [flavor:paid] }
 ```
 
+They also match an environment variable, written `env:<NAME>`. The gate holds while `NAME`
+is set to anything other than empty, `0`, `false`, `no` or `off`. It reads the value from the
+run's `--env NAME=…` first, then from the environment `day` itself runs in. Use it for a
+section you want to switch on or off without naming targets:
+
+```yaml
+- navigate: { route: physics, skip_on: [env:SHOWCASE_SKIP_PHYSICS] }
+```
+
+```sh
+day launch --script dayscript/walkthrough.yaml --env SHOWCASE_SKIP_PHYSICS=1
+```
+
+In CI, the workflow's `launch-env` input passes the same `--env` to every scripted launch.
+
 ## Run reports and background memory sampling
 
 `day launch --script dayscript/walkthrough.yaml` profiles memory by default and saves a
@@ -305,7 +320,7 @@ narrow-layout run stays narrow. How each target reaches the scale:
 | `linux-gtk`, `macos-gtk` | renders its own snapshot through a scale transform, on any display, a 1× xvfb included |
 | `linux-qt`, `macos-qt` | renders the widget into a pixmap with that device pixel ratio |
 | `web-dom` | the driver browser's viewport and device scale factor |
-| `macos-appkit` | reads the window server's pixels, so the scale is the display's. Where no attached display has it (a CI runner's is 1×), `day launch` creates a HiDPI virtual display for the run and the app opens its window there. `DAY_CAPTURE_DISPLAY=native` turns that off; `=virtual` forces it |
+| `macos-appkit` | reads the window server's pixels, so the scale is the display's. Where no attached display has it (a CI runner's is 1×), `day launch` creates a HiDPI virtual display for the run and the app opens its window there. Where the window server will not run that display at 2× (GitHub's macOS runners), it runs it at 1×, which still holds the whole window: a 1280×800-point capture is then 1280×800 pixels. `DAY_CAPTURE_DISPLAY=native` turns that off; `=virtual` forces it |
 | `windows-winui` | reads the window's real pixels at the desktop's scale, frame included. At 100% scaling the default capture is 1280×800, which the Mac App Store also takes |
 
 ## Recording

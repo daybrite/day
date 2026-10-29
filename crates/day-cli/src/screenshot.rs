@@ -321,8 +321,11 @@ static CAPTURE_DISPLAY: std::sync::Mutex<Option<(std::process::Child, Option<Str
 ///
 /// `DAY_CAPTURE_DISPLAY=native` turns this off; `=virtual` makes the display even on a host
 /// that does not need one, which is how the path is exercised on a HiDPI Mac.
+///
+/// `force` makes the virtual display whatever the attached ones are, as `=virtual` does: a
+/// recorded run (`--video`) wants the app on a display of its own, not on the person's screen.
 #[cfg(target_os = "macos")]
-pub fn capture_display(size: CaptureSize) -> Option<String> {
+pub fn capture_display(size: CaptureSize, force: bool) -> Option<String> {
     use std::io::BufRead as _;
     let mode = std::env::var("DAY_CAPTURE_DISPLAY").unwrap_or_default();
     if mode == "native" {
@@ -338,7 +341,8 @@ pub fn capture_display(size: CaptureSize) -> Option<String> {
             "Warning",
             &format!(
                 "no {}x capture display ({why}); macos-appkit captures at this display's own \
-                 scale, {w}x{h} pixels on a 1x display",
+                 scale, {w}x{h} pixels on a 1x display, and smaller where macOS shrinks the \
+                 window to fit a smaller display",
                 size.scale
             ),
         );
@@ -356,7 +360,7 @@ pub fn capture_display(size: CaptureSize) -> Option<String> {
         .args([w.to_string(), h.to_string(), size.scale.to_string()])
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped());
-    if mode == "virtual" {
+    if mode == "virtual" || force {
         command.arg("force");
     }
     let mut child = match command.spawn() {
@@ -371,19 +375,39 @@ pub fn capture_display(size: CaptureSize) -> Option<String> {
         let _ = std::io::BufReader::new(out).read_line(&mut line);
     }
     let id = match line.trim().split_once(' ') {
-        Some(("display", id)) => {
-            crate::ops::status(
-                "Capture",
-                &format!(
-                    "virtual {}x display {id} ({})",
-                    size.scale,
-                    if mode == "virtual" {
-                        "DAY_CAPTURE_DISPLAY=virtual"
-                    } else {
-                        "no attached display has the scale"
-                    }
-                ),
-            );
+        Some(("display", rest)) => {
+            // `<id> <scale>`: the helper falls back to a 1x display where the window server never
+            // brings one up at 2x, which still holds the whole window.
+            let (id, got) = match rest.split_once(' ') {
+                Some((id, got)) => (id, got.parse::<f64>().unwrap_or(size.scale)),
+                None => (rest, size.scale),
+            };
+            if got < size.scale {
+                let (w, h) = size.points();
+                crate::ops::status(
+                    "Warning",
+                    &format!(
+                        "virtual display {id} came up at {got}x, not {}x; macos-appkit captures \
+                         {w}x{h} pixels",
+                        size.scale
+                    ),
+                );
+            } else {
+                crate::ops::status(
+                    "Capture",
+                    &format!(
+                        "virtual {}x display {id} ({})",
+                        size.scale,
+                        if mode == "virtual" {
+                            "DAY_CAPTURE_DISPLAY=virtual"
+                        } else if force {
+                            "--video records it"
+                        } else {
+                            "no attached display has the scale"
+                        }
+                    ),
+                );
+            }
             crate::signals::register_child(child.id());
             Some(id.to_string())
         }
@@ -397,26 +421,36 @@ pub fn capture_display(size: CaptureSize) -> Option<String> {
     id
 }
 
-/// Compile the helper with the host's clang into a version-stamped temp location, once. Xcode's
-/// command-line tools are already a macos-appkit prerequisite, so this adds none.
+/// Compile the capture-display helper with the host's clang into a version-stamped temp
+/// location, once. Xcode's command-line tools are already a macos-appkit prerequisite, so this
+/// adds none.
 #[cfg(target_os = "macos")]
 fn materialize_capture_display() -> Result<PathBuf, String> {
-    let digest = &sha256_hex(CAPTURE_DISPLAY_M.as_bytes())[..12];
-    let dir = std::env::temp_dir().join(format!(
-        "day-capture-display-{}-{digest}",
-        env!("CARGO_PKG_VERSION")
-    ));
-    let bin = dir.join("day-capture-display");
+    materialize_helper("day-capture-display", CAPTURE_DISPLAY_M, &["Cocoa"])
+}
+
+/// Compile one of the embedded Objective-C helpers (`resources/macos/*.m`) as `name`, linked
+/// against `frameworks`, into a temp directory stamped with the CLI version and the source's
+/// digest, so an edited helper is rebuilt and an unchanged one is not.
+#[cfg(target_os = "macos")]
+fn materialize_helper(name: &str, source: &str, frameworks: &[&str]) -> Result<PathBuf, String> {
+    let digest = &sha256_hex(source.as_bytes())[..12];
+    let dir = std::env::temp_dir().join(format!("{name}-{}-{digest}", env!("CARGO_PKG_VERSION")));
+    let bin = dir.join(name);
     if bin.exists() {
         return Ok(bin);
     }
     std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
-    let src = dir.join("capture-display.m");
-    std::fs::write(&src, CAPTURE_DISPLAY_M).map_err(|e| format!("{}: {e}", src.display()))?;
+    let src = dir.join(format!("{name}.m"));
+    std::fs::write(&src, source).map_err(|e| format!("{}: {e}", src.display()))?;
     // Built beside its final name and renamed, so a concurrent `day` never runs half a binary.
-    let staged = dir.join(format!("day-capture-display.{}", std::process::id()));
-    let out = std::process::Command::new("xcrun")
-        .args(["clang", "-fobjc-arc", "-O1", "-framework", "Cocoa"])
+    let staged = dir.join(format!("{name}.{}", std::process::id()));
+    let mut command = std::process::Command::new("xcrun");
+    command.args(["clang", "-fobjc-arc", "-O1"]);
+    for framework in frameworks {
+        command.args(["-framework", framework]);
+    }
+    let out = command
         .arg(&src)
         .arg("-o")
         .arg(&staged)
@@ -424,7 +458,7 @@ fn materialize_capture_display() -> Result<PathBuf, String> {
         .map_err(|e| format!("xcrun clang: {e}"))?;
     if !out.status.success() {
         return Err(format!(
-            "compiling the capture-display helper failed: {}",
+            "compiling {name} failed: {}",
             String::from_utf8_lossy(&out.stderr).trim()
         ));
     }
@@ -432,10 +466,24 @@ fn materialize_capture_display() -> Result<PathBuf, String> {
     Ok(bin)
 }
 
+/// The recorder for `day launch --video` on macos-appkit (resources/macos/record-display.m).
+#[cfg(target_os = "macos")]
+const RECORD_DISPLAY_M: &str = include_str!("../resources/macos/record-display.m");
+
+/// The capture display `capture_display` made, if it made one.
+#[cfg(target_os = "macos")]
+fn active_capture_display() -> Option<String> {
+    CAPTURE_DISPLAY
+        .lock()
+        .ok()?
+        .as_ref()
+        .and_then(|(_, id)| id.clone())
+}
+
 /// No capture display off macOS: the other desktop backends render their own snapshot at the
 /// stated scale, or (XAML) read back a display this tool cannot stand in for.
 #[cfg(not(target_os = "macos"))]
-pub fn capture_display(_size: CaptureSize) -> Option<String> {
+pub fn capture_display(_size: CaptureSize, _force: bool) -> Option<String> {
     None
 }
 
@@ -2161,7 +2209,11 @@ const VIDEO_STOP_SECS: u64 = 30;
 /// timeline. The sidecar copies the timings rather than pointing at the report, because the
 /// report lives in the build tree and the take usually outlives it.
 pub struct VideoRecording {
-    child: std::process::Child,
+    /// The recorder (scrcpy, ffmpeg), or the encoder the frame grabber feeds (ffmpeg); none
+    /// when the grabber encodes in this process (Windows).
+    child: Option<std::process::Child>,
+    /// How the recording is ended.
+    stop: Stop,
     path: PathBuf,
     target: &'static str,
     device: String,
@@ -2169,6 +2221,43 @@ pub struct VideoRecording {
     started_at: u64,
     log: std::sync::Arc<std::sync::Mutex<Vec<String>>>,
 }
+
+/// How a recording is ended, which differs per recorder.
+enum Stop {
+    /// An interrupt (scrcpy): it writes the container's index and exits.
+    Interrupt,
+    /// A frame grabber's stop flag and thread; the thread owns the encoder (or its stdin).
+    Grabber(
+        std::sync::Arc<std::sync::atomic::AtomicBool>,
+        std::thread::JoinHandle<Result<u64, String>>,
+    ),
+    /// ffmpeg's own `q` on its stdin.
+    Quit(std::process::ChildStdin),
+    /// Closing the recorder's stdin, which is its signal to finish the file.
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+    Close(std::process::ChildStdin),
+}
+
+/// The frame rate of a recording made from grabbed frames.
+const GRAB_FPS: u32 = 30;
+
+/// ffmpeg's output options for a screen grab: 4:2:0 YUV converted with the BT.709 matrix (an
+/// HD screen's, where ffmpeg would otherwise use BT.601) and tagged so, sRGB transfer, so that
+/// every player and editor decodes the colors the screen showed.
+const FFMPEG_BT709: [&str; 12] = [
+    "-vf",
+    "scale=out_color_matrix=bt709:out_range=tv",
+    "-pix_fmt",
+    "yuv420p",
+    "-colorspace",
+    "bt709",
+    "-color_primaries",
+    "bt709",
+    "-color_trc",
+    "iec61966-2-1",
+    "-color_range",
+    "tv",
+];
 
 fn unix_ms() -> u64 {
     std::time::SystemTime::now()
@@ -2180,8 +2269,17 @@ fn unix_ms() -> u64 {
 impl VideoRecording {
     /// Start recording `target`'s screen to `path`. Android records through scrcpy, which
     /// streams the device's own encoder output with its frame times, so the file has no
-    /// length limit (unlike `adb shell screenrecord`) and no frame is retimed.
-    pub fn start(target: &'static crate::targets::Target, path: &Path) -> Result<Self, String> {
+    /// length limit (unlike `adb shell screenrecord`) and no frame is retimed. The HarmonyOS
+    /// emulator is read frame by frame from QEMU (`screendump` over its QMP socket) into ffmpeg.
+    ///
+    /// `app_id` is the app's bundle identifier, which picks its windows out on macOS.
+    // Only the macOS recorder needs the app's identity.
+    #[cfg_attr(not(target_os = "macos"), allow(unused_variables))]
+    pub fn start(
+        target: &'static crate::targets::Target,
+        path: &Path,
+        app_id: &str,
+    ) -> Result<Self, String> {
         if let Some(dir) = path.parent().filter(|d| !d.as_os_str().is_empty()) {
             std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
         }
@@ -2190,8 +2288,20 @@ impl VideoRecording {
         }
         match target.kind {
             crate::targets::TargetKind::Android => Self::scrcpy(target, path),
+            crate::targets::TargetKind::HarmonyOs => Self::qemu_frames(target, path),
+            crate::targets::TargetKind::IosSim => Self::simctl(target, path),
+            crate::targets::TargetKind::Desktop if crate::targets::host_os() == "linux" => {
+                Self::x11grab(target, path)
+            }
+            #[cfg(target_os = "macos")]
+            crate::targets::TargetKind::Desktop if target.toolkit == "appkit" => {
+                Self::appkit(target, path, app_id)
+            }
+            #[cfg(windows)]
+            crate::targets::TargetKind::Desktop => Self::gdi_frames(target, path),
             _ => Err(format!(
-                "--video does not record {} yet (Android records through scrcpy)",
+                "--video does not record {} yet (Android, the iOS Simulator, the HarmonyOS \
+                 emulator, macos-appkit, Windows desktops, and Linux desktops on an X display)",
                 target.name
             )),
         }
@@ -2299,7 +2409,8 @@ impl VideoRecording {
             &format!("{} → {}", target.name, path.display()),
         );
         Ok(Self {
-            child,
+            child: Some(child),
+            stop: Stop::Interrupt,
             path: path.to_path_buf(),
             target: target.name,
             device: serial,
@@ -2309,34 +2420,480 @@ impl VideoRecording {
         })
     }
 
+    /// Record the iOS Simulator the run launched on with `simctl io recordVideo`, which says
+    /// "Recording started" on stderr once its first frame is processed (that moment is time
+    /// zero) and finishes the movie on an interrupt. The display's rounded corners and the
+    /// camera cutout are recorded black (`--mask=black`): left to the framebuffer, the Dynamic
+    /// Island is in some recordings and not others.
+    fn simctl(target: &'static crate::targets::Target, path: &Path) -> Result<Self, String> {
+        use std::io::BufRead as _;
+        use std::process::{Command, Stdio};
+        let udid = crate::ops::selected_ios_simulator()
+            .map(str::to_string)
+            .or_else(|| crate::mobile::booted_sims().into_iter().next())
+            .ok_or("no booted iOS Simulator to record")?;
+        let mut child = Command::new("xcrun")
+            .args([
+                "simctl",
+                "io",
+                &udid,
+                "recordVideo",
+                "--codec=hevc",
+                "--mask=black",
+            ])
+            .arg("--force")
+            .arg(path)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped())
+            .spawn()
+            .map_err(|e| format!("xcrun simctl: {e}"))?;
+        let log = std::sync::Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+        let (started, wait) = std::sync::mpsc::channel::<u64>();
+        if let Some(err) = child.stderr.take() {
+            let log = log.clone();
+            std::thread::spawn(move || {
+                for line in std::io::BufReader::new(err).lines().map_while(Result::ok) {
+                    if line.contains("Recording started") {
+                        let _ = started.send(unix_ms());
+                    }
+                    if let Ok(mut log) = log.lock() {
+                        log.push(line);
+                    }
+                }
+            });
+        }
+        let started_at = match wait.recv_timeout(std::time::Duration::from_secs(VIDEO_START_SECS)) {
+            Ok(at) => at,
+            Err(_) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                let said = log.lock().map(|l| l.join("\n")).unwrap_or_default();
+                return Err(format!("simctl did not start recording {udid}:\n{said}"));
+            }
+        };
+        crate::ops::status(
+            "Recording",
+            &format!("{} ({udid}) → {}", target.name, path.display()),
+        );
+        Ok(Self {
+            child: Some(child),
+            stop: Stop::Interrupt,
+            path: path.to_path_buf(),
+            target: target.name,
+            device: udid,
+            recorder: "simctl",
+            started_at,
+            log,
+        })
+    }
+
+    /// Record a macos-appkit app on the run's virtual capture display (`capture_display`, which
+    /// a `--video` run always makes), through ScreenCaptureKit (resources/macos/record-display.m):
+    /// the app's own windows only, cropped to its main window. The helper reports the first
+    /// frame's host-clock time as the recording's time zero, and writes the file's end when its
+    /// stdin closes.
+    #[cfg(target_os = "macos")]
+    fn appkit(
+        target: &'static crate::targets::Target,
+        path: &Path,
+        app_id: &str,
+    ) -> Result<Self, String> {
+        use std::io::BufRead as _;
+        use std::process::{Command, Stdio};
+        let display = active_capture_display().ok_or(
+            "--video on macos-appkit records the virtual capture display, and there is none \
+             (DAY_CAPTURE_DISPLAY=native, or this Mac could not make one)",
+        )?;
+        let helper = materialize_helper(
+            "day-record-display",
+            RECORD_DISPLAY_M,
+            &["Cocoa", "ScreenCaptureKit", "AVFoundation", "CoreMedia"],
+        )?;
+        let mut child = Command::new(&helper)
+            .arg(&display)
+            .arg(app_id)
+            .arg(GRAB_FPS.to_string())
+            .arg(path)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .map_err(|e| format!("{}: {e}", helper.display()))?;
+        let log = std::sync::Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+        let (started, wait) = std::sync::mpsc::channel::<Result<u64, String>>();
+        if let Some(out) = child.stdout.take() {
+            let log = log.clone();
+            std::thread::spawn(move || {
+                for line in std::io::BufReader::new(out).lines().map_while(Result::ok) {
+                    if let Some(ms) = line.strip_prefix("started ") {
+                        let _ = started.send(ms.trim().parse().map_err(|_| line.clone()));
+                    } else if let Some(why) = line.strip_prefix("error ") {
+                        let _ = started.send(Err(why.to_string()));
+                    }
+                    if let Ok(mut log) = log.lock() {
+                        log.push(line);
+                    }
+                }
+            });
+        }
+        if let Some(err) = child.stderr.take() {
+            let log = log.clone();
+            std::thread::spawn(move || {
+                for line in std::io::BufReader::new(err).lines().map_while(Result::ok) {
+                    if let Ok(mut log) = log.lock() {
+                        log.push(line);
+                    }
+                }
+            });
+        }
+        let started_at = match wait.recv_timeout(std::time::Duration::from_secs(VIDEO_START_SECS)) {
+            Ok(Ok(at)) => at,
+            outcome => {
+                let _ = child.kill();
+                let _ = child.wait();
+                let why = match outcome {
+                    Ok(Err(why)) => why,
+                    _ => format!("no first frame within {VIDEO_START_SECS}s"),
+                };
+                return Err(format!(
+                    "the macOS recorder did not start on display {display}: {why} (it needs the \
+                     Screen Recording permission for this terminal)"
+                ));
+            }
+        };
+        let stdin = child.stdin.take().ok_or("the recorder has no stdin")?;
+        crate::ops::status(
+            "Recording",
+            &format!("{} (display {display}) → {}", target.name, path.display()),
+        );
+        Ok(Self {
+            child: Some(child),
+            stop: Stop::Close(stdin),
+            path: path.to_path_buf(),
+            target: target.name,
+            device: format!("display {display}"),
+            recorder: "screencapturekit",
+            started_at,
+            log,
+        })
+    }
+
+    /// Record a Linux desktop app's whole X screen (`DISPLAY`) with ffmpeg's x11grab: the
+    /// screen rather than the window, so the secondary windows, dialogs and menus a script
+    /// opens are in the video too. A dedicated display (Xvfb) is the intended one; the run's
+    /// own `xvfb-run` cannot be used, since its display is not known until the app has it.
+    ///
+    /// x11grab stamps each frame with the wall clock and ffmpeg reports the first one as the
+    /// input's `start:`, which is read off its log as the recording's time zero.
+    fn x11grab(target: &'static crate::targets::Target, path: &Path) -> Result<Self, String> {
+        use std::io::BufRead as _;
+        use std::process::{Command, Stdio};
+        let display = std::env::var("DISPLAY")
+            .ok()
+            .filter(|d| !d.is_empty())
+            .ok_or_else(|| {
+                format!(
+                    "--video records {} from an X display, and DISPLAY is not set: start one \
+                     (`Xvfb :77 -screen 0 1280x864x24 &`) and run with DISPLAY=:77",
+                    target.name
+                )
+            })?;
+        let mut child = Command::new("ffmpeg")
+            .args(["-hide_banner", "-loglevel", "info", "-y", "-f", "x11grab"])
+            .args([
+                "-framerate",
+                &GRAB_FPS.to_string(),
+                "-draw_mouse",
+                "0",
+                "-i",
+            ])
+            .arg(&display)
+            .args(["-c:v", "libx264", "-preset", "veryfast", "-crf", "16"])
+            .args(FFMPEG_BT709)
+            .args(["-movflags", "+faststart"])
+            .arg(path)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped())
+            .spawn()
+            .map_err(|e| format!("ffmpeg: {e} (--video on Linux records with ffmpeg)"))?;
+        let log = std::sync::Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+        let (started, wait) = std::sync::mpsc::channel::<u64>();
+        if let Some(err) = child.stderr.take() {
+            let log = log.clone();
+            std::thread::spawn(move || {
+                // ffmpeg ends its progress lines with a carriage return, not a newline.
+                let mut reader = std::io::BufReader::new(err);
+                let mut buf = Vec::new();
+                while reader.read_until(b'\r', &mut buf).is_ok_and(|n| n > 0) {
+                    for line in String::from_utf8_lossy(&buf).lines() {
+                        // "  Duration: N/A, start: 1793140000.123456, bitrate: N/A"
+                        if let Some(at) = line
+                            .split_once("start: ")
+                            .and_then(|(_, rest)| rest.split(',').next())
+                            .and_then(|secs| secs.trim().parse::<f64>().ok())
+                        {
+                            let _ = started.send((at * 1000.0) as u64);
+                        }
+                        if let Ok(mut log) = log.lock() {
+                            log.push(line.to_string());
+                        }
+                    }
+                    buf.clear();
+                }
+            });
+        }
+        let started_at = match wait.recv_timeout(std::time::Duration::from_secs(VIDEO_START_SECS)) {
+            Ok(at) => at,
+            Err(_) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                let said = log.lock().map(|l| l.join("\n")).unwrap_or_default();
+                return Err(format!("ffmpeg did not start recording {display}:\n{said}"));
+            }
+        };
+        let stdin = child.stdin.take().ok_or("ffmpeg has no stdin")?;
+        crate::ops::status(
+            "Recording",
+            &format!("{} ({display}) → {}", target.name, path.display()),
+        );
+        Ok(Self {
+            child: Some(child),
+            stop: Stop::Quit(stdin),
+            path: path.to_path_buf(),
+            target: target.name,
+            device: display,
+            recorder: "ffmpeg-x11grab",
+            started_at,
+            log,
+        })
+    }
+
+    /// Record the Oniro emulator `day devices boot` started: its QMP socket (ohos.rs
+    /// `qmp_socket`) answers `screendump`, which this reads GRAB_FPS times a second and pipes
+    /// to ffmpeg as raw frames. Frame n always stands for n/GRAB_FPS seconds after the first,
+    /// and a grab that takes longer than a frame repeats the previous picture rather than
+    /// losing the time, so the video's clock is the host's.
+    #[cfg(unix)]
+    fn qemu_frames(target: &'static crate::targets::Target, path: &Path) -> Result<Self, String> {
+        use std::io::{BufRead as _, Write as _};
+        use std::process::{Command, Stdio};
+        use std::sync::atomic::{AtomicBool, Ordering};
+        let key = crate::ops::selected_ohos_key()
+            .map(str::to_string)
+            .unwrap_or_else(crate::ohos::ohos_target);
+        let port: u16 = key
+            .rsplit(':')
+            .next()
+            .and_then(|p| p.parse().ok())
+            .ok_or_else(|| {
+                format!("{key} is not an emulator's connect key; --video records the emulator only")
+            })?;
+        let socket = crate::ohos::qmp_socket(port);
+        let mut qmp = Qmp::connect(&socket).map_err(|e| {
+            format!(
+                "{}: {e} (boot the emulator with `day devices boot -t harmony-arkui` from this \
+                 day, which gives it the control socket --video reads)",
+                socket.display()
+            )
+        })?;
+        let dump = std::env::temp_dir().join(format!("day-ohos-{port}-frame.ppm"));
+        let (width, height, first) = qmp.screendump(&dump)?;
+        let t0 = std::time::Instant::now();
+        let started_at = unix_ms();
+        let mut child = Command::new("ffmpeg")
+            .args([
+                "-v", "error", "-y", "-f", "rawvideo", "-pix_fmt", "rgb24", "-s",
+            ])
+            .arg(format!("{width}x{height}"))
+            .args(["-framerate", &GRAB_FPS.to_string(), "-i", "-"])
+            .args(["-c:v", "libx264", "-preset", "veryfast", "-crf", "16"])
+            .args(FFMPEG_BT709)
+            .args(["-movflags", "+faststart"])
+            .arg(path)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped())
+            .spawn()
+            .map_err(|e| format!("ffmpeg: {e} (--video on HarmonyOS encodes with ffmpeg)"))?;
+        let log = std::sync::Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+        if let Some(err) = child.stderr.take() {
+            let log = log.clone();
+            std::thread::spawn(move || {
+                for line in std::io::BufReader::new(err).lines().map_while(Result::ok) {
+                    if let Ok(mut log) = log.lock() {
+                        log.push(line);
+                    }
+                }
+            });
+        }
+        let mut stdin = child.stdin.take().ok_or("ffmpeg has no stdin")?;
+        let stop = std::sync::Arc::new(AtomicBool::new(false));
+        let stopping = stop.clone();
+        let worker = std::thread::spawn(move || -> Result<u64, String> {
+            let period = std::time::Duration::from_secs_f64(1.0 / f64::from(GRAB_FPS));
+            let mut frame = first;
+            let mut n = 0u64;
+            while !stopping.load(Ordering::Relaxed) {
+                let due = t0 + period.mul_f64(n as f64);
+                if let Some(wait) = due.checked_duration_since(std::time::Instant::now()) {
+                    std::thread::sleep(wait);
+                }
+                stdin
+                    .write_all(&frame)
+                    .map_err(|e| format!("ffmpeg: {e}"))?;
+                n += 1;
+                // Grab the next picture only when it can be ready before its frame is due;
+                // behind, the loop writes the same one again until it has caught up.
+                if std::time::Instant::now() < t0 + period.mul_f64(n as f64) {
+                    match qmp.screendump(&dump)? {
+                        (w, h, pixels) if (w, h) == (width, height) => frame = pixels,
+                        // The panel changed size mid-run; the encoder cannot follow, so the
+                        // last picture of the old size stands.
+                        _ => {}
+                    }
+                }
+            }
+            let _ = std::fs::remove_file(&dump);
+            Ok(n)
+        });
+        crate::ops::status(
+            "Recording",
+            &format!("{} → {}", target.name, path.display()),
+        );
+        Ok(Self {
+            child: Some(child),
+            stop: Stop::Grabber(stop, worker),
+            path: path.to_path_buf(),
+            target: target.name,
+            device: key,
+            recorder: "qemu-screendump",
+            started_at,
+            log,
+        })
+    }
+
+    #[cfg(not(unix))]
+    fn qemu_frames(target: &'static crate::targets::Target, _path: &Path) -> Result<Self, String> {
+        Err(format!(
+            "--video records {} through QEMU's control socket, which this host cannot open",
+            target.name
+        ))
+    }
+
+    /// Record a Windows desktop app's whole primary screen: the screen rather than the
+    /// window, as on Linux, so the secondary windows, dialogs and menus a script opens are in
+    /// the video too. A thread copies the screen with GDI GRAB_FPS times a second and encodes
+    /// it with Media Foundation's H.264 encoder (`gdi_video`), so nothing beyond Windows is
+    /// needed. Each picture is stamped with the 1/GRAB_FPS slot it was grabbed in and lasts
+    /// until the next; when the encoder falls behind, slots are skipped (the frame rate drops
+    /// for a while) rather than queued, so the video's clock stays the host's.
+    ///
+    /// The run must be in the signed-in desktop session: a process in session 0 (an SSH
+    /// login) has no screen to copy and records black.
+    #[cfg(windows)]
+    fn gdi_frames(target: &'static crate::targets::Target, path: &Path) -> Result<Self, String> {
+        let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let stopping = stop.clone();
+        let out = path.to_path_buf();
+        let (ready, wait) = std::sync::mpsc::channel::<Result<(u64, String), String>>();
+        let worker =
+            std::thread::spawn(move || gdi_video::record(&out, GRAB_FPS, &stopping, &ready));
+        let (started_at, screen) =
+            match wait.recv_timeout(std::time::Duration::from_secs(VIDEO_START_SECS)) {
+                Ok(Ok(started)) => started,
+                outcome => {
+                    stop.store(true, std::sync::atomic::Ordering::Relaxed);
+                    let ended = worker.join();
+                    let why = match (outcome, ended) {
+                        (Ok(Err(why)), _) | (_, Ok(Err(why))) => why,
+                        _ => format!("no first frame within {VIDEO_START_SECS}s"),
+                    };
+                    return Err(format!("the Windows recorder did not start: {why}"));
+                }
+            };
+        crate::ops::status(
+            "Recording",
+            &format!("{} ({screen}) → {}", target.name, path.display()),
+        );
+        Ok(Self {
+            child: None,
+            stop: Stop::Grabber(stop, worker),
+            path: path.to_path_buf(),
+            target: target.name,
+            device: screen,
+            recorder: "gdi-mediafoundation",
+            started_at,
+            log: Default::default(),
+        })
+    }
+
+    /// When the recording's first frame was taken, in Unix milliseconds on this host's clock.
+    pub fn started_at(&self) -> u64 {
+        self.started_at
+    }
+
     /// Stop recording, let the recorder finish its file, and write the sidecar beside it
     /// with the step timings of `reports` (the run's report files, script_report.rs).
     pub fn finish(mut self, reports: &[PathBuf]) -> Result<PathBuf, String> {
         let stopped_at = unix_ms();
-        // An interrupt is scrcpy's own "stop": it writes the container's index and exits.
-        // A kill would leave an MP4 without one, unplayable.
-        #[cfg(unix)]
-        // SAFETY: kill(2) on the pid of a child this struct owns and has not reaped yet.
-        unsafe {
-            libc::kill(self.child.id() as i32, libc::SIGINT);
-        }
-        #[cfg(not(unix))]
-        let _ = self.child.kill();
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(VIDEO_STOP_SECS);
-        let status = loop {
-            match self.child.try_wait() {
-                Ok(Some(status)) => break Some(status),
-                Ok(None) if std::time::Instant::now() < deadline => {
-                    std::thread::sleep(std::time::Duration::from_millis(100))
-                }
-                _ => {
-                    let _ = self.child.kill();
-                    let _ = self.child.wait();
-                    break None;
+        match std::mem::replace(&mut self.stop, Stop::Interrupt) {
+            Stop::Grabber(stop, worker) => {
+                // The grabber owns the encoder's stdin, or the encoder; its end is the end of
+                // the encoder's input.
+                stop.store(true, std::sync::atomic::Ordering::Relaxed);
+                let grabbed = worker
+                    .join()
+                    .unwrap_or_else(|_| Err("the frame grabber panicked".into()));
+                if let Err(why) = grabbed {
+                    if let Some(child) = self.child.as_mut() {
+                        let _ = child.kill();
+                        let _ = child.wait();
+                    }
+                    return Err(format!("{}: {why}", self.recorder));
                 }
             }
+            Stop::Quit(mut stdin) => {
+                use std::io::Write as _;
+                let _ = stdin.write_all(b"q");
+            }
+            Stop::Close(stdin) => drop(stdin),
+            Stop::Interrupt => {
+                // A kill would leave an MP4 without its index, unplayable.
+                #[cfg(unix)]
+                if let Some(child) = self.child.as_ref() {
+                    // SAFETY: kill(2) on the pid of a child this struct owns and has not
+                    // reaped yet.
+                    unsafe {
+                        libc::kill(child.id() as i32, libc::SIGINT);
+                    }
+                }
+                #[cfg(not(unix))]
+                if let Some(child) = self.child.as_mut() {
+                    let _ = child.kill();
+                }
+            }
+        }
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(VIDEO_STOP_SECS);
+        let finished = match self.child.as_mut() {
+            // The grabber encoded in this process and has joined: the file is complete.
+            None => true,
+            Some(child) => loop {
+                match child.try_wait() {
+                    Ok(Some(_)) => break true,
+                    Ok(None) if std::time::Instant::now() < deadline => {
+                        std::thread::sleep(std::time::Duration::from_millis(100))
+                    }
+                    _ => {
+                        let _ = child.kill();
+                        let _ = child.wait();
+                        break false;
+                    }
+                }
+            },
         };
-        if status.is_none() || !self.path.is_file() {
+        if !finished || !self.path.is_file() {
             let said = self.log.lock().map(|l| l.join("\n")).unwrap_or_default();
             return Err(format!(
                 "{} did not finish {}:\n{said}",
@@ -2389,8 +2946,389 @@ impl VideoRecording {
     }
 }
 
+/// The Windows screen recorder behind `VideoRecording::gdi_frames`: GDI copies of the primary
+/// screen, encoded H.264 into an MP4 by a Media Foundation sink writer.
+#[cfg(windows)]
+mod gdi_video {
+    use std::path::Path;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use windows::Win32::Graphics::Gdi::{
+        BI_RGB, BITMAPINFO, BITMAPINFOHEADER, BitBlt, CAPTUREBLT, CreateCompatibleDC,
+        CreateDIBSection, DIB_RGB_COLORS, DeleteDC, DeleteObject, GetDC, HBITMAP, HDC, ROP_CODE,
+        ReleaseDC, SRCCOPY, SelectObject,
+    };
+    use windows::Win32::Media::MediaFoundation::{
+        IMFSample, IMFSinkWriter, MF_MT_AVG_BITRATE, MF_MT_DEFAULT_STRIDE, MF_MT_FRAME_RATE,
+        MF_MT_FRAME_SIZE, MF_MT_INTERLACE_MODE, MF_MT_MAJOR_TYPE, MF_MT_MPEG2_PROFILE,
+        MF_MT_PIXEL_ASPECT_RATIO, MF_MT_SUBTYPE, MF_VERSION, MFCreateMediaType,
+        MFCreateMemoryBuffer, MFCreateSample, MFCreateSinkWriterFromURL, MFMediaType_Video,
+        MFSTARTUP_FULL, MFShutdown, MFStartup, MFVideoFormat_H264, MFVideoFormat_RGB32,
+        MFVideoInterlace_Progressive, eAVEncH264VProfile_High,
+    };
+    use windows::Win32::System::Com::{COINIT_MULTITHREADED, CoInitializeEx, CoUninitialize};
+    use windows::Win32::UI::HiDpi::{
+        DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, SetThreadDpiAwarenessContext,
+    };
+    use windows::Win32::UI::WindowsAndMessaging::{GetSystemMetrics, SM_CXSCREEN, SM_CYSCREEN};
+    use windows::core::HSTRING;
+
+    /// Bits per second for the encoder: generous, since screen text is what the video shows.
+    const BITRATE: u32 = 24_000_000;
+
+    /// Record until `stop` is set, telling `ready` the first frame's Unix-ms time and the
+    /// screen's size (or why it could not start). Returns the number of frames written.
+    pub(super) fn record(
+        path: &Path,
+        fps: u32,
+        stop: &AtomicBool,
+        ready: &std::sync::mpsc::Sender<Result<(u64, String), String>>,
+    ) -> Result<u64, String> {
+        // SAFETY: COM and Media Foundation are set up and torn down on this thread only, in
+        // matched pairs, around every call that uses them.
+        unsafe {
+            let com = CoInitializeEx(None, COINIT_MULTITHREADED).is_ok();
+            let outcome = match MFStartup(MF_VERSION, MFSTARTUP_FULL) {
+                Ok(()) => {
+                    let outcome = run(path, fps, stop, ready);
+                    let _ = MFShutdown();
+                    outcome
+                }
+                Err(e) => Err(format!("Media Foundation did not start: {e}")),
+            };
+            if com {
+                CoUninitialize();
+            }
+            if let Err(why) = &outcome {
+                // Before the first frame this is the start's failure; after it, nobody listens.
+                let _ = ready.send(Err(why.clone()));
+            }
+            outcome
+        }
+    }
+
+    /// The screen copied into a top-down 32-bit DIB.
+    struct Grabber {
+        screen: HDC,
+        memory: HDC,
+        bitmap: HBITMAP,
+        bits: *const u8,
+        width: i32,
+        height: i32,
+    }
+
+    impl Grabber {
+        /// SAFETY: call on one thread; the returned grabber owns its GDI objects.
+        unsafe fn new() -> Result<Self, String> {
+            // SAFETY: plain GDI calls on handles this function creates and checks.
+            unsafe {
+                // Physical pixels, whatever the screen's scale: the grab must not be scaled.
+                SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+                // H.264 takes even sizes only.
+                let width = GetSystemMetrics(SM_CXSCREEN) & !1;
+                let height = GetSystemMetrics(SM_CYSCREEN) & !1;
+                if width <= 0 || height <= 0 {
+                    return Err("no screen to record (is this the desktop session?)".into());
+                }
+                let screen = GetDC(None);
+                if screen.is_invalid() {
+                    return Err("no screen to record (is this the desktop session?)".into());
+                }
+                let memory = CreateCompatibleDC(Some(screen));
+                let info = BITMAPINFO {
+                    bmiHeader: BITMAPINFOHEADER {
+                        biSize: size_of::<BITMAPINFOHEADER>() as u32,
+                        biWidth: width,
+                        // Negative: rows top to bottom, as the encoder's input type says.
+                        biHeight: -height,
+                        biPlanes: 1,
+                        biBitCount: 32,
+                        biCompression: BI_RGB.0,
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                };
+                let mut bits = std::ptr::null_mut();
+                let bitmap =
+                    match CreateDIBSection(Some(memory), &info, DIB_RGB_COLORS, &mut bits, None, 0)
+                    {
+                        Ok(bitmap) if !bits.is_null() => bitmap,
+                        outcome => {
+                            let _ = DeleteDC(memory);
+                            ReleaseDC(None, screen);
+                            return Err(format!("CreateDIBSection: {:?}", outcome.err()));
+                        }
+                    };
+                SelectObject(memory, bitmap.into());
+                Ok(Self {
+                    screen,
+                    memory,
+                    bitmap,
+                    bits: bits as *const u8,
+                    width,
+                    height,
+                })
+            }
+        }
+
+        fn len(&self) -> usize {
+            self.width as usize * self.height as usize * 4
+        }
+
+        /// Copy the screen into the bitmap. CAPTUREBLT takes in the layered windows (menus,
+        /// tooltips, popups) a plain copy leaves out.
+        fn grab(&self) -> Result<(), String> {
+            // SAFETY: both DCs belong to this grabber and the bitmap is selected into `memory`.
+            unsafe {
+                BitBlt(
+                    self.memory,
+                    0,
+                    0,
+                    self.width,
+                    self.height,
+                    Some(self.screen),
+                    0,
+                    0,
+                    ROP_CODE(SRCCOPY.0 | CAPTUREBLT.0),
+                )
+            }
+            .map_err(|e| format!("BitBlt: {e}"))
+        }
+
+        fn pixels(&self) -> &[u8] {
+            // SAFETY: the DIB section holds width × height 32-bit pixels for as long as the
+            // grabber lives, and only `grab` (taking &self, on this thread) writes it.
+            unsafe { std::slice::from_raw_parts(self.bits, self.len()) }
+        }
+    }
+
+    impl Drop for Grabber {
+        fn drop(&mut self) {
+            // SAFETY: the handles were created in `new` and are released exactly once here.
+            unsafe {
+                let _ = DeleteDC(self.memory);
+                let _ = DeleteObject(self.bitmap.into());
+                ReleaseDC(None, self.screen);
+            }
+        }
+    }
+
+    /// An H.264 MP4 writer taking the grabber's frames (RGB32, converted by the sink writer).
+    unsafe fn writer(
+        path: &Path,
+        width: i32,
+        height: i32,
+        fps: u32,
+    ) -> windows::core::Result<IMFSinkWriter> {
+        // SAFETY: Media Foundation is started on this thread (`record`).
+        unsafe {
+            let writer = MFCreateSinkWriterFromURL(&HSTRING::from(path.as_os_str()), None, None)?;
+            let size = ((width as u64) << 32) | height as u64;
+            let rate = ((fps as u64) << 32) | 1;
+            let out = MFCreateMediaType()?;
+            out.SetGUID(&MF_MT_MAJOR_TYPE, &MFMediaType_Video)?;
+            out.SetGUID(&MF_MT_SUBTYPE, &MFVideoFormat_H264)?;
+            out.SetUINT32(&MF_MT_AVG_BITRATE, BITRATE)?;
+            out.SetUINT32(&MF_MT_MPEG2_PROFILE, eAVEncH264VProfile_High.0 as u32)?;
+            out.SetUINT32(&MF_MT_INTERLACE_MODE, MFVideoInterlace_Progressive.0 as u32)?;
+            out.SetUINT64(&MF_MT_FRAME_SIZE, size)?;
+            out.SetUINT64(&MF_MT_FRAME_RATE, rate)?;
+            out.SetUINT64(&MF_MT_PIXEL_ASPECT_RATIO, (1 << 32) | 1)?;
+            let stream = writer.AddStream(&out)?;
+            let input = MFCreateMediaType()?;
+            input.SetGUID(&MF_MT_MAJOR_TYPE, &MFMediaType_Video)?;
+            input.SetGUID(&MF_MT_SUBTYPE, &MFVideoFormat_RGB32)?;
+            input.SetUINT32(&MF_MT_INTERLACE_MODE, MFVideoInterlace_Progressive.0 as u32)?;
+            // A positive stride: rows top to bottom (RGB is bottom-up unless it says so).
+            input.SetUINT32(&MF_MT_DEFAULT_STRIDE, (width * 4) as u32)?;
+            input.SetUINT64(&MF_MT_FRAME_SIZE, size)?;
+            input.SetUINT64(&MF_MT_FRAME_RATE, rate)?;
+            input.SetUINT64(&MF_MT_PIXEL_ASPECT_RATIO, (1 << 32) | 1)?;
+            writer.SetInputMediaType(stream, &input, None)?;
+            debug_assert_eq!(stream, 0);
+            writer.BeginWriting()?;
+            Ok(writer)
+        }
+    }
+
+    /// A sample holding `pixels`, shown from frame slot `n` (its duration is set when the
+    /// next picture's slot is known).
+    unsafe fn sample(pixels: &[u8], n: u64, fps: u32) -> windows::core::Result<IMFSample> {
+        // SAFETY: the buffer is locked for exactly the copy and holds `pixels.len()` bytes.
+        unsafe {
+            let buffer = MFCreateMemoryBuffer(pixels.len() as u32)?;
+            let mut data = std::ptr::null_mut();
+            buffer.Lock(&mut data, None, None)?;
+            std::ptr::copy_nonoverlapping(pixels.as_ptr(), data, pixels.len());
+            buffer.Unlock()?;
+            buffer.SetCurrentLength(pixels.len() as u32)?;
+            let sample = MFCreateSample()?;
+            sample.AddBuffer(&buffer)?;
+            sample.SetSampleTime(slot_time(n, fps))?;
+            Ok(sample)
+        }
+    }
+
+    /// The start of frame slot `n`, in Media Foundation's 100-ns units.
+    fn slot_time(n: u64, fps: u32) -> i64 {
+        (n as i64 * 10_000_000) / i64::from(fps)
+    }
+
+    /// SAFETY: call on the thread that started COM and Media Foundation (`record`).
+    unsafe fn run(
+        path: &Path,
+        fps: u32,
+        stop: &AtomicBool,
+        ready: &std::sync::mpsc::Sender<Result<(u64, String), String>>,
+    ) -> Result<u64, String> {
+        // SAFETY: as the function's own contract; every handle used is created here.
+        unsafe {
+            let grabber = Grabber::new()?;
+            let writer = writer(path, grabber.width, grabber.height, fps)
+                .map_err(|e| format!("the H.264 encoder: {e}"))?;
+            grabber.grab()?;
+            let t0 = std::time::Instant::now();
+            let _ = ready.send(Ok((
+                super::unix_ms(),
+                format!("screen {}x{}", grabber.width, grabber.height),
+            )));
+            // Each picture goes in at the frame slot it was grabbed in, and lasts until the
+            // next one's: when the encoder falls behind (the machine is busy), slots are
+            // skipped rather than queued, so the video loses frame rate, never sync.
+            let period = std::time::Duration::from_secs_f64(1.0 / f64::from(fps));
+            let mut held = (
+                0u64,
+                sample(grabber.pixels(), 0, fps).map_err(|e| e.to_string())?,
+            );
+            let mut written = 0u64;
+            loop {
+                let due = t0 + period.mul_f64((held.0 + 1) as f64);
+                std::thread::sleep(due.saturating_duration_since(std::time::Instant::now()));
+                let stopping = stop.load(Ordering::Relaxed);
+                let slot = ((t0.elapsed().as_secs_f64() * f64::from(fps)) as u64).max(held.0 + 1);
+                if !stopping {
+                    grabber.grab()?;
+                }
+                let (at, pending) = held;
+                pending
+                    .SetSampleDuration(slot_time(slot, fps) - slot_time(at, fps))
+                    .and_then(|()| writer.WriteSample(0, &pending))
+                    .map_err(|e| format!("encoding frame {at}: {e}"))?;
+                written += 1;
+                if stopping {
+                    break;
+                }
+                held = (
+                    slot,
+                    sample(grabber.pixels(), slot, fps).map_err(|e| e.to_string())?,
+                );
+            }
+            writer
+                .Finalize()
+                .map_err(|e| format!("finishing {}: {e}", path.display()))?;
+            Ok(written)
+        }
+    }
+}
+
+/// A minimal QMP client: one command at a time, replies read line by line, asynchronous
+/// events skipped. Enough for `screendump`.
+#[cfg(unix)]
+struct Qmp {
+    stream: std::os::unix::net::UnixStream,
+    reader: std::io::BufReader<std::os::unix::net::UnixStream>,
+}
+
+#[cfg(unix)]
+impl Qmp {
+    fn connect(socket: &Path) -> Result<Self, String> {
+        let stream = std::os::unix::net::UnixStream::connect(socket).map_err(|e| e.to_string())?;
+        let _ = stream.set_read_timeout(Some(std::time::Duration::from_secs(10)));
+        let reader = std::io::BufReader::new(stream.try_clone().map_err(|e| e.to_string())?);
+        let mut qmp = Self { stream, reader };
+        // The greeting, then capabilities negotiation, before any command is accepted.
+        qmp.line()?;
+        qmp.execute(&serde_json::json!({"execute": "qmp_capabilities"}))?;
+        Ok(qmp)
+    }
+
+    fn line(&mut self) -> Result<serde_json::Value, String> {
+        use std::io::BufRead as _;
+        let mut line = String::new();
+        match self.reader.read_line(&mut line) {
+            Ok(0) => Err("QEMU closed its control socket".into()),
+            Ok(_) => serde_json::from_str(&line).map_err(|e| format!("QMP: {e}")),
+            Err(e) => Err(format!("QMP: {e}")),
+        }
+    }
+
+    fn execute(&mut self, command: &serde_json::Value) -> Result<serde_json::Value, String> {
+        use std::io::Write as _;
+        let mut text = command.to_string();
+        text.push('\n');
+        self.stream
+            .write_all(text.as_bytes())
+            .map_err(|e| format!("QMP: {e}"))?;
+        loop {
+            let reply = self.line()?;
+            if let Some(value) = reply.get("return") {
+                return Ok(value.clone());
+            }
+            if let Some(error) = reply.get("error") {
+                return Err(format!("QMP {}: {error}", command["execute"]));
+            }
+        }
+    }
+
+    /// The panel as (width, height, RGB bytes), through a PPM file at `dump`.
+    fn screendump(&mut self, dump: &Path) -> Result<(u32, u32, Vec<u8>), String> {
+        self.execute(&serde_json::json!({
+            "execute": "screendump",
+            "arguments": {"filename": dump.to_string_lossy()},
+        }))?;
+        let bytes = std::fs::read(dump).map_err(|e| format!("{}: {e}", dump.display()))?;
+        parse_ppm(&bytes).ok_or_else(|| format!("{}: not a P6 PPM", dump.display()))
+    }
+}
+
+/// A binary PPM (`P6`, 8-bit) as (width, height, RGB bytes), the format `screendump` writes.
+#[cfg(unix)]
+fn parse_ppm(bytes: &[u8]) -> Option<(u32, u32, Vec<u8>)> {
+    let mut fields = Vec::new();
+    let mut at = 0;
+    // Four whitespace-separated header fields: magic, width, height, maxval.
+    while fields.len() < 4 {
+        while bytes.get(at)?.is_ascii_whitespace() {
+            at += 1;
+        }
+        let start = at;
+        while !bytes.get(at)?.is_ascii_whitespace() {
+            at += 1;
+        }
+        fields.push(std::str::from_utf8(&bytes[start..at]).ok()?);
+    }
+    // Exactly one whitespace byte separates the header from the pixels.
+    at += 1;
+    let (width, height): (u32, u32) = (fields[1].parse().ok()?, fields[2].parse().ok()?);
+    if fields[0] != "P6" || fields[3] != "255" {
+        return None;
+    }
+    let len = width as usize * height as usize * 3;
+    Some((width, height, bytes.get(at..at + len)?.to_vec()))
+}
+
 #[cfg(test)]
 mod tests {
+    #[cfg(unix)]
+    #[test]
+    fn parses_the_ppm_screendump_writes() {
+        let mut ppm = b"P6\n2 1\n255\n".to_vec();
+        ppm.extend_from_slice(&[1, 2, 3, 4, 5, 6]);
+        assert_eq!(super::parse_ppm(&ppm), Some((2, 1, vec![1, 2, 3, 4, 5, 6])));
+        // Short pixel data or another format is refused, not padded.
+        assert_eq!(super::parse_ppm(&ppm[..ppm.len() - 1]), None);
+        assert_eq!(super::parse_ppm(b"P5\n1 1\n255\n\x00"), None);
+    }
+
     use super::*;
 
     #[test]
