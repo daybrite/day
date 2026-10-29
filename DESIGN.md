@@ -3688,6 +3688,12 @@ failure; a stopped flow does not repeatedly dispatch its failed action. The CLI'
 regression test covers stop/continue behavior, and the engine's mock test checks that taps wait
 for enabled state and native settling before dispatching exactly once.
 
+Coverage-enabled runs preserve failed steps and their retry classification for that same launch
+policy. Their reports retain the failure; they cannot satisfy a coverage gate. The CLI evaluates
+the coverage minimum only after all steps pass, using the current attempt's reports without
+combining evidence from earlier attempts. Socket-backed tests cover failed stop/continue flows
+with coverage enabled and a successful flow that still fails its coverage minimum.
+
 A stalled main thread ends a flow whatever its `on_failure`. When the engine's dispatch budget
 (30 s, `DAY_SCRIPT_MAIN_TIMEOUT_SECS`) passes without the app's main thread picking the step up,
 the reply carries `main_thread_stalled` (older apps: the runner also recognizes the error text),

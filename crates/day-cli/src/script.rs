@@ -888,7 +888,13 @@ pub fn run_scripts(
         run.reports = reports.paths();
         run
     });
-    if result.is_ok() {
+    // Failed steps already fail the run. Preserve their retry classification for the launch
+    // policy instead of replacing it with a coverage error before the retry can be considered.
+    // Each successful attempt must still meet the coverage policy using only its own reports.
+    if result
+        .as_ref()
+        .is_ok_and(|run| run.steps_failed == 0 && run.steps_aborted == 0)
+    {
         reports
             .coverage(&project.manifest.dayscript.coverage)
             .map_err(ScriptError::Other)?;
@@ -2272,6 +2278,7 @@ mod gate_tests {
                     serde_json::json!({"schema_version":1,"declarations":declarations})
                 }
                 Some("id_mounted") => serde_json::json!([]),
+                Some("memory_watch" | "memory_watch_stop") => serde_json::Value::Null,
                 _ => return Ok(count),
             };
             writeln!(stream, "{}", serde_json::json!({"ok":true,"data":data}))?;
@@ -2720,6 +2727,7 @@ mod gate_tests {
         assert!(super::main_thread_frames("no graph here").is_empty());
     }
 
+    /// Coverage-enabled flows preserve the step failures that the launch retry policy consumes.
     #[test]
     fn a_failed_prerequisite_stops_only_the_opted_in_flow() {
         use std::io::Write;
@@ -2731,7 +2739,10 @@ mod gate_tests {
             std::fs::write(&script, format!("on_failure: {policy}\nflow:\n- wait_for: {{ id: missing }}\n- tap: {{ id: must_not_run }}\n- screenshot: stale\n")).unwrap();
             let project = crate::meta::Project {
                 root: root.clone(),
-                manifest: toml::from_str("schema = 1\n[app]\nid = 'test.fixture'").unwrap(),
+                manifest: toml::from_str(
+                    "schema = 1\n[app]\nid = 'test.fixture'\n[dayscript.coverage]\nminimum = 100",
+                )
+                .unwrap(),
             };
             let stale = super::shot_dir(
                 &project,
@@ -2806,6 +2817,17 @@ mod gate_tests {
                 assert_eq!(run.steps_failed, 3);
                 assert_eq!(run.steps_aborted, 0);
             }
+            let reports: Vec<serde_json::Value> = run
+                .reports
+                .iter()
+                .map(|path| serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap())
+                .collect();
+            assert_eq!(reports.len(), 1);
+            assert_eq!(reports[0]["status"], "failed");
+            assert!(
+                crate::id_coverage::summarize(&reports, &project.manifest.dayscript.coverage)
+                    .is_err()
+            );
             std::fs::remove_dir_all(root).unwrap();
         }
         let root = std::path::Path::new("/fixture");
@@ -2814,6 +2836,63 @@ mod gate_tests {
             super::parse_flow_text("flow: []", root).unwrap().on_failure,
             day_script_protocol::FailurePolicy::Continue,
         );
+    }
+
+    #[test]
+    fn successful_flows_still_have_to_meet_the_coverage_minimum() {
+        use std::io::Write;
+        let root =
+            std::env::temp_dir().join(format!("day-success-coverage-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let script = root.join("flow.yaml");
+        std::fs::write(&script, "flow:\n- wait_idle: {}\n").unwrap();
+        let project = crate::meta::Project {
+            root: root.clone(),
+            manifest: toml::from_str(
+                "schema = 1\n[app]\nid = 'test.fixture'\n[dayscript.coverage]\nminimum = 100",
+            )
+            .unwrap(),
+        };
+        let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            stream
+                .set_read_timeout(Some(std::time::Duration::from_secs(5)))
+                .unwrap();
+            let mut reader = std::io::BufReader::new(stream.try_clone().unwrap());
+            let mut line = String::new();
+            assert!(fixture_line(&mut reader, &mut stream, &mut line).unwrap() > 0);
+            assert_eq!(
+                serde_json::from_str::<serde_json::Value>(&line).unwrap()["step"]["op"],
+                "wait_idle"
+            );
+            writeln!(stream, "{{\"ok\":true}}").unwrap();
+            match fixture_line(&mut reader, &mut stream, &mut line) {
+                Ok(0) => {}
+                Err(e) if e.kind() == std::io::ErrorKind::ConnectionReset && line.is_empty() => {}
+                other => panic!("unexpected fixture request: {other:?}: {line}"),
+            }
+        });
+        let result = super::run_scripts(
+            &project,
+            crate::targets::find("macos-appkit").unwrap(),
+            port,
+            "fixture-token",
+            &[script],
+            None,
+            None,
+            None,
+            true,
+            false,
+            super::Tempo::Normal,
+            false,
+            false,
+        );
+        server.join().unwrap();
+        assert!(matches!(result, Err(super::ScriptError::Other(ref why))
+            if why == "element ID coverage is below the required minimum"));
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
