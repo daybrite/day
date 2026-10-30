@@ -982,6 +982,9 @@ struct ExState {
     closing: bool,
     first_byte: Option<Duration>,
     received: u64,
+    /// The body length the head declared. WinHTTP ends a body cut short by a closed connection
+    /// like a complete one, with a read of zero bytes, so `read` holds that read to this length.
+    expected: Option<u64>,
 }
 
 /// One HTTP exchange: its handles, its upload, and the reads its demand allows.
@@ -991,6 +994,8 @@ struct Exchange {
     connection: HINTERNET,
     request: HINTERNET,
     url: String,
+    /// A HEAD request, whose `Content-Length` describes a body that never follows.
+    head_only: bool,
     started: Instant,
     /// Filled by the one read in flight; `ExState::reading` keeps everything else away from it.
     buffer: UnsafeCell<Box<[u8]>>,
@@ -1065,6 +1070,7 @@ impl Exchange {
             connection: opened.connection,
             request: opened.request,
             url: prepared.url,
+            head_only: prepared.method.eq_ignore_ascii_case("HEAD"),
             started: Instant::now(),
             buffer: UnsafeCell::new(vec![0u8; PIECE].into_boxed_slice()),
             state: Mutex::new(ExState {
@@ -1075,6 +1081,7 @@ impl Exchange {
                 closing: false,
                 first_byte: None,
                 received: 0,
+                expected: None,
             }),
             upload: Mutex::new(Upload {
                 source,
@@ -1189,6 +1196,8 @@ impl Exchange {
             let mut st = lock(&self.state);
             st.head = true;
             st.first_byte = Some(self.started.elapsed());
+            let bodiless = self.head_only || matches!(status, 100..=199 | 204 | 304);
+            st.expected = expected_length.filter(|_| !bodiless);
         }
         self.emit(Event::Head(Head {
             status,
@@ -1225,7 +1234,19 @@ impl Exchange {
 
     fn read(&self, n: usize) {
         if n == 0 {
-            lock(&self.state).reading = false;
+            let short = {
+                let mut st = lock(&self.state);
+                st.reading = false;
+                let received = st.received;
+                st.expected
+                    .filter(|&want| received < want)
+                    .map(|want| (received, want))
+            };
+            if let Some((received, want)) = short {
+                return self.fail(HttpError::Io(format!(
+                    "the connection closed after {received} of {want} body bytes"
+                )));
+            }
             return self.finish();
         }
         // SAFETY: the read that just completed wrote `n` bytes, and `reading` is still set.

@@ -119,6 +119,42 @@ fn http_error_status_is_ok_not_err() {
     assert_eq!(resp.body, b"nope");
 }
 
+/// Answer each connection with the next of `responses` verbatim, then close; returns the bound port.
+fn serve_raw(responses: Vec<&'static [u8]>) -> u16 {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+    let port = listener.local_addr().unwrap().port();
+    std::thread::spawn(move || {
+        for response in responses {
+            let Ok((mut stream, _)) = listener.accept() else {
+                return;
+            };
+            read_request(&mut stream);
+            let _ = stream.write_all(response);
+        }
+    });
+    port
+}
+
+#[test]
+fn body_short_of_its_content_length_is_an_error() {
+    // WinHTTP ends a body cut off by a closed connection like a complete one, so its transport
+    // holds the body to the declared length; the platform stacks report it themselves. A HEAD's
+    // length describes a body that never follows and must not trip the same check.
+    let port = serve_raw(vec![
+        b"HTTP/1.1 200 OK\r\nContent-Length: 64\r\nConnection: close\r\n\r\npartial",
+        b"HTTP/1.1 200 OK\r\nContent-Length: 64\r\nConnection: close\r\n\r\n",
+    ]);
+    let url = format!("http://127.0.0.1:{port}/");
+    let short = fetch(&Request::get(&url));
+    assert!(
+        short.is_err(),
+        "a truncated body must not succeed: {short:?}"
+    );
+    let head = fetch(&Request::head(&url)).expect("head");
+    assert_eq!(head.status, 200);
+    assert!(head.body.is_empty());
+}
+
 #[test]
 fn timeout_is_reported() {
     // A listener that accepts but never responds.
