@@ -115,12 +115,12 @@ function richInstall(text: string): (string | { code: string })[] {
 ---
 <BaseLayout title="Day Showcase" description="Try Day’s native controls on your phone, tablet, or desktop. Install Day Showcase, compare it across platforms, and explore the Rust source." active="showcase">
   <section class="section dl-hero">
-    {/* The heading, the reel across the whole container, then the prose: six screens at once are
-        too small to read in the half column the landing page gives its carousel, and the prose
-        under the reel lets more of it show when the page opens. */}
+    {/* A short centered heading, the reel across the whole container, then the prose: six
+        screens at once are too small to read in the half column the landing page gives its
+        carousel, and with the prose under it the whole reel fits in a 1440x800 window. */}
     <div class="container">
       <h1 class="dl-title">Day <span class="accent-text">Showcase</span></h1>
-      <div class="dl-reel"><HeroVideo /></div>
+      <HeroVideo />
       <p class="lead">
         Day Showcase is a real app that shows what Day can do, from basic controls and navigation
         to embedded media, web views, Lottie animations, and device features such as sensors,
@@ -292,13 +292,11 @@ function richInstall(text: string): (string | { code: string })[] {
 </BaseLayout>
 
 <style>
-  .dl-hero { padding-bottom: 8px; }
-  .dl-title { font-size: clamp(1.9rem, 4vw, 2.8rem); margin: 0 0 16px; }
+  .dl-hero { padding-top: 28px; padding-bottom: 8px; }
+  .dl-title { font-size: clamp(1.9rem, 4vw, 2.8rem); line-height: 1.15; margin: 0 0 20px; text-align: center; }
   /* The intro spans the container, as the reel above it does; at the usual 62ch it looked like a
      narrow column under a wide picture. */
   .dl-hero .lead { max-width: none; margin-top: 28px; }
-  .dl-reel { margin-top: 24px; }
-  .dl-title a { color: inherit; text-decoration: underline; text-decoration-color: var(--brand); }
   .dl-note { color: var(--faint); font-size: 0.92rem; }
   /* One badge height for the page, so an App Store plate, a Play plate and the web badge are the
      same size in every card head. 44px clears the 40px floor both stores' brand guidelines set
