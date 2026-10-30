@@ -8,10 +8,9 @@ import manifest from '../data/downloads.json';
 import gallery from '../data/gallery-manifest.json';
 import PlatformIcon from '../components/PlatformIcon.astro';
 import CopyCommand from '../components/CopyCommand.astro';
-// The same component the landing page's hero uses, markup, styles and controller included. It is
-// imported rather than reproduced: the shot pool, the shuffle, the theme swap and the gallery
-// deep-links all live in that one file (components/HeroCarousel.astro).
-import HeroCarousel from '../components/HeroCarousel.astro';
+// The Showcase reel, under the intro: this page is about the app itself, and the reel shows it in
+// motion on every platform at once.
+import HeroVideo from '../components/HeroVideo.astro';
 
 // The showcase's own gallery page, when this build could read its index — the hub otherwise, so
 // one app's site being unreachable costs a deep link rather than failing the whole build's
@@ -116,26 +115,24 @@ function richInstall(text: string): (string | { code: string })[] {
 ---
 <BaseLayout title="Day Showcase" description="Try Day’s native controls on your phone, tablet, or desktop. Install Day Showcase, compare it across platforms, and explore the Rust source." active="showcase">
   <section class="section dl-hero">
-    {/* Prose and carousel side by side, on the shared `.hero-grid` from styles/global.css — the
-        landing page's hero is the same pairing, and both get the layout from that one rule. */}
-    <div class="container hero-grid">
-      <div>
-        <p class="eyebrow">Day Showcase</p>
-        <h1 class="dl-title">Get your hands <span class="accent-text">on Day.</span></h1>
-        <p class="lead">
-          Play with the controls. Draw something. Change the language. Day Showcase lets you
-          feel how one app takes shape on different devices, using their own native controls.
-          Install it on your device, then open the source and see how it works.
-          The <a href={galleryHref}>gallery</a> puts the screens side by side.
+    {/* The heading, the reel across the whole container, then the prose: six screens at once are
+        too small to read in the half column the landing page gives its carousel, and the prose
+        under the reel lets more of it show when the page opens. */}
+    <div class="container">
+      <h1 class="dl-title">Day <span class="accent-text">Showcase</span></h1>
+      <div class="dl-reel"><HeroVideo /></div>
+      <p class="lead">
+        Day Showcase is a real app that shows what Day can do, from basic controls and navigation
+        to embedded media, web views, Lottie animations, and device features such as sensors,
+        biometrics, and cameras. It runs on every platform from a single Rust codebase.
+        Browse the <a href={galleryHref}>gallery</a> to see how each screen looks on each platform.
+      </p>
+      {!release && (
+        <p class="dl-note">
+          Preview build: the packages come from the latest release, which this build could not
+          reach. It shows the layout with placeholders.
         </p>
-        {!release && (
-          <p class="dl-note">
-            Preview build: the packages come from the latest release, which this build could not
-            reach. It shows the layout with placeholders.
-          </p>
-        )}
-      </div>
-      <div class="hero-media"><HeroCarousel /></div>
+      )}
     </div>
   </section>
 
@@ -297,6 +294,10 @@ function richInstall(text: string): (string | { code: string })[] {
 <style>
   .dl-hero { padding-bottom: 8px; }
   .dl-title { font-size: clamp(1.9rem, 4vw, 2.8rem); margin: 0 0 16px; }
+  /* The intro spans the container, as the reel above it does; at the usual 62ch it looked like a
+     narrow column under a wide picture. */
+  .dl-hero .lead { max-width: none; margin-top: 28px; }
+  .dl-reel { margin-top: 24px; }
   .dl-title a { color: inherit; text-decoration: underline; text-decoration-color: var(--brand); }
   .dl-note { color: var(--faint); font-size: 0.92rem; }
   /* One badge height for the page, so an App Store plate, a Play plate and the web badge are the

@@ -105,4 +105,9 @@ export const site = {
    *  no unsigned-app workaround, so the showcase page leads with them. */
   showcaseAppStore: 'https://apps.apple.com/app/id6802801331',
   showcasePlayStore: 'https://play.google.com/store/apps/details?id=dev.daybrite.showcase',
+  /** The Showcase reel's folder on the media domain (an R2 bucket, filled by day-launch-video's
+   *  `walkthrough/tools/publish.sh`): `master.m3u8`, `showreel-1080p.mp4` and `poster.jpg`. Each
+   *  render is published under a new folder and its files are cached for a year, so a new reel
+   *  means a new folder here, never new files in this one. */
+  showreel: 'https://media.daybrite.cloud/reels/candidate-07-full-4k/',
 };

@@ -208,9 +208,8 @@ code, pre { font-family: var(--mono); }
 .lead { color: var(--muted); font-size: 1.12rem; max-width: 62ch; }
 
 /* The two-column hero: prose on one side, a figure on the other, collapsing to one column on a
-   narrow screen. Here rather than in a page's scoped <style> because the landing page and the
-   showcase page both lay their intro out this way around the same <HeroCarousel>; a second copy
-   of these four rules is how the two drift apart. `.hero-media` caps the figure's width once
+   narrow screen. Here rather than in a page's scoped <style> because the landing page's intro and
+   the `.split` sections share it; a second copy of these four rules is how the two drift apart. `.hero-media` caps the figure's width once
    stacked, so a carousel does not run the full bleed of a phone screen. */
 .hero-grid, .split {
   position: relative;
@@ -224,7 +223,7 @@ code, pre { font-family: var(--mono); }
    the figure is pushed down by the height of the eyebrow, so its top edge lands level with the top
    of the <h1> rather than with the small label above it. Centering made the two columns' heights
    decide where the picture sat, which put it against the eyebrow on a short hero and below the
-   heading on a tall one. Both pages that use `.hero-grid` open with an eyebrow; the other `.split`
+   heading on a tall one. The landing page's `.hero-grid` opens with an eyebrow; the `.split`
    sections keep their centering, which is what suits a paragraph beside a figure. */
 .hero-grid { align-items: start; }
 .hero-grid .hero-media { margin-top: var(--eyebrow-block); }

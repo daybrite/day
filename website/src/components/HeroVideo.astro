@@ -1,0 +1,48 @@
+---
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+// The Showcase reel: one walkthrough recorded on six platforms at once, streamed from the media
+// domain (`site.showreel`). The HLS source comes first, for the browsers that play it natively
+// (Safari, iOS, current Chrome) and pick a resolution to suit the connection; the others take the
+// 1080p MP4. No player script. It starts on its own, muted and looping, unless the visitor asks
+// for reduced motion or reduced data, in which case the poster waits for the play button.
+import { site } from '../lib/site';
+---
+<figure class="hero-video">
+  <video
+    data-hero-video
+    controls
+    muted
+    loop
+    playsinline
+    preload="metadata"
+    width="1920"
+    height="1080"
+    poster={`${site.showreel}poster.jpg`}
+    aria-label="Day Showcase running on iPhone, Android, HarmonyOS, macOS, Linux, and Windows"
+  >
+    <source src={`${site.showreel}master.m3u8`} type="application/vnd.apple.mpegurl" />
+    <source src={`${site.showreel}showreel-1080p.mp4`} type="video/mp4" />
+  </video>
+</figure>
+
+<script>
+  const video = document.querySelector<HTMLVideoElement>('[data-hero-video]');
+  const still = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const saveData = (navigator as Navigator & { connection?: { saveData?: boolean } }).connection?.saveData === true;
+  // A browser that blocks autoplay anyway rejects the promise and keeps the poster.
+  if (video && !still && !saveData) video.play().catch(() => {});
+</script>
+
+<style>
+  .hero-video { margin: 0; }
+  video {
+    display: block;
+    width: 100%;
+    height: auto;
+    aspect-ratio: 16 / 9;
+    border-radius: var(--radius-lg);
+    background: #000;
+    box-shadow: 0 26px 60px -24px rgba(0, 0, 0, 0.55);
+  }
+</style>
