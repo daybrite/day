@@ -11426,7 +11426,10 @@ mod imp {
                     let vc = DayCoverVC::new(mtm, id, sheet, half);
                     unsafe {
                         vc.setView(Some(&outer));
-                        vc.setModalPresentationStyle(if half {
+                        // A large sheet is the page sheet at its full detent: the wider
+                        // panel iPadOS gives a document (docs/cover.md "Large sheet").
+                        let large = cover_props.is_some_and(|p| p.large);
+                        vc.setModalPresentationStyle(if half || large {
                             UIModalPresentationStyle::PageSheet
                         } else if sheet {
                             UIModalPresentationStyle::FormSheet

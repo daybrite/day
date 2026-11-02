@@ -326,6 +326,8 @@ unsafe extern "C" {
     /// Raise a presented cover over its siblings; `opaque` fills it with the window color
     /// (a composed sheet's cover is clear, docs/cover.md "Modal sheet").
     pub fn day_qt_cover_top(w: *mut c_void, opaque: c_int);
+    /// Report Escape over a presented sheet cover to `cb` (docs/cover.md "Modal sheet").
+    pub fn day_qt_cover_escape(w: *mut c_void, node: u64, cb: extern "C" fn(u64));
     pub fn day_qt_remove_child(child: *mut c_void);
     pub fn day_qt_delete(w: *mut c_void);
     pub fn day_qt_set_geometry(w: *mut c_void, x: c_int, y: c_int, width: c_int, height: c_int);

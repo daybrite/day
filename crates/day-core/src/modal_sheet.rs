@@ -16,6 +16,8 @@ const SHEET_RADIUS: f64 = 12.0;
 /// itself is clear and takes every click, so the page shows through but stays out of reach.
 pub struct ComposedSheet {
     pub content: AnyPiece,
+    /// The large card (docs/cover.md "Large sheet"), for a document or web page.
+    pub large: bool,
 }
 
 impl Piece for ComposedSheet {
@@ -28,7 +30,7 @@ impl Piece for ComposedSheet {
         let node = cx.native(
             kinds::CONTAINER,
             &day_spec::props::ContainerProps::default(),
-            Rc::new(SheetLayout),
+            Rc::new(SheetLayout { large: self.large }),
             fill,
             Boundary::Yes,
         );
@@ -65,16 +67,26 @@ impl Piece for ComposedSheet {
 }
 
 /// A composed sheet card's size in a cover `area` large: the native AppKit sheet's proportions
-/// (the window less a margin, at most 640 by 620), never larger than the area itself.
-fn sheet_card_size(area: Size) -> Size {
+/// (the window less a margin, at most [`day_spec::props::SHEET_MAX`], or [`day_spec::props::LARGE_SHEET_MAX`]
+/// for a large sheet), never larger than the area itself.
+fn sheet_card_size(area: Size, large: bool) -> Size {
+    let max = if large {
+        day_spec::props::LARGE_SHEET_MAX
+    } else {
+        day_spec::props::SHEET_MAX
+    };
     Size::new(
-        (area.width - 40.0).clamp(320.0, 640.0).min(area.width),
-        (area.height - 80.0).clamp(300.0, 620.0).min(area.height),
+        (area.width - 40.0).clamp(320.0, max.width).min(area.width),
+        (area.height - 80.0)
+            .clamp(300.0, max.height)
+            .min(area.height),
     )
 }
 
 /// [`ComposedSheet`]'s layout: the dimmed fill over the whole cover, the card centered on it.
-struct SheetLayout;
+struct SheetLayout {
+    large: bool,
+}
 
 impl Layout for SheetLayout {
     fn measure(&self, _cx: &mut dyn LayoutOps, _children: &[RNode], p: Proposal) -> Size {
@@ -86,7 +98,7 @@ impl Layout for SheetLayout {
             cx.place_child(scrim, Rect::from_size(area));
         }
         if let Some(&card) = children.get(1) {
-            let size = sheet_card_size(area);
+            let size = sheet_card_size(area, self.large);
             cx.place_child(
                 card,
                 Rect::new(
@@ -111,5 +123,20 @@ impl Layout for FillLayout {
         for &child in children {
             cx.place_child(child, Rect::from_size(bounds.size));
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn large_card_grows_within_the_window() {
+        let area = Size::new(1280.0, 800.0);
+        assert_eq!(sheet_card_size(area, false), Size::new(640.0, 620.0));
+        assert_eq!(sheet_card_size(area, true), Size::new(1040.0, 720.0));
+        // A small window leaves both at the window less its margin.
+        let small = Size::new(500.0, 400.0);
+        assert_eq!(sheet_card_size(small, true), sheet_card_size(small, false));
     }
 }

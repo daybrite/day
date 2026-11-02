@@ -237,6 +237,9 @@ day_core::tls_group! {
     /// Covers presented as half sheets (`CoverProps::half`, docs/cover.md): the bottom half
     /// of the content area.
     static COVER_HALF: SideTable<()> = SideTable::new();
+    /// Covers built as modal sheets (`CoverProps::sheet` or `large`, not `half`): Escape closes
+    /// the topmost one (docs/cover.md "Modal sheet").
+    static COVER_SHEET: SideTable<()> = SideTable::new();
 
     /// Whether ANY Day window was active at the last activation check — the app-level
     /// lifecycle debounce (docs/windows.md): focus moving BETWEEN Day windows must not
@@ -1078,6 +1081,39 @@ pub fn emit(id: NodeId, ev: Event) {
 
 /// The day name for a keyval, or `None` for every key the route does not carry
 /// (docs/menus.md).
+/// Escape closes the topmost presented sheet cover, as it cancels a sheet on a desktop
+/// (docs/cover.md "Modal sheet"): the cover hears it as its back request. In the capture
+/// phase, so a web view or field focused inside the sheet never keeps it.
+fn sheet_escape() -> gtk4::EventControllerKey {
+    let keys = gtk4::EventControllerKey::new();
+    keys.set_propagation_phase(gtk4::PropagationPhase::Capture);
+    keys.connect_key_pressed(|_, key, _, _| {
+        ffi_guard::contain(gtk4::glib::Propagation::Proceed, || {
+            if key != gtk4::gdk::Key::Escape {
+                return gtk4::glib::Propagation::Proceed;
+            }
+            let top = COVERS.with(|c| {
+                c.borrow()
+                    .last()
+                    .map(|(w, node)| (widget_key(&w.clone().upcast()), *node))
+            });
+            match top {
+                Some((key, node)) if COVER_SHEET.with(|t| t.get(key).is_some()) => {
+                    emit(
+                        node,
+                        Event::NavBack {
+                            already_popped: false,
+                        },
+                    );
+                    gtk4::glib::Propagation::Stop
+                }
+                _ => gtk4::glib::Propagation::Proceed,
+            }
+        })
+    });
+    keys
+}
+
 fn key_name(key: gtk4::gdk::Key, state: gtk4::gdk::ModifierType) -> Option<&'static str> {
     use gtk4::gdk::{Key, ModifierType as M};
     match key {
@@ -5808,8 +5844,12 @@ impl Toolkit for Gtk {
                 let cover = gtk4::Fixed::new();
                 cover.set_visible(false);
                 COVER_IDS.with(|t| t.insert(widget_key(&cover.clone().upcast()), id));
-                if props_of::<CoverProps>(kind, "gtk", props).is_some_and(|p| p.half) {
+                let p = props_of::<CoverProps>(kind, "gtk", props);
+                if p.is_some_and(|p| p.half) {
                     COVER_HALF.with(|t| t.insert(widget_key(&cover.clone().upcast()), ()));
+                }
+                if p.is_some_and(|p| (p.sheet || p.large) && !p.half) {
+                    COVER_SHEET.with(|t| t.insert(widget_key(&cover.clone().upcast()), ()));
                 }
                 cover.upcast()
             }
@@ -10272,6 +10312,7 @@ impl Platform for Gtk {
                 }
                 check_bundled_fonts(&window);
                 apply_app_icon(&window);
+                window.add_controller(sheet_escape());
                 backend.window_fixed = Some(fixed.clone());
                 backend.app = Some(app.clone());
                 // Closing the PRIMARY window quits the app, taking secondary windows with it

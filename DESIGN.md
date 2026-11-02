@@ -8497,7 +8497,10 @@ references on dismissal or handle release. UIKit uses FormSheet for modal sheets
 window wider than compact, a clear cover holding a dimmed fill and a card in the window's own
 color (`SurfaceRole::Window`), centered at AppKit's sheet proportions; on a compact window, the
 full-window cover as before. The fill is `SurfaceRole::Scrim`, which Web draws as a light
-frost; there the sheet's toolbar strip is the card's header and Escape closes it ([docs/cover.md](docs/cover.md)).
+frost; there the sheet's toolbar strip is the card's header ([docs/cover.md](docs/cover.md)).
+Escape closes a modal sheet on every desktop toolkit, as the cover's back request (2026-10-31).
+`.large_sheet()` is the same sheet grown for a document or web page: up to
+`props::LARGE_SHEET_MAX` (1040 by 880) on AppKit and the composed card, PageSheet on UIKit.
 This hint does not change Cap::Cover.
 AppKit scripted snapshots capture the active attached sheet, including the offscreen fallback.
 Dialogs opened from a sheet attach to that modal surface, and dismissal uses the actual sheet parent.

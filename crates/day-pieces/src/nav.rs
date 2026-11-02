@@ -5726,6 +5726,7 @@ type CoverBackground<R> = Rc<dyn Fn(&R) -> day_spec::Color>;
 pub struct Cover<S, R: Route> {
     sheet: bool,
     half: bool,
+    large: bool,
     open: S,
     build: Rc<dyn Fn(&R) -> AnyPiece>,
     background: Option<CoverBackground<R>>,
@@ -5743,6 +5744,7 @@ pub fn cover<R: Route, S: Binding<Option<R>>, P: Piece>(
     Cover {
         sheet: false,
         half: false,
+        large: false,
         open,
         // The stored builder is erased because a `Cover` holds one closure for every route it
         // presents; the parameter stays generic so callers never write `.any()` for us.
@@ -5758,6 +5760,17 @@ impl<S: Binding<Option<R>>, R: Route> Cover<S, R> {
     /// Prefer a native modal sheet. Backends without sheets retain their modal cover.
     pub fn sheet(mut self) -> Self {
         self.sheet = true;
+        self
+    }
+
+    /// Present as a large modal sheet: most of the window, less a margin, for a document or a
+    /// web page that needs the room a form does not (docs/cover.md "Large sheet"). macOS sizes
+    /// its window sheet and the composed desktop tiers their card up to
+    /// [`LARGE_SHEET_MAX`](day_spec::props::LARGE_SHEET_MAX); iPadOS presents a page sheet;
+    /// compact windows keep the full-window cover, as for any sheet. Implies [`Cover::sheet`].
+    pub fn large_sheet(mut self) -> Self {
+        self.sheet = true;
+        self.large = true;
         self
     }
 
@@ -5811,6 +5824,7 @@ impl<S: Binding<Option<R>>, R: Route> Piece for Cover<S, R> {
         let Cover {
             sheet,
             half,
+            large,
             open,
             build,
             background,
@@ -5828,7 +5842,7 @@ impl<S: Binding<Option<R>>, R: Route> Piece for Cover<S, R> {
         let size: Rc<RefCell<Option<Size>>> = Rc::default();
         let node = cx.native(
             kinds::COVER,
-            &CoverProps { sheet, half },
+            &CoverProps { sheet, half, large },
             Rc::new(day_core::CoverLayout { size: size.clone() }),
             Flex::default(),
             Boundary::Yes,
@@ -5904,7 +5918,7 @@ impl<S: Binding<Option<R>>, R: Route> Piece for Cover<S, R> {
                         let content = (build)(r);
                         let mut c = BuildCx::new(node);
                         if card {
-                            let _ = day_core::ComposedSheet { content }.build(&mut c);
+                            let _ = day_core::ComposedSheet { content, large }.build(&mut c);
                         } else {
                             let _ = content.build(&mut c);
                         }

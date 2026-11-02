@@ -2760,6 +2760,22 @@ static bool list_embedded_control(WF::IInspectable const& source, WUX::Dependenc
     return false;
 }
 
+// Escape closes a sheet cover (docs/cover.md "Modal sheet"): a keyboard accelerator on the
+// cover, which XAML invokes only while the cover is in the tree and visible, whatever inside it
+// holds focus. Stacked sheets each hold one; the callback picks the topmost cover.
+void day_xaml_cover_escape(void* w, uint64_t node, void (*cb)(uint64_t)) {
+    auto& e = elem(w);
+    WUXIn::KeyboardAccelerator acc;
+    acc.Key(WS::VirtualKey::Escape);
+    acc.Invoked([node, cb](WUXIn::KeyboardAccelerator const&,
+                           WUXIn::KeyboardAcceleratorInvokedEventArgs const& args) {
+        cb(node);
+        args.Handled(true);
+    });
+    e.KeyboardAccelerators().Append(acc);
+    e.KeyboardAcceleratorPlacementMode(WUXIn::KeyboardAcceleratorPlacementMode::Hidden);
+}
+
 void day_xaml_list_keynav(void* sv, uint64_t node, int (*cb)(uint64_t, int)) {
     auto scroll = elem(sv).try_as<WUXC::ScrollViewer>();
     if (!scroll) return;

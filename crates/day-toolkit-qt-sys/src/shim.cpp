@@ -11,6 +11,7 @@
 #include "shim-resize.h"
 #include <QFileOpenEvent>
 #include <QWindow>
+#include <QShortcut>
 #include <QElapsedTimer>
 #include <QStyleHints>
 #include <QBuffer>
@@ -1446,6 +1447,16 @@ void day_qt_cover_top(void *w, int opaque) {
     QWidget *c = static_cast<QWidget *>(w);
     c->setAutoFillBackground(opaque != 0);
     c->raise();
+}
+
+// Escape closes a sheet cover (docs/cover.md "Modal sheet"). A window shortcut on the cover:
+// Qt keeps it live only while the cover shows, ahead of the focused widget's own keys. Stacked
+// sheets make it ambiguous; the callback picks the topmost either way.
+void day_qt_cover_escape(void *w, uint64_t node, void (*cb)(uint64_t)) {
+    QShortcut *s = new QShortcut(QKeySequence(Qt::Key_Escape), static_cast<QWidget *>(w));
+    s->setContext(Qt::WindowShortcut);
+    QObject::connect(s, &QShortcut::activated, [node, cb]() { cb(node); });
+    QObject::connect(s, &QShortcut::activatedAmbiguously, [node, cb]() { cb(node); });
 }
 
 void day_qt_add_child(void *parent, void *child) {

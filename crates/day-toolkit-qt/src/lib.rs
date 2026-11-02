@@ -1105,6 +1105,22 @@ extern "C" fn on_key(id: u64, code: c_int, modifiers: c_int) -> c_int {
     })
 }
 
+/// Escape over a presented sheet cover (docs/cover.md "Modal sheet"): the topmost cover hears
+/// it as its back request, whichever sheet's shortcut fired.
+extern "C" fn on_cover_escape(id: u64) {
+    ffi_guard::contain((), || {
+        let node = COVERS
+            .with(|c| c.borrow().last().map(|(_, node)| *node))
+            .unwrap_or(NodeId(id));
+        emit(
+            node,
+            Event::NavBack {
+                already_popped: false,
+            },
+        );
+    });
+}
+
 extern "C" fn on_focus(id: u64, kind: c_int) {
     ffi_guard::contain((), || {
         let ev = match kind {
@@ -2664,8 +2680,12 @@ impl Toolkit for Qt {
                     let cover = QtHandle(ffi::day_qt_container_new());
                     ffi::day_qt_set_visible(cover.0, 0);
                     COVER_IDS.with(|m| m.borrow_mut().insert(cover.0 as usize, id));
-                    if props_of::<CoverProps>(kind, "qt", props).is_some_and(|p| p.half) {
+                    let p = props_of::<CoverProps>(kind, "qt", props);
+                    if p.is_some_and(|p| p.half) {
                         COVER_HALF.with(|s| s.borrow_mut().insert(cover.0 as usize));
+                    }
+                    if p.is_some_and(|p| (p.sheet || p.large) && !p.half) {
+                        ffi::day_qt_cover_escape(cover.0, id.0, on_cover_escape);
                     }
                     cover
                 }

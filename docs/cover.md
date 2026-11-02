@@ -189,7 +189,7 @@ fixed when the piece is built; omit [`.sheet()`](https://docs.rs/day-pieces/late
 
 | Toolkit | Presentation |
 |---|---|
-| appkit | a native sheet attached to the primary window, the window less a margin, at most 640 by 620 |
+| appkit | a native sheet attached to the primary window, the window less a margin, at most 640 by 620 ([`SHEET_MAX`](https://docs.rs/day-spec/latest/day_spec/props/constant.SHEET_MAX.html)) |
 | uikit | `FormSheet` (a narrow modal panel on iPad, adapting to compact windows); its pull-down arrives as the cover's back request, so the bound signal follows what the user did |
 | Android, ArkUI, GTK, Qt, WinUI, Web | composed (`Cap::CoverSheet` = `Unsupported`): on a window wider than compact, the cover turns clear and holds a dimmed fill (`SurfaceRole::Scrim`) with a rounded card in the window's own color (`SurfaceRole::Window`), centered at AppKit's proportions; on a compact window, the full-window cover |
 
@@ -197,7 +197,11 @@ On Web the fill frosts the page rather than dimming it: a light blur and tint th
 page recognizable but plainly out of reach. A sheet with toolbar items (a Done button) carries
 its strip as the card's own header, with the title and, inside a stack, the back button, so
 every control that acts on the sheet sits on the sheet. Escape closes the topmost sheet, and
-also a full-window cover that has a toolbar strip; both hear it as the back request.
+on Web also a full-window cover that has a toolbar strip; both hear it as the back request.
+It does on every desktop, whatever inside the sheet holds focus, a web view included: macOS
+watches the sheet window's keys with a local event monitor, GTK with a capture-phase key
+controller on the window, Qt with a window shortcut on the cover, WinUI with a keyboard
+accelerator on it. A sheet with an alert or another sheet over it keeps its Escape for that.
 
 The composed card decides compact or wide when the sheet opens, and keeps its place in the
 window's center as the window resizes. Its controls are the content's own: give it a way out
@@ -207,6 +211,18 @@ Conformance: `cover-sheet-composes-a-card-on-wide` measures the card's content a
 on every toolkit that composes the sheet, and the mock.
 
 The composed wide-window sheet has not been verified on WinUI, Android tablets, or HarmonyOS.
+
+## Large sheet
+
+[`cover`](https://docs.rs/day-pieces/latest/day_pieces/fn.cover.html)`(open, build)`[`.large_sheet`](https://docs.rs/day-pieces/latest/day_pieces/trait.CoverBuilder.html#tymethod.large_sheet)`()` is the modal sheet with more room: a document, a
+web page, a preview that a form-sized panel would crowd. It implies [`.sheet()`](https://docs.rs/day-pieces/latest/day_pieces/trait.CoverBuilder.html#tymethod.sheet) and
+keeps everything above, Escape included; only the size changes.
+
+| Toolkit | Presentation |
+|---|---|
+| appkit | the window sheet, the window less a margin, at most 1040 by 880 ([`LARGE_SHEET_MAX`](https://docs.rs/day-spec/latest/day_spec/props/constant.LARGE_SHEET_MAX.html)) |
+| uikit | `PageSheet`, the wider panel iPadOS gives a document; a full-screen sheet on a phone |
+| Android, ArkUI, GTK, Qt, WinUI, Web | the composed card at the same size as on macOS; on a compact window, the full-window cover |
 
 ## Half sheet
 

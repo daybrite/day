@@ -1076,7 +1076,10 @@ fn open_as_cover(
         let mut cx = BuildCx::new(primary);
         cx.native(
             kinds::COVER,
-            &CoverProps { sheet, half: false },
+            &CoverProps {
+                sheet,
+                ..Default::default()
+            },
             Rc::new(crate::CoverLayout { size: size.clone() }),
             crate::Flex::default(),
             Boundary::Yes,
@@ -1135,7 +1138,11 @@ fn open_as_cover(
             let piece = build();
             let mut cx = BuildCx::new(cover);
             if composed_sheet {
-                let _ = crate::ComposedSheet { content: piece }.build(&mut cx);
+                let _ = crate::ComposedSheet {
+                    content: piece,
+                    large: false,
+                }
+                .build(&mut cx);
             } else {
                 let _ = piece.build(&mut cx);
             }

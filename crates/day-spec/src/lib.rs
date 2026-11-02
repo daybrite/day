@@ -6270,6 +6270,12 @@ pub mod props {
         pub pane: Pane,
     }
 
+    /// The largest a modal sheet grows on a desktop, in points: the window less a margin up to
+    /// this (docs/cover.md "Modal sheet"). AppKit's native sheet and the composed card share it.
+    pub const SHEET_MAX: crate::Size = crate::Size::new(640.0, 620.0);
+    /// The largest a [`CoverProps::large`] sheet grows (docs/cover.md "Large sheet").
+    pub const LARGE_SHEET_MAX: crate::Size = crate::Size::new(1040.0, 880.0);
+
     /// A fullscreen cover's content container (docs/cover.md). Realized detached and hidden;
     /// `CoverPatch::Present` shows it over the whole window.
     #[derive(Clone, Debug, Default, PartialEq)]
@@ -6281,6 +6287,9 @@ pub mod props {
         /// canvas it describes. Implies `sheet`. The toolkit reports the sheet's own content
         /// size through `FrameChanged`, as for any cover (docs/cover.md "Half sheet").
         pub half: bool,
+        /// A large sheet: most of the window, less a margin, for a document or web page that
+        /// needs the room (docs/cover.md "Large sheet"). Implies `sheet`.
+        pub large: bool,
     }
 
     /// Applied to a `kinds::COVER` node as its bound signal opens and closes it.

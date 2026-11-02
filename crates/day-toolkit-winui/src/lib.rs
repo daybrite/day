@@ -195,6 +195,22 @@ fn attach_custom_sidebar() {
     }
 }
 
+/// Escape over a presented sheet cover (docs/cover.md "Modal sheet"): the topmost cover hears
+/// it as its back request, whichever sheet's accelerator fired.
+extern "C" fn on_cover_escape(id: u64) {
+    ffi_guard::contain((), || {
+        let node = COVERS
+            .with(|c| c.borrow().last().map(|(_, node)| *node))
+            .unwrap_or(NodeId(id));
+        emit(
+            node,
+            Event::NavBack {
+                already_popped: false,
+            },
+        );
+    });
+}
+
 extern "C" fn nav_menu_changed(id: u64, index: c_int) {
     // Every extern "C" trampoline in this backend runs its body through `ffi_guard::contain`:
     // a panic unwinding into the C++/WinRT shim frame is undefined behavior (day-spec's
@@ -1600,8 +1616,12 @@ impl Toolkit for Xaml {
                     let cover = ffi::day_xaml_container_new();
                     ffi::day_xaml_set_visible(cover, 0);
                     COVER_IDS.with(|m| m.borrow_mut().insert(cover as usize, id));
-                    if props_of::<CoverProps>(kind, "xaml", props).is_some_and(|p| p.half) {
+                    let p = props_of::<CoverProps>(kind, "xaml", props);
+                    if p.is_some_and(|p| p.half) {
                         COVER_HALF.with(|s| s.borrow_mut().insert(cover as usize));
+                    }
+                    if p.is_some_and(|p| (p.sheet || p.large) && !p.half) {
+                        ffi::day_xaml_cover_escape(cover, id.0, on_cover_escape);
                     }
                     WinHandle(cover)
                 }

@@ -142,6 +142,9 @@ day_core::tls_group! {
     /// move the view without waiting for the next layout.
     static BASE_FRAMES: SideTable<[f64; 4]> = SideTable::new();
     static COVER_SHEETS: SideTable<CoverSheet> = SideTable::new();
+    /// A presented cover sheet's window → its cover node, for Escape (docs/cover.md).
+    static SHEET_NODES: SideTable<NodeId> = SideTable::new();
+    static SHEET_ESCAPE_MONITOR: RefCell<Option<PanMonitor>> = const { RefCell::new(None) };
     /// View ptr → node for `GestureKind::Pan` (docs/shapes.md): macOS pans arrive as trackpad
     /// scroll events, so `DayCanvas::scrollWheel:` reports them here instead of a recognizer.
     static PAN_NODES: SideTable<NodeId> = SideTable::new();
@@ -1357,6 +1360,54 @@ impl Drop for PanMonitor {
     }
 }
 
+// Escape closes a cover's window sheet, as it cancels any sheet on macOS (docs/cover.md
+// "Modal sheet"): the cover hears it as its back request. A local monitor, because the key
+// window's first responder may be a web view or a field that keeps Escape to itself. A sheet
+// with its own sheet or alert over it, and app-modal panels, keep their Escape.
+fn install_sheet_escape_monitor() {
+    SHEET_ESCAPE_MONITOR.with(|slot| {
+        if slot.borrow().is_some() {
+            return;
+        }
+        let block = block2::RcBlock::new(|raw: std::ptr::NonNull<NSEvent>| -> *mut NSEvent {
+            let event = unsafe { raw.as_ref() };
+            ffi_guard::contain(raw.as_ptr(), || {
+                let Some(mtm) = MainThreadMarker::new() else {
+                    return raw.as_ptr();
+                };
+                let escape = unsafe { event.charactersIgnoringModifiers() }
+                    .is_some_and(|s| s.to_string() == "\u{1b}");
+                let Some(window) = event.window(mtm).filter(|_| escape) else {
+                    return raw.as_ptr();
+                };
+                let app = NSApplication::sharedApplication(mtm);
+                if app.modalWindow().is_some() || window.attachedSheet().is_some() {
+                    return raw.as_ptr();
+                }
+                match SHEET_NODES.with(|t| t.get(Retained::as_ptr(&window) as usize)) {
+                    Some(node) => {
+                        emit(
+                            node,
+                            Event::NavBack {
+                                already_popped: false,
+                            },
+                        );
+                        std::ptr::null_mut()
+                    }
+                    None => raw.as_ptr(),
+                }
+            })
+        });
+        let monitor = unsafe {
+            NSEvent::addLocalMonitorForEventsMatchingMask_handler(
+                objc2_app_kit::NSEventMask::KeyDown,
+                &block,
+            )
+        };
+        *slot.borrow_mut() = monitor.map(PanMonitor);
+    });
+}
+
 // A container pan observes horizontal wheel events over its descendants, including native
 // scroll views. Leave vertical scrolling and canvas 2D pans to their existing handlers.
 fn install_container_pan_monitor() {
@@ -2540,6 +2591,8 @@ fn nav_present(mtm: MainThreadMarker, host: &Handle, next: NavPresentation) {
 struct CoverSheet(Retained<NSWindow>);
 impl Drop for CoverSheet {
     fn drop(&mut self) {
+        // try_with: the table may already be gone when the thread's locals tear down.
+        let _ = SHEET_NODES.try_with(|t| t.remove(Retained::as_ptr(&self.0) as usize));
         // Sheet transitions may run a nested AppKit update cycle. Defer them until the
         // core's tree borrow has ended; this retained pointer travels only to the main queue.
         let raw = Retained::into_raw(self.0.clone()) as usize;
@@ -2564,6 +2617,9 @@ struct NavPageIvars {
     sheet: Cell<bool>,
     /// A half sheet (docs/cover.md): the window sheet stands half the parent's height.
     half: Cell<bool>,
+    /// A large sheet (docs/cover.md "Large sheet"): the window sheet grows to
+    /// `LARGE_SHEET_MAX`.
+    large: Cell<bool>,
 }
 
 define_class!(
@@ -2602,6 +2658,7 @@ impl DayNavPage {
             top_inset: Cell::new(0.0),
             sheet: Cell::new(false),
             half: Cell::new(false),
+            large: Cell::new(false),
         });
         unsafe { msg_send![super(this), init] }
     }
@@ -8223,6 +8280,7 @@ impl Toolkit for AppKit {
                     .sheet
                     .set(cover_props.is_some_and(|p| p.sheet || p.half));
                 page.ivars().half.set(cover_props.is_some_and(|p| p.half));
+                page.ivars().large.set(cover_props.is_some_and(|p| p.large));
                 unsafe { page.setHidden(true) };
                 view_of(page)
             }
@@ -9165,13 +9223,18 @@ impl Toolkit for AppKit {
                                     primary_content().and_then(|v| unsafe { v.window() })
                                 {
                                     let bounds = parent.frame().size;
-                                    let height = if page.ivars().half.get() {
-                                        (bounds.height * 0.5).clamp(160.0, 620.0)
+                                    let max = if page.ivars().large.get() {
+                                        day_spec::props::LARGE_SHEET_MAX
                                     } else {
-                                        (bounds.height - 80.0).clamp(300.0, 620.0)
+                                        day_spec::props::SHEET_MAX
+                                    };
+                                    let height = if page.ivars().half.get() {
+                                        (bounds.height * 0.5).clamp(160.0, max.height)
+                                    } else {
+                                        (bounds.height - 80.0).clamp(300.0, max.height)
                                     };
                                     let size = NSSize::new(
-                                        (bounds.width - 40.0).clamp(320.0, 640.0),
+                                        (bounds.width - 40.0).clamp(320.0, max.width),
                                         height,
                                     );
                                     let window = unsafe {
@@ -9191,6 +9254,10 @@ impl Toolkit for AppKit {
                                         window.setContentView(Some(&page));
                                     }
                                     let key = ptr_of(h);
+                                    SHEET_NODES.with(|t| {
+                                        t.insert(Retained::as_ptr(&window) as usize, node)
+                                    });
+                                    install_sheet_escape_monitor();
                                     COVER_SHEETS.with(|t| t.insert(key, CoverSheet(window)));
                                     dispatch2::DispatchQueue::main().exec_async(move || {
                                         ffi_guard::contain((), || {
