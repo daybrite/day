@@ -240,7 +240,7 @@ impl Label {
         self.wraps = false;
         self
     }
-    /// Limit a plain label to this many lines, truncating the last line on native Apple
+    /// Limit a plain label to this many lines, truncating the last line on Apple and Android
     /// backends. Zero means unlimited. Rebuild the label to change its line limit.
     pub fn max_lines(mut self, lines: u32) -> Self {
         self.max_lines = lines;

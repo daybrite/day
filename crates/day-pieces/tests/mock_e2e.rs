@@ -12238,3 +12238,27 @@ fn pinned_header_copy_never_answers_an_id_lookup() {
         .collect();
     assert!(texts.contains(&"b".to_string()), "{texts:?}");
 }
+
+/// A reactive cursor is app code, so it is read outside the tree borrow: a closure that reaches
+/// the tree (here through `size_class`, as a composed split's axis closure did) must not panic
+/// with "RefCell already borrowed" when its subtree mounts after the window's first build.
+#[test]
+fn reactive_cursor_may_read_the_tree() {
+    let shown = Signal::new(false);
+    let probe = boot(move || {
+        when(
+            move || shown.get(),
+            || {
+                label("Pane").cursor(|| {
+                    let _ = day_core::size_class();
+                    day_spec::Cursor::Pointer
+                })
+            },
+        )
+    });
+    shown.set(true);
+    flush_sync();
+    let labels = probe.find_by_kind("day.label");
+    assert_eq!(labels.len(), 1);
+    assert_eq!(labels[0].1.cursor, Some(day_spec::Cursor::Pointer));
+}

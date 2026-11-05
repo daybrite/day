@@ -144,6 +144,7 @@ mod imp {
     };
 
     day_core::tls_group! {
+        static CONTEXT_MENU_FNS: day_spec::sidetable::SideTable<day_spec::ContextMenuFn> = day_spec::sidetable::SideTable::new();
         static TRANSFER_SOURCES: day_spec::sidetable::SideTable<day_spec::transfer::Source> = day_spec::sidetable::SideTable::new();
         static TRANSFER_TARGETS: day_spec::sidetable::SideTable<day_spec::transfer::Target> = day_spec::sidetable::SideTable::new();
 
@@ -778,6 +779,8 @@ mod imp {
         static fn setButtonStyle(v: android.view.View, kind: jint, argb: jint, fg_argb: jint),
         static fn setCanvasOps(v: android.view.View, nums: jdouble[], texts_joined: JString),
         static fn setContextMenu(v: android.view.View, spec: JString),
+        static fn setContextMenuFn(v: android.view.View, token: jlong),
+        static fn releaseContextMenu(v: android.view.View),
         static fn setDeferSystemGestures(on: jboolean),
         static fn setDocumentTabKeys(menu: android.view.View, keys: JString),
         static fn setEnabled(v: android.view.View, b: jboolean),
@@ -794,6 +797,7 @@ mod imp {
         static fn setLabelRuns(v: android.view.View, node: jlong, text: JString, starts: jint[], ends: jint[], flags: jint[], colors: jint[], backgrounds: jint[], scales: jint[], links_joined: JString),
         static fn setLabelSecondary(v: android.view.View, on: jboolean),
         static fn setLabelSingleLine(view: android.view.View),
+        static fn setLabelMaxLines(view: android.view.View, lines: jint),
         static fn setLauncherShortcuts(packed: JString),
         static fn setListCellHeight(cell: android.view.View, px: jint),
         static fn setNavMenuBadges(nav_menu: android.view.View, joined_icons: JString, joined_tints: JString, joined_texts: JString),
@@ -843,6 +847,7 @@ mod imp {
         native_methods {
             static fn nativeOnEvent(id: jlong, kind: jint, num: jdouble, text: JString),
             static fn nativeHandlesKeys(id: jlong) -> jboolean,
+            static fn nativeContextMenu(token: jlong, x: jfloat, y: jfloat) -> JString,
             static fn nativeRunPosted(token: jlong),
             static fn nativeDoFrame(token: jlong, frame_time_nanos: jlong),
             static fn nativeListLen(host_id: jlong) -> jint,
@@ -958,6 +963,29 @@ mod imp {
         ) -> Result<(), Self::Error> {
             dispatch_event(env, id, kind, num, &text);
             Ok(())
+        }
+
+        fn nativeContextMenu<'l>(
+            env: &mut Env<'l>,
+            _class: JClass<'l>,
+            token: i64,
+            x: f32,
+            y: f32,
+        ) -> Result<JString<'l>, Self::Error> {
+            let spec = day_spec::ffi_guard::contain(String::new(), || {
+                // Clone before calling app code: a provider may replace or release its view.
+                let provider = CONTEXT_MENU_FNS.with(|menus| menus.get(token as usize));
+                let mut spec = String::new();
+                if let Some(provider) = provider {
+                    let items = provider(Point {
+                        x: x as f64 / density(),
+                        y: y as f64 / density(),
+                    });
+                    serialize_menu(&items, &mut spec);
+                }
+                spec
+            });
+            env.new_string(spec)
         }
 
         fn nativeHandlesKeys<'l>(
@@ -3269,6 +3297,11 @@ mod imp {
                             let _ = java_in(env, |env| {
                                 DayBridge::setLabelSingleLine(env, view.as_obj())
                             });
+                        } else if p.max_lines > 0 {
+                            let lines = p.max_lines.min(i32::MAX as u32) as i32;
+                            let _ = java_in(env, |env| {
+                                DayBridge::setLabelMaxLines(env, view.as_obj(), lines)
+                            });
                         }
                         // A whole-label monospace ask rides the family parameter: "monospace" is
                         // Android's own alias for the system fixed-pitch face, so this is the same
@@ -4026,6 +4059,7 @@ mod imp {
             }
         }
         fn release(&mut self, h: AHandle) {
+            bridge(|env| DayBridge::releaseContextMenu(env, h.0.as_obj()));
             bridge(|env| DayTransfer::release(env, h.0.as_obj()));
             // A released window root drops its `SECONDARY` record (docs/windows.md teardown;
             // the activity itself already finished or is finishing).
@@ -4400,7 +4434,14 @@ mod imp {
             bridge(|env| DayBridge::enableGesture(env, h.0.as_obj(), node.0 as i64, is_drag));
         }
 
+        fn set_context_menu_fn(&mut self, h: &AHandle, _node: NodeId, f: day_spec::ContextMenuFn) {
+            let key = h.0.as_obj().as_raw() as usize;
+            CONTEXT_MENU_FNS.with(|menus| menus.insert(key, f));
+            bridge(|env| DayBridge::setContextMenuFn(env, h.0.as_obj(), key as i64));
+        }
+
         fn set_context_menu(&mut self, h: &AHandle, _node: NodeId, items: &[day_spec::MenuItem]) {
+            CONTEXT_MENU_FNS.with(|menus| menus.remove(h.0.as_obj().as_raw() as usize));
             let mut spec = String::new();
             serialize_menu(items, &mut spec);
             with_env(|env| {

@@ -171,6 +171,7 @@ public final class DayBridge extends DayRuntime {
     /** Whether node `id` has an `.on_key` handler (docs/menus.md): a canvas asks before it
      *  claims a key or takes focus on a press. */
     public static native boolean nativeHandlesKeys(long id);
+    public static native String nativeContextMenu(long token, float x, float y);
     public static native void nativeRunPosted(long token);
     /** Frame clock (§8.4): Choreographer's per-vsync callback forwards here with the frame time. */
     public static native void nativeDoFrame(long token, long frameTimeNanos);
@@ -1166,6 +1167,13 @@ public final class DayBridge extends DayRuntime {
         label.setEllipsize(android.text.TextUtils.TruncateAt.END);
     }
 
+    /** Cap a wrapping label at `lines` lines and end the last with an ellipsis; measurement honors the cap. */
+    public static void setLabelMaxLines(View view, int lines) {
+        TextView label = (TextView) view;
+        label.setMaxLines(lines);
+        label.setEllipsize(android.text.TextUtils.TruncateAt.END);
+    }
+
     public static View makeLabel(String text) {
         TextView t = new TextView(ctx);
         t.setText(text);
@@ -1530,6 +1538,33 @@ public final class DayBridge extends DayRuntime {
         });
     }
 
+    private static final java.util.WeakHashMap<View, View.OnTouchListener> gestureTouches =
+            new java.util.WeakHashMap<>();
+
+    private static void setGestureTouchListener(View v, View.OnTouchListener listener) {
+        gestureTouches.put(v, listener);
+        updateTouchListener(v);
+    }
+
+    // Observe menu coordinates without consuming touches or replacing a declared gesture.
+    private static void updateTouchListener(View v) {
+        if (!contextMenus.containsKey(v) && !gestureTouches.containsKey(v)) {
+            v.setOnTouchListener(null);
+            return;
+        }
+        v.setOnTouchListener((view, event) -> {
+            ContextMenuBinding menu = contextMenus.get(view);
+            if (menu != null) {
+                boolean finished = event.getActionMasked() == MotionEvent.ACTION_UP
+                        || event.getActionMasked() == MotionEvent.ACTION_CANCEL;
+                menu.x = finished ? 0 : event.getX();
+                menu.y = finished ? 0 : event.getY();
+            }
+            View.OnTouchListener gesture = gestureTouches.get(view);
+            return gesture != null && gesture.onTouch(view, event);
+        });
+    }
+
     public static void enableGesture(View v, final long id, final boolean isDrag) {
         boolean[] flags = gestureFlags.get(v);
         if (flags == null) { flags = new boolean[2]; gestureFlags.put(v, flags); }
@@ -1540,7 +1575,7 @@ public final class DayBridge extends DayRuntime {
             // Consuming ACTION_DOWN ourselves prevents native long-press menus and an
             // empty context-menu update can otherwise leave this target non-clickable.
             final float[] point = new float[2];
-            v.setOnTouchListener((view, event) -> {
+            setGestureTouchListener(v, (view, event) -> {
                 point[0] = event.getX();
                 point[1] = event.getY();
                 return false;
@@ -1553,7 +1588,7 @@ public final class DayBridge extends DayRuntime {
         }
         if (gestureTapClicks.remove(v)) v.setOnClickListener(null);
         v.setClickable(true);
-        v.setOnTouchListener(new View.OnTouchListener() {
+        setGestureTouchListener(v, new View.OnTouchListener() {
             float sx, sy;
             public boolean onTouch(View view, MotionEvent ev) {
                 float x = ev.getX(), y = ev.getY();
@@ -4508,8 +4543,36 @@ public final class DayBridge extends DayRuntime {
         }
     }
 
+    interface ContextMenuProvider {
+        String build(float x, float y);
+    }
+
+    private static final class ContextMenuBinding {
+        final ContextMenuProvider provider;
+        float x, y;
+        android.widget.PopupMenu popup;
+        ContextMenuBinding(ContextMenuProvider provider) { this.provider = provider; }
+    }
+
+    private static final java.util.WeakHashMap<View, ContextMenuBinding> contextMenus =
+            new java.util.WeakHashMap<>();
+
     public static void setContextMenu(final View v, final String spec) {
-        if (spec == null || spec.isEmpty()) {
+        installContextMenu(v, spec == null || spec.isEmpty() ? null : (x, y) -> spec);
+    }
+
+    public static void setContextMenuFn(final View v, final long token) {
+        installContextMenu(v, (x, y) -> nativeContextMenu(token, x, y));
+    }
+
+    public static void releaseContextMenu(View v) {
+        if (contextMenus.containsKey(v)) installContextMenu(v, null);
+    }
+
+    static void installContextMenu(final View v, ContextMenuProvider provider) {
+        ContextMenuBinding old = contextMenus.remove(v);
+        if (old != null && old.popup != null) old.popup.dismiss();
+        if (provider == null) {
             v.setOnLongClickListener(null);
             v.setLongClickable(false);
             // Remove only the forwarding listener this menu installed. Native menu
@@ -4519,28 +4582,34 @@ public final class DayBridge extends DayRuntime {
                 v.setClickable(false);
                 setTouchFeedback(v, false);
             }
+            updateTouchListener(v);
             return;
         }
-        // See forwardClickToRow: the menu makes this view eat touches, so the tap it eats has to
-        // be handed on. Only where the view has no click behavior of its own; a button with a
-        // context menu keeps its own action.
+        final ContextMenuBinding binding = new ContextMenuBinding(provider);
+        contextMenus.put(v, binding);
+        updateTouchListener(v);
+        // A long-clickable child consumes ordinary taps too; forward them to its row.
         if (!v.hasOnClickListeners()) {
             contextMenuForwardedClicks.add(v);
-            v.setOnClickListener(new View.OnClickListener() {
-                public void onClick(View child) {
-                    forwardClickToRow(child);
-                }
-            });
-            // This view is now the row's touch target, so the row's press feedback is its job.
+            v.setOnClickListener(DayBridge::forwardClickToRow);
             setTouchFeedback(v, true);
         }
-        v.setOnLongClickListener(new View.OnLongClickListener() {
-            public boolean onLongClick(View anchor) {
-                android.widget.PopupMenu popup = new android.widget.PopupMenu(anchor.getContext(), anchor);
-                buildMenu(popup.getMenu(), spec);
-                popup.show();
-                return true;
-            }
+        v.setOnLongClickListener(anchor -> {
+            // Dismiss before rebuilding: the Rust provider replaces the previous action scope.
+            if (binding.popup != null) binding.popup.dismiss();
+            String spec = binding.provider.build(binding.x, binding.y);
+            // App code may remove or reconfigure this view while constructing its menu.
+            if (contextMenus.get(anchor) != binding || !anchor.isAttachedToWindow()) return true;
+            if (spec == null || spec.isEmpty()) return true;
+            android.widget.PopupMenu popup = new android.widget.PopupMenu(anchor.getContext(), anchor);
+            buildMenu(popup.getMenu(), spec);
+            if (popup.getMenu().size() == 0) return true;
+            binding.popup = popup;
+            popup.setOnDismissListener(dismissed -> {
+                if (binding.popup == dismissed) binding.popup = null;
+            });
+            popup.show();
+            return true;
         });
     }
 

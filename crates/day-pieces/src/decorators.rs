@@ -346,7 +346,10 @@ fn op_cursor(cursor: Reactive<Cursor>) -> impl FnOnce(Build) -> Build {
     move |inner| {
         Box::new(move |cx| {
             let n = inner(cx);
-            with_tree(|t| t.set_node_cursor(n, cursor.get_untracked()));
+            // Read before borrowing the tree: a reactive cursor is app code (a composed split's
+            // follows the app's axis closure), and app code may itself reach the tree.
+            let shape = cursor.get_untracked();
+            with_tree(|t| t.set_node_cursor(n, shape));
             // Only a reactive source needs a binding; a constant shape is applied once at
             // mount. The setter is idempotent, so a re-run costs one native call.
             if let Reactive::Dyn(_) = &cursor {

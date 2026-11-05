@@ -189,8 +189,8 @@ trailing ellipsis; Qt disables wrapping and clips the excess. Styled link labels
 text-view backing and do not guarantee this truncation behavior.
 
 Plain labels support [`.max_lines(n)`](https://docs.rs/day-pieces/latest/day_pieces/trait.LabelBuilder.html#tymethod.max_lines) with zero meaning unlimited; [`.single_line()`](https://docs.rs/day-pieces/latest/day_pieces/trait.LabelBuilder.html#tymethod.single_line)
-takes precedence. AppKit and UIKit enforce the limit and truncate the last line natively,
-including during measurement. Other toolkits and selectable/link-backed text retain their
+takes precedence. AppKit, UIKit and Android enforce the limit and truncate the last line
+natively, including during measurement. Other toolkits and selectable/link-backed text retain their
 existing wrapping behavior. The limit is set at construction; a keyed subtree can rebuild
 when a display preference changes.
 

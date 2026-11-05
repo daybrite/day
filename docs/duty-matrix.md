@@ -47,7 +47,7 @@ implement them, and this table proves it.
 | [`modifiers`](https://docs.rs/day-spec/latest/day_spec/trait.Toolkit.html#method.modifiers) | · | ✓ | · | · | ✓ | · | · | · | ✓ | · |
 | [`set_drag_source`](https://docs.rs/day-spec/latest/day_spec/trait.Toolkit.html#method.set_drag_source) | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · |
 | [`set_drop_target`](https://docs.rs/day-spec/latest/day_spec/trait.Toolkit.html#method.set_drop_target) | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · |
-| [`set_context_menu_fn`](https://docs.rs/day-spec/latest/day_spec/trait.Toolkit.html#method.set_context_menu_fn) | · | ✓ | ✓ | ✓ | ✓ | · | · | · | ✓ | ✓ |
+| [`set_context_menu_fn`](https://docs.rs/day-spec/latest/day_spec/trait.Toolkit.html#method.set_context_menu_fn) | · | ✓ | ✓ | ✓ | ✓ | · | ✓ | · | ✓ | ✓ |
 | [`set_app_menu`](https://docs.rs/day-spec/latest/day_spec/trait.Toolkit.html#method.set_app_menu) | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · | ✓ | ✓ |
 | [`set_context_menu`](https://docs.rs/day-spec/latest/day_spec/trait.Toolkit.html#method.set_context_menu) | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · | ✓ | ✓ |
 | [`edit_toolbar`](https://docs.rs/day-spec/latest/day_spec/trait.Toolkit.html#method.edit_toolbar) | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |

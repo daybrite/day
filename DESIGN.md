@@ -1917,7 +1917,7 @@ pub trait Toolkit: Sized + 'static {
     fn set_context_menu(&mut self, h, node: NodeId, items: &[MenuItem]) {}
     // Summon-time context menu (docs/menus.md "Dynamic context menus"): the provider
     // is called when the click lands, with the local point, and its result is shown —
-    // natively (appkit/gtk/uikit/qt), or via `Event::ContextMenu` + the composed
+    // natively (appkit/gtk/uikit/qt/material), or via `Event::ContextMenu` + the composed
     // presentation on a backend with no native menu (web-dom). AppKit's recycling list
     // resolves a provider in the clicked visible cell, including layout wrappers. It does
     // not change the selection, retain a row index, or evaluate providers on reload. Empty
@@ -1927,6 +1927,12 @@ pub trait Toolkit: Sized + 'static {
     // tree resolves layout-only padding/frame wrappers to the first native descendant,
     // as for static menus (mock_e2e::dynamic_context_menu_survives_padding_and_uses_live_state). See
     // crates/day-toolkit-appkit/tests/native_list_menus.rs and docs/menus.md for coverage.
+    // Material calls the provider synchronously from View's long-click listener and builds a
+    // fresh PopupMenu. A shared touch listener observes local coordinates without replacing
+    // declared tap gestures; Rust converts pixels to dp. Keyboard/accessibility summons use
+    // the origin. Normal taps still forward to the owning list row. Replacing or releasing
+    // a menu dismisses its popup and releases the provider; reentrant removal and empty
+    // results suppress presentation. WinUI and ArkUI still use the default dynamic-menu no-op.
     fn set_context_menu_fn(&mut self, h, node: NodeId, f: ContextMenuFn) {}
 
     // toolbars (docs/toolbars.md): `h` is the window root's handle, so the backend walks from
@@ -8317,8 +8323,8 @@ Day-News’s `reader-styles.yaml` regression enters Settings from an article, pe
 Back, and verifies the Settings controls were removed before reopening them.
 
 Plain labels support `.max_lines(n)` with zero meaning unlimited; `.single_line()`
-takes precedence. AppKit and UIKit enforce the limit and truncate the last line natively,
-including during measurement. Other backends and selectable/link-backed text retain their
+takes precedence. AppKit, UIKit and Android enforce the limit and truncate the last line
+natively, including during measurement. Other backends and selectable/link-backed text retain their
 existing wrapping behavior. The limit is set at construction; a keyed subtree can rebuild
 when a display preference changes.
 

@@ -5573,7 +5573,7 @@ pub mod props {
         /// color renders primary, which is legible and correct, just not dimmed.
         pub role: TextRole,
         pub wraps: bool,
-        /// Maximum rendered lines; zero is unlimited. Native Apple plain labels truncate
+        /// Maximum rendered lines; zero is unlimited. Apple and Android plain labels truncate
         /// the last line. Other backends may retain their ordinary wrapping behavior.
         pub max_lines: u32,
         /// How the label's lines sit within its own width. Only observable on a label that

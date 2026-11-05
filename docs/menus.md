@@ -551,6 +551,19 @@ form is generic over any widget. Qt connects `customContextMenuRequested` to a c
 that asks the provider and pops a fresh [`QMenu`](https://doc.qt.io/qt-6/qmenu.html) per summon (`day_qt_context_menu_fn`),
 generic over any widget like GTK's.
 
+Material calls the provider on long press and builds a fresh Android
+[`PopupMenu`](https://developer.android.com/reference/android/widget/PopupMenu).
+The callback receives the touch location in local dp; keyboard and accessibility summons
+use the origin. Ordinary taps still select list rows, and scrolling keeps native touch
+interception. Replacing or removing the menu dismisses its popup. Releasing the view removes
+its provider; an empty result or a view removed by its own provider shows no menu.
+Native lifecycle tests live in `crates/day-toolkit-material/tests/android/`.
+
+Dynamic context menus are currently missing on WinUI (Windows), its deprecated system
+XAML target, and ArkUI (HarmonyOS). The Windows targets support fixed context menus. AppKit, UIKit, GTK, Qt, and Material provide native
+dynamic menus; Web uses the composed presentation below. DayScript's `context_menu` step
+invokes the model directly, so it does not verify a toolkit's native menu presentation.
+
 ### The composed presentation (Web)
 
 A toolkit with no native menu to hand the model to reports the summon instead: Web's
