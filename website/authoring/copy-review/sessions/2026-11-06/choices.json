@@ -1,0 +1,146 @@
+{
+  "schema": 1,
+  "revision": "e5616526deeedff286093a0c2356f61f11942a434fe3249d04d5a3ab27ab6628",
+  "source_commit": "e7be23bc6b9ec7b8a40762d139b6cd381a130ab7",
+  "version": 13,
+  "records": {
+    "hero": {
+      "option": "A",
+      "edited": true,
+      "values": {
+        "f0": "The universal app development framework",
+        "f1": "One app.\nEvery platform.\nAll Day.",
+        "f2": "Create apps for iOS, Android, macOS, Windows, and Linux from a single Rust codebase. Day adds a declarative interface and reactive model atop each platform’s native first-party UI toolkit. It is the ultimate batteries-included app development framework, with tools for testing, translation, packaging, and deployment.",
+        "f3": "Build your first app",
+        "f4": "See the apps →"
+      },
+      "saved_at": "2026-11-06T14:57:36.641839+00:00",
+      "status": "chosen"
+    },
+    "start": {
+      "option": "A",
+      "edited": true,
+      "values": {
+        "f0": "Rise and Shine",
+        "f1": "Get started in minutes with the tutorial, or run the Showcase app on your desktop or mobile device to experience first-hand the Day approach to building applications your users will love.",
+        "f2": "Start Developing",
+        "f3": "Try Day Showcase"
+      },
+      "saved_at": "2026-11-06T14:40:38.716366+00:00",
+      "status": "chosen"
+    },
+    "shared": {
+      "option": "C",
+      "edited": true,
+      "values": {
+        "f0": "Desktop and mobile",
+        "f1": "Share more than just the business logic",
+        "f2": "Day lets you reuse the interface as well as the data model. Your layouts and event handlers are Rust code, backed by the UI toolkit on each platform. No bridging between disparate programming languages.",
+        "f3": "One place for UI changes",
+        "f4": "Compose screens with Rust functions. The same definitions can be used by your desktop and mobile builds.",
+        "f5": "Explore the app structure →",
+        "f6": "Packages for each target",
+        "f7": "Use the same project to prepare installers and mobile packages, then manage store listings and submissions.",
+        "f8": "See the release tools →",
+        "f9": "Native features when you need them",
+        "f10": "Extend the app with platform controls and services. Provide a fallback where the feature isn’t supported.",
+        "f11": "Add platform features →"
+      },
+      "saved_at": "2026-11-06T14:43:58.500748+00:00",
+      "status": "chosen"
+    },
+    "native": {
+      "option": "original",
+      "edited": true,
+      "values": {
+        "f0": "For Rust-first world",
+        "f1": "Give your Rust code\na native interface.",
+        "f2": "Connect your data models and libraries directly to UI code without crossing language barriers. Compose controls with ordinary functions and attach them to reactive signals that update the interface when data changes.",
+        "f3": "Day uses AppKit on macOS, UIKit on iOS, Material Components on Android, and desktop toolkits on Windows and Linux. Standard controls use toolkit widgets; composed controls and custom drawing have their own implementations. Appearance and capabilities beyond the core components vary by target.",
+        "f4": "Explore the Rust API →",
+        "f5": "Reuse your libraries",
+        "f6": "Keep parsing, storage, and other app logic in conventional Cargo crates. Use the same code from your UI wherever those crates support the target.",
+        "f7": "Update individual controls",
+        "f8": "Bindings update existing controls when their signals change. Adding or replacing a screen can create new controls; ordinary value updates do not require rebuilding the whole interface.",
+        "f9": "Compile to native machine code",
+        "f10": "Your Rust code compiles to machine code for each desktop and mobile target, alongside Day’s native toolkit integrations."
+      },
+      "saved_at": "2026-11-06T14:53:06.540459+00:00",
+      "status": "chosen"
+    },
+    "library": {
+      "option": "C",
+      "edited": true,
+      "values": {
+        "f0": "Existing Rust code",
+        "f1": "Keep the library. Add the interface.",
+        "f2": "Your data model can stay in its Cargo crate. Add a Day UI around, then build and deploy for every desktop and mobile target its dependencies support. Use any of the hundreds of thousands of libraries on crates.io without jumping through any hoops.",
+        "f3": "How a Day project fits together →"
+      },
+      "saved_at": "2026-11-06T14:55:45.885349+00:00",
+      "status": "chosen"
+    },
+    "extensions": {
+      "option": "original",
+      "edited": true,
+      "values": {
+        "f0": "For native developers and library authors",
+        "f1": "Package your platform expertise\nas a reusable Day extension.",
+        "f2": "Native integrations in Cargo crates.",
+        "f3": "Wrap a native widget or platform service behind a Rust API. Your crate can include Swift, Java, ArkTS, or C++ code. Day’s build tools collect the declared sources and dependencies into the app’s platform builds.",
+        "f4": "Build an extension →",
+        "f5": "Share components across apps.",
+        "f6": "Combine existing Day controls into reusable components using Rust alone. A composed component uses the backends of its underlying controls, so you can publish it as a crate without writing a renderer for each platform.",
+        "f7": "Build a reusable component →",
+        "f8": "For open-source maintainers",
+        "f9": "Inspect and modify the frameworks you use.",
+        "f10": "Day’s framework and build tools are 100% free and open source. If a platform bug blocks your app, you can trace it into the backend, test a fix locally, and contribute it upstream or keep your own fork.",
+        "f11": "Browse the source →",
+        "f12": "Read the license →"
+      },
+      "saved_at": "2026-11-06T14:56:57.618587+00:00",
+      "status": "chosen"
+    },
+    "workflow": {
+      "option": "original",
+      "edited": false,
+      "values": {
+        "f0": "For small teams maintaining several builds",
+        "f1": "Reuse the tests\nalong with the app.",
+        "f2": "Every platform adds builds to check and packages to prepare. Day gives you a common CLI and UI test format: the same walkthrough can exercise a feature on several targets and capture its translated screens.",
+        "f3": "Edit →",
+        "f4": "Use the VS Code extension to choose targets, build, and launch your app from the editor.",
+        "f5": "Set up →",
+        "f6": "Generate the Rust project and platform host files with day new app. Use day doctor to identify missing SDKs and build tools.",
+        "f7": "Test →",
+        "f8": "Write a DayScript walkthrough that finds controls by stable IDs. Reuse it across targets to check the same behavior.",
+        "f9": "Capture →",
+        "f10": "Use screenshot steps in that walkthrough to capture the same screens in different languages and themes.",
+        "f11": "Package →",
+        "f12": "Build installers and mobile packages with day pack. Check the reported signing status before distributing them.",
+        "f13": "Diagnose →",
+        "f14": "Add Day’s crash-reporting extension to collect reports on the device. People can choose to send them by email, GitHub issue, or HTTP.",
+        "f15": "Builds still require the platform SDKs. Distribution requires the signing credentials and store accounts applicable to your chosen platforms."
+      },
+      "saved_at": "2026-11-06T14:57:20.467584+00:00",
+      "status": "chosen"
+    },
+    "languages": {
+      "option": "original",
+      "edited": false,
+      "values": {
+        "f0": "For apps serving multilingual communities",
+        "f1": "The world doesn’t all speak a single language.\nOr use a mouse.",
+        "f2": "Keep your app’s meaning across languages.",
+        "f3": "Keep translations in Fluent catalogs. Day generates typed Rust accessors so the UI and its message arguments are checked together at build time. Use the same UI walkthrough in several languages to check translated screens.",
+        "f4": "See how localization works →",
+        "f5": "Connect to native accessibility.",
+        "f6": "Native controls supply accessibility roles and actions. Day’s shared API lets you annotate controls; on macOS and iOS, DayScript can verify their labels, roles, and values against the native accessibility tree.",
+        "f7": "See accessibility support and limits →"
+      },
+      "saved_at": "2026-11-06T14:57:30.157696+00:00",
+      "status": "chosen"
+    }
+  },
+  "updated_at": "2026-11-06T14:57:36.641839+00:00"
+}

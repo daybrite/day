@@ -1,0 +1,171 @@
+---
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: CC-BY-SA-4.0
+import BaseLayout from '../layouts/BaseLayout.astro';
+import HeroCarousel from '../components/HeroCarousel.astro';
+import Logo from '../components/Logo.astro';
+import PlatformIcon from '../components/PlatformIcon.astro';
+import { url, site } from '../lib/site';
+import { primaryPlatforms } from '../lib/platforms.mjs';
+
+const platforms = primaryPlatforms.filter((p) => p.tier <= 2 && p.id !== 'linux-qt');
+const benefits = [
+  { number: '01', title: 'Share the interface and the logic.', body: 'Define screens, layout, state, and event handlers in Rust. Day connects that code to each platform’s UI toolkit, so a new screen can become part of every build.', link: 'See how a Day app is built', path: 'docs/overview' },
+  { number: '02', title: 'Distribute it where people need it.', body: 'Build desktop installers and mobile packages, translate your store listings, and automate submissions to the major app stores from the same project.', link: 'Publish your app', path: 'docs/how-to/app-store-submissions' },
+  { number: '03', title: 'Highest uncommon denominator', body: 'Your app can share its foundations and still have features that belong to one platform. Add native controls and services through extensions, with a fallback where that feature isn’t available.', link: 'Make Day your own', path: 'docs/extending' },
+];
+const stages = [
+  { title: 'Edit', body: 'Use the VS Code extension to choose targets, build, and launch your app from the editor.', path: 'docs/how-to/vscode' },
+  { title: 'Set up', body: 'Generate the Rust project and platform host files with day new app. Use day doctor to identify missing SDKs and build tools.', path: 'docs/getting-started' },
+  { title: 'Test', body: 'Write a DayScript walkthrough that finds controls by stable IDs. Reuse it across targets to check the same behavior.', path: 'docs/dayscript' },
+  { title: 'Capture', body: 'Use screenshot steps in that walkthrough to capture the same screens in different languages and themes.', path: 'docs/dayscript' },
+  { title: 'Package', body: 'Build installers and mobile packages with day pack. Check the reported signing status before distributing them.', path: 'docs/packaging' },
+  { title: 'Diagnose', body: 'Add Day’s crash-reporting extension to collect reports on the device. People can choose to send them by email, GitHub issue, or HTTP.', path: 'docs/guide-crash-reporting' },
+];
+---
+<BaseLayout>
+  <section class="hero">
+    <div class="hero-glow" aria-hidden="true"></div>
+    <div class="container hero-grid">
+      <div>
+        <p class="eyebrow">Day — the universal app development framework.</p>
+        <h1>One app.<br />Every platform.<br /><span class="hero-day">All Day.</span></h1>
+        <p class="lead">Build for the people who need your app, across phones and desktops. Share your interface and app logic in Rust, while Day connects them to each platform’s UI toolkit. Keep translations, UI tests, and packaging in the same project.</p>
+        <div class="actions">
+          <a class="btn btn-primary" href={url('docs/tutorials/first-app')}>Build your first app</a>
+          <a class="btn btn-ghost" href={url('gallery')}>Explore the gallery →</a>
+        </div>
+      </div>
+      <div class="hero-media"><HeroCarousel /></div>
+    </div>
+    <div class="container platform-strip" aria-label="Target platforms">
+      {platforms.map((p) => <a href={url(`docs/platforms/${p.id}`)} data-pf={p.id}><PlatformIcon id={p.id} class="platform-icon" /><span>{p.os}</span></a>)}
+    </div>
+    <p class="container support-note">macOS, iOS, and Android are Tier 1; Windows and Linux are Tier 2. HarmonyOS is experimental. <a href={url('docs/reference/platforms')}>See current platform support →</a></p>
+  </section>
+
+  <section class="section">
+    <div class="container">
+      <p class="eyebrow">For independent app makers</p>
+      <h2>Take your app beyond its first platform.</h2>
+      <p class="section-lead">A useful app shouldn’t stop at the device you happen to own. Day lets you reuse screens and app logic across desktop and mobile targets, then handle the differences in one project. Choose the platforms your audience needs.</p>
+      <div class="benefit-grid">
+        {benefits.map((item) => <article class="capability"><span class="number" aria-hidden="true">{item.number}</span><h3>{item.title}</h3><p>{item.body}</p><a href={url(item.path)}>{item.link} →</a></article>)}
+      </div>
+    </div>
+  </section>
+
+  <section class="section performance" id="let-your-app-shine">
+    <div class="container split">
+      <div>
+        <p class="eyebrow">For Rust developers</p>
+        <h2>Give your Rust code<br />a native interface.</h2>
+        <p class="section-lead">Connect your data models and libraries directly to UI code without crossing language barriers. Compose controls with ordinary functions and attach them to reactive signals that update the interface when data changes.</p>
+        <p class="section-lead">Day uses AppKit on macOS, UIKit on iOS, Material Components on Android, and desktop toolkits on Windows and Linux. Standard controls use toolkit widgets; composed controls and custom drawing have their own implementations. Appearance and capabilities vary by target.</p>
+        <a href={url('docs/reference/api-tour')}>Explore the Rust API →</a>
+      </div>
+      <div class="performance-facts">
+        <article><h3>Reuse your libraries</h3><p>Keep parsing, storage, and other app logic in conventional Cargo crates. Use the same code from your UI wherever those crates support the target.</p></article>
+        <article><h3>Update individual controls</h3><p>Bindings update existing controls when their signals change. Adding or replacing a screen can create new controls; ordinary value updates do not require rebuilding the whole interface.</p></article>
+        <article><h3>Compile to native machine code</h3><p>Your Rust code compiles to machine code for each desktop and mobile target, alongside Day’s native toolkit integrations.</p></article>
+      </div>
+    </div>
+  </section>
+
+  <section class="section lifecycle">
+    <div class="container">
+      <p class="eyebrow">For small teams maintaining several builds</p>
+      <h2>Reuse the tests<br />along with the app.</h2>
+      <p class="section-lead">Every platform adds builds to check and packages to prepare. Day gives you a common CLI and UI test format: the same walkthrough can exercise a feature on several targets and capture its translated screens.</p>
+      <ol class="stages">
+        {stages.map((stage, i) => <li><span class="stage-number" aria-hidden="true">{String(i + 1).padStart(2, '0')}</span><h3><a href={url(stage.path)}>{stage.title} →</a></h3><p>{stage.body}</p></li>)}
+      </ol>
+      <p class="detail-note">Builds still require the platform SDKs. Distribution requires the signing credentials and store accounts applicable to your chosen platforms.</p>
+    </div>
+  </section>
+
+  <section class="section tooling">
+    <div class="container">
+      <p class="eyebrow">For developers bringing an existing Rust library to people</p>
+      <h2>Your library can have an app.</h2>
+      <p class="section-lead">Give a command-line tool, parser, or local database a native interface without moving its logic into another language. Keep the library in a Cargo crate and build the screens around it. Check the library’s dependencies on each target you want to reach.</p>
+      <a href={url('docs/explanation/overview')}>See how a Day project fits together →</a>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="container">
+      <p class="eyebrow">For apps serving multilingual communities</p>
+      <h2>The world doesn’t all speak a single language.<br />Or use a mouse.</h2>
+      <div class="ownership-grid">
+        <article class="capability"><h3>Keep your app’s meaning across languages.</h3><p>Keep translations in Fluent catalogs. Day generates typed Rust accessors so the UI and its message arguments are checked together at build time. Use the same UI walkthrough in several languages to check translated screens.</p><a href={url('docs/how-to/localization')}>See how localization works →</a></article>
+        <article class="capability"><h3>Connect to native accessibility.</h3><p>Native controls supply accessibility roles and actions. Day’s shared API lets you annotate controls; on macOS and iOS, DayScript can verify their labels, roles, and values against the native accessibility tree.</p><a href={url('docs/how-to/accessibility')}>See accessibility support and limits →</a></article>
+      </div>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="container">
+      <p class="eyebrow">For native developers and library authors</p>
+      <h2>Package your platform expertise<br />as a reusable Day extension.</h2>
+      <div class="ownership-grid">
+        <article class="capability"><h3>Native integrations in Cargo crates.</h3><p>Wrap a native widget or platform service behind a Rust API. Your crate can include Swift, Java, ArkTS, or C++ code. Day’s build tools collect the declared sources and dependencies into the app’s platform builds.</p><a href={url('contributing/extending')}>Build an extension →</a></article>
+        <article class="capability"><h3>Share components across apps.</h3><p>Combine existing Day controls into reusable components using Rust alone. A composed component uses the backends of its underlying controls, so you can publish it as a crate without writing a renderer for each platform.</p><a href={url('contributing/tutorials/composite-piece')}>Build a reusable component →</a></article>
+        <article class="capability independent"><p class="eyebrow">For open-source maintainers</p><h3>Inspect and change the framework you depend on.</h3><p>Day’s framework and build tools are open source under MPL-2.0. If a platform bug blocks your app, you can trace it into the backend, test a fix locally, and contribute it upstream.</p><a href={site.repo}>Browse the source →</a><a href={`${site.repo}/blob/main/LICENSE`}>Read the license →</a></article>
+      </div>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="container cta-inner">
+      <Logo size={40} />
+      <h2>Build something people can use.</h2>
+      <p>Start with a working tutorial, then try the screen or platform feature your own app depends on.</p>
+      <div class="actions"><a class="btn btn-primary" href={url('docs/tutorials/first-app')}>Create a project</a><a class="btn btn-ghost" href={url('showcase')}>Explore Day Showcase</a></div>
+    </div>
+  </section>
+</BaseLayout>
+
+<style>
+  .hero { position: relative; overflow: hidden; padding-block: 80px 30px; }
+  .hero-glow { position: absolute; top: -280px; left: 50%; width: 1100px; height: 700px; transform: translateX(-50%); background: radial-gradient(closest-side, rgba(255,150,90,.22), rgba(106,164,255,.14) 55%, transparent 72%); pointer-events: none; }
+  h1 { font-size: clamp(2.7rem, 5.5vw, 4.3rem); line-height: 1.05; letter-spacing: -.015em; margin: 0 0 26px; }
+  .hero-day { color: var(--hero-accent, var(--brand)); transition: color 2.6s ease-in-out; }
+  h2 { font-size: clamp(1.9rem, 3.8vw, 2.8rem); line-height: 1.15; letter-spacing: -.025em; margin: 0 0 22px; }
+  h3 { font-size: 1.25rem; line-height: 1.35; margin: 0 0 14px; }
+  .lead { margin-bottom: 28px; }
+  .section-lead { font-size: 1.12rem; line-height: 1.75; max-width: 65ch; color: var(--muted); margin: 0 0 28px; }
+  .actions { display: flex; flex-wrap: wrap; gap: 12px; }
+  .platform-strip { display: flex; flex-wrap: wrap; justify-content: center; gap: 20px 32px; margin-top: 56px; padding-top: 28px; border-top: 1px solid var(--border-soft); }
+  .platform-strip a { display: flex; align-items: center; gap: 9px; color: var(--text); font-weight: 600; font-size: .9rem; }
+  .platform-strip :global(.platform-icon) { width: 25px; height: 25px; color: var(--pf); }
+  .support-note { margin-top: 20px; text-align: center; color: var(--muted); font-size: .85rem; }
+  .benefit-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 22px; margin-top: 38px; }
+  .capability { display: flex; flex-direction: column; padding: 30px; border: 1px solid var(--border-soft); border-radius: var(--radius-lg); background: var(--surface); }
+  .capability p, .performance-facts p, .stages p { color: var(--muted); line-height: 1.7; margin: 0 0 22px; }
+  .capability > a { margin-top: auto; font-weight: 600; font-size: .94rem; }
+  .number { color: var(--sun); font: 500 2rem var(--mono); margin-bottom: 26px; }
+  .performance { background: var(--surface); border-block: 1px solid var(--border-soft); }
+  .performance-facts { border-left: 2px solid var(--brand); padding-left: 30px; }
+  .performance-facts article + article { margin-top: 28px; }
+  .performance-facts p { margin-bottom: 0; }
+  .stages { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); list-style: none; padding: 0; margin: 40px 0 24px; gap: 24px; }
+  .stages li { border-top: 2px solid var(--brand); padding-top: 20px; }
+  .stage-number { display: block; color: var(--muted); font: .85rem var(--mono); margin-bottom: 16px; }
+  .stages h3 { font-size: 1.1rem; }
+  .stages p { font-size: .94rem; margin: 0; }
+  .detail-note { color: var(--muted); font-size: .85rem; }
+  .tooling { background: linear-gradient(135deg, color-mix(in srgb, var(--brand) 8%, var(--bg)), var(--bg)); }
+  .ownership-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 22px; margin-top: 36px; }
+  .independent { grid-column: 1 / -1; padding: 40px; background: linear-gradient(120deg, color-mix(in srgb, var(--sun) 9%, var(--surface)), var(--surface)); }
+  .independent p { max-width: 75ch; }
+  .independent > a + a { margin-top: 14px; }
+  .cta-inner { text-align: center; display: flex; flex-direction: column; align-items: center; gap: 20px; padding: 64px 28px; border-radius: var(--radius-lg); background: var(--surface); border: 1px solid var(--border-soft); }
+  .cta-inner h2, .cta-inner p { margin: 0; }
+  .cta-inner p { color: var(--muted); }
+  @media (max-width: 1000px) { .stages { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+  /* .hero-grid/.split and .hero-media stack in styles/global.css, which owns that layout. */
+  @media (max-width: 880px) { .benefit-grid { grid-template-columns: minmax(0, 1fr); gap: 32px; } .hero { padding-top: 40px; } }
+  @media (max-width: 560px) { .ownership-grid, .stages { grid-template-columns: minmax(0, 1fr); } .capability, .independent { padding: 24px; } .platform-strip { gap: 18px; } .performance-facts { padding-left: 22px; } }
+  @media (prefers-reduced-motion: reduce) { .hero-day { transition: none; } }
+</style>

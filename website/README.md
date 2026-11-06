@@ -36,6 +36,20 @@ Continue to build and run `npm run linkcheck` for rendered content changes.
 The [maintenance checklist](../website/authoring/maintenance.md) covers review, evidence
 freshness, platform-claim updates, and publication checks.
 
+### Landing page copy review
+
+The [copy review tool](authoring/copy-review/README.md) provides section-by-section alternatives,
+inline editing, and saved choices. It is disabled by default and runs separately from the site.
+Enable it for a local editing session from the repository root:
+
+```sh
+DAY_COPY_REVIEW=1 npm --prefix website run copy:review
+```
+
+Open `http://127.0.0.1:4335/`; stop with Ctrl-C. Ordinary site builds and previews never load
+the review UI. Saved choices and generated snapshots stay under the tool’s ignored `.local/`
+directory. The guide explains how to prepare new alternatives and preserve decisions.
+
 ## Content structure and routes
 
 [`src/data/content-routes.json`](src/data/content-routes.json) assigns every content source one

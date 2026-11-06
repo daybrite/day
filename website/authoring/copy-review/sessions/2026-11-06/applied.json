@@ -1,0 +1,29 @@
+{
+  "applied_at": "2026-11-06T15:02:12.977664+00:00",
+  "source": "website/src/pages/index.astro",
+  "review_revision": "e5616526deeedff286093a0c2356f61f11942a434fe3249d04d5a3ab27ab6628",
+  "review_version": 13,
+  "sections": [
+    "hero",
+    "start",
+    "shared",
+    "native",
+    "library",
+    "extensions",
+    "workflow",
+    "languages"
+  ],
+  "wording": "Exact saved values, including inline edits.",
+  "source_sha256_after": "cdef17bc140ddce8b9a23a0009a7ac876b43c5c3ff22018fb9d27bbe13049da8",
+  "validation": {
+    "rendered_fields_matching_choices": 73,
+    "sections": 8,
+    "production_pages": 198,
+    "internal_links": 4499,
+    "review_ui_in_production": false,
+    "unit_tests": 5,
+    "browser_previews": 32,
+    "browser_edit_save_export": "pass",
+    "review_default": "disabled"
+  }
+}

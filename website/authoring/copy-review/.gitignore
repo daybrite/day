@@ -1,0 +1,3 @@
+# Generated snapshots, local decisions, and browser artifacts never ship with the site.
+.local/
+__pycache__/

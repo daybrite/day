@@ -1,0 +1,47 @@
+/* Copyright © The Daybrite Project
+ * SPDX-License-Identifier: MPL-2.0 */
+/* Temporary review controls, separate from the published site's CSS. */
+[data-review-segment] {position:relative;scroll-margin-top:90px}
+[data-copy-field][hidden], [hidden] {display:none!important}
+body {padding-bottom:220px}
+.review-page-note {padding:9px 24px;background:#192743;color:#fff;text-align:center;font:13px/1.4 system-ui}
+.review-toggle,.review-bar,.review-dialog,.review-section-button {font:14px/1.45 system-ui;color:#172033}
+.review-toggle {position:fixed;z-index:9999;right:18px;bottom:18px;background:#143aa2;color:white;border:0;border-radius:30px;padding:13px 19px;box-shadow:0 3px 20px #0003;cursor:pointer}
+.review-bar {position:fixed;z-index:9998;bottom:76px;left:50%;transform:translateX(-50%);width:min(1000px,calc(100% - 32px));background:#fffffff7;border:1px solid #c9d3e4;border-radius:16px;padding:15px;box-shadow:0 8px 40px #0003;backdrop-filter:blur(14px)}
+.review-bar button,.review-dialog button,.review-bar select {font:inherit;border:1px solid #bdc9da;border-radius:7px;padding:7px 11px;background:white;color:#172033;cursor:pointer;min-height:36px}
+.review-bar button:hover,.review-dialog button:hover {background:#eef3fc}
+.review-bar button:focus-visible,.review-dialog button:focus-visible,.review-section-button:focus-visible,.review-toggle:focus-visible {outline:3px solid #4878e7;outline-offset:3px}
+.review-bar button[aria-pressed=true],button.review-primary {background:#143aa2;color:white;border-color:#143aa2}
+button.review-primary:hover {background:#0e2c80;color:white}
+.review-bar button:disabled {opacity:.6;cursor:wait}
+.review-bar-top,.review-options,.review-actions {display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.review-bar-top strong {margin-right:auto}
+.review-bar-top select {max-width:300px;flex:1;min-width:100px}
+.review-options {margin-top:12px}
+.review-options .review-primary {margin-left:auto}
+.review-actions {margin-top:10px}
+.review-actions button {font-size:12px;padding:5px 9px;min-height:32px}
+.review-status {margin:8px 0 0!important;font-size:12px;color:#40516e;line-height:1.4}
+.review-section-button {position:absolute;right:18px;top:12px;border:1px solid #aabbd6;border-radius:20px;padding:6px 12px;background:#fff;color:#143aa2;cursor:pointer;z-index:2;box-shadow:0 2px 8px #0001}
+.review-dialog {border:1px solid #c9d3e4;border-radius:16px;width:min(1180px,calc(100% - 32px));max-height:90vh;padding:24px;background:#fff;margin:auto;box-shadow:0 18px 80px #0005;overflow:auto}
+.review-dialog::backdrop {background:#0b173170}
+.review-dialog h2 {font-size:23px;line-height:1.2;margin:0;color:#172033}
+.review-dialog h3 {font-size:18px;margin:0 0 12px;color:#172033}
+.review-dialog-head {display:flex;justify-content:space-between;align-items:center;gap:20px;position:sticky;top:-24px;background:#fff;padding:12px 0;z-index:2}
+.review-help {color:#4b5d76;font-size:14px;margin:12px 0 20px}
+.review-comparisons {display:grid;grid-template-columns:1fr 1fr;gap:18px;align-items:start}
+.review-comparison {border:1px solid #c9d3e4;border-radius:10px;padding:20px}
+.review-option-copy {margin-top:20px}
+.review-option-copy p {margin:10px 0;color:#34435a;line-height:1.6;white-space:pre-line}
+.review-option-copy h4 {font-size:24px;line-height:1.2;margin:18px 0 14px;white-space:pre-line;color:#101a2d}
+.review-option-copy h5 {font-size:16px;margin:22px 0 8px;color:#101a2d}
+.review-option-copy .review-copy-a {font-size:13px;color:#143aa2}
+.review-option-copy .review-copy-eyebrow {font-size:12px;color:#64738a}
+.review-edit-fields {display:grid;gap:18px;max-width:800px;margin:0 auto}
+.review-edit-fields label {display:grid;gap:6px;font-weight:600}
+.review-edit-fields textarea {width:100%;font:16px/1.5 system-ui;padding:10px;border:1px solid #aabbd6;border-radius:7px;color:#172033;background:#fff;resize:vertical}
+.review-summary-row {display:flex;align-items:center;gap:16px;padding:16px 0;border-bottom:1px solid #dce3ef}
+.review-summary-row strong {flex:1}.review-summary-row span {color:#53647b}
+.review-dialog>.review-primary {margin-top:20px}
+@media(max-width:650px){body{padding-bottom:310px}.review-bar{bottom:66px;padding:10px;width:calc(100% - 16px)}.review-bar-top strong{width:100%}.review-bar-top select{max-width:none}.review-options .review-primary{margin-left:0}.review-options button{padding:6px 9px}.review-comparisons{grid-template-columns:1fr}.review-dialog{padding:16px}.review-dialog-head{top:-16px}.review-summary-row{flex-wrap:wrap}.review-section-button{font-size:12px;right:10px;top:8px}.review-toggle{bottom:10px;right:10px}}
+@media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important}}

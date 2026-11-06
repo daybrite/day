@@ -24,7 +24,9 @@
     "docs:architecture": "npm run docs:versions && node scripts/check-content-routes.mjs && node scripts/check-sidebar-icons.mjs && node --test scripts/content-routes.test.mjs && npm run tutorials:check",
     "docs:api-references": "node scripts/check-api-references.mjs",
     "tutorials:check": "node --test scripts/tutorials.test.mjs",
-    "docs:versions": "node scripts/check-doc-dependency-versions.mjs"
+    "docs:versions": "node scripts/check-doc-dependency-versions.mjs",
+    "copy:review": "node authoring/copy-review/start.mjs",
+    "copy:review:test": "python3 -B -m unittest discover -s authoring/copy-review -p \"test_*.py\""
   },
   "dependencies": {
     "@astrojs/markdown-remark": "^7.2.3",
@@ -35,6 +37,7 @@
   },
   "devDependencies": {
     "linkinator": "^6.3.0",
-    "pagefind": "^1.3.0"
+    "pagefind": "^1.3.0",
+    "parse5": "7.3.0"
   }
 }
