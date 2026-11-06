@@ -8586,8 +8586,8 @@ supports deterministic delivery plus HTTP idle/total timeouts. Pause/offline/rat
 application-visible behavior rather than OS background scheduling or physical packet loss.
 
 The optional `reqwest` feature supplies async HTTP and tungstenite WebSockets on one process-wide
-Tokio runtime; native remains the default. wasm and HarmonyOS exclude these dependencies and keep
-native transport plus portable simulation. It uses explicit rustls/WebPKI trust, reports only
+Tokio runtime; native remains the default. wasm excludes these dependencies and keeps native
+transport plus portable simulation. It uses explicit rustls/WebPKI trust, reports only
 implemented capabilities, and does not promise system PAC/caches/native-auth equivalence.
 
 Transport observation maintains constant-size aggregate payload counters and the latest 256

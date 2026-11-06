@@ -58,11 +58,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 mod client;
-#[cfg(all(
-    feature = "reqwest",
-    not(target_arch = "wasm32"),
-    not(target_env = "ohos")
-))]
+#[cfg(all(feature = "reqwest", not(target_arch = "wasm32")))]
 mod reqwest_provider;
 mod session;
 pub mod simulation;

@@ -15,17 +15,13 @@ pub(crate) struct Resolved {
 }
 type Factory = dyn Fn(&TransportConfig) -> Arc<dyn Transport> + Send + Sync;
 /// An HTTP/WebSocket provider. Native is the default; custom providers must describe their
-/// capabilities honestly. Reqwest is optional and unavailable on wasm and HarmonyOS.
+/// capabilities honestly. Reqwest is optional and unavailable on wasm.
 #[derive(Clone, Default)]
 pub enum Provider {
     #[default]
     Native,
     Custom(Arc<Factory>),
-    #[cfg(all(
-        feature = "reqwest",
-        not(target_arch = "wasm32"),
-        not(target_env = "ohos")
-    ))]
+    #[cfg(all(feature = "reqwest", not(target_arch = "wasm32")))]
     Reqwest,
 }
 impl Provider {
@@ -38,11 +34,7 @@ impl Provider {
         match self {
             Self::Native => crate::platform_transport(config),
             Self::Custom(f) => f(config),
-            #[cfg(all(
-                feature = "reqwest",
-                not(target_arch = "wasm32"),
-                not(target_env = "ohos")
-            ))]
+            #[cfg(all(feature = "reqwest", not(target_arch = "wasm32")))]
             Self::Reqwest => Arc::new(crate::reqwest_provider::Reqwest::new(config)),
         }
     }

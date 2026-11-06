@@ -647,8 +647,8 @@ Enable `day-part-http`'s **`reqwest` feature** (off by default), then select
 [`Session::set_provider`](https://docs.rs/day-part-http/latest/day_part_http/struct.Session.html#method.set_provider) with [`Provider::Reqwest`](https://docs.rs/day-part-http/latest/day_part_http/enum.Provider.html). It uses reqwest for HTTP, tokio-tungstenite for
 WebSockets, a shared two-worker Tokio runtime, and rustls with WebPKI roots. The native stack
 remains the default even when the feature is compiled. The provider is available on native
-macOS, iOS, Android, Windows, and desktop Linux; its dependencies and enum variant are excluded
-on wasm and HarmonyOS. Those targets retain the native provider and the portable simulator.
+macOS, iOS, Android, Windows, desktop Linux, and HarmonyOS; its dependencies and enum variant
+are excluded on wasm, which retains the native provider and the portable simulator.
 
 It supports streaming, upload progress, cancellation, redirects, portable cookie jars, and
 HTTP authentication handled by [`Client`](https://docs.rs/day-part-http/latest/day_part_http/struct.Client.html). It does **not** claim native PAC/VPN policy parity,
