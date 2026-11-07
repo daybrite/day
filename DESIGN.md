@@ -7961,7 +7961,10 @@ flavored build and the plain one: the step that asserts the base title carries
 while NAME is set to anything but empty, `0`, `false`, `no` or `off`, read from the run's
 `--env NAME=…` (CI's `launch-env`) before the CLI's own environment, so a script can make a
 section switchable without naming targets (the showcase walkthrough's Physics walk carries
-`skip_on: [env:SHOWCASE_SKIP_PHYSICS]`).
+`skip_on: [env:SHOWCASE_SKIP_PHYSICS]`). Day and Showcase CI set that switch only for the
+Android `day-ci-medium-tablet` AVD, detected in `script-setup` after boot. Its known Physics
+animation hang remains unresolved; the skip is reported as a warning and retains coverage on
+phones and other platforms. Local runs leave the switch unset unless explicitly requested.
 
 ---
 

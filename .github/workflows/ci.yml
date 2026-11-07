@@ -544,6 +544,17 @@ jobs:
         "$DAY_BIN" --project showcase-src patch --local "$GITHUB_WORKSPACE" --main --check
       # Spelled out rather than read from this workflow's `env`: a reusable-workflow `with:`
       # block cannot see the `env` context. These are the gallery's variant ids.
+      # The medium_tablet emulator still hangs on the Physics animation (Showcase run
+      # 42388456264). Keep its existing opt-out scoped to this AVD; phones and desktop
+      # targets continue to exercise Physics. Remove this once the emulator hang is fixed.
+      script-setup: |
+        if [ "$DAY_SCRIPT_TARGET" = android-material ]; then
+          AVD_NAME="$("$ANDROID_HOME/platform-tools/adb" -s "$ANDROID_SERIAL" shell getprop ro.boot.qemu.avd_name | tr -d '\r')"
+          if [ "$AVD_NAME" = day-ci-medium-tablet ]; then
+            export SHOWCASE_SKIP_PHYSICS=1
+            echo "::warning::Physics is skipped on medium_tablet because of the known emulator hang."
+          fi
+        fi
       themes: light dark
       locales: en fr ar zh-CN
       # Which dayscripts each target runs, mirroring what the inline legs ran. `auto` is not
