@@ -318,6 +318,81 @@ hears a key there, and a canvas nobody gave a handler to keeps none of them: an 
 arrow keeps walking, so an enclosing scroll view still scrolls and the platform's focus
 navigation still moves between controls.
 
+### The full route
+
+A terminal, a code editor or a game that reads letters needs more than the arrows. Declare
+[`.keyboard()`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.keyboard)
+on a canvas and every key the platform delivers reaches its
+[`.on_key`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.on_key)
+while it is focused:
+
+```rust
+canvas(draw)
+    .keyboard()                              // the whole keyboard, not the arrows and digits
+    .on_key(move |k| match k.typed() {       // Some(text) for a press that typed, None for one that did not
+        Some(text) => term.write(text),
+        None => term.press(&k.key, k.modifiers), // "Enter", "Tab", "F5", or "c" under Control …
+    })
+```
+
+A key press carries two things, and keeps them apart. Its
+[`key`](https://docs.rs/day-spec/latest/day_spec/struct.KeyEvent.html#structfield.key) names the
+key: a key that types nothing by its web name
+([`KeyEvent::NAMED`](https://docs.rs/day-spec/latest/day_spec/struct.KeyEvent.html#associatedconstant.NAMED):
+"Enter", "Tab", "Escape", "Backspace", "Delete", "Home", "End", "PageUp", "PageDown", "Insert",
+the arrows and "F1" through "F12"), a key that types by its unmodified character ("a", "A" under
+Shift, "8", "ü" on a layout that has one). Its
+[`text`](https://docs.rs/day-spec/latest/day_spec/struct.KeyEvent.html#structfield.text) is what
+the press typed, once the platform and the input method are done with it: the character, an
+accented one after a dead key, or the whole phrase an input method committed; and
+[`KeyEvent::typed`](https://docs.rs/day-spec/latest/day_spec/struct.KeyEvent.html#method.typed)
+reads it. The two never blur into each other: an input method that commits the word "Enter"
+delivers text, with no key behind it, and the Enter key delivers a key and no text, so a piece
+that acts on `k.key == "Enter"` is never fooled by typing. A composition in progress types
+nothing until it is committed.
+
+A chord names its key and types nothing: Ctrl+C arrives as "c" with
+[`KeyEvent::CONTROL`](https://docs.rs/day-spec/latest/day_spec/struct.KeyEvent.html#associatedconstant.CONTROL)
+set and no text, never as the control code it would type, so the piece decides what the chord
+means. The Control bit names the physical Control key everywhere; where Ctrl is also the primary
+key (Linux, Windows, Android, Web) a chord sets both bits, and on a Mac ⌃ sets `CONTROL` while
+⌘ sets `PRIMARY`. The platform's command chords keep their owners: ⌘ chords stay with the menu
+on Apple platforms and with the browser on the Web, so a terminal's ⌘C still copies and ⌘Q still
+quits, while a Mac's ⌃C reaches the terminal. Every other chord is the focused piece's before it
+is the menu's: a Linux terminal's Ctrl+C interrupts the program, and the Edit menu's Copy is
+reached from the menu itself. Alt follows the layout: on a Mac ⌥ types (⌥8 is "{" on a German
+keyboard), so the press arrives with its text and the
+[`ALT`](https://docs.rs/day-spec/latest/day_spec/struct.KeyEvent.html#associatedconstant.ALT) bit
+and the piece chooses between the two; on Windows and Linux Alt chords, except where the layout's
+AltGr types a character, which arrives as that text. Everything else is claimed, Tab included: a
+piece that took the whole keyboard leaves the platform's focus walking, and a press on another
+piece or writing
+[`.focused(false)`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.focused)
+gives the keyboard back. A declaration with no
+[`.on_key`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.on_key)
+behind it claims nothing.
+
+On a phone the declaration also raises the soft keyboard when the piece takes focus, the way a
+text field does, and what the keyboard types arrives through the same handler: its delete key
+is "Backspace" and its return key "Enter". The keyboard is a raw-text one (no autocorrection, no
+capitalization, no smart punctuation) because a piece that takes keys wants what was typed. On
+Android the keyboard composes the way it would in a field (a word being suggested, a Pinyin
+reading) and the piece hears the committed text once. On iOS the canvas is a `UIKeyInput`
+client, which the ASCII-capable keyboards type into a character at a time; a multistage input
+method (Chinese, Japanese) needs the full `UITextInput` contract, which a canvas does not offer
+yet, so those keyboards are not offered to it.
+
+| Toolkit | Underneath |
+| --- | --- |
+| appkit | `keyDown:` on the canvas. A ⌘ chord goes back to AppKit first; a key that types nothing is named; a ⌃ chord names its key; everything else goes to the text input system (`interpretKeyEvents:`), and the canvas is its `NSTextInputClient`: a dead key marks, an input method composes, and `insertText:` delivers what was typed, once |
+| uikit | the canvas adopts `UIKeyInput` once it took the keyboard (it answers `conformsToProtocol:` itself), so the soft keyboard rises for it and `insertText:`/`deleteBackward` are the route; a hardware key that types nothing, or a ⌃/⌥ chord, is claimed in `pressesBegan:`, the rest of the press set goes to `super`, which delivers a text key once through `insertText:` |
+| android | `onCreateInputConnection` returns a `BaseInputConnection` with an editable of its own: the input method composes in it and the committed text goes once (`commitText`, `finishComposingText`); its deletes outside a composition are the delete keys, `performEditorAction` is Enter; `onKeyDown` names every hardware key |
+| gtk | `EventControllerKey` on the canvas, with a `GtkIMMulticontext` ahead of it: the context composes dead keys and the user's input method and commits text; a key it lets through is named, or typed |
+| qt | the key filter: `QInputMethodEvent` commits are text, `ShortcutOverride` claims every chord but a Mac's ⌘ ahead of the application's shortcuts, `QKeyEvent::text()` names what a key typed, the key's own letter names a chord |
+| winui | `KeyDown` for a key that types nothing or a Ctrl/Alt chord (its key named by the layout, so Ctrl+[ is "["), `CharacterReceived` for the text with a surrogate pair joined into its one character, `ProcessKeyboardAccelerators` handled so a chord is the canvas's before an accelerator's; AltGr types |
+| web-dom | a transparent `<textarea>` over the canvas takes the focus for it: its `keydown` names the keys that type nothing and the chords, its `input` and `compositionend` deliver the text after the browser and the input method composed it, and it raises a phone's keyboard; a `metaKey` chord and the browser's paste stay the browser's |
+| arkui | the node key event, by `OH_ArkUI_KeyEvent_GetUnicode` or the key's own character under a chord; hardware keyboards only, since a canvas is not an input-method client there |
+
 The payload format is the app's own; Day-Sketch uses a standalone SVG document, so shapes
 paste into anything that reads SVG and SVG from other editors pastes back. day places the
 payload on the system clipboard ([day-part-clipboard](/docs/reference/clipboard)) and reads it back for paste; on Web

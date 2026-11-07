@@ -89,8 +89,7 @@ DRAFTS = {
 'Assert behavior →', 'Find controls by stable IDs, perform actions, and check the results with DayScript.',
 'Compare screenshots →', 'Capture the same point in a walkthrough in different languages and themes.',
 'Prepare packages →', 'Build installers and mobile packages with day pack. Review signing status before distributing them.',
-'Collect crash reports →', 'The crash-reporting extension records reports on the device. Users choose whether to send them by email, GitHub issue, or HTTP.',
-'Each target needs its SDK. Signing credentials and store accounts are required for distribution.']),
+]),
 ('Day-to-day development', [
 '', 'A workflow you can repeat',
 'Create the project, run it, check the UI, and prepare a release. Day’s CLI handles the build steps; walkthrough scripts give you repeatable checks for the app.',
@@ -99,8 +98,7 @@ DRAFTS = {
 'Test the UI →', 'Use stable control IDs in a DayScript walkthrough and run the same interactions on your targets.',
 'Capture the result →', 'Add screenshots to the walkthrough to inspect translated layouts and theme changes.',
 'Build a release →', 'day pack prepares installers and mobile packages and reports their signing status.',
-'Investigate crashes →', 'Add on-device crash reports that users can choose to share by email, GitHub issue, or HTTP.',
-'You’ll still need the platform SDKs, plus signing credentials and store accounts for distribution.']),
+]),
 ('Release confidence', [
 '', 'Check the build you’re about to ship',
 'A feature working on your laptop is a start. Use DayScript to exercise it on other targets, then inspect screenshots of the same flow before packaging the release.',
@@ -109,8 +107,7 @@ DRAFTS = {
 'Repeat the flow →', 'A DayScript walkthrough locates controls by stable IDs and checks the app’s responses.',
 'Inspect the screens →', 'Capture the flow in different languages and themes to review the layout.',
 'Build the package →', 'Create installers and mobile packages with day pack and check their signing status.',
-'Receive crash reports →', 'Users can send reports collected by the crash-reporting extension through email, GitHub issues, or HTTP.',
-'Building requires each target’s SDK. Distribution also requires the appropriate signing credentials and store accounts.']),
+]),
 ('CLI and automation', [
 'Development tools', 'Put the routine work in scripts',
 'Day provides a common CLI for setup, builds, tests, and packaging. Keep a UI walkthrough with the app so you can repeat the checks as the code changes.',
@@ -119,8 +116,7 @@ DRAFTS = {
 'UI automation →', 'DayScript uses stable control IDs for actions and assertions across targets.',
 'Screen captures →', 'Walkthroughs can capture screenshots for several languages and themes.',
 'Release packages →', 'day pack creates installers and mobile packages. Check signing status before release.',
-'Crash reporting →', 'Collect reports on the device and let users choose to submit them by email, GitHub issue, or HTTP.',
-'The CLI uses the platform SDKs. Signing credentials and store accounts remain part of your release setup.']),
+]),
 ],
 'library': [
 ('Build on existing code', ['', 'You’ve already written the hard part.', 'Keep your parser, database, or other Rust library and build a native UI around it. Day screens can call it directly. Check its dependencies on each target you want to support.', 'See the project structure →']),

@@ -467,6 +467,9 @@ function collectAppMenuKeys(items, out) {
 document.addEventListener('keydown', (e) => {
   if (!appMenuKeys.length || e.isComposing) return;
   const t = e.target;
+  // A canvas that took the whole keyboard (docs/menus.md "The full route") owns every chord
+  // but the browser's own (⌘ on a Mac): its Ctrl+C is the terminal's, not the menu's.
+  if (t && t.dataset && t.dataset.dayTextHost && !e.metaKey) return;
   const editable = t && t.closest && t.closest('input, textarea, [contenteditable]');
   const primary = e.metaKey || e.ctrlKey;
   const key = e.key.length === 1 ? e.key.toLowerCase() : e.key;
@@ -1056,10 +1059,105 @@ const env = {
     el.tabIndex = 0;
     if (el.dataset.dayKeynav) return;
     el.dataset.dayKeynav = 'true';
-    el.addEventListener('focus', () => wasm.day_dom_event(id, 7, 1, 0, 0, 0));
-    el.addEventListener('blur', () => wasm.day_dom_event(id, 7, 0, 0, 0, 0));
+    // The full route's input host (docs/menus.md "The full route"). A <canvas> cannot hold a
+    // composition, take a dead key or raise a phone's keyboard, so a canvas that took the
+    // whole keyboard focuses a transparent <textarea> laid over it instead. The host's
+    // keydown names the keys that type nothing and the chords; its input and composition
+    // events deliver the text, once, after the browser and the input method have composed
+    // it. Day sees one focus: the canvas's, held by either element.
+    const NAMED = ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Enter', 'Tab', 'Escape', 'Backspace',
+      'Delete', 'Home', 'End', 'PageUp', 'PageDown', 'Insert', 'F1', 'F2', 'F3', 'F4', 'F5', 'F6', 'F7', 'F8',
+      'F9', 'F10', 'F11', 'F12'];
+    const MODIFIERS = ['Shift', 'Control', 'Alt', 'Meta', 'CapsLock', 'NumLock', 'ScrollLock', 'Fn', 'AltGraph'];
+    const isMac = /Mac|iPhone|iPad/.test(navigator.platform || '');
+    let host = null;
+    let lastKey = null;
+    let reported = false;
+    const takesKeyboard = () => !!wasm.day_dom_canvas_text(id);
+    const send = (key, text, mods) => {
+      const [kp, kl] = intoWasm(key);
+      const [tp, tl] = text ? intoWasm(text) : [0, 0];
+      return wasm.day_dom_canvas_text_key(id, kp, kl, tp, tl, mods);
+    };
+    // One focus report for the pair: what matters is whether either element holds it.
+    const reportFocus = () => queueMicrotask(() => {
+      const has = document.activeElement === el || (host && document.activeElement === host);
+      if (has === reported) return;
+      reported = has;
+      wasm.day_dom_event(id, 7, has ? 1 : 0, 0, 0, 0);
+    });
+    const textHost = () => {
+      if (host) return host;
+      host = document.createElement('textarea');
+      host.className = 'day-canvas-text-host';
+      host.setAttribute('aria-hidden', 'true');
+      host.setAttribute('autocapitalize', 'off');
+      host.setAttribute('autocomplete', 'off');
+      host.setAttribute('autocorrect', 'off');
+      host.spellcheck = false;
+      host.tabIndex = -1;
+      host.dataset.dayTextHost = String(id);
+      Object.assign(host.style, { position: 'fixed', left: '0', top: '0', width: '1px', height: '1px',
+        opacity: '0', padding: '0', border: '0', margin: '0', resize: 'none', overflow: 'hidden',
+        pointerEvents: 'none', zIndex: '-1' });
+      document.body.appendChild(host);
+      host.addEventListener('focus', reportFocus);
+      host.addEventListener('blur', () => { host.value = ''; lastKey = null; reportFocus(); });
+      host.addEventListener('keydown', (e) => {
+        // Mid-composition the input method owns the keys; a lone modifier is not a key; a
+        // ⌘ chord is the browser's, and so is its paste, which types into the host below.
+        if (e.isComposing || e.key === 'Process' || e.key === 'Dead' || e.key === 'Unidentified') return;
+        if (MODIFIERS.includes(e.key) || e.metaKey) return;
+        const mods = (e.shiftKey ? 1 : 0) | (e.ctrlKey ? 2 | 8 : 0) | (e.altKey ? 4 : 0);
+        const paste = e.ctrlKey && !e.altKey && e.key.toLowerCase() === 'v';
+        if (paste) return;
+        // A chord types nothing: Ctrl anywhere, Alt where Alt does not type (on a Mac ⌥ does,
+        // and its glyph arrives through `input` with the Alt bit kept).
+        const chord = e.ctrlKey || (e.altKey && !isMac);
+        if (NAMED.includes(e.key) || chord) {
+          if (send(e.key, null, mods)) e.preventDefault();
+          return;
+        }
+        // What types reaches `input`, named by this key.
+        lastKey = { key: e.key.length === 1 ? e.key : '', mods };
+      });
+      host.addEventListener('input', (e) => {
+        // A composition's text comes once, from compositionend; a paste comes as the
+        // browser's own text; anything else is the key that just typed.
+        if (e.isComposing || e.inputType === 'insertCompositionText' || e.inputType === 'insertFromComposition') return;
+        const text = e.data != null ? e.data : host.value;
+        host.value = '';
+        if (!text) return;
+        const byKey = lastKey && lastKey.key && [...text].length === 1 && e.inputType === 'insertText';
+        send(byKey ? lastKey.key : '', text, byKey ? lastKey.mods : 0);
+        lastKey = null;
+      });
+      host.addEventListener('compositionend', (e) => {
+        host.value = '';
+        lastKey = null;
+        if (e.data) send('', e.data, 0);
+      });
+      return host;
+    };
+    // Put the host where the canvas is, so a phone scrolls the canvas, not a corner, into view.
+    const focusHost = () => {
+      const h = textHost();
+      const r = el.getBoundingClientRect();
+      h.style.left = `${Math.max(0, r.left)}px`;
+      h.style.top = `${Math.max(0, r.top)}px`;
+      h.focus({ preventScroll: true });
+    };
+    el.addEventListener('focus', () => {
+      if (takesKeyboard()) { focusHost(); return; }
+      reportFocus();
+    });
+    el.addEventListener('blur', reportFocus);
     el.addEventListener('pointerdown', e => {
       if (e.target.closest('button,input,select,textarea,a,[contenteditable]')) return;
+      if (takesKeyboard()) {
+        if (!host || document.activeElement !== host) focusHost();
+        return;
+      }
       if (document.activeElement !== el) el.focus({ preventScroll: true });
     });
     el.addEventListener('keydown', (e) => {

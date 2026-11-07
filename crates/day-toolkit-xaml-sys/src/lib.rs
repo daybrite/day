@@ -289,7 +289,8 @@ unsafe extern "C" {
     pub fn day_xaml_canvas_new(
         id: u64,
         handles: extern "C" fn(u64) -> c_int,
-        cb: extern "C" fn(u64, *const c_char, c_int),
+        handles_text: extern "C" fn(u64) -> c_int,
+        cb: extern "C" fn(u64, *const c_char, *const c_char, c_int),
     ) -> *mut c_void;
     /// Render a canvas display list (day_spec::encode_ops output) into the Canvas.
     pub fn day_xaml_canvas_set_ops(

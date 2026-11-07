@@ -13,9 +13,9 @@ import { primaryPlatforms } from '../lib/platforms.mjs';
 
 const platforms = primaryPlatforms.filter((p) => p.tier <= 2 && p.id !== 'linux-qt');
 const benefits = [
-  { number: '01', title: 'One place for UI changes', body: 'Compose screens with Rust functions. The same definitions can be used by your desktop and mobile builds.', link: 'Explore the app structure', path: 'docs/overview' },
-  { number: '02', title: 'Packages for each target', body: 'Use the same project to prepare installers and mobile packages, then manage store listings and submissions.', link: 'See the release tools', path: 'docs/how-to/app-store-submissions' },
-  { number: '03', title: 'Native features when you need them', body: 'Extend the app with platform controls and services. Provide a fallback where the feature isn’t supported.', link: 'Add platform features', path: 'docs/extending' },
+  { title: 'One place for UI changes', body: 'Compose screens with Rust functions. The same definitions can be used by your desktop and mobile builds.', link: 'Explore the app structure', path: 'docs/overview' },
+  { title: 'Packages for each target', body: 'Use the same project to prepare installers and mobile packages, then manage store listings and submissions.', link: 'See the release tools', path: 'docs/how-to/app-store-submissions' },
+  { title: 'Native features when you need them', body: 'Extend the app with platform controls and services. Provide a fallback where the feature isn’t supported.', link: 'Add platform features', path: 'docs/extending' },
 ];
 const stages = [
   { title: 'Edit', body: 'Use the VS Code extension to choose targets, build, and launch your app from the editor.', path: 'docs/how-to/vscode' },
@@ -23,7 +23,6 @@ const stages = [
   { title: 'Test', body: 'Write a DayScript walkthrough that finds controls by stable IDs. Reuse it across targets to check the same behavior.', path: 'docs/dayscript' },
   { title: 'Capture', body: 'Use screenshot steps in that walkthrough to capture the same screens in different languages and themes.', path: 'docs/dayscript' },
   { title: 'Package', body: 'Build installers and mobile packages with day pack. Check the reported signing status before distributing them.', path: 'docs/packaging' },
-  { title: 'Diagnose', body: 'Add Day’s crash-reporting extension to collect reports on the device. People can choose to send them by email, GitHub issue, or HTTP.', path: 'docs/guide-crash-reporting' },
 ];
 ---
 <BaseLayout>
@@ -42,18 +41,18 @@ const stages = [
       <div class="hero-media"><HeroCarousel /></div>
     </div>
     <div class="container platform-strip" aria-label="Target platforms">
-      {platforms.map((p) => <a href={url(`docs/platforms/${p.id}`)} data-pf={p.id}><PlatformIcon id={p.id} class="platform-icon" /><span>{p.os}</span></a>)}
+      {platforms.map((p) => <a href={url(`docs/platforms/${p.id}`)} data-pf={p.id}><PlatformIcon id={p.id} class="platform-icon" /><span>{p.osShort ?? p.os}</span></a>)}
     </div>
-    <p class="container support-note">macOS, iOS, and Android are Tier 1; Windows and Linux are Tier 2. HarmonyOS is experimental. <a href={url('docs/reference/platforms')}>See current platform support →</a></p>
+    <p class="container support-note"><a href={url('docs/reference/platforms')}>See current platform support →</a></p>
   </section>
 
   <section class="section">
     <div class="container">
       <p class="eyebrow">Desktop and mobile</p>
       <h2>Share more than just the business logic</h2>
-      <p class="section-lead">Day lets you reuse the interface as well as the data model. Your layouts and event handlers are Rust code, backed by the UI toolkit on each platform. No bridging between disparate programming languages.</p>
+      <p class="section-lead">Day lets you reuse the interface as well as the data model. Your layouts and event handlers are Rust code, backed by the UI toolkit on each platform. No bridging between disparate programming languages is required (although you can if you want to).</p>
       <div class="benefit-grid">
-        {benefits.map((item) => <article class="capability"><span class="number" aria-hidden="true">{item.number}</span><h3>{item.title}</h3><p>{item.body}</p><a href={url(item.path)}>{item.link} →</a></article>)}
+        {benefits.map((item) => <article class="capability"><h3>{item.title}</h3><p>{item.body}</p><a href={url(item.path)}>{item.link} →</a></article>)}
       </div>
     </div>
   </section>
@@ -61,7 +60,7 @@ const stages = [
   <section class="section performance" id="let-your-app-shine">
     <div class="container split">
       <div>
-        <p class="eyebrow">For Rust-first world</p>
+        <p class="eyebrow">For A Rust-First World</p>
         <h2>Give your Rust code<br />a native interface.</h2>
         <p class="section-lead">Connect your data models and libraries directly to UI code without crossing language barriers. Compose controls with ordinary functions and attach them to reactive signals that update the interface when data changes.</p>
         <p class="section-lead">Day uses AppKit on macOS, UIKit on iOS, Material Components on Android, and desktop toolkits on Windows and Linux. Standard controls use toolkit widgets; composed controls and custom drawing have their own implementations. Appearance and capabilities beyond the core components vary by target.</p>
@@ -77,19 +76,18 @@ const stages = [
 
   <section class="section lifecycle">
     <div class="container">
-      <p class="eyebrow">For small teams maintaining several builds</p>
-      <h2>Reuse the tests<br />along with the app.</h2>
-      <p class="section-lead">Every platform adds builds to check and packages to prepare. Day gives you a common CLI and UI test format: the same walkthrough can exercise a feature on several targets and capture its translated screens.</p>
+      <p class="eyebrow">Continuous verification across all platforms</p>
+      <h2>Automation done right</h2>
+      <p class="section-lead">DayScript is Day's testing and automation driver. The same walkthrough can exercise a feature on several targets and grab screenshots. Run it locally while developing your app, then fan out across all the targets and locales in CI to verify behavior and generate screenshots. <a href={url('docs/how-to/dayscript')}>DayScript overview →</a></p>
       <ol class="stages">
-        {stages.map((stage, i) => <li><span class="stage-number" aria-hidden="true">{String(i + 1).padStart(2, '0')}</span><h3><a href={url(stage.path)}>{stage.title} →</a></h3><p>{stage.body}</p></li>)}
+        {stages.map((stage) => <li><h3><a href={url(stage.path)}>{stage.title} →</a></h3><p>{stage.body}</p></li>)}
       </ol>
-      <p class="detail-note">Builds still require the platform SDKs. Distribution requires the signing credentials and store accounts applicable to your chosen platforms.</p>
     </div>
   </section>
 
   <section class="section tooling">
     <div class="container">
-      <p class="eyebrow">Existing Rust code</p>
+      <p class="eyebrow">Your gateway to a massive ecosystem</p>
       <h2>Keep the library. Add the interface.</h2>
       <p class="section-lead">Your data model can stay in its Cargo crate. Add a Day UI around, then build and deploy for every desktop and mobile target its dependencies support. Use any of the hundreds of thousands of libraries on crates.io without jumping through any hoops.</p>
       <a href={url('docs/explanation/overview')}>How a Day project fits together →</a>
@@ -98,8 +96,8 @@ const stages = [
 
   <section class="section">
     <div class="container">
-      <p class="eyebrow">For apps serving multilingual communities</p>
-      <h2>The world doesn’t all speak a single language.<br />Or use a mouse.</h2>
+      <p class="eyebrow">l10n, i18n, a11y, oh my!</p>
+      <h2>First-class accessibility and localization support</h2>
       <div class="ownership-grid">
         <article class="capability"><h3>Keep your app’s meaning across languages.</h3><p>Keep translations in Fluent catalogs. Day generates typed Rust accessors so the UI and its message arguments are checked together at build time. Use the same UI walkthrough in several languages to check translated screens.</p><a href={url('docs/how-to/localization')}>See how localization works →</a></article>
         <article class="capability"><h3>Connect to native accessibility.</h3><p>Native controls supply accessibility roles and actions. Day’s shared API lets you annotate controls; on macOS and iOS, DayScript can verify their labels, roles, and values against the native accessibility tree.</p><a href={url('docs/how-to/accessibility')}>See accessibility support and limits →</a></article>
@@ -145,19 +143,27 @@ const stages = [
   .support-note { margin-top: 20px; text-align: center; color: var(--muted); font-size: .85rem; }
   .benefit-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 22px; margin-top: 38px; }
   .capability { display: flex; flex-direction: column; padding: 30px; border: 1px solid var(--border-soft); border-radius: var(--radius-lg); background: var(--surface); }
+  /* Mix the accents with the theme surface so both palettes keep readable text. */
+  .benefit-grid .capability {
+    --card-start: var(--brand);
+    --card-end: var(--pf-linux-gtk);
+    background: linear-gradient(135deg,
+      color-mix(in srgb, var(--card-start) 16%, var(--surface)),
+      color-mix(in srgb, var(--card-end) 8%, var(--surface)) 65%,
+      var(--surface));
+  }
+  .benefit-grid .capability:nth-child(2) { --card-start: var(--sun-2); --card-end: var(--sun); }
+  .benefit-grid .capability:nth-child(3) { --card-start: var(--pf-macos-appkit); --card-end: var(--brand); }
   .capability p, .performance-facts p, .stages p { color: var(--muted); line-height: 1.7; margin: 0 0 22px; }
   .capability > a { margin-top: auto; font-weight: 600; font-size: .94rem; }
-  .number { color: var(--sun); font: 500 2rem var(--mono); margin-bottom: 26px; }
   .performance { background: var(--surface); border-block: 1px solid var(--border-soft); }
   .performance-facts { border-left: 2px solid var(--brand); padding-left: 30px; }
   .performance-facts article + article { margin-top: 28px; }
   .performance-facts p { margin-bottom: 0; }
   .stages { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); list-style: none; padding: 0; margin: 40px 0 24px; gap: 24px; }
   .stages li { border-top: 2px solid var(--brand); padding-top: 20px; }
-  .stage-number { display: block; color: var(--muted); font: .85rem var(--mono); margin-bottom: 16px; }
   .stages h3 { font-size: 1.1rem; }
   .stages p { font-size: .94rem; margin: 0; }
-  .detail-note { color: var(--muted); font-size: .85rem; }
   .tooling { background: linear-gradient(135deg, color-mix(in srgb, var(--brand) 8%, var(--bg)), var(--bg)); }
   .ownership-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 22px; margin-top: 36px; }
   .independent { grid-column: 1 / -1; padding: 40px; background: linear-gradient(120deg, color-mix(in srgb, var(--sun) 9%, var(--surface)), var(--surface)); }

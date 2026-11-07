@@ -5578,11 +5578,49 @@ pub extern "C" fn day_dom_canvas_key(el: u32, code: u32, modifiers: u32) -> u32 
         }
         emit(
             node,
-            Event::Key(day_spec::KeyEvent {
-                key: key.to_string(),
-                modifiers: modifiers as u8,
-            }),
+            Event::Key(day_spec::KeyEvent::named(key, modifiers as u8)),
         );
+        1
+    })
+}
+
+/// Whether this canvas took the whole keyboard (`Decorate::keyboard`, docs/menus.md): the
+/// shim asks on every key, before it names one.
+#[unsafe(no_mangle)]
+pub extern "C" fn day_dom_canvas_text(el: u32) -> u32 {
+    day_spec::ffi_guard::contain(0, || {
+        u32::from(node_of(el).is_some_and(day_spec::keys::text))
+    })
+}
+
+/// A key on the full route (docs/menus.md "The full route"): `key`/`key_len` the browser's
+/// `KeyboardEvent.key`, which is day's own vocabulary (empty for text no single key is
+/// behind), `text`/`text_len` what it typed (`text_len` 0 for a key that typed nothing),
+/// `modifiers` the day mask. Returns whether the app claimed it.
+#[unsafe(no_mangle)]
+pub extern "C" fn day_dom_canvas_text_key(
+    el: u32,
+    key: *mut u8,
+    key_len: usize,
+    text: *mut u8,
+    text_len: usize,
+    modifiers: u32,
+) -> u32 {
+    let key = take_string(key, key_len);
+    let text = (text_len > 0).then(|| take_string(text, text_len));
+    day_spec::ffi_guard::contain(0, move || {
+        let Some(node) = node_of(el) else {
+            return 0;
+        };
+        if !day_spec::keys::handled(node) {
+            return 0;
+        }
+        let modifiers = modifiers as u8;
+        let event = match text {
+            Some(text) => day_spec::KeyEvent::typed_by(key, text, modifiers),
+            None => day_spec::KeyEvent::named(key, modifiers),
+        };
+        emit(node, Event::Key(event));
         1
     })
 }

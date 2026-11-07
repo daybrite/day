@@ -850,7 +850,83 @@ mod imp {
         if f.contains(objc2_ui_kit::UIKeyModifierFlags::Alternate) {
             m |= day_spec::KeyEvent::ALT;
         }
+        if f.contains(objc2_ui_kit::UIKeyModifierFlags::Control) {
+            m |= day_spec::KeyEvent::CONTROL;
+        }
         m
+    }
+
+    /// The web name for a hardware key that types nothing (docs/menus.md "The full route"),
+    /// or `None` for a key that types.
+    fn named_key(key: &objc2_ui_kit::UIKey) -> Option<&'static str> {
+        use objc2_ui_kit::UIKeyboardHIDUsage as U;
+        Some(match unsafe { key.keyCode() } {
+            U::KeyboardLeftArrow => "ArrowLeft",
+            U::KeyboardRightArrow => "ArrowRight",
+            U::KeyboardUpArrow => "ArrowUp",
+            U::KeyboardDownArrow => "ArrowDown",
+            U::KeyboardReturnOrEnter | U::KeypadEnter | U::KeyboardReturn => "Enter",
+            U::KeyboardTab => "Tab",
+            U::KeyboardEscape => "Escape",
+            U::KeyboardDeleteOrBackspace => "Backspace",
+            U::KeyboardDeleteForward => "Delete",
+            U::KeyboardHome => "Home",
+            U::KeyboardEnd => "End",
+            U::KeyboardPageUp => "PageUp",
+            U::KeyboardPageDown => "PageDown",
+            U::KeyboardInsert => "Insert",
+            U::KeyboardF1 => "F1",
+            U::KeyboardF2 => "F2",
+            U::KeyboardF3 => "F3",
+            U::KeyboardF4 => "F4",
+            U::KeyboardF5 => "F5",
+            U::KeyboardF6 => "F6",
+            U::KeyboardF7 => "F7",
+            U::KeyboardF8 => "F8",
+            U::KeyboardF9 => "F9",
+            U::KeyboardF10 => "F10",
+            U::KeyboardF11 => "F11",
+            U::KeyboardF12 => "F12",
+            _ => return None,
+        })
+    }
+
+    /// A hardware key press on the full route (`Decorate::keyboard`, docs/menus.md "The full
+    /// route") that `pressesBegan:` claims: a key that types nothing, by its web name, or a
+    /// Control/Option chord, by its unmodified character. `None` for a press that is not the
+    /// canvas's to claim here: a ⌘ chord is a key command's, and a press that types plain
+    /// text goes to `super`, so the text input system delivers it through `insertText:` the
+    /// same way the soft keyboard's text arrives, and a key is never heard twice.
+    fn full_route_press(key: &objc2_ui_kit::UIKey) -> Option<day_spec::KeyEvent> {
+        use objc2_ui_kit::UIKeyModifierFlags as M;
+        let flags = unsafe { key.modifierFlags() };
+        let mods = key_modifiers(flags);
+        if flags.contains(M::Command) {
+            return None;
+        }
+        if let Some(named) = named_key(key) {
+            return Some(day_spec::KeyEvent::named(named, mods));
+        }
+        if !flags.intersects(M::Control | M::Alternate) {
+            return None;
+        }
+        let typed = unsafe { key.charactersIgnoringModifiers() }.to_string();
+        (!typed.is_empty() && !typed.chars().any(char::is_control))
+            .then(|| day_spec::KeyEvent::named(typed, mods))
+    }
+
+    /// Text the soft keyboard (or the text input system, for a hardware key `pressesBegan:`
+    /// left to `super`) inserted into a canvas that took the whole keyboard: a newline is
+    /// the Enter key and a tab the Tab key, anything else is text, named by itself when it
+    /// is one character.
+    fn emit_inserted_text(node: NodeId, text: &str) {
+        let event = match text {
+            "\n" | "\r" => day_spec::KeyEvent::named("Enter", 0),
+            "\t" => day_spec::KeyEvent::named("Tab", 0),
+            "" => return,
+            other => day_spec::KeyEvent::typed_text(other, 0),
+        };
+        emit(node, Event::Key(event));
     }
     /// Apply row-level deltas as animated table updates. Indexes are sequential (each
     /// delta describes the set as the previous ones left it), so each gets its own batch —
@@ -9154,10 +9230,10 @@ mod imp {
                         };
                         emit(
                             node,
-                            Event::Key(day_spec::KeyEvent {
-                                key: name.to_string(),
-                                modifiers: key_modifiers(unsafe { key.modifierFlags() }),
-                            }),
+                            Event::Key(day_spec::KeyEvent::named(
+                                name,
+                                key_modifiers(unsafe { key.modifierFlags() }),
+                            )),
                         );
                         any = true;
                     }
@@ -9202,6 +9278,99 @@ mod imp {
             #[unsafe(method(canBecomeFirstResponder))]
             fn can_become_first_responder(&self) -> bool {
                 true
+            }
+
+            // The soft keyboard (docs/menus.md "The full route"). UIKit raises it for a first
+            // responder that adopts `UIKeyInput`, and asks the responder itself whether it
+            // does: a canvas that took the whole keyboard answers yes, every other canvas
+            // answers as a plain view, so a drawing app's canvas never raises a keyboard it
+            // cannot use. The traits say "raw text": no autocorrection, no capitalization,
+            // no smart punctuation — a terminal gets exactly what was typed. `UIKeyInput`
+            // alone has no marked text, so the keyboard type is ASCII-capable: the keyboards
+            // that type a character per key. A multistage input method (Chinese, Japanese)
+            // needs the full `UITextInput` contract, which a canvas does not offer yet; the
+            // docs say so.
+            #[unsafe(method(conformsToProtocol:))]
+            fn conforms_to_protocol(&self, protocol: &objc2::runtime::AnyProtocol) -> bool {
+                let ptr = (self as *const DayCanvasView).cast::<UIView>() as usize;
+                let takes_keyboard = KEY_NODES
+                    .with(|t| t.get(ptr))
+                    .is_some_and(|node| day_spec::ffi_guard::contain(false, || day_spec::keys::text(node)));
+                let adopted = matches!(
+                    protocol.name().to_bytes(),
+                    b"UIKeyInput" | b"UITextInputTraits"
+                );
+                // No early `return`: the method body is wrapped, and a `return` would hand
+                // the wrapper a `bool` where it expects an ObjC `Bool`.
+                if takes_keyboard && adopted {
+                    true
+                } else {
+                    unsafe { msg_send![super(self), conformsToProtocol: protocol] }
+                }
+            }
+
+            #[unsafe(method(hasText))]
+            fn has_text(&self) -> bool {
+                true
+            }
+
+            #[unsafe(method(insertText:))]
+            fn insert_text(&self, text: &NSString) {
+                let ptr = (self as *const DayCanvasView).cast::<UIView>() as usize;
+                let text = text.to_string();
+                if let Some(node) = KEY_NODES.with(|t| t.get(ptr)) {
+                    day_spec::ffi_guard::contain((), || emit_inserted_text(node, &text));
+                }
+            }
+
+            #[unsafe(method(deleteBackward))]
+            fn delete_backward(&self) {
+                let ptr = (self as *const DayCanvasView).cast::<UIView>() as usize;
+                if let Some(node) = KEY_NODES.with(|t| t.get(ptr)) {
+                    day_spec::ffi_guard::contain((), || {
+                        emit(node, Event::Key(day_spec::KeyEvent::named("Backspace", 0)));
+                    });
+                }
+            }
+
+            #[unsafe(method(autocorrectionType))]
+            fn autocorrection_type(&self) -> objc2_ui_kit::UITextAutocorrectionType {
+                objc2_ui_kit::UITextAutocorrectionType::No
+            }
+
+            #[unsafe(method(autocapitalizationType))]
+            fn autocapitalization_type(&self) -> UITextAutocapitalizationType {
+                UITextAutocapitalizationType::None
+            }
+
+            #[unsafe(method(spellCheckingType))]
+            fn spell_checking_type(&self) -> objc2_ui_kit::UITextSpellCheckingType {
+                objc2_ui_kit::UITextSpellCheckingType::No
+            }
+
+            #[unsafe(method(smartQuotesType))]
+            fn smart_quotes_type(&self) -> objc2_ui_kit::UITextSmartQuotesType {
+                objc2_ui_kit::UITextSmartQuotesType::No
+            }
+
+            #[unsafe(method(smartDashesType))]
+            fn smart_dashes_type(&self) -> objc2_ui_kit::UITextSmartDashesType {
+                objc2_ui_kit::UITextSmartDashesType::No
+            }
+
+            #[unsafe(method(smartInsertDeleteType))]
+            fn smart_insert_delete_type(&self) -> objc2_ui_kit::UITextSmartInsertDeleteType {
+                objc2_ui_kit::UITextSmartInsertDeleteType::No
+            }
+
+            #[unsafe(method(keyboardType))]
+            fn keyboard_type(&self) -> UIKeyboardType {
+                UIKeyboardType::ASCIICapable
+            }
+
+            #[unsafe(method(returnKeyType))]
+            fn return_key_type(&self) -> UIReturnKeyType {
+                UIReturnKeyType::Default
             }
 
             #[unsafe(method(becomeFirstResponder))]
@@ -9252,35 +9421,44 @@ mod imp {
                 event: Option<&objc2_ui_kit::UIPressesEvent>,
             ) {
                 let ptr = (self as *const DayCanvasView).cast::<UIView>() as usize;
-                let handled = day_spec::ffi_guard::contain(false, || {
-                    let Some(node) = KEY_NODES.with(|t| t.get(ptr)) else {
-                        return false;
-                    };
-                    if !day_spec::keys::handled(node) {
-                        return false;
-                    }
-                    let mut any = false;
-                    for press in presses.iter() {
-                        let Some(key) = (unsafe { press.key(self.mtm()) }) else {
-                            continue;
+                // The presses this canvas did not claim go to `super` together, so a text
+                // press in the same set as a claimed arrow still reaches the text input
+                // system, and a set nobody wanted walks the responder chain as before.
+                let unclaimed: Vec<Retained<objc2_ui_kit::UIPress>> =
+                    day_spec::ffi_guard::contain(Vec::new(), || {
+                        let Some(node) = KEY_NODES.with(|t| t.get(ptr)) else {
+                            return presses.iter().map(|p| p.retain()).collect();
                         };
-                        let Some(name) = key_name(&key) else {
-                            continue;
-                        };
-                        emit(
-                            node,
-                            Event::Key(day_spec::KeyEvent {
-                                key: name.to_string(),
-                                modifiers: key_modifiers(unsafe { key.modifierFlags() }),
-                            }),
-                        );
-                        any = true;
-                    }
-                    any
-                });
-                if !handled {
+                        if !day_spec::keys::handled(node) {
+                            return presses.iter().map(|p| p.retain()).collect();
+                        }
+                        let full = day_spec::keys::text(node);
+                        let mut rest = Vec::new();
+                        for press in presses.iter() {
+                            let claimed = match unsafe { press.key(self.mtm()) } {
+                                Some(key) if full => full_route_press(&key),
+                                Some(key) => key_name(&key).map(|name| {
+                                    day_spec::KeyEvent::named(
+                                        name,
+                                        key_modifiers(unsafe { key.modifierFlags() }),
+                                    )
+                                }),
+                                None => None,
+                            };
+                            match claimed {
+                                Some(event) => emit(node, Event::Key(event)),
+                                None => rest.push(press.retain()),
+                            }
+                        }
+                        rest
+                    });
+                if unclaimed.len() == presses.len() {
                     let _: () =
                         unsafe { msg_send![super(self), pressesBegan: presses, withEvent: event] };
+                } else if !unclaimed.is_empty() {
+                    let rest = objc2_foundation::NSSet::from_retained_slice(&unclaimed);
+                    let _: () =
+                        unsafe { msg_send![super(self), pressesBegan: &*rest, withEvent: event] };
                 }
             }
         }

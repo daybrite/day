@@ -12,9 +12,19 @@ import android.graphics.Rect;
 import android.graphics.RectF;
 import android.graphics.pdf.PdfDocument;
 import android.os.Build;
+import android.text.InputType;
+import android.view.KeyCharacterMap;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.view.View;
+import android.text.Editable;
+import android.view.inputmethod.BaseInputConnection;
+import android.view.inputmethod.EditorInfo;
+import android.view.inputmethod.InputConnection;
+import android.view.inputmethod.InputMethodManager;
+import java.util.Arrays;
+import java.util.HashSet;
+import java.util.Set;
 
 /** Replays day's display list (§11). Ops arrive dp-encoded; drawing scales by density. */
 public class DayCanvasView extends View {
@@ -57,22 +67,188 @@ public class DayCanvasView extends View {
     @Override protected void onFocusChanged(boolean gained, int direction, Rect previous) {
         super.onFocusChanged(gained, direction, previous);
         DayBridge.nativeOnEvent(id, DayBridge.K_FOCUS_CHANGED, gained ? 1 : 0, null);
+        // The soft keyboard follows focus for a canvas that took the whole keyboard, the way it
+        // follows a text field's (docs/menus.md "The full route").
+        if (DayBridge.nativeHandlesText(id)) {
+            InputMethodManager imm = (InputMethodManager) getContext()
+                    .getSystemService(Context.INPUT_METHOD_SERVICE);
+            if (imm == null) return;
+            if (gained) imm.showSoftInput(this, 0);
+            else {
+                // A composition in progress goes with the focus: the input method is told
+                // to start over, so it does not commit into whatever is focused next.
+                imm.restartInput(this);
+                imm.hideSoftInputFromWindow(getWindowToken(), 0);
+            }
+        }
     }
 
     // A hardware key while this canvas has focus. A key the route does not carry, and every
     // key when the app registered no handler for the node, goes to `super`, so an unclaimed
     // arrow still moves focus between views.
     @Override public boolean onKeyDown(int keyCode, KeyEvent ev) {
-        String name = keyName(keyCode, ev);
-        if (name != null && DayBridge.nativeHandlesKeys(id)) {
-            int mods = 0;
-            if (ev.isShiftPressed()) mods |= 1; // day KeyEvent::SHIFT
-            if (ev.isCtrlPressed()) mods |= 2;  // PRIMARY
-            if (ev.isAltPressed()) mods |= 4;   // ALT
-            DayBridge.nativeOnEvent(id, DayBridge.K_KEY, mods, name);
+        if (sendKey(id, keyCode, ev)) return true;
+        return super.onKeyDown(keyCode, ev);
+    }
+
+    /** Deliver a hardware key to node `id` on whichever route it took (docs/menus.md), and
+     *  say whether it was claimed. Shared with the focusable containers. */
+    static boolean sendKey(long id, int keyCode, KeyEvent ev) {
+        if (!DayBridge.nativeHandlesKeys(id)) return false;
+        if (!DayBridge.nativeHandlesText(id)) {
+            String name = keyName(keyCode, ev);
+            if (name == null) return false;
+            DayBridge.nativeOnEvent(id, DayBridge.K_KEY, modifiers(ev), name);
             return true;
         }
-        return super.onKeyDown(keyCode, ev);
+        // The full route: a key that types nothing or a chord is a key, what typed is text.
+        String name = fullKeyName(keyCode, ev);
+        if (name == null) return false;
+        int mods = modifiers(ev);
+        boolean altgr = ev.isAltPressed() && name.equals(altGrText(ev));
+        if (altgr) {
+            DayBridge.nativeOnEvent(id, DayBridge.K_TEXT, mods & 1, name);
+        } else if (NAMED.contains(name) || (mods & (2 | 4 | 8)) != 0) {
+            DayBridge.nativeOnEvent(id, DayBridge.K_KEY, mods, name);
+        } else {
+            DayBridge.nativeOnEvent(id, DayBridge.K_TEXT, mods, name);
+        }
+        return true;
+    }
+
+    /** The web names of the keys that type nothing (`day_spec::KeyEvent::NAMED`). */
+    static final Set<String> NAMED = new HashSet<>(Arrays.asList(
+            "ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Enter", "Tab", "Escape", "Backspace",
+            "Delete", "Home", "End", "PageUp", "PageDown", "Insert", "F1", "F2", "F3", "F4", "F5", "F6",
+            "F7", "F8", "F9", "F10", "F11", "F12"));
+
+    /** The day modifier mask for a key event: shift 1, primary 2, alt 4, control 8. Ctrl is
+     *  both the primary key and the Control key here, as on every platform without ⌘. */
+    static int modifiers(KeyEvent ev) {
+        int mods = 0;
+        if (ev.isShiftPressed()) mods |= 1;
+        if (ev.isCtrlPressed()) mods |= 2 | 8;
+        if (ev.isAltPressed()) mods |= 4;
+        return mods;
+    }
+
+    /** The day name for a hardware key on the full route (docs/menus.md "The full route"): a
+     *  key that types nothing by its web name, one that types text by that text. Under Ctrl or
+     *  Alt the unmodified character names it, so Ctrl+C is "c" with the modifier set. Null for
+     *  a press that types nothing (a lone modifier, a dead key) and for a Meta chord. */
+    static String fullKeyName(int keyCode, KeyEvent ev) {
+        switch (keyCode) {
+            case KeyEvent.KEYCODE_DPAD_LEFT: return "ArrowLeft";
+            case KeyEvent.KEYCODE_DPAD_RIGHT: return "ArrowRight";
+            case KeyEvent.KEYCODE_DPAD_UP: return "ArrowUp";
+            case KeyEvent.KEYCODE_DPAD_DOWN: return "ArrowDown";
+            case KeyEvent.KEYCODE_ENTER: case KeyEvent.KEYCODE_NUMPAD_ENTER: return "Enter";
+            case KeyEvent.KEYCODE_TAB: return "Tab";
+            case KeyEvent.KEYCODE_ESCAPE: return "Escape";
+            case KeyEvent.KEYCODE_DEL: return "Backspace";
+            case KeyEvent.KEYCODE_FORWARD_DEL: return "Delete";
+            case KeyEvent.KEYCODE_MOVE_HOME: return "Home";
+            case KeyEvent.KEYCODE_MOVE_END: return "End";
+            case KeyEvent.KEYCODE_PAGE_UP: return "PageUp";
+            case KeyEvent.KEYCODE_PAGE_DOWN: return "PageDown";
+            case KeyEvent.KEYCODE_INSERT: return "Insert";
+            default: break;
+        }
+        if (keyCode >= KeyEvent.KEYCODE_F1 && keyCode <= KeyEvent.KEYCODE_F12) {
+            return "F" + (keyCode - KeyEvent.KEYCODE_F1 + 1);
+        }
+        if (ev.isMetaPressed()) return null;
+        // A layout that types a character under Alt (its AltGr: the @ on a German one) is
+        // typing, not chording: that character is the name, and `sendKey` sends it as text.
+        String altgr = altGrText(ev);
+        if (altgr != null) return altgr;
+        int meta = ev.getMetaState() & ~(KeyEvent.META_CTRL_MASK | KeyEvent.META_ALT_MASK);
+        int c = ev.getUnicodeChar(meta);
+        if (c == 0 || (c & KeyCharacterMap.COMBINING_ACCENT) != 0 || Character.isISOControl(c)) return null;
+        return new String(Character.toChars(c));
+    }
+
+    /** The character a key types under Alt on this layout when that differs from what it
+     *  types without, or null: an Alt that chords types nothing. */
+    static String altGrText(KeyEvent ev) {
+        if (!ev.isAltPressed() || ev.isCtrlPressed()) return null;
+        int with = ev.getUnicodeChar(ev.getMetaState() & ~KeyEvent.META_CTRL_MASK);
+        int without = ev.getUnicodeChar(ev.getMetaState() & ~(KeyEvent.META_CTRL_MASK | KeyEvent.META_ALT_MASK));
+        if (with == 0 || with == without || (with & KeyCharacterMap.COMBINING_ACCENT) != 0
+                || Character.isISOControl(with)) return null;
+        return new String(Character.toChars(with));
+    }
+
+    // The soft keyboard's way in (docs/menus.md "The full route"): a canvas that took the whole
+    // keyboard is an input target whose "text" is the key stream. Raw text, with the
+    // suggestions and the auto-correction off: a terminal wants what was typed. The
+    // connection keeps the editable the contract asks for, so an input method can compose in
+    // it (a Pinyin reading, a word being suggested) the way it would in a field; nothing
+    // reaches Day until the composition is committed or finished, and then the committed
+    // text goes once, as text. Its delete is Backspace, its action key is Enter, and a key
+    // event it synthesizes (an arrow on a keyboard with one) takes the hardware route above.
+    @Override public InputConnection onCreateInputConnection(EditorInfo out) {
+        if (!DayBridge.nativeHandlesText(id)) return super.onCreateInputConnection(out);
+        out.inputType = InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
+                | InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD;
+        out.imeOptions = EditorInfo.IME_ACTION_NONE | EditorInfo.IME_FLAG_NO_EXTRACT_UI
+                | EditorInfo.IME_FLAG_NO_FULLSCREEN;
+        return new BaseInputConnection(this, true) {
+            /** Send what the editable holds, once, and empty it. */
+            private void flush() {
+                Editable e = getEditable();
+                if (e == null) return;
+                String t = e.toString();
+                e.clear();
+                if (!t.isEmpty()) DayBridge.nativeOnEvent(id, DayBridge.K_TEXT, 0, t);
+            }
+            @Override public boolean commitText(CharSequence text, int newCursorPosition) {
+                // The contract: the composing region is replaced by the text. Let the base
+                // class edit the editable, then deliver whatever it holds.
+                boolean ok = super.commitText(text, newCursorPosition);
+                flush();
+                return ok;
+            }
+            @Override public boolean finishComposingText() {
+                // The composition became final without a commit of its own.
+                boolean ok = super.finishComposingText();
+                flush();
+                return ok;
+            }
+            @Override public boolean deleteSurroundingText(int before, int after) {
+                // With nothing composing there is nothing to delete here: the deletes are
+                // key presses for the piece. Under a composition the base class edits it.
+                Editable e = getEditable();
+                if (e != null && e.length() > 0) return super.deleteSurroundingText(before, after);
+                for (int i = 0; i < before; i++) {
+                    DayBridge.nativeOnEvent(id, DayBridge.K_KEY, 0, "Backspace");
+                }
+                for (int i = 0; i < after; i++) {
+                    DayBridge.nativeOnEvent(id, DayBridge.K_KEY, 0, "Delete");
+                }
+                return true;
+            }
+            @Override public boolean deleteSurroundingTextInCodePoints(int before, int after) {
+                Editable e = getEditable();
+                if (e != null && e.length() > 0) return super.deleteSurroundingTextInCodePoints(before, after);
+                return deleteSurroundingText(before, after);
+            }
+            @Override public boolean performEditorAction(int action) {
+                flush();
+                DayBridge.nativeOnEvent(id, DayBridge.K_KEY, 0, "Enter");
+                return true;
+            }
+            @Override public boolean sendKeyEvent(KeyEvent ev) {
+                // A key the input method sends as an event (its Enter, a hardware-style
+                // key): the same route a physical press takes, after any composition.
+                if (ev.getAction() == KeyEvent.ACTION_DOWN) { flush(); return onKeyDown(ev.getKeyCode(), ev); }
+                return true;
+            }
+        };
+    }
+
+    @Override public boolean onCheckIsTextEditor() {
+        return DayBridge.nativeHandlesText(id);
     }
 
     /** The day name for a key the route carries (docs/menus.md), or null. Android draws no

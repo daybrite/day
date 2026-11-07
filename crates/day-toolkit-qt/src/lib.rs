@@ -1096,11 +1096,47 @@ extern "C" fn on_key(id: u64, code: c_int, modifiers: c_int) -> c_int {
         }
         emit(
             node,
-            Event::Key(day_spec::KeyEvent {
-                key: key.to_string(),
-                modifiers: modifiers as u8,
-            }),
+            Event::Key(day_spec::KeyEvent::named(key, modifiers as u8)),
         );
+        1
+    })
+}
+
+/// Whether `id` took the whole keyboard (`Decorate::keyboard`, docs/menus.md): the C++ key
+/// filter asks before it names a letter.
+extern "C" fn on_text_key_query(id: u64) -> c_int {
+    ffi_guard::contain(0, || c_int::from(day_spec::keys::text(NodeId(id))))
+}
+
+/// A key on the full route (docs/menus.md "The full route"): `name` is the day name (empty
+/// for text no single key is behind), `text` what it typed or null, both valid for the call.
+/// Answers whether the app claimed it.
+extern "C" fn on_text_key(
+    id: u64,
+    name: *const c_char,
+    text: *const c_char,
+    modifiers: c_int,
+) -> c_int {
+    ffi_guard::contain(0, || {
+        // SAFETY: the shim passes NUL-terminated UTF-8 strings (or null) that outlive this call.
+        let read = |p: *const c_char| {
+            (!p.is_null()).then(|| {
+                unsafe { std::ffi::CStr::from_ptr(p) }
+                    .to_string_lossy()
+                    .into_owned()
+            })
+        };
+        let key = read(name).unwrap_or_default();
+        let node = NodeId(id);
+        if !day_spec::keys::handled(node) {
+            return 0;
+        }
+        let modifiers = modifiers as u8;
+        let event = match read(text) {
+            Some(text) => day_spec::KeyEvent::typed_by(key, text, modifiers),
+            None => day_spec::KeyEvent::named(key, modifiers),
+        };
+        emit(node, Event::Key(event));
         1
     })
 }
@@ -4956,6 +4992,7 @@ impl Platform for Qt {
             self.window = window;
             ffi::day_qt_set_present_cb(present_cb);
             ffi::day_qt_set_menu_cb(on_menu_action);
+            ffi::day_qt_set_text_keys(on_text_key_query, on_text_key);
             ffi::day_qt_set_toolbar_cb(toolbar::on_toolbar_value);
             ffi::day_qt_set_lifecycle_cb(on_lifecycle);
             ready(self, QtHandle(window), options.size);

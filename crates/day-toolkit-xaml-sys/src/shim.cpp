@@ -2700,7 +2700,8 @@ static std::map<uint64_t, std::vector<uint8_t>>& xaml_bitmaps();
 #include "canvas-winui.inc"
 #else
 void* day_xaml_canvas_new(unsigned long long, int (*)(unsigned long long),
-                          void (*)(unsigned long long, const char*, int)) {
+                          int (*)(unsigned long long),
+                          void (*)(unsigned long long, const char*, const char*, int)) {
     std::fprintf(stderr, "day-toolkit-winui: canvas is unsupported on deprecated windows-xaml\n");
     return day_xaml_container_new();
 }

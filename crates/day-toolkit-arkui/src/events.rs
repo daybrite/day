@@ -8,7 +8,7 @@
 use day_spec::bridge::BridgeKind as K;
 use ohos_sys::arkui::native_key_event::{
     ArkUI_KeyCode, ArkUI_KeyEventType, OH_ArkUI_KeyEvent_GetKeyCode, OH_ArkUI_KeyEvent_GetType,
-    OH_ArkUI_KeyEvent_SetConsumed,
+    OH_ArkUI_KeyEvent_GetUnicode, OH_ArkUI_KeyEvent_SetConsumed,
 };
 use ohos_sys::arkui::native_node::{
     ArkUI_NodeEvent, ArkUI_NodeEventType as Ev, OH_ArkUI_NodeEvent_GetEventType,
@@ -17,7 +17,7 @@ use ohos_sys::arkui::native_node::{
     OH_ArkUI_NodeEvent_GetUserData, OH_ArkUI_NodeEvent_SetReturnNumberValue,
 };
 use ohos_sys::arkui::ui_input_event::{
-    ArkUI_ModifierKeyName, OH_ArkUI_UIInputEvent_GetModifierKeyStates,
+    ArkUI_ModifierKeyName, ArkUI_UIInputEvent, OH_ArkUI_UIInputEvent_GetModifierKeyStates,
     OH_ArkUI_UIInputEvent_GetPressedKeys,
 };
 
@@ -61,6 +61,86 @@ fn key_name(code: ArkUI_KeyCode, held: u64) -> Option<&'static str> {
         return Some(DIGITS[(code.0 - pad0) as usize]);
     }
     None
+}
+
+/// A key on the full route (`Decorate::keyboard`, docs/menus.md "The full route"): the bridge
+/// kind and the name or text to send. A key that types nothing is named by its web name; a
+/// Ctrl or Alt chord names its key (no text comes under those, so the key's own character
+/// names it, the letters cased by Shift, the punctuation keys by what they type unshifted on
+/// the US layout); what is left is the text the event carries
+/// (`OH_ArkUI_KeyEvent_GetUnicode`, which already reflects Shift). `None` for a lone
+/// modifier. Hardware keyboards only: a canvas is not an input-method client on this
+/// platform, and the docs say so.
+unsafe fn full_route_key(
+    input: *const ArkUI_UIInputEvent,
+    code: ArkUI_KeyCode,
+    held: u64,
+) -> Option<(K, String)> {
+    use ArkUI_KeyCode as Code;
+    let named = match code {
+        Code::ARKUI_KEYCODE_DPAD_LEFT => "ArrowLeft",
+        Code::ARKUI_KEYCODE_DPAD_RIGHT => "ArrowRight",
+        Code::ARKUI_KEYCODE_DPAD_UP => "ArrowUp",
+        Code::ARKUI_KEYCODE_DPAD_DOWN => "ArrowDown",
+        Code::ARKUI_KEYCODE_ENTER | Code::ARKUI_KEYCODE_NUMPAD_ENTER => "Enter",
+        Code::ARKUI_KEYCODE_TAB => "Tab",
+        Code::ARKUI_KEYCODE_ESCAPE => "Escape",
+        Code::ARKUI_KEYCODE_DEL => "Backspace",
+        Code::ARKUI_KEYCODE_FORWARD_DEL => "Delete",
+        Code::ARKUI_KEYCODE_MOVE_HOME => "Home",
+        Code::ARKUI_KEYCODE_MOVE_END => "End",
+        Code::ARKUI_KEYCODE_PAGE_UP => "PageUp",
+        Code::ARKUI_KEYCODE_PAGE_DOWN => "PageDown",
+        Code::ARKUI_KEYCODE_INSERT => "Insert",
+        _ => "",
+    };
+    if !named.is_empty() {
+        return Some((K::Key, named.to_string()));
+    }
+    let (f1, f12) = (Code::ARKUI_KEYCODE_F1.0, Code::ARKUI_KEYCODE_F12.0);
+    if (f1..=f12).contains(&code.0) {
+        return day_spec::KeyEvent::function_name((code.0 - f1 + 1) as u8)
+            .map(|name| (K::Key, name.to_string()));
+    }
+    let chord = ArkUI_ModifierKeyName::ARKUI_MODIFIER_KEY_CTRL.0 as u64
+        | ArkUI_ModifierKeyName::ARKUI_MODIFIER_KEY_ALT.0 as u64;
+    if held & chord != 0 {
+        let shift = held & ArkUI_ModifierKeyName::ARKUI_MODIFIER_KEY_SHIFT.0 as u64 != 0;
+        let (a, z) = (Code::ARKUI_KEYCODE_A.0, Code::ARKUI_KEYCODE_Z.0);
+        let (zero, nine) = (Code::ARKUI_KEYCODE_0.0, Code::ARKUI_KEYCODE_9.0);
+        let c = if (a..=z).contains(&code.0) {
+            let letter = (b'a' + (code.0 - a) as u8) as char;
+            if shift {
+                letter.to_ascii_uppercase()
+            } else {
+                letter
+            }
+        } else if (zero..=nine).contains(&code.0) {
+            (b'0' + (code.0 - zero) as u8) as char
+        } else {
+            match code {
+                Code::ARKUI_KEYCODE_SPACE => ' ',
+                Code::ARKUI_KEYCODE_LEFT_BRACKET => '[',
+                Code::ARKUI_KEYCODE_RIGHT_BRACKET => ']',
+                Code::ARKUI_KEYCODE_BACKSLASH => '\\',
+                Code::ARKUI_KEYCODE_SEMICOLON => ';',
+                Code::ARKUI_KEYCODE_APOSTROPHE => '\'',
+                Code::ARKUI_KEYCODE_COMMA => ',',
+                Code::ARKUI_KEYCODE_PERIOD => '.',
+                Code::ARKUI_KEYCODE_SLASH => '/',
+                Code::ARKUI_KEYCODE_GRAVE => '`',
+                Code::ARKUI_KEYCODE_MINUS => '-',
+                Code::ARKUI_KEYCODE_EQUALS => '=',
+                _ => return None,
+            }
+        };
+        return Some((K::Key, c.to_string()));
+    }
+    // SAFETY: `input` is the live key event the node event handed over, valid for the call.
+    let unicode = unsafe { OH_ArkUI_KeyEvent_GetUnicode(input) };
+    char::from_u32(unicode)
+        .filter(|c| *c != '\0' && !c.is_control())
+        .map(|c| (K::Text, c.to_string()))
 }
 
 /// Install the receiver. Called once at init.
@@ -294,23 +374,32 @@ unsafe extern "C" fn receiver(ev: *mut ArkUI_NodeEvent) {
                     let mut held = 0u64;
                     OH_ArkUI_UIInputEvent_GetModifierKeyStates(input, &mut held);
                     let code = ArkUI_KeyCode(OH_ArkUI_KeyEvent_GetKeyCode(input));
-                    let Some(name) = key_name(code, held) else {
-                        return;
-                    };
-                    if !day_spec::keys::handled(day_spec::NodeId(id)) {
+                    let node = day_spec::NodeId(id);
+                    if !day_spec::keys::handled(node) {
                         return;
                     }
+                    let (kind, name) = if day_spec::keys::text(node) {
+                        match full_route_key(input, code, held) {
+                            Some(key) => key,
+                            None => return,
+                        }
+                    } else {
+                        match key_name(code, held) {
+                            Some(name) => (K::Key, name.to_string()),
+                            None => return,
+                        }
+                    };
                     let mut mods = 0.0;
                     if held & ArkUI_ModifierKeyName::ARKUI_MODIFIER_KEY_SHIFT.0 as u64 != 0 {
                         mods += 1.0; // day KeyEvent::SHIFT
                     }
                     if held & ArkUI_ModifierKeyName::ARKUI_MODIFIER_KEY_CTRL.0 as u64 != 0 {
-                        mods += 2.0; // PRIMARY
+                        mods += 2.0 + 8.0; // PRIMARY, and the Control key itself
                     }
                     if held & ArkUI_ModifierKeyName::ARKUI_MODIFIER_KEY_ALT.0 as u64 != 0 {
                         mods += 4.0; // ALT
                     }
-                    crate::on_event(id, K::Key as i32, mods, name);
+                    crate::on_event(id, kind as i32, mods, &name);
                     OH_ArkUI_KeyEvent_SetConsumed(input, true);
                 }
                 _ => {}

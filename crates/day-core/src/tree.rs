@@ -540,6 +540,7 @@ impl<B: Toolkit> Tree<B> {
             self.handlers.remove(&n);
             self.gestures.remove(&n);
             self.element_outer.remove(&n);
+            day_spec::keys::forget(rnode_to_id(n));
             if data.implicit_anim.is_some() {
                 self.implicit_anim_count = self.implicit_anim_count.saturating_sub(1);
             }

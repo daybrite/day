@@ -501,6 +501,33 @@ pub mod keys {
     pub fn handled(node: NodeId) -> bool {
         HANDLED.with(|h| h.borrow().contains(&node))
     }
+
+    thread_local! {
+        static TEXT: RefCell<HashSet<NodeId>> = RefCell::new(HashSet::new());
+    }
+
+    /// Declare that `node` takes the whole keyboard while focused (what `Decorate::keyboard`
+    /// records at build): every key the platform delivers reaches its handler, named the way
+    /// [`super::KeyEvent`] describes for the full route, and a touch platform raises its soft
+    /// keyboard for it.
+    pub fn mark_text(node: NodeId) {
+        TEXT.with(|h| h.borrow_mut().insert(node));
+    }
+
+    /// Whether `node` takes the whole keyboard: it declared so AND it [`handled`]s keys. A
+    /// declaration with no `.on_key` behind it claims nothing, so every backend asks this one
+    /// question before it raises a soft keyboard, names a letter or claims a Tab.
+    pub fn text(node: NodeId) -> bool {
+        TEXT.with(|h| h.borrow().contains(&node)) && handled(node)
+    }
+
+    /// Drop both marks for a node that left the tree (day-core calls it from its removal
+    /// path). Node ids are generational, so a stale id would never match a new node; this
+    /// keeps the registries from growing with every rebuilt canvas.
+    pub fn forget(node: NodeId) {
+        HANDLED.with(|h| h.borrow_mut().remove(&node));
+        TEXT.with(|h| h.borrow_mut().remove(&node));
+    }
 }
 
 /// Raw foreign native handle for polyglot adoption (§15.3).
@@ -609,6 +636,10 @@ pub mod bridge {
         /// id ignored and no `Event` is emitted; Rust calls `day_core::note_motion_changed`, as
         /// the desktop backends' own observers do.
         ReduceMotionChanged = 33,
+        /// Text committed on the full key route (docs/menus.md "The full route"): `text` =
+        /// what the input method or the key typed, `num` = the modifier mask. Decodes to an
+        /// [`crate::Event::Key`] whose `text` is set; a key that typed nothing rides `Key`.
+        Text = 36,
         /// A non-text key reached the focused node (docs/menus.md); `text` = the day key name
         /// (`"ArrowLeft"`, `"5"`, …), `num` = the [`crate::KeyEvent`] modifier mask. Decodes to
         /// [`crate::Event::Key`].
@@ -1852,9 +1883,29 @@ pub struct KeyEvent {
     /// digits reports "1" with [`KeyEvent::SHIFT`] set; XAML and ArkUI read the physical key.
     /// Backends emit `Event::Key` only while no text widget has focus; a field's own editing
     /// keys never surface here.
+    ///
+    /// A piece that declared `Decorate::keyboard()` takes the full route instead: every key
+    /// the platform delivers while it is focused. A key that types nothing is named by its
+    /// web name ([`KeyEvent::NAMED`]: "Enter", "Tab", "Escape", "Backspace", "Delete", "Home",
+    /// "End", "PageUp", "PageDown", "Insert", the arrows and "F1" through "F12"); a key that
+    /// types is named by its unmodified character ("a", "A" under Shift, "8", "ü" on a layout
+    /// that has one), and what it typed rides in [`KeyEvent::text`]. Under Control or Alt the
+    /// name stays that character ("c" with [`KeyEvent::CONTROL`] set, never the control code
+    /// it would type). Text an input method commits (a dead-key accent, a Japanese phrase,
+    /// the soft keyboard's word) arrives with the text alone and an empty name: no single
+    /// key is behind it. Only the platform's command chords stay out: ⌘ on Apple platforms
+    /// and the browser's own shortcuts belong to the menu and the browser, so a terminal's
+    /// ⌘C still copies. [`KeyEvent::typed`] is the question a text consumer asks.
     pub key: String,
-    /// A [`KeyEvent::SHIFT`]/[`KeyEvent::PRIMARY`]/[`KeyEvent::ALT`] mask.
+    /// A [`KeyEvent::SHIFT`]/[`KeyEvent::PRIMARY`]/[`KeyEvent::ALT`]/[`KeyEvent::CONTROL`]
+    /// mask.
     pub modifiers: u8,
+    /// The text this press committed, on the full route: what the key typed ("a", "A", "é"
+    /// after a dead key, the whole string an input method committed at once), or `None` for
+    /// a key that typed nothing (a named key, a Control or Alt chord, a composition still in
+    /// progress). Separate from [`KeyEvent::key`] so that a committed "Enter" is text and the
+    /// Enter key is a key, whatever the input method sends. Always `None` on the short route.
+    pub text: Option<String>,
 }
 
 impl KeyEvent {
@@ -1863,9 +1914,94 @@ impl KeyEvent {
     /// [`Shortcut::primary`] convention).
     pub const PRIMARY: u8 = 2;
     pub const ALT: u8 = 4;
+    /// The Control key itself, wherever it sits: on Apple platforms it is a different key from
+    /// [`KeyEvent::PRIMARY`] (⌘), elsewhere the same one, so a Ctrl+C on Linux sets both.
+    /// Carried on the full route only (`Decorate::keyboard`).
+    pub const CONTROL: u8 = 8;
 
     /// The ten digit key names, indexed by value.
     pub const DIGITS: [&'static str; 10] = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"];
+
+    /// Every name the full route gives a key that types nothing (the web `KeyboardEvent.key`
+    /// vocabulary). A key outside this list is named by the text it types.
+    pub const NAMED: [&'static str; 26] = [
+        "ArrowLeft",
+        "ArrowRight",
+        "ArrowUp",
+        "ArrowDown",
+        "Enter",
+        "Tab",
+        "Escape",
+        "Backspace",
+        "Delete",
+        "Home",
+        "End",
+        "PageUp",
+        "PageDown",
+        "Insert",
+        "F1",
+        "F2",
+        "F3",
+        "F4",
+        "F5",
+        "F6",
+        "F7",
+        "F8",
+        "F9",
+        "F10",
+        "F11",
+        "F12",
+    ];
+
+    /// The text this press typed ([`KeyEvent::text`]), or `None` for a key that typed nothing.
+    pub fn typed(&self) -> Option<&str> {
+        self.text.as_deref()
+    }
+
+    /// A key that types nothing (one of [`KeyEvent::NAMED`], or a chord's character under
+    /// Control or Alt), on either route.
+    pub fn named(key: impl Into<String>, modifiers: u8) -> KeyEvent {
+        KeyEvent {
+            key: key.into(),
+            modifiers,
+            text: None,
+        }
+    }
+
+    /// Text a press committed on the full route. The key is named by the text when the text
+    /// is one character (the press typed it), and left empty for a longer commit, which no
+    /// single key is behind.
+    pub fn typed_text(text: impl Into<String>, modifiers: u8) -> KeyEvent {
+        let text = text.into();
+        let mut chars = text.chars();
+        let key = match (chars.next(), chars.next()) {
+            (Some(_), None) => text.clone(),
+            _ => String::new(),
+        };
+        KeyEvent {
+            key,
+            modifiers,
+            text: Some(text),
+        }
+    }
+
+    /// Text a press committed on the full route, named by the key that produced it
+    /// (`key`, in the vocabulary above) when the backend knows it.
+    pub fn typed_by(key: impl Into<String>, text: impl Into<String>, modifiers: u8) -> KeyEvent {
+        KeyEvent {
+            key: key.into(),
+            modifiers,
+            text: Some(text.into()),
+        }
+    }
+
+    /// The web name for the function key `F<n>`, `1..=12`.
+    pub fn function_name(n: u8) -> Option<&'static str> {
+        match n {
+            1..=12 => Some(Self::NAMED[13 + n as usize]),
+            _ => None,
+        }
+    }
 
     /// The key name for a typed character when it is one of the ten digits: what a backend
     /// reports for a keypress that types `0`–`9`.
@@ -1890,6 +2026,9 @@ impl KeyEvent {
     pub fn alt(&self) -> bool {
         self.modifiers & Self::ALT != 0
     }
+    pub fn control(&self) -> bool {
+        self.modifiers & Self::CONTROL != 0
+    }
 }
 
 #[cfg(test)]
@@ -1900,20 +2039,57 @@ mod key_event_tests {
     fn digit_names_read_back_as_values() {
         for (value, c) in ('0'..='9').enumerate() {
             let name = KeyEvent::digit_name(c).expect("an ASCII digit names itself");
-            let key = KeyEvent {
-                key: name.to_string(),
-                modifiers: 0,
-            };
+            let key = KeyEvent::named(name, 0);
             assert_eq!(key.digit(), Some(value as u8));
         }
         // Only the ASCII digits: a letter, an Arabic-Indic three, and a named key are not.
         assert_eq!(KeyEvent::digit_name('a'), None);
         assert_eq!(KeyEvent::digit_name('٣'), None);
-        let arrow = KeyEvent {
-            key: "ArrowUp".to_string(),
-            modifiers: 0,
-        };
+        let arrow = KeyEvent::named("ArrowUp", 0);
         assert_eq!(arrow.digit(), None);
+    }
+
+    #[test]
+    fn typed_text_is_told_from_named_keys() {
+        let a = KeyEvent::typed_text("a", 0);
+        assert_eq!((a.key.as_str(), a.typed()), ("a", Some("a")));
+        let space = KeyEvent::typed_text(" ", 0);
+        assert_eq!((space.key.as_str(), space.typed()), (" ", Some(" ")));
+        assert_eq!(KeyEvent::typed_text("7", 0).digit(), Some(7));
+        // A longer commit has no key behind it.
+        let phrase = KeyEvent::typed_text("こんにちは", 0);
+        assert_eq!(
+            (phrase.key.as_str(), phrase.typed()),
+            ("", Some("こんにちは"))
+        );
+        // Text that spells a key name is still text, and the key is still a key.
+        for name in KeyEvent::NAMED {
+            assert_eq!(
+                KeyEvent::named(name, 0).typed(),
+                None,
+                "{name} types nothing"
+            );
+            assert_eq!(KeyEvent::typed_text(name, 0).typed(), Some(name));
+        }
+        let accent = KeyEvent::typed_by("e", "é", 0);
+        assert_eq!((accent.key.as_str(), accent.typed()), ("e", Some("é")));
+        assert_eq!(KeyEvent::function_name(1), Some("F1"));
+        assert_eq!(KeyEvent::function_name(12), Some("F12"));
+        assert_eq!(KeyEvent::function_name(13), None);
+        let chord = KeyEvent::named("c", KeyEvent::CONTROL | KeyEvent::SHIFT);
+        assert!(chord.control() && chord.shift() && !chord.primary());
+        assert_eq!(chord.typed(), None);
+    }
+
+    #[test]
+    fn a_declaration_claims_nothing_without_a_handler() {
+        let node = super::NodeId(0xdead_0001);
+        super::keys::mark_text(node);
+        assert!(!super::keys::text(node), "no handler, no claim");
+        super::keys::mark(node);
+        assert!(super::keys::text(node) && super::keys::handled(node));
+        super::keys::forget(node);
+        assert!(!super::keys::text(node) && !super::keys::handled(node));
     }
 }
 

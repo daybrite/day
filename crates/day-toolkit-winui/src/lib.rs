@@ -655,24 +655,32 @@ extern "C" fn on_key_handled(id: u64) -> c_int {
     ffi_guard::contain(0, || c_int::from(day_spec::keys::handled(NodeId(id))))
 }
 
-/// An arrow that reached a focused canvas (docs/menus.md): `key` is the day name, `modifiers`
-/// the [`day_spec::KeyEvent`] mask.
+/// Whether this node took the whole keyboard (`Decorate::keyboard`, docs/menus.md "The full
+/// route"): the shim asks before it names a letter.
 #[cfg(feature = "winui")]
-extern "C" fn on_key(id: u64, key: *const c_char, modifiers: c_int) {
+extern "C" fn on_text_handled(id: u64) -> c_int {
+    ffi_guard::contain(0, || c_int::from(day_spec::keys::text(NodeId(id))))
+}
+
+/// A key that reached a focused canvas (docs/menus.md): `key` is the day name, `text` what it
+/// typed on the full route (null for a key that typed nothing), `modifiers` the
+/// [`day_spec::KeyEvent`] mask. Both strings are valid for the call.
+#[cfg(feature = "winui")]
+extern "C" fn on_key(id: u64, key: *const c_char, text: *const c_char, modifiers: c_int) {
     ffi_guard::contain((), || {
         if key.is_null() {
             return;
         }
-        let key = unsafe { CStr::from_ptr(key) }
-            .to_string_lossy()
-            .into_owned();
-        emit(
-            NodeId(id),
-            Event::Key(day_spec::KeyEvent {
-                key,
-                modifiers: modifiers as u8,
-            }),
-        );
+        // SAFETY: the shim passes NUL-terminated UTF-8 strings (or null) that outlive the call.
+        let read = |p: *const c_char| unsafe { CStr::from_ptr(p) }.to_string_lossy().into_owned();
+        let key = read(key);
+        let modifiers = modifiers as u8;
+        let event = if text.is_null() {
+            day_spec::KeyEvent::named(key, modifiers)
+        } else {
+            day_spec::KeyEvent::typed_by(key, read(text), modifiers)
+        };
+        emit(NodeId(id), Event::Key(event));
     });
 }
 
@@ -1485,7 +1493,8 @@ impl Toolkit for Xaml {
                     #[cfg(feature = "winui")]
                     {
                         // Win2D paints; a persistent control owns focus and pointer input.
-                        let h = ffi::day_xaml_canvas_new(id.0, on_key_handled, on_key);
+                        let h =
+                            ffi::day_xaml_canvas_new(id.0, on_key_handled, on_text_handled, on_key);
                         ffi::day_xaml_enable_focus(h, id.0, on_focus);
                         WinHandle(h)
                     }

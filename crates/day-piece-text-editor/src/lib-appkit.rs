@@ -96,10 +96,7 @@ define_class!(
                 };
                 day_toolkit_appkit::emit(
                     self.ivars().node,
-                    Event::Key(day_spec::KeyEvent {
-                        key: key.into(),
-                        modifiers: 0,
-                    }),
+                    Event::Key(day_spec::KeyEvent::named(key, 0)),
                 );
                 objc2::runtime::Bool::YES
             })

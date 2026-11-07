@@ -305,7 +305,12 @@ static void paint_canvas(WC::CanvasDrawingSession const& ds, CanvasDisplayList c
     }
 }
 
-struct CanvasState { WCX::CanvasControl control{nullptr}; CanvasDisplayList ops; winrt::event_token draw; };
+struct CanvasState {
+    WCX::CanvasControl control{nullptr}; CanvasDisplayList ops; winrt::event_token draw;
+    // The high half of a surrogate pair `CharacterReceived` delivered, waiting for its low half
+    // (docs/menus.md "The full route"): a supplementary character arrives as two events.
+    wchar_t pending_high=0;
+};
 static std::map<void*,std::shared_ptr<CanvasState>> canvas_states;
 static void canvas_forget(void* h) {
     auto it=canvas_states.find(h); if(it==canvas_states.end())return;
@@ -315,8 +320,55 @@ static void canvas_forget(void* h) {
 }
 } // extern C++
 
+// The full route (docs/menus.md "The full route"). `KeyDown` names the keys that type nothing
+// and the chords; `CharacterReceived` delivers the text, once, after the layout and the input
+// method have composed it, so nothing is heard twice: a character that reached `KeyDown` under
+// Ctrl or Alt never arrives there (Windows swallows it), and one that arrives there was never
+// named here.
+static std::string day_xaml_named_key(winrt::Windows::System::VirtualKey k) {
+    using VK = winrt::Windows::System::VirtualKey;
+    switch (k) {
+        case VK::Left:  return "ArrowLeft";
+        case VK::Right: return "ArrowRight";
+        case VK::Up:    return "ArrowUp";
+        case VK::Down:  return "ArrowDown";
+        case VK::Enter: return "Enter";
+        case VK::Tab:   return "Tab";
+        case VK::Escape: return "Escape";
+        case VK::Back:  return "Backspace";
+        case VK::Delete: return "Delete";
+        case VK::Home:  return "Home";
+        case VK::End:   return "End";
+        case VK::PageUp: return "PageUp";
+        case VK::PageDown: return "PageDown";
+        case VK::Insert: return "Insert";
+        default: break;
+    }
+    if (k >= VK::F1 && k <= VK::F12) return "F" + std::to_string(static_cast<int>(k) - static_cast<int>(VK::F1) + 1);
+    return std::string();
+}
+
+// AltGr is Ctrl+Alt to Windows, with the right Alt down: it types (the @ on a German layout),
+// so it is not a chord, and `CharacterReceived` names what it typed.
+static bool day_xaml_altgr_held() {
+    return (GetKeyState(VK_CONTROL)&0x8000) && (GetKeyState(VK_RMENU)&0x8000);
+}
+
+// The character a virtual key names under a Ctrl or Alt chord: the letters cased by Shift, and
+// every other key by what it types unshifted on the current layout (`MapVirtualKeyW`, so Ctrl+[
+// names "[" and Ctrl+\ names "\" on a layout that has them where the US one does, and whatever
+// the user's layout puts there otherwise). Empty for a key with no character of its own.
+static std::string day_xaml_chord_name(winrt::Windows::System::VirtualKey k, int mods) {
+    const UINT code = static_cast<UINT>(k);
+    if (code >= 'A' && code <= 'Z') return std::string(1, static_cast<char>((mods & 1) ? code : code + 32));
+    const UINT ch = MapVirtualKeyW(code, MAPVK_VK_TO_CHAR) & 0xffff;
+    if (ch < 0x20 || ch == 0x7f) return std::string();
+    return winrt::to_string(std::wstring(1, static_cast<wchar_t>(ch)));
+}
+
 void* day_xaml_canvas_new(unsigned long long id, int (*handles)(unsigned long long),
-                          void (*cb)(unsigned long long,const char*,int)) {
+                          int (*handles_text)(unsigned long long),
+                          void (*cb)(unsigned long long,const char*,const char*,int)) {
     canvas_activate();
     auto state=std::make_shared<CanvasState>();
     state->control=WCX::CanvasControl();
@@ -333,10 +385,57 @@ void* day_xaml_canvas_new(unsigned long long id, int (*handles)(unsigned long lo
     host.HorizontalContentAlignment(WUX::HorizontalAlignment::Stretch);
     host.VerticalContentAlignment(WUX::VerticalAlignment::Stretch); host.Content(surface);
     host.PointerPressed([](auto const& sender,auto const&){sender.template as<WUXC::Control>().Focus(WUX::FocusState::Pointer);});
-    host.KeyDown([id,handles,cb](auto const&,WUXIn::KeyRoutedEventArgs const& args){
+    host.KeyDown([id,handles,handles_text,cb](auto const&,WUXIn::KeyRoutedEventArgs const& args){
         int mods=(GetKeyState(VK_SHIFT)&0x8000?1:0)|(GetKeyState(VK_CONTROL)&0x8000?2:0)|(GetKeyState(VK_MENU)&0x8000?4:0);
-        const char* key=day_xaml_key_name(args.Key(),mods); if(!key || !handles(id))return;
-        cb(id,key,mods); args.Handled(true);
+        if(!handles(id))return;
+        if(handles_text(id)){
+            // Ctrl is both the primary key and the Control key here (docs/menus.md). A Win
+            // key chord is the system's, and goes on its way.
+            if((GetKeyState(VK_LWIN)&0x8000)||(GetKeyState(VK_RWIN)&0x8000))return;
+            if(mods&2)mods|=8;
+            const std::string named=day_xaml_named_key(args.Key());
+            if(!named.empty()){ cb(id,named.c_str(),nullptr,mods); args.Handled(true); return; }
+            // A chord names its key and types nothing; everything else types, and
+            // `CharacterReceived` delivers it. AltGr types.
+            if((mods&(2|4)) && !day_xaml_altgr_held()){
+                const std::string key=day_xaml_chord_name(args.Key(),mods);
+                if(!key.empty()) cb(id,key.c_str(),nullptr,mods);
+                args.Handled(true);
+            }
+            return;
+        }
+        const char* key=day_xaml_key_name(args.Key(),mods); if(!key)return;
+        cb(id,key,nullptr,mods); args.Handled(true);
+    });
+    // The text a key types, as text (the full route), the two halves of a surrogate pair joined
+    // into the one character they spell.
+    host.CharacterReceived([id,handles_text,cb,state](auto const&,WUXIn::CharacterReceivedRoutedEventArgs const& args){
+        if(!handles_text(id))return;
+        const wchar_t c=args.Character();
+        std::wstring text;
+        if(c>=0xd800&&c<=0xdbff){ state->pending_high=c; args.Handled(true); return; }
+        if(c>=0xdc00&&c<=0xdfff){
+            if(!state->pending_high){ args.Handled(true); return; }
+            text.push_back(state->pending_high); text.push_back(c); state->pending_high=0;
+        } else {
+            state->pending_high=0;
+            if(c<0x20||c==0x7f)return;
+            text.push_back(c);
+        }
+        // Shift is the only modifier a typed character carries: an AltGr character typed
+        // plainly as far as the piece is concerned, and a Ctrl or Alt chord never gets here.
+        const int mods=(GetKeyState(VK_SHIFT)&0x8000?1:0);
+        const std::string utf8=winrt::to_string(text);
+        // One character names itself; a pair is one character too.
+        cb(id,utf8.c_str(),utf8.c_str(),mods); args.Handled(true);
+    });
+    // A chord the piece claims wins over an application accelerator (docs/menus.md "The full
+    // route"): XAML asks the focused element first, and a canvas that took the whole keyboard
+    // says it handled the accelerator, so a terminal's Ctrl+C is the terminal's.
+    host.ProcessKeyboardAccelerators([id,handles_text](auto const&,WUXIn::ProcessKeyboardAcceleratorEventArgs const& args){
+        if(!handles_text(id))return;
+        if((GetKeyState(VK_LWIN)&0x8000)||(GetKeyState(VK_RWIN)&0x8000))return;
+        args.Handled(true);
     });
     auto h=boxh(host); canvas_states.emplace(h,state); return h;
 }

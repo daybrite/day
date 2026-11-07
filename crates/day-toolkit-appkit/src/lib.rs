@@ -23,7 +23,7 @@ use std::rc::Rc;
 use linkme::distributed_slice;
 use objc2::Message as _;
 use objc2::rc::Retained;
-use objc2::runtime::{NSObjectProtocol, ProtocolObject};
+use objc2::runtime::{AnyObject, NSObjectProtocol, ProtocolObject, Sel};
 use objc2::{
     AllocAnyThread, DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send, sel,
 };
@@ -32,6 +32,7 @@ use objc2_app_kit::NSAppearanceCustomization as _;
 use objc2_app_kit::NSDraggingInfo as _;
 use objc2_app_kit::NSSplitViewDelegate;
 use objc2_app_kit::NSTextContent as _;
+use objc2_app_kit::NSTextInputClient;
 use objc2_app_kit::NSUserInterfaceItemIdentification as _;
 use objc2_app_kit::{
     NSAffineTransformNSAppKitAdditions, NSClickGestureRecognizer, NSGestureRecognizer,
@@ -59,7 +60,7 @@ use objc2_app_kit::{NSTableColumn, NSTableView, NSTableViewDataSource, NSTableVi
 use objc2_core_foundation::CGAffineTransform;
 use objc2_foundation::{
     NSAffineTransform, NSAffineTransformStruct, NSArray, NSData, NSDictionary, NSNotification,
-    NSNumber, NSObject, NSPoint, NSRect, NSSize, NSString,
+    NSNumber, NSObject, NSPoint, NSRange, NSRect, NSSize, NSString,
 };
 use objc2_quartz_core::{
     CAMediaTimingFunction, CATransaction, kCAMediaTimingFunctionEaseIn,
@@ -162,6 +163,13 @@ day_core::tls_group! {
     /// press, reports both directions, hears the arrows). Empty for every container that
     /// never asked, whose behavior is exactly as before.
     static FOCUSABLE_NODES: SideTable<NodeId> = SideTable::new();
+    /// Canvas view ptr → the text an input method is still composing in it (docs/menus.md
+    /// "The full route"): a dead key's accent, a Japanese reading. Nothing reaches the app
+    /// until the input method commits; the entry is gone the moment it does or cancels.
+    static MARKED: SideTable<String> = SideTable::new();
+    /// The key press the text input system is interpreting right now: its unmodified name and
+    /// the modifier mask, so the text it commits is named by the key that typed it.
+    static INTERPRETING: RefCell<Option<(String, u8)>> = const { RefCell::new(None) };
 
     /// Keeps each view's gesture targets alive + records which gestures are attached (idempotent).
     static GESTURES: RefCell<HashMap<usize, Vec<Retained<DayGesture>>>> =
@@ -1580,10 +1588,10 @@ define_class!(
                 }
                 emit(
                     node,
-                    Event::Key(day_spec::KeyEvent {
-                        key: key.to_string(),
-                        modifiers: key_modifiers(event.modifierFlags()),
-                    }),
+                    Event::Key(day_spec::KeyEvent::named(
+                        key,
+                        key_modifiers(event.modifierFlags()),
+                    )),
                 );
                 true
             });
@@ -1819,23 +1827,29 @@ define_class!(
         #[unsafe(method(resignFirstResponder))]
         fn resign_first_responder(&self) -> bool {
             let ptr = (self as *const DayCanvas).cast::<NSView>() as usize;
+            // A composition in progress goes with the focus: the input method is told, so it
+            // does not commit into whatever is focused next.
+            if MARKED.with(|t| t.remove(ptr)).is_some()
+                && let Some(context) = self.inputContext()
+            {
+                context.discardMarkedText();
+            }
             if let Some(node) = KEY_NODES.with(|t| t.get(ptr)) {
                 ffi_guard::contain((), || emit(node, Event::FocusChanged(false)));
             }
             true
         }
 
-        /// The arrows, delivered to this canvas because it is the first responder. Anything
-        /// else — and every arrow when the app registered no handler for this node — goes to
-        /// `super`, which walks the responder chain exactly as it would have without us.
+        /// The keys, delivered to this canvas because it is the first responder. On the short
+        /// route the arrows and digits; on the full route (docs/menus.md "The full route")
+        /// every key, through the text input system for the ones that type. Anything
+        /// unclaimed — and every key when the app registered no handler for this node — goes
+        /// to `super`, which walks the responder chain exactly as it would have without us.
         #[unsafe(method(keyDown:))]
         fn key_down(&self, event: &objc2_app_kit::NSEvent) {
             let ptr = (self as *const DayCanvas).cast::<NSView>() as usize;
             let handled = ffi_guard::contain(false, || {
                 let Some(node) = KEY_NODES.with(|t| t.get(ptr)) else {
-                    return false;
-                };
-                let Some(key) = key_name(event) else {
                     return false;
                 };
                 // A canvas nobody asked keys from does not get to keep them: an enclosing
@@ -1844,17 +1858,40 @@ define_class!(
                 if !day_spec::keys::handled(node) {
                     return false;
                 }
+                if day_spec::keys::text(node) {
+                    return full_route_key_down(self, node, event);
+                }
+                let Some(key) = key_name(event) else {
+                    return false;
+                };
                 emit(
                     node,
-                    Event::Key(day_spec::KeyEvent {
-                        key: key.to_string(),
-                        modifiers: key_modifiers(event.modifierFlags()),
-                    }),
+                    Event::Key(day_spec::KeyEvent::named(
+                        key,
+                        key_modifiers(event.modifierFlags()),
+                    )),
                 );
                 true
             });
             if !handled {
                 let _: () = unsafe { msg_send![super(self), keyDown: event] };
+            }
+        }
+
+        /// The text input context, only for a canvas on the full route: an input context is
+        /// what makes the input method (and the keyboard layout's dead keys) address this
+        /// view, and a drawing canvas that hears the arrows alone must not look like a text
+        /// field to it.
+        #[unsafe(method_id(inputContext))]
+        fn input_context(&self) -> Option<Retained<objc2_app_kit::NSTextInputContext>> {
+            let ptr = (self as *const DayCanvas).cast::<NSView>() as usize;
+            let takes_keyboard = KEY_NODES
+                .with(|t| t.get(ptr))
+                .is_some_and(|node| ffi_guard::contain(false, || day_spec::keys::text(node)));
+            if takes_keyboard {
+                unsafe { msg_send![super(self), inputContext] }
+            } else {
+                None
             }
         }
 
@@ -1916,6 +1953,114 @@ define_class!(
                     },
                 );
             })
+        }
+    }
+
+    unsafe impl NSObjectProtocol for DayCanvas {}
+
+    /// The text input system's client (docs/menus.md "The full route"): the view a dead key
+    /// or an input method composes into. A canvas has no document, so the marked text is
+    /// held here and never shown; what the input method commits is the key event's text.
+    unsafe impl NSTextInputClient for DayCanvas {
+        #[unsafe(method(insertText:replacementRange:))]
+        unsafe fn insert_text(&self, string: &AnyObject, _replacement: NSRange) {
+            let ptr = (self as *const DayCanvas).cast::<NSView>() as usize;
+            MARKED.with(|t| t.remove(ptr));
+            let Some(node) = KEY_NODES.with(|t| t.get(ptr)) else {
+                return;
+            };
+            let text = text_of_input_string(string);
+            if text.is_empty() {
+                return;
+            }
+            ffi_guard::contain((), || {
+                let interpreting = INTERPRETING.with(|i| i.borrow().clone());
+                let event = match interpreting {
+                    // One character typed by the key being interpreted: named by that key.
+                    Some((key, mods)) if text.chars().count() == 1 => {
+                        day_spec::KeyEvent::typed_by(key, text, mods)
+                    }
+                    Some((_, mods)) => day_spec::KeyEvent::typed_text(text, mods),
+                    // Committed outside any key press (the Character Viewer, dictation).
+                    None => day_spec::KeyEvent::typed_text(text, 0),
+                };
+                emit(node, Event::Key(event));
+            });
+        }
+
+        /// A key the text input system turned into an editing command (`insertNewline:`,
+        /// `moveLeft:`, …). `keyDown:` already named every key the route carries before it
+        /// asked the input system, so nothing is left to do here; anything else (a `noop:`
+        /// for a function key the vocabulary lacks) types nothing, by design.
+        #[unsafe(method(doCommandBySelector:))]
+        unsafe fn do_command_by_selector(&self, _selector: Sel) {}
+
+        #[unsafe(method(setMarkedText:selectedRange:replacementRange:))]
+        unsafe fn set_marked_text(&self, string: &AnyObject, _selected: NSRange, _replacement: NSRange) {
+            let ptr = (self as *const DayCanvas).cast::<NSView>() as usize;
+            let text = text_of_input_string(string);
+            if text.is_empty() {
+                MARKED.with(|t| t.remove(ptr));
+            } else {
+                MARKED.with(|t| t.insert(ptr, text));
+            }
+        }
+
+        #[unsafe(method(unmarkText))]
+        fn unmark_text(&self) {
+            let ptr = (self as *const DayCanvas).cast::<NSView>() as usize;
+            MARKED.with(|t| t.remove(ptr));
+        }
+
+        #[unsafe(method(selectedRange))]
+        fn selected_range(&self) -> NSRange {
+            NSRange::new(objc2_foundation::NSNotFound as usize, 0)
+        }
+
+        #[unsafe(method(markedRange))]
+        fn marked_range(&self) -> NSRange {
+            let ptr = (self as *const DayCanvas).cast::<NSView>() as usize;
+            match MARKED.with(|t| t.get(ptr)) {
+                Some(marked) => NSRange::new(0, marked.encode_utf16().count()),
+                None => NSRange::new(objc2_foundation::NSNotFound as usize, 0),
+            }
+        }
+
+        #[unsafe(method(hasMarkedText))]
+        fn has_marked_text(&self) -> bool {
+            let ptr = (self as *const DayCanvas).cast::<NSView>() as usize;
+            MARKED.with(|t| t.contains(ptr))
+        }
+
+        #[unsafe(method_id(attributedSubstringForProposedRange:actualRange:))]
+        unsafe fn attributed_substring(
+            &self,
+            _range: NSRange,
+            _actual: objc2_foundation::NSRangePointer,
+        ) -> Option<Retained<objc2_foundation::NSAttributedString>> {
+            None
+        }
+
+        #[unsafe(method_id(validAttributesForMarkedText))]
+        fn valid_attributes(&self) -> Retained<NSArray<objc2_foundation::NSAttributedStringKey>> {
+            NSArray::new()
+        }
+
+        /// Where the input method puts its candidate window: under the canvas, since the
+        /// canvas does not say where its caret is.
+        #[unsafe(method(firstRectForCharacterRange:actualRange:))]
+        unsafe fn first_rect(&self, _range: NSRange, _actual: objc2_foundation::NSRangePointer) -> NSRect {
+            let bounds = self.bounds();
+            let in_window = self.convertRect_toView(bounds, None);
+            match self.window() {
+                Some(window) => window.convertRectToScreen(in_window),
+                None => in_window,
+            }
+        }
+
+        #[unsafe(method(characterIndexForPoint:))]
+        fn character_index_for_point(&self, _point: NSPoint) -> objc2_foundation::NSUInteger {
+            objc2_foundation::NSNotFound as objc2_foundation::NSUInteger
         }
     }
 );
@@ -6610,6 +6755,99 @@ fn key_name(event: &objc2_app_kit::NSEvent) -> Option<&'static str> {
     }
 }
 
+/// The web name for a key that types nothing, by its virtual key code, or `None` for a key
+/// that types (docs/menus.md "The full route").
+fn named_key(event: &objc2_app_kit::NSEvent) -> Option<&'static str> {
+    Some(match unsafe { event.keyCode() } {
+        123 => "ArrowLeft",
+        124 => "ArrowRight",
+        125 => "ArrowDown",
+        126 => "ArrowUp",
+        36 | 76 => "Enter",
+        48 => "Tab",
+        53 => "Escape",
+        51 => "Backspace",
+        117 => "Delete",
+        115 => "Home",
+        119 => "End",
+        116 => "PageUp",
+        121 => "PageDown",
+        114 => "Insert",
+        122 => "F1",
+        120 => "F2",
+        99 => "F3",
+        118 => "F4",
+        96 => "F5",
+        97 => "F6",
+        98 => "F7",
+        100 => "F8",
+        101 => "F9",
+        109 => "F10",
+        103 => "F11",
+        111 => "F12",
+        _ => return None,
+    })
+}
+
+/// A key press on the full route (`Decorate::keyboard`, docs/menus.md "The full route"), for
+/// a canvas that took the whole keyboard. Answers whether the press was claimed.
+///
+/// The order is the policy: a ⌘ chord is the menu's and goes back to AppKit first, whatever
+/// the key; a composition in progress owns every key until the input method commits or
+/// cancels it; a key that types nothing is named; a ⌃ chord names its key and types nothing;
+/// everything else is handed to the text input system, which turns a dead key into marked
+/// text, an input method's keys into a composition, and a plain or ⌥ key into `insertText:`
+/// with what it typed (⌥ types on a Mac: ⌥8 is "{" on a German layout; the piece still sees
+/// [`day_spec::KeyEvent::ALT`] and decides).
+fn full_route_key_down(view: &DayCanvas, node: NodeId, event: &objc2_app_kit::NSEvent) -> bool {
+    let ptr = (view as *const DayCanvas).cast::<NSView>() as usize;
+    let flags = event.modifierFlags();
+    let mods = key_modifiers(flags);
+    if flags.contains(NSEventModifierFlags::Command) {
+        return false;
+    }
+    let composing = MARKED.with(|t| t.contains(ptr));
+    if !composing && let Some(named) = named_key(event) {
+        emit(node, Event::Key(day_spec::KeyEvent::named(named, mods)));
+        return true;
+    }
+    let unmodified = unsafe { event.charactersIgnoringModifiers() }
+        .map(|s| s.to_string())
+        .unwrap_or_default();
+    // A function or editing key the vocabulary lacks types a private-use glyph.
+    let typeable = !unmodified.is_empty()
+        && !unmodified
+            .chars()
+            .any(|c| c.is_control() || ('\u{f700}'..='\u{f8ff}').contains(&c));
+    if !composing && flags.contains(NSEventModifierFlags::Control) {
+        if typeable {
+            emit(
+                node,
+                Event::Key(day_spec::KeyEvent::named(unmodified, mods)),
+            );
+        }
+        return true;
+    }
+    if !composing && !typeable {
+        return true;
+    }
+    INTERPRETING.with(|i| *i.borrow_mut() = Some((unmodified, mods)));
+    view.interpretKeyEvents(&NSArray::from_slice(&[event]));
+    INTERPRETING.with(|i| *i.borrow_mut() = None);
+    true
+}
+
+/// The text of an `NSString` or `NSAttributedString` the text input system hands over.
+fn text_of_input_string(string: &AnyObject) -> String {
+    if let Some(s) = string.downcast_ref::<NSString>() {
+        s.to_string()
+    } else if let Some(s) = string.downcast_ref::<objc2_foundation::NSAttributedString>() {
+        s.string().to_string()
+    } else {
+        String::new()
+    }
+}
+
 /// AppKit's modifier flags as day's mask.
 fn key_modifiers(f: NSEventModifierFlags) -> u8 {
     let mut modifiers = 0u8;
@@ -6621,6 +6859,9 @@ fn key_modifiers(f: NSEventModifierFlags) -> u8 {
     }
     if f.contains(NSEventModifierFlags::Option) {
         modifiers |= day_spec::KeyEvent::ALT;
+    }
+    if f.contains(NSEventModifierFlags::Control) {
+        modifiers |= day_spec::KeyEvent::CONTROL;
     }
     modifiers
 }

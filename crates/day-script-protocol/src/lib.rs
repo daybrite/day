@@ -104,7 +104,11 @@ pub enum Step {
     },
     /// A non-text key press, delivered the way the platform delivers one: to whatever holds
     /// focus (`- focus: { id: canvas }` then `- key: { key: ArrowRight, modifiers: [shift] }`,
-    /// docs/menus.md). Names follow the web `KeyboardEvent.key` vocabulary.
+    /// docs/menus.md). Names follow the web `KeyboardEvent.key` vocabulary. On a piece that
+    /// took the full route (`Decorate::keyboard`) a name outside that vocabulary, pressed
+    /// with nothing but Shift, types: `key: a` arrives as the text "a", the way a real press
+    /// does, and `modifiers: [control]` is the physical Control key of a chord, which types
+    /// nothing.
     Key {
         key: String,
         /// The piece to deliver to. Omit to send it wherever focus is, which is what a real

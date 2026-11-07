@@ -622,6 +622,23 @@ fn op_focusable() -> impl FnOnce(Build) -> Build {
     }
 }
 
+fn op_keyboard() -> impl FnOnce(Build) -> Build {
+    move |inner| {
+        Box::new(move |cx| {
+            let n = inner(cx);
+            // The same two marks `on_key` leaves (the node and the native view under any
+            // layout wrapper), on the registry the full route reads.
+            day_spec::keys::mark_text(day_core::rnode_to_id(n));
+            if let Some(view) = with_tree(|t| t.native_view_of(n))
+                && view != n
+            {
+                day_spec::keys::mark_text(day_core::rnode_to_id(view));
+            }
+            n
+        })
+    }
+}
+
 fn op_focused(
     want: Box<dyn Fn() -> bool>,
     on_native: Box<dyn Fn(bool)>,
@@ -1201,6 +1218,9 @@ impl<P: Piece> Decorated<P> {
     pub fn focusable(self) -> Self {
         self.push(op_focusable())
     }
+    pub fn keyboard(self) -> Self {
+        self.push(op_keyboard())
+    }
     pub fn toolbar<M>(self, content: impl crate::ToolbarContent<M>) -> Self {
         self.push(op_toolbar(content.into_source()))
     }
@@ -1659,6 +1679,35 @@ pub trait Decorate: Piece + Sized {
     /// `set_focusable` duty the piece renders normally and never takes focus.
     fn focusable(self) -> Decorated<Self> {
         Decorated::new(self).focusable()
+    }
+
+    /// Take the whole keyboard while this piece is focused (docs/menus.md "The full route"):
+    /// every key the platform delivers reaches [`Decorate::on_key`], not only the arrows and
+    /// digits. A key that types nothing is named by its web name, a key that types by its
+    /// unmodified character, and what it typed rides in [`day_spec::KeyEvent::text`]: the
+    /// character, or the whole string an input method committed (a dead-key accent, a
+    /// Japanese phrase), delivered once, after the composition. Control chords arrive with
+    /// [`day_spec::KeyEvent::CONTROL`] set and no text; only the platform's own command
+    /// chords (⌘ on Apple platforms) stay with the menu. On a phone, focusing the piece
+    /// raises the soft keyboard, the way focusing a text field does, and what it types
+    /// arrives the same way. For a terminal, a code editor or a game that reads letters, on
+    /// a `canvas`:
+    ///
+    /// ```ignore
+    /// canvas(draw).keyboard().on_key(move |k| match k.typed() {
+    ///     Some(text) => term.type_text(text),
+    ///     None => term.press(&k.key, k.modifiers),
+    /// })
+    /// ```
+    ///
+    /// Pair it with [`Decorate::on_key`]: it declares the route, the handler hears it, and a
+    /// declaration with no handler claims nothing. The route is the canvas's (the one piece
+    /// with no native control under it); a `.focusable()` container keeps the short route.
+    /// A piece that takes the whole keyboard also takes the Tab key, so it leaves the
+    /// platform's focus walking: a press elsewhere, or writing `.focused(false)`, gives the
+    /// keyboard back.
+    fn keyboard(self) -> Decorated<Self> {
+        Decorated::new(self).keyboard()
     }
 
     /// Attach a context menu, shown with the platform's native affordance on secondary-click (desktop)

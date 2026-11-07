@@ -48,11 +48,12 @@ objc2-core-graphics = { workspace = true, features = ["CGImage", "CGBitmapContex
 objc2-quartz-core = { workspace = true, features = ["CAMediaTimingFunction", "CATransaction", "CADisplayLink"] }
 objc2-foundation = { workspace = true, features = ["NSCalendar", "NSDate", "NSTimeZone", "NSLocale",
     "NSString", "NSUndoManager", "NSGeometry", "NSNotification", "NSDistributedNotificationCenter", "NSDictionary", "NSData", "NSValue", "NSIndexSet",
-    "NSObject", "NSArray", "NSURL", "NSProcessInfo", "NSUserDefaults",
+    "NSObject", "NSArray", "NSURL", "NSProcessInfo", "NSUserDefaults", "NSRange",
 ] }
 objc2-app-kit = { workspace = true, features = ["NSColorPanel", "NSColorWell", "NSComboBox", "NSDatePicker", "NSDatePickerCell", "NSStepper",
     "objc2-core-graphics", "objc2-uniform-type-identifiers", "NSRunningApplication",
     "NSApplication", "NSResponder", "NSWindow", "NSView", "NSControl", "NSButton", "NSScreen",
+    "NSTextInputClient", "NSTextInputContext",
     "NSTextField", "NSSecureTextField", "NSTextContent", "NSSlider", "NSSwitch", "NSCell", "NSText", "NSGraphics", "NSBox",
     "NSScrollView", "NSClipView", "NSMenu", "NSMenuItem", "NSFont", "NSColor",
     "NSBitmapImageRep", "NSImageRep", "NSEvent", "NSCursor", "NSTrackingArea", "NSAccessibilityProtocols", "NSAccessibilityConstants",

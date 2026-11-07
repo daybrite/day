@@ -591,6 +591,13 @@ unsafe extern "C" {
     // Lifecycle (docs/lifecycle.md): phase codes match day_spec::Lifecycle order.
     pub fn day_qt_set_lifecycle_cb(cb: extern "C" fn(c_int));
 
+    // The full key route (docs/menus.md "The full route"): the query says whether a node took
+    // the whole keyboard, the callback carries every key it did by its day name.
+    pub fn day_qt_set_text_keys(
+        query: extern "C" fn(u64) -> c_int,
+        cb: extern "C" fn(u64, *const c_char, *const c_char, c_int) -> c_int,
+    );
+
     // Menus (docs/menus.md): a flat builder walked from the day-neutral MenuItem tree.
     pub fn day_qt_set_menu_cb(cb: extern "C" fn(u64));
     pub fn day_qt_window_menubar(win: *mut c_void) -> *mut c_void;

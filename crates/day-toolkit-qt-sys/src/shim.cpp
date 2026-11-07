@@ -4622,15 +4622,145 @@ void day_qt_enable_focus(void *w, uint64_t node, DayFocusCb cb) {
 // unclaimed one falls through, so a scroll area around the widget still scrolls with the
 // keyboard.
 typedef int (*DayKeyCb)(uint64_t node, int code, int modifiers);
+// The full route (`Decorate::keyboard`, docs/menus.md "The full route"): every key, by its day
+// name, with the text it typed (`text`, UTF-8, or null for a key that typed nothing). Both are
+// valid for the call. The query says whether the node took the whole keyboard.
+typedef int (*DayTextKeyCb)(uint64_t node, const char *name, const char *text, int modifiers);
+typedef int (*DayTextKeyQuery)(uint64_t node);
+static DayTextKeyCb day_text_key_cb = nullptr;
+static DayTextKeyQuery day_text_key_query = nullptr;
+
+void day_qt_set_text_keys(DayTextKeyQuery query, DayTextKeyCb cb) {
+    day_text_key_query = query;
+    day_text_key_cb = cb;
+}
+
+// The day modifier mask: 1 shift, 2 primary, 4 alt, 8 control. Qt's ControlModifier is ⌘ on a
+// Mac and Ctrl elsewhere (the primary key either way); its MetaModifier is a Mac's Control.
+static int day_qt_key_modifiers(Qt::KeyboardModifiers m) {
+    int mods = 0;
+    if (m & Qt::ShiftModifier) mods |= 1;
+    if (m & Qt::ControlModifier) mods |= 2;
+    if (m & Qt::AltModifier) mods |= 4;
+#ifdef Q_OS_MAC
+    if (m & Qt::MetaModifier) mods |= 8;
+#else
+    if (m & Qt::ControlModifier) mods |= 8;
+#endif
+    return mods;
+}
+
+// The web name for a key that types nothing, or empty for one that types.
+static QByteArray day_qt_named_key(int key) {
+    switch (key) {
+        case Qt::Key_Left: return "ArrowLeft";
+        case Qt::Key_Right: return "ArrowRight";
+        case Qt::Key_Up: return "ArrowUp";
+        case Qt::Key_Down: return "ArrowDown";
+        case Qt::Key_Return: case Qt::Key_Enter: return "Enter";
+        case Qt::Key_Tab: case Qt::Key_Backtab: return "Tab";
+        case Qt::Key_Escape: return "Escape";
+        case Qt::Key_Backspace: return "Backspace";
+        case Qt::Key_Delete: return "Delete";
+        case Qt::Key_Home: return "Home";
+        case Qt::Key_End: return "End";
+        case Qt::Key_PageUp: return "PageUp";
+        case Qt::Key_PageDown: return "PageDown";
+        case Qt::Key_Insert: return "Insert";
+        default: break;
+    }
+    if (key >= Qt::Key_F1 && key <= Qt::Key_F12)
+        return QByteArray("F") + QByteArray::number(key - Qt::Key_F1 + 1);
+    return QByteArray();
+}
+
+// Whether a press is the menu's, not the app's: a ⌘ chord on a Mac. Elsewhere every chord is
+// the focused piece's (the filter also answers ShortcutOverride for it, below).
+static bool day_qt_menu_chord(Qt::KeyboardModifiers m) {
+#ifdef Q_OS_MAC
+    return (m & Qt::ControlModifier) != 0;
+#else
+    (void)m;
+    return false;
+#endif
+}
+
+// A key press on the full route, for a widget whose node took the whole keyboard. Answers
+// whether the app claimed it. The order is the policy: a ⌘ chord is the menu's; a key that
+// types nothing is named; a Control or Alt chord names its key and types nothing (`text()`
+// would carry the control code, so the key's own character names it, cased by Shift: Ctrl+C
+// is "c"); an AltGr chord (Ctrl+Alt on Windows, Qt's spelling of it) that typed a character
+// is that text; what is left typed `text()`, and is text. A dead key or an input method's
+// keys never get here: Qt composes them and delivers the commit as an input method event.
+static bool day_qt_full_route_key(uint64_t node, const QKeyEvent *ke) {
+    const Qt::KeyboardModifiers m = ke->modifiers();
+    const int mods = day_qt_key_modifiers(m);
+    if (day_qt_menu_chord(m)) return false;
+    const QByteArray named = day_qt_named_key(ke->key());
+    if (!named.isEmpty()) return day_text_key_cb(node, named.constData(), nullptr, mods) != 0;
+    const QString t = ke->text();
+    bool printable = !t.isEmpty();
+    for (const QChar &c : t) if (c.unicode() < 0x20 || c.unicode() == 0x7f) printable = false;
+#ifdef Q_OS_MAC
+    const bool chord = (m & Qt::MetaModifier) || (m & Qt::AltModifier);
+#else
+    const bool chord = (m & Qt::ControlModifier) || (m & Qt::AltModifier);
+    const bool altgr = (m & Qt::ControlModifier) && (m & Qt::AltModifier) && printable;
+    if (altgr) {
+        const QByteArray utf8 = t.toUtf8();
+        const QByteArray name = t.size() == 1 ? utf8 : QByteArray();
+        return day_text_key_cb(node, name.constData(), utf8.constData(), mods & 1) != 0;
+    }
+#endif
+    if (chord) {
+        const int k = ke->key();
+        if (k >= Qt::Key_Space && k <= Qt::Key_AsciiTilde) {
+            QChar c(k);
+            if (!(m & Qt::ShiftModifier)) c = c.toLower();
+            return day_text_key_cb(node, QString(c).toUtf8().constData(), nullptr, mods) != 0;
+        }
+        // A lone modifier, or a key with no character of its own: claimed, types nothing.
+        return true;
+    }
+    if (!printable) return true;
+    const QByteArray utf8 = t.toUtf8();
+    const QByteArray name = t.size() == 1 ? utf8 : QByteArray();
+    return day_text_key_cb(node, name.constData(), utf8.constData(), mods) != 0;
+}
 
 class DayKeyFilter : public QObject {
 public:
     uint64_t node; DayKeyCb cb;
     DayKeyFilter(uint64_t n, DayKeyCb c) : node(n), cb(c) {}
 protected:
-    bool eventFilter(QObject *, QEvent *ev) override {
+    bool eventFilter(QObject *watched, QEvent *ev) override {
+        const bool full = day_text_key_query && day_text_key_cb && day_text_key_query(node);
+        // The full route (docs/menus.md "The full route"). Input methods address a widget
+        // that says it takes them, and Qt asks at focus time, so the attribute is set as the
+        // focus arrives; a composition's commit (a dead key's accent, a Japanese phrase) is
+        // an input method event, delivered once as text; and a chord the app claims must
+        // win over an application shortcut, which Qt asks about first (ShortcutOverride).
+        if (full) {
+            QWidget *w = qobject_cast<QWidget *>(watched);
+            if (ev->type() == QEvent::FocusIn && w) w->setAttribute(Qt::WA_InputMethodEnabled, true);
+            if (ev->type() == QEvent::InputMethod) {
+                const QString commit = static_cast<QInputMethodEvent *>(ev)->commitString();
+                if (!commit.isEmpty()) {
+                    const QByteArray utf8 = commit.toUtf8();
+                    const QByteArray name = commit.size() == 1 ? utf8 : QByteArray();
+                    day_text_key_cb(node, name.constData(), utf8.constData(), 0);
+                }
+                return true;
+            }
+            if (ev->type() == QEvent::ShortcutOverride) {
+                const QKeyEvent *ke = static_cast<QKeyEvent *>(ev);
+                if (!day_qt_menu_chord(ke->modifiers())) { ev->accept(); return true; }
+                return false;
+            }
+        }
         if (ev->type() != QEvent::KeyPress) return false;
         QKeyEvent *ke = static_cast<QKeyEvent *>(ev);
+        if (full) return day_qt_full_route_key(node, ke);
         int code = -1;
         switch (ke->key()) {
             case Qt::Key_Left:      code = 0; break;

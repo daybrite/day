@@ -80,6 +80,7 @@ mod bridge_kinds_parity {
             ("K_LINK_ACTIVATED", BridgeKind::LinkActivated),
             ("K_TOOLBAR_CHANGED", BridgeKind::ToolbarChanged),
             ("K_KEY", BridgeKind::Key),
+            ("K_TEXT", BridgeKind::Text),
             ("K_WINDOW_STATE_CHANGED", BridgeKind::WindowStateChanged),
         ];
         assert_eq!(
@@ -847,6 +848,7 @@ mod imp {
         native_methods {
             static fn nativeOnEvent(id: jlong, kind: jint, num: jdouble, text: JString),
             static fn nativeHandlesKeys(id: jlong) -> jboolean,
+            static fn nativeHandlesText(id: jlong) -> jboolean,
             static fn nativeContextMenu(token: jlong, x: jfloat, y: jfloat) -> JString,
             static fn nativeRunPosted(token: jlong),
             static fn nativeDoFrame(token: jlong, frame_time_nanos: jlong),
@@ -994,6 +996,14 @@ mod imp {
             id: i64,
         ) -> Result<bool, Self::Error> {
             Ok(handles_keys(id))
+        }
+
+        fn nativeHandlesText<'l>(
+            _env: &mut Env<'l>,
+            _class: JClass<'l>,
+            id: i64,
+        ) -> Result<bool, Self::Error> {
+            Ok(handles_text(id))
         }
 
         fn nativeRunPosted<'l>(
@@ -1680,6 +1690,7 @@ mod imp {
     const K_LINK_ACTIVATED: i32 = bridge::BridgeKind::LinkActivated as i32;
     const K_TOOLBAR_CHANGED: i32 = bridge::BridgeKind::ToolbarChanged as i32;
     const K_KEY: i32 = bridge::BridgeKind::Key as i32;
+    const K_TEXT: i32 = bridge::BridgeKind::Text as i32;
     const K_WINDOW_STATE_CHANGED: i32 = bridge::BridgeKind::WindowStateChanged as i32;
 
     /// The single native trampoline (the app's `nativeOnEvent` forwards here). The kind
@@ -1697,6 +1708,13 @@ mod imp {
     /// the platform's own focus navigation. A JNI up-call entry, contained.
     pub fn handles_keys(id: i64) -> bool {
         day_spec::ffi_guard::contain(false, || day_spec::keys::handled(NodeId(id as u64)))
+    }
+
+    /// Whether node `id` took the whole keyboard (`Decorate::keyboard`, docs/menus.md). A
+    /// canvas asks before it raises the soft keyboard or names a letter. A JNI up-call
+    /// entry, contained.
+    pub fn handles_text(id: i64) -> bool {
+        day_spec::ffi_guard::contain(false, || day_spec::keys::text(NodeId(id as u64)))
     }
 
     fn dispatch_event_inner(env: &mut Env, id: i64, kind: i32, num: f64, jstr: &JString) {
@@ -1908,10 +1926,16 @@ mod imp {
             K_LINK_ACTIVATED => Event::LinkActivated(string_of(env, jstr).ok().unwrap_or_default()),
             // A key from a focused canvas (docs/menus.md): the day key name, with the modifier
             // mask in `num`. The canvas already asked whether this node claims keys.
-            K_KEY => Event::Key(day_spec::KeyEvent {
-                key: string_of(env, jstr).ok().unwrap_or_default(),
-                modifiers: num as u8,
-            }),
+            K_KEY => Event::Key(day_spec::KeyEvent::named(
+                string_of(env, jstr).ok().unwrap_or_default(),
+                num as u8,
+            )),
+            // Text the full route committed (docs/menus.md "The full route"): what a key or
+            // the input method typed, with the modifier mask in `num`.
+            K_TEXT => Event::Key(day_spec::KeyEvent::typed_text(
+                string_of(env, jstr).ok().unwrap_or_default(),
+                num as u8,
+            )),
             // A toolbar item's value (docs/toolbars.md): "sel" carries a segment index, a page
             // search field's "text:" / "submit:" its text after the prefix, anything else a
             // toggle's new state. Plain buttons arrive as MENU_ACTION, like the menus.

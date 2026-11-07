@@ -279,6 +279,15 @@ and a zero-length drag on others, and since both handlers write the same value, 
 reports both costs nothing. (Day-Sketch, whose tap TOGGLES a selection, cannot be idempotent that
 way and carries a 30 ms cross-recognizer guard instead — `src/canvas.rs`'s `handle_click`.)
 
+### Keys
+
+A canvas takes focus on a press and hears the arrows and digits through
+[`.on_key`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.on_key);
+with [`.keyboard()`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.keyboard)
+declared it hears every key, with the text a press typed kept apart from the key's name, and
+raises the soft keyboard on a phone. Both are [docs/menus.md](menus.md)'s "Keys follow focus"
+and "The full route".
+
 ### Hover
 
 ```rust

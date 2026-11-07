@@ -1100,6 +1100,9 @@ The **`Decorate`** extension trait carries the universal modifiers: `.id(id!(nam
 ([docs/grid.md](docs/grid.md); inert outside a grid), `.a11y()`, `.on_tap()` / `.on_drag()` /
 `.on_pinch()` / `.on_pan()` (the continuous zoom/scroll pair, [docs/canvas.md](docs/canvas.md)), `.focused()`,
 `.on_key()` (the non-text keys, delivered only while THIS piece has focus — [docs/menus.md](docs/menus.md)),
+`.keyboard()` (a canvas takes the whole keyboard while focused: every key, the text a press
+typed kept apart from the key's name, and the soft keyboard on a phone — "The full route" in
+[docs/menus.md](docs/menus.md)),
 `.focusable()` (opt a composed container into the focus system — the canvas contract behind
 `Toolkit::set_focusable`, [docs/focus.md](docs/focus.md); appkit today, a no-op elsewhere),
 `.selectable()` (make text user-selectable — routed to `Toolkit::set_selectable`, [docs/text.md](docs/text.md)),

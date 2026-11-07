@@ -1708,10 +1708,10 @@ mod imp {
             k if k == K::Submitted as i32 => Event::Submitted,
             // A non-text key from a focused node (docs/menus.md): `text` is the day key name,
             // `num` the modifier mask. The receiver already asked whether this node claims keys.
-            k if k == K::Key as i32 => Event::Key(day_spec::KeyEvent {
-                key: text.to_owned(),
-                modifiers: num as u8,
-            }),
+            k if k == K::Key as i32 => Event::Key(day_spec::KeyEvent::named(text, num as u8)),
+            // Text the full route committed (docs/menus.md "The full route"): what the key
+            // typed, with the modifier mask in `num`.
+            k if k == K::Text as i32 => Event::Key(day_spec::KeyEvent::typed_text(text, num as u8)),
             // Pan/drag gesture (docs/shapes.md): `num` = phase (1 began, 2 changed, 3 ended),
             // `text` = "x,y,tx,ty" in px, converted to vp like the Android bridge.
             k if k == K::Gesture as i32 => {

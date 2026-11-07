@@ -1132,13 +1132,84 @@ fn key_name(key: gtk4::gdk::Key, state: gtk4::gdk::ModifierType) -> Option<&'sta
     }
 }
 
+/// The web name for a key that types nothing (docs/menus.md "The full route"), or `None` for
+/// a key that types.
+fn named_key(key: gtk4::gdk::Key) -> Option<&'static str> {
+    use gtk4::gdk::Key;
+    Some(match key {
+        Key::Left | Key::KP_Left => "ArrowLeft",
+        Key::Right | Key::KP_Right => "ArrowRight",
+        Key::Up | Key::KP_Up => "ArrowUp",
+        Key::Down | Key::KP_Down => "ArrowDown",
+        Key::Return | Key::KP_Enter | Key::ISO_Enter => "Enter",
+        Key::Tab | Key::KP_Tab | Key::ISO_Left_Tab => "Tab",
+        Key::Escape => "Escape",
+        Key::BackSpace => "Backspace",
+        Key::Delete | Key::KP_Delete => "Delete",
+        Key::Home | Key::KP_Home => "Home",
+        Key::End | Key::KP_End => "End",
+        Key::Page_Up | Key::KP_Page_Up => "PageUp",
+        Key::Page_Down | Key::KP_Page_Down => "PageDown",
+        Key::Insert | Key::KP_Insert => "Insert",
+        Key::F1 => "F1",
+        Key::F2 => "F2",
+        Key::F3 => "F3",
+        Key::F4 => "F4",
+        Key::F5 => "F5",
+        Key::F6 => "F6",
+        Key::F7 => "F7",
+        Key::F8 => "F8",
+        Key::F9 => "F9",
+        Key::F10 => "F10",
+        Key::F11 => "F11",
+        Key::F12 => "F12",
+        _ => return None,
+    })
+}
+
+/// A key press on the full route (`Decorate::keyboard`, docs/menus.md "The full route") that
+/// the canvas's input method context did not take: the event for the app, or `None` for a
+/// press that is not the app's. The order is the policy: a Meta/Super chord (a Mac's ⌘) is
+/// the menu's; a key that types nothing is named; a Control or Alt chord names its key and
+/// types nothing (the keyval already carries Shift and ignores those two, so Ctrl+C names
+/// "c"); what is left typed a character the input method let through, and is text. A dead
+/// key never gets here: the input method context composes it and commits the result.
+fn full_route_key(
+    key: gtk4::gdk::Key,
+    state: gtk4::gdk::ModifierType,
+) -> Option<day_spec::KeyEvent> {
+    use gtk4::gdk::ModifierType as M;
+    let mods = key_modifiers(state);
+    if state.intersects(M::META_MASK | M::SUPER_MASK) {
+        return None;
+    }
+    if let Some(named) = named_key(key) {
+        return Some(day_spec::KeyEvent::named(named, mods));
+    }
+    let c = key.to_unicode().filter(|c| !c.is_control())?;
+    if state.intersects(M::CONTROL_MASK | M::ALT_MASK) {
+        return Some(day_spec::KeyEvent::named(c.to_string(), mods));
+    }
+    Some(day_spec::KeyEvent::typed_text(c.to_string(), mods))
+}
+
 /// GDK's modifier state as day's mask.
 fn key_modifiers(state: gtk4::gdk::ModifierType) -> u8 {
     let mut m = 0u8;
     if state.contains(gtk4::gdk::ModifierType::SHIFT_MASK) {
         m |= day_spec::KeyEvent::SHIFT;
     }
+    // Ctrl is both the primary key and the Control key, except on a Mac, where GTK's ⌘ is
+    // Meta and the primary key (`accel_string` spells `<Primary>` as `<Meta>` there) and ⌃
+    // is the Control key alone.
     if state.contains(gtk4::gdk::ModifierType::CONTROL_MASK) {
+        m |= if cfg!(target_os = "macos") {
+            day_spec::KeyEvent::CONTROL
+        } else {
+            day_spec::KeyEvent::PRIMARY | day_spec::KeyEvent::CONTROL
+        };
+    }
+    if cfg!(target_os = "macos") && state.contains(gtk4::gdk::ModifierType::META_MASK) {
         m |= day_spec::KeyEvent::PRIMARY;
     }
     if state.contains(gtk4::gdk::ModifierType::ALT_MASK) {
@@ -6135,23 +6206,60 @@ impl Toolkit for Gtk {
                     })
                 });
                 area.add_controller(click);
+                // The input method context for the full route (docs/menus.md "The full
+                // route"): the keyboard layout's dead keys and the user's input method
+                // (ibus, fcitx) compose through it and commit once, as text. Only a canvas
+                // that took the whole keyboard feeds it a key, or tells it about focus, so a
+                // canvas that hears the arrows alone never starts a composition.
+                let im = gtk4::IMMulticontext::new();
+                im.set_client_widget(Some(&area));
+                im.connect_commit(move |_, text| {
+                    ffi_guard::contain((), || {
+                        if !text.is_empty() && day_spec::keys::text(id) {
+                            emit(id, Event::Key(day_spec::KeyEvent::typed_text(text, 0)));
+                        }
+                    })
+                });
+                let im_focus = gtk4::EventControllerFocus::new();
+                let im_in = im.clone();
+                im_focus.connect_enter(move |_| {
+                    if ffi_guard::contain(false, || day_spec::keys::text(id)) {
+                        im_in.focus_in();
+                    }
+                });
+                let im_out = im.clone();
+                im_focus.connect_leave(move |_| {
+                    // A composition in progress goes with the focus.
+                    im_out.reset();
+                    im_out.focus_out();
+                });
+                area.add_controller(im_focus);
                 let keys = gtk4::EventControllerKey::new();
-                keys.connect_key_pressed(move |_, key, _, state| {
+                keys.connect_key_pressed(move |controller, key, _, state| {
                     ffi_guard::contain(gtk4::glib::Propagation::Proceed, || {
-                        let Some(name) = key_name(key, state) else {
-                            return gtk4::glib::Propagation::Proceed;
-                        };
                         // An arrow nobody asked for keeps traveling, so a scrolled window
                         // around the canvas still scrolls with the keyboard.
                         if !day_spec::keys::handled(id) {
                             return gtk4::glib::Propagation::Proceed;
                         }
+                        if day_spec::keys::text(id) {
+                            if let Some(event) = controller.current_event()
+                                && im.filter_keypress(&event)
+                            {
+                                return gtk4::glib::Propagation::Stop;
+                            }
+                            let Some(event) = full_route_key(key, state) else {
+                                return gtk4::glib::Propagation::Proceed;
+                            };
+                            emit(id, Event::Key(event));
+                            return gtk4::glib::Propagation::Stop;
+                        }
+                        let Some(name) = key_name(key, state) else {
+                            return gtk4::glib::Propagation::Proceed;
+                        };
                         emit(
                             id,
-                            Event::Key(day_spec::KeyEvent {
-                                key: name.to_string(),
-                                modifiers: key_modifiers(state),
-                            }),
+                            Event::Key(day_spec::KeyEvent::named(name, key_modifiers(state))),
                         );
                         gtk4::glib::Propagation::Stop
                     })
@@ -8323,10 +8431,7 @@ impl Toolkit for Gtk {
                 }
                 emit(
                     node,
-                    Event::Key(day_spec::KeyEvent {
-                        key: name.into(),
-                        modifiers: key_modifiers(state),
-                    }),
+                    Event::Key(day_spec::KeyEvent::named(name, key_modifiers(state))),
                 );
                 gtk4::glib::Propagation::Stop
             })

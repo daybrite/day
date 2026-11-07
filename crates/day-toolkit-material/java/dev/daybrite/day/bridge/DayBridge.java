@@ -164,6 +164,9 @@ public final class DayBridge extends DayRuntime {
     public static final int K_TOOLBAR_CHANGED = 30;
     /** A key reached a focused canvas (docs/menus.md): the day key name, with the modifier mask. */
     public static final int K_KEY = 29;
+    /** Text committed on the full key route (docs/menus.md "The full route"): what the input
+     *  method or the key typed, with the modifier mask in `num`. */
+    public static final int K_TEXT = 36;
     public static final int K_SAFE_AREA = 19;
     /** A window's display state changed (docs/windows.md): num = the day WindowState code
      *  (0 normal, 3 fullscreen here), against the window's day node or 0 for the primary. */
@@ -171,6 +174,9 @@ public final class DayBridge extends DayRuntime {
     /** Whether node `id` has an `.on_key` handler (docs/menus.md): a canvas asks before it
      *  claims a key or takes focus on a press. */
     public static native boolean nativeHandlesKeys(long id);
+    /** Whether node `id` took the whole keyboard (`Decorate::keyboard`, docs/menus.md): a canvas
+     *  asks before it raises the soft keyboard or names a letter. */
+    public static native boolean nativeHandlesText(long id);
     public static native String nativeContextMenu(long token, float x, float y);
     public static native void nativeRunPosted(long token);
     /** Frame clock (§8.4): Choreographer's per-vsync callback forwards here with the frame time. */
@@ -1492,10 +1498,8 @@ public final class DayBridge extends DayRuntime {
         v.setFocusable(true); v.setFocusableInTouchMode(true);
         v.setOnFocusChangeListener((view, hasFocus) -> nativeOnEvent(id, K_FOCUS_CHANGED, hasFocus ? 1 : 0, null));
         v.setOnKeyListener((view, code, e) -> {
-            if (!view.isFocused() || e.getAction() != KeyEvent.ACTION_DOWN || !nativeHandlesKeys(id)) return false;
-            String name = DayCanvasView.keyName(code, e); if (name == null) return false;
-            int mods = (e.isShiftPressed()?1:0) | (e.isCtrlPressed()?2:0) | (e.isAltPressed()?4:0);
-            nativeOnEvent(id, K_KEY, mods, name); return true;
+            if (!view.isFocused() || e.getAction() != KeyEvent.ACTION_DOWN) return false;
+            return DayCanvasView.sendKey(id, code, e);
         });
     }
 

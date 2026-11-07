@@ -154,7 +154,7 @@ extern "C" fn on_key(id: u64, name: *const c_char) {
         .into_owned();
     day_toolkit_qt::emit(
         NodeId(id),
-        Event::Key(day_spec::KeyEvent { key, modifiers: 0 }),
+        Event::Key(day_spec::KeyEvent::named(key, 0)),
     );
 }
 

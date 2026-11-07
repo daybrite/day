@@ -169,6 +169,10 @@
     {
       "code": ".menu",
       "reason": "Native CSS class/menu property, not a Rust builder method."
+    },
+    {
+      "code": "QKeyEvent::text()",
+      "reason": "Qt API (https://doc.qt.io/qt-6/qkeyevent.html#text), named in the backend table; not a published Day item."
     }
   ],
   "docs/model.md": [

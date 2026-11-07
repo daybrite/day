@@ -245,10 +245,7 @@ fn make(_backend: &mut Gtk, p: &EditorProps, id: NodeId) -> gtk4::Widget {
             ffi_guard::contain((), || {
                 day_toolkit_gtk::emit(
                     id,
-                    Event::Key(day_spec::KeyEvent {
-                        key: key.into(),
-                        modifiers: 0,
-                    }),
+                    Event::Key(day_spec::KeyEvent::named(key, 0)),
                 );
             });
             gtk4::glib::Propagation::Stop

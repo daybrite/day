@@ -569,13 +569,7 @@ fn a_single_line_editor_flattens_a_pasted_newline_and_submits_on_enter() {
         log.iter().any(|l| l.contains("SetDocument \"a b\"")),
         "the view is painted with the flattened text: {log:?}"
     );
-    probe.emit(
-        node,
-        Event::Key(day_spec::KeyEvent {
-            key: "Enter".into(),
-            modifiers: 0,
-        }),
-    );
+    probe.emit(node, Event::Key(day_spec::KeyEvent::named("Enter", 0)));
     probe.emit(node, Event::Submitted);
     flush_sync();
     assert_eq!(
@@ -592,13 +586,7 @@ fn code_mode_indents_on_tab_through_the_view() {
     probe.emit(node, Event::custom("texteditor:sel", "sel 2 2"));
     flush_sync();
     let mark = probe.log_len();
-    probe.emit(
-        node,
-        Event::Key(day_spec::KeyEvent {
-            key: "Tab".into(),
-            modifiers: 0,
-        }),
-    );
+    probe.emit(node, Event::Key(day_spec::KeyEvent::named("Tab", 0)));
     flush_sync();
     let log = probe.log_since(mark);
     assert!(

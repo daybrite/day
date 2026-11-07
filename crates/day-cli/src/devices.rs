@@ -247,18 +247,26 @@ const CORE_DEVICE_FLOOR: &str = "Turning a simulator needs Xcode 27 or newer —
      machine cannot see simulators at all. Select a newer Xcode with `xcode-select -s`, or drop \
      `--orientation`.";
 
-/// Turn the device, and confirm it by the shape of a capture.
+/// How many times `orientation set` is asked for before a stuck devicectl is given up on.
 ///
-/// The confirmation does not ask devicectl whether it worked. That was circular: on a runner
-/// whose CoreDevice cannot see simulators, `orientation get` reports nothing, and reading nothing
-/// as "not turned" is indistinguishable from reading it as "cannot tell". A screenshot is ground
-/// truth and needs nothing from CoreDevice: an iPad's SpringBoard rotates with the device, so a
-/// landscape display captures wider than it is tall.
-///
-/// (An iPhone's SpringBoard does not rotate, which is why the aspect check only decides for a
-/// device whose home screen follows the display; `orientation get` is still consulted first, and
-/// believed when it answers.)
-fn rotate(udid: &str, want: &str, orientation: &str) -> Result<(), CliError> {
+/// Three, because the stuck case is CoreDevice discovery on a freshly booted runner, not the
+/// device: on 2026-11-07 the xcode-27 image sat six minutes in one `set` and then reported its
+/// own 30-second command timeout, in a job whose every earlier run had turned the same iPad in
+/// under a second. A second ask finds the discovery the first one warmed.
+const ROTATE_ROUNDS: u32 = 3;
+
+/// How devicectl answered one `orientation set`.
+enum Request {
+    /// It exited cleanly: the request reached CoreDevice.
+    Accepted,
+    /// It gave up on itself (`Command timeout of … exceeded. Assuming command got stuck`): the
+    /// request may or may not have gone through before it hung, so the screen decides.
+    Stuck(String),
+}
+
+/// Ask devicectl to turn the device once. Any failure other than devicectl's own stuck-command
+/// timeout is final, since those name a CoreDevice that cannot see the simulator at all.
+fn request_orientation(udid: &str, want: &str, orientation: &str) -> Result<Request, CliError> {
     let out = Command::new("xcrun")
         .args([
             "devicectl",
@@ -279,45 +287,85 @@ fn rotate(udid: &str, want: &str, orientation: &str) -> Result<(), CliError> {
                  and it comes with Xcode"
             ))
         })?;
-    if !out.status.success() {
-        let err = String::from_utf8_lossy(&out.stderr);
-        return Err(CliError::failure(format!(
-            "devicectl could not set the orientation to {orientation}: {}\n{}",
-            err.trim(),
-            CORE_DEVICE_FLOOR
-        )));
+    if out.status.success() {
+        return Ok(Request::Accepted);
     }
+    let err = String::from_utf8_lossy(&out.stderr).trim().to_string();
+    if err.contains("Command timeout of") {
+        return Ok(Request::Stuck(err));
+    }
+    Err(CliError::failure(format!(
+        "devicectl could not set the orientation to {orientation}: {err}\n{CORE_DEVICE_FLOOR}"
+    )))
+}
+
+/// Turn the device, and confirm it by the shape of a capture.
+///
+/// The confirmation does not ask devicectl whether it worked. That was circular: on a runner
+/// whose CoreDevice cannot see simulators, `orientation get` reports nothing, and reading nothing
+/// as "not turned" is indistinguishable from reading it as "cannot tell". A screenshot is ground
+/// truth and needs nothing from CoreDevice: an iPad's SpringBoard rotates with the device, so a
+/// landscape display captures wider than it is tall.
+///
+/// (An iPhone's SpringBoard does not rotate, which is why the aspect check only decides for a
+/// device whose home screen follows the display; `orientation get` is still consulted first, and
+/// believed when it answers.)
+///
+/// A devicectl that reports itself stuck is asked again, up to [`ROTATE_ROUNDS`] times, and each
+/// round still checks the screen first: a request that went through before devicectl hung on its
+/// reply has already turned the device.
+fn rotate(udid: &str, want: &str, orientation: &str) -> Result<(), CliError> {
     let want_landscape = want.starts_with("landscape");
-    for attempt in 1..=8 {
-        std::thread::sleep(std::time::Duration::from_millis(700));
-        // Pixels first, and they are believed over devicectl: devicectl reports the orientation it
-        // was asked for as soon as it accepts the request, which on a simulator still settling is
-        // true of the request and false of the screen.
-        if simulator_is_landscape(udid) == Some(want_landscape) {
-            return Ok(());
-        }
-        if attempt == 8 {
-            // An iPhone's SpringBoard does not rotate, so its home screen captures portrait however
-            // the device is turned: the pixels can never agree there, and devicectl's answer is
-            // the only one available. Taken only after the retries, so a display that was going
-            // to catch up has had its chance.
-            if device_orientation(udid).as_deref() == Some(want) {
+    for round in 1..=ROTATE_ROUNDS {
+        let request = request_orientation(udid, want, orientation)?;
+        for _ in 1..=8 {
+            std::thread::sleep(std::time::Duration::from_millis(700));
+            // Pixels first, and they are believed over devicectl: devicectl reports the orientation
+            // it was asked for as soon as it accepts the request, which on a simulator still
+            // settling is true of the request and false of the screen.
+            if simulator_is_landscape(udid) == Some(want_landscape) {
                 return Ok(());
             }
-            return Err(CliError::failure(format!(
-                "devicectl accepted `orientation set {want}` but the device did not turn: it \
-                 reports {:?} and captures {}.\n{}",
-                device_orientation(udid).unwrap_or_else(|| "nothing".into()),
-                match simulator_is_landscape(udid) {
-                    Some(true) => "landscape",
-                    Some(false) => "portrait",
-                    None => "nothing",
-                },
-                CORE_DEVICE_FLOOR
-            )));
+        }
+        // An iPhone's SpringBoard does not rotate, so its home screen captures portrait however
+        // the device is turned: the pixels can never agree there, and devicectl's answer is the
+        // only one available. Taken only after the retries, so a display that was going to catch
+        // up has had its chance.
+        if device_orientation(udid).as_deref() == Some(want) {
+            return Ok(());
+        }
+        match request {
+            Request::Stuck(err) if round < ROTATE_ROUNDS => {
+                let why = err.lines().next().unwrap_or_default().trim();
+                crate::ops::status(
+                    "Retrying",
+                    &format!("`orientation set {want}` ({round} of {ROTATE_ROUNDS}): {why}"),
+                );
+            }
+            Request::Stuck(err) => {
+                return Err(CliError::failure(format!(
+                    "devicectl got stuck setting the orientation to {orientation}, \
+                     {ROTATE_ROUNDS} times: {err}\n{CORE_DEVICE_FLOOR}"
+                )));
+            }
+            Request::Accepted => {
+                return Err(CliError::failure(format!(
+                    "devicectl accepted `orientation set {want}` but the device did not turn: it \
+                     reports {:?} and captures {}.\n{}",
+                    device_orientation(udid).unwrap_or_else(|| "nothing".into()),
+                    match simulator_is_landscape(udid) {
+                        Some(true) => "landscape",
+                        Some(false) => "portrait",
+                        None => "nothing",
+                    },
+                    CORE_DEVICE_FLOOR
+                )));
+            }
         }
     }
-    Ok(())
+    Err(CliError::failure(format!(
+        "devicectl could not set the orientation to {orientation}\n{CORE_DEVICE_FLOOR}"
+    )))
 }
 
 /// Whether a screenshot of this simulator comes out wider than tall. `None` when it cannot be

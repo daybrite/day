@@ -713,13 +713,28 @@ fn exec(step: Step, revision: u32) -> Reply {
                 if m.alt {
                     mask |= day_spec::KeyEvent::ALT;
                 }
-                day_core::enqueue_event(
-                    target,
-                    Event::Key(day_spec::KeyEvent {
-                        key,
-                        modifiers: mask,
-                    }),
-                );
+                // The physical Control key (docs/menus.md "The full route") is a key-event
+                // bit, not one of `day::modifiers()`'s three, so it is read off the names.
+                if modifiers.iter().any(|n| n.eq_ignore_ascii_case("control")) {
+                    mask |= day_spec::KeyEvent::CONTROL;
+                }
+                // On the full route (docs/menus.md "The full route") a key that types does so
+                // here too: a name outside the vocabulary, pressed with nothing but Shift, is
+                // the text it types, so `key: a` reaches a terminal the way a real press does.
+                let chord = mask
+                    & (day_spec::KeyEvent::PRIMARY
+                        | day_spec::KeyEvent::ALT
+                        | day_spec::KeyEvent::CONTROL)
+                    != 0;
+                let event = if day_spec::keys::text(target)
+                    && !chord
+                    && !day_spec::KeyEvent::NAMED.contains(&key.as_str())
+                {
+                    day_spec::KeyEvent::typed_text(key, mask)
+                } else {
+                    day_spec::KeyEvent::named(key, mask)
+                };
+                day_core::enqueue_event(target, Event::Key(event));
                 day_reactive::flush_sync();
                 Ok(Reply::ok())
             }

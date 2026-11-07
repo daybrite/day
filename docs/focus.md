@@ -77,6 +77,11 @@ Text fields take focus on every toolkit. Desktop buttons, toggles, and sliders f
 platform's keyboard-access settings; macOS button traversal depends on Full Keyboard Access.
 On touch platforms, non-text controls generally do not take keyboard focus. A canvas can
 receive focus and key events; on Android, press-to-focus applies when it has an [`.on_key`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.on_key) handler.
+A canvas that declared [`.keyboard()`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.keyboard)
+is a text-input target as far as the platform is concerned: focusing it raises the soft keyboard
+on iOS, Android and the Web, clearing its focus binding dismisses it, exactly as for a text
+field, and a composition in progress is dropped with the focus ([docs/menus.md](menus.md) "The
+full route").
 
 [`.focusable()`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.focusable) makes composed containers keyboard targets on AppKit, UIKit, GTK, Qt, Android,
 and DOM. On WinUI and ArkUI, bind focus to a native control or canvas inside the container.
