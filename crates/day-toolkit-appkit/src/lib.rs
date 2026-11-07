@@ -210,6 +210,11 @@ day_core::tls_group! {
     /// Entries leave only through `release_image`, which day-core calls when the app drops its
     /// last `Bitmap` handle.
     static BITMAPS: RefCell<HashMap<u64, AppKitBitmap>> = RefCell::new(HashMap::new());
+    /// The fonts a painting thread's text ops resolve to, keyed by (size bits, font): filled
+    /// by [`OffscreenResources`] for one export at a time (docs/canvas.md "Exporting"), since
+    /// `NSFontManager` belongs to the UI thread. Empty on the UI thread itself.
+    static OFFSCREEN_FONTS: RefCell<Vec<((u64, day_spec::CanvasFont), Retained<NSFont>)>> =
+        const { RefCell::new(Vec::new()) };
     /// View ptr → its summon-time context-menu provider (docs/menus.md). Swept on release
     /// via `day_spec::sidetable`.
     static CTX_MENU_FNS: SideTable<day_spec::ContextMenuFn> = SideTable::new();
@@ -413,19 +418,110 @@ fn paint_flipped(cg: &objc2_core_graphics::CGContext, height: f64, scale: f64, o
     CGContext::restore_g_state(Some(cg));
 }
 
+/// A Cocoa object on its way to or from a painting thread (docs/canvas.md "Exporting").
+struct Sendable<T>(T);
+
+// SAFETY: wrapped only around objects AppKit documents as usable from any thread while nothing
+// mutates them — `NSImage` and `NSBitmapImageRep` for drawing, `NSFont`, and a `CGImage`,
+// which is immutable — and a stored bitmap is never mutated after `BITMAPS` takes it. Each
+// wrapped value is used by one thread at a time: the painter borrows it for one export, then
+// the UI thread owns the result.
+unsafe impl<T> Send for Sendable<T> {}
+
+/// Everything the painter would read from the UI thread's tables, resolved there before an
+/// export leaves for a painting thread (docs/canvas.md "Exporting"): the decoded images its
+/// image ops draw, and the font each of its text runs needs, which only the UI thread may ask
+/// `NSFontManager` for.
+struct OffscreenResources {
+    images: Vec<(u64, AppKitBitmap)>,
+    fonts: Vec<((u64, day_spec::CanvasFont), Retained<NSFont>)>,
+}
+
+impl OffscreenResources {
+    /// Walk `ops` on the UI thread. An image whose handle was already released is simply
+    /// absent, and the painter draws nothing for it, as it does on screen.
+    fn collect(ops: &[DrawOp]) -> Self {
+        let mut images: Vec<(u64, AppKitBitmap)> = Vec::new();
+        let mut fonts: Vec<((u64, day_spec::CanvasFont), Retained<NSFont>)> = Vec::new();
+        for op in ops {
+            match op {
+                DrawOp::Image { image, .. } => {
+                    if images.iter().any(|(id, _)| *id == image.0) {
+                        continue;
+                    }
+                    let held = BITMAPS.with(|m| {
+                        m.borrow().get(&image.0).map(|b| AppKitBitmap {
+                            image: b.image.clone(),
+                            rep: b.rep.clone(),
+                            info: b.info,
+                        })
+                    });
+                    if let Some(bitmap) = held {
+                        images.push((image.0, bitmap));
+                    }
+                }
+                DrawOp::Text { size, font, .. } => {
+                    let key = (size.to_bits(), font.clone());
+                    if fonts.iter().any(|(k, _)| *k == key) {
+                        continue;
+                    }
+                    let resolved = canvas_nsfont(*size, font);
+                    fonts.push((key, resolved));
+                }
+                _ => {}
+            }
+        }
+        Self { images, fonts }
+    }
+
+    /// Run `paint` with these as the calling thread's own tables, then take them back out.
+    /// Only entries this call added are removed afterwards, so a run on the UI thread itself
+    /// (no painting thread could start) leaves its tables as they were.
+    fn with_installed<R>(self, paint: impl FnOnce() -> R) -> R {
+        let mut added_images = Vec::with_capacity(self.images.len());
+        BITMAPS.with(|m| {
+            let mut m = m.borrow_mut();
+            for (id, bitmap) in self.images {
+                if let std::collections::hash_map::Entry::Vacant(slot) = m.entry(id) {
+                    slot.insert(bitmap);
+                    added_images.push(id);
+                }
+            }
+        });
+        let added_fonts = self.fonts.len();
+        OFFSCREEN_FONTS.with(|t| t.borrow_mut().extend(self.fonts));
+        let out = paint();
+        OFFSCREEN_FONTS.with(|t| {
+            let mut t = t.borrow_mut();
+            let keep = t.len().saturating_sub(added_fonts);
+            t.truncate(keep);
+        });
+        BITMAPS.with(|m| {
+            let mut m = m.borrow_mut();
+            for id in added_images {
+                m.remove(&id);
+            }
+        });
+        out
+    }
+}
+
 /// Render a canvas display list offscreen (docs/canvas.md "Exporting"): `export_pixels` of
-/// transparent sRGB, premultiplied RGBA, painted at `scale` pixels per point.
+/// transparent sRGB, premultiplied RGBA, painted at `scale` pixels per point. The half of the
+/// export that runs on a painting thread: CoreGraphics draws into a bitmap context from any
+/// thread, and the painter's AppKit objects (paths, colors, gradients, fonts, string drawing,
+/// image drawing) are documented safe off the main thread when nothing mutates them.
 ///
 /// A `CGBitmapContext` rather than `NSGraphicsContext(bitmapImageRep:)`: it carries a real sRGB
 /// color space, so the `NSBitmapImageRep` built from its image is tagged sRGB like every canvas
 /// color, shows on the display through the same color matching the live canvas gets, and writes
 /// that profile into a PNG.
-fn render_bitmap_image(
+fn render_bitmap_cgimage(
     ops: &[DrawOp],
     size: Size,
     scale: f64,
-) -> Result<AppKitBitmap, day_spec::ExportError> {
-    use objc2::AllocAnyThread as _;
+) -> Result<objc2_core_foundation::CFRetained<objc2_core_graphics::CGImage>, day_spec::ExportError>
+{
     use objc2_core_graphics::{
         CGBitmapContextCreate, CGBitmapContextCreateImage, CGColorSpace, CGImageAlphaInfo,
     };
@@ -452,31 +548,39 @@ fn render_bitmap_image(
     })?;
     // A new bitmap context starts zeroed, which is the transparent background.
     paint_flipped(&cg, ph as f64, scale, ops);
-    let cg_image = CGBitmapContextCreateImage(Some(&cg))
-        .ok_or_else(|| failed("CGBitmapContextCreateImage returned nothing"))?;
+    CGBitmapContextCreateImage(Some(&cg))
+        .ok_or_else(|| failed("CGBitmapContextCreateImage returned nothing"))
+}
+
+/// The UI-thread half of a bitmap export: the painted `CGImage` wrapped as the `NSBitmapImageRep`
+/// and `NSImage` a decoded bitmap is stored as, so `image`, `encode_image` and `DrawOp::Image`
+/// take it like one.
+fn bitmap_from_cgimage(cg_image: &objc2_core_graphics::CGImage, scale: f64) -> AppKitBitmap {
+    use objc2::AllocAnyThread as _;
     let rep = unsafe {
         objc2_app_kit::NSBitmapImageRep::initWithCGImage(
             objc2_app_kit::NSBitmapImageRep::alloc(),
-            &cg_image,
+            cg_image,
         )
     };
+    let (pw, ph) = unsafe { (rep.pixelsWide() as f64, rep.pixelsHigh() as f64) };
     // Sized in POINTS, pixels over scale, so the image draws at the drawing's size and stays
     // sharp at `scale`× — the same shape as a staged @2x asset.
-    let points = NSSize::new(pw as f64 / scale, ph as f64 / scale);
+    let points = NSSize::new(pw / scale, ph / scale);
     unsafe { rep.setSize(points) };
     let image =
         unsafe { objc2_app_kit::NSImage::initWithSize(objc2_app_kit::NSImage::alloc(), points) };
     unsafe { image.addRepresentation(&rep) };
-    Ok(AppKitBitmap {
+    AppKitBitmap {
         image,
         rep: Some(rep),
         info: day_spec::BitmapInfo {
-            pixels: Size::new(pw as f64, ph as f64),
+            pixels: Size::new(pw, ph),
             scale,
             format: None,
             has_alpha: true,
         },
-    })
+    }
 }
 
 /// Write `pages` as one PDF document (docs/canvas.md "Exporting"): a `CGPDFContext` on a
@@ -7349,7 +7453,23 @@ fn nsfm_weight(w: day_spec::FontWeight) -> isize {
 fn canvas_nsfont(size: f64, font: &day_spec::CanvasFont) -> Retained<NSFont> {
     use objc2_app_kit::*;
     let weight = font.weight.unwrap_or(day_spec::FontWeight::Regular);
-    let mtm = objc2::MainThreadMarker::new().expect("canvas draws on the main thread");
+    // A painting thread draws with the fonts the UI thread resolved for this export
+    // (`OffscreenResources`); on the UI thread the table is empty and the lookup falls through.
+    let prepared = OFFSCREEN_FONTS.with(|t| {
+        t.borrow()
+            .iter()
+            .find(|(key, _)| key.0 == size.to_bits() && key.1 == *font)
+            .map(|(_, f)| f.clone())
+    });
+    if let Some(f) = prepared {
+        return f;
+    }
+    let Some(mtm) = objc2::MainThreadMarker::new() else {
+        // Off the UI thread with a font the collector never saw (it walks every text op, so
+        // this is a guard, not a path): the system face, since `NSFontManager` is not ours to
+        // call here. `NSFont` itself is usable from any thread.
+        return unsafe { NSFont::systemFontOfSize_weight(size, ns_weight(weight)) };
+    };
     let manager = unsafe { NSFontManager::sharedFontManager(mtm) };
     let mut traits = NSFontTraitMask::empty();
     if weight >= day_spec::FontWeight::Semibold {
@@ -11160,6 +11280,12 @@ impl Toolkit for AppKit {
     /// Replay `ops` offscreen through the canvas's own painter (docs/canvas.md "Exporting") and
     /// keep the result in the decode table, so `image`, `encode_image` and `DrawOp::Image` take
     /// it like any decoded bitmap.
+    ///
+    /// The paint runs on a `day_spec::offscreen` thread: CoreGraphics draws into a bitmap
+    /// context from any thread, so a long replay (a map tile of a thousand paths) no longer
+    /// holds a frame. The images and fonts the ops need are resolved here first, the painted
+    /// `CGImage` comes back on the main queue, and the table insert and the answer happen
+    /// there, in that order.
     fn render_bitmap(
         &mut self,
         req: u64,
@@ -11168,12 +11294,33 @@ impl Toolkit for AppKit {
         size: Size,
         scale: f64,
     ) {
-        let result = render_bitmap_image(ops, size, scale).map(|bitmap| {
-            let info = bitmap.info;
-            BITMAPS.with(|m| m.borrow_mut().insert(id.0, bitmap));
-            info
+        let resources = Sendable(OffscreenResources::collect(ops));
+        let ops = ops.to_vec();
+        day_spec::offscreen::spawn(move || {
+            // Bound whole so the closure captures the `Send` wrapper, not its field.
+            let resources = resources;
+            let painted = day_spec::ffi_guard::contain(
+                Err(day_spec::ExportError::Failed(
+                    "the offscreen painter panicked".into(),
+                )),
+                || {
+                    resources
+                        .0
+                        .with_installed(|| render_bitmap_cgimage(&ops, size, scale))
+                },
+            );
+            let painted = Sendable(painted);
+            <AppKit as Platform>::post(Box::new(move || {
+                let painted = painted;
+                let result = painted.0.map(|cg_image| {
+                    let bitmap = bitmap_from_cgimage(&cg_image, scale);
+                    let info = bitmap.info;
+                    BITMAPS.with(|m| m.borrow_mut().insert(id.0, bitmap));
+                    info
+                });
+                emit(WINDOW_NODE, Event::BitmapRendered { req, result });
+            }));
         });
-        emit(WINDOW_NODE, Event::BitmapRendered { req, result });
     }
 
     fn render_pdf(&mut self, req: u64, pages: &[day_spec::PdfPage], info: &day_spec::PdfInfo) {

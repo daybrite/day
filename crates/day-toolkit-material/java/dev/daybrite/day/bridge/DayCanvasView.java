@@ -32,6 +32,9 @@ public class DayCanvasView extends View {
     final long id;
     double[] nums = new double[0];
     String[] texts = new String[0];
+    /** The geometry channel (day_spec::encode_ops_with_geometry): path and polygon points as
+     *  numbers, where the texts channel would otherwise carry them. */
+    double[] geometry = new double[0];
 
     public DayCanvasView(Context c, long id) {
         super(c);
@@ -270,9 +273,10 @@ public class DayCanvasView extends View {
         return c >= '0' && c <= '9' ? String.valueOf((char) c) : null;
     }
 
-    public void setOps(double[] n, String joined) {
+    public void setOps(double[] n, String joined, double[] geom) {
         nums = n;
         texts = splitTexts(joined);
+        geometry = geom;
         invalidate();
     }
 
@@ -284,8 +288,9 @@ public class DayCanvasView extends View {
 
     // ---- Export (docs/canvas.md "Exporting") ------------------------------------------------
 
-    /** The platform's words for the last export that failed, read by Rust after a false or
-     *  null answer. Exports run on the UI thread only, so one slot is enough. */
+    /** The platform's words for the last PDF export that failed, read by Rust after a null
+     *  answer. PDF exports run on the UI thread only, so one slot is enough; a bitmap export
+     *  runs on a painting thread and carries its reason in its own answer. */
     private static String exportError = "";
 
     public static String exportError() {
@@ -295,22 +300,24 @@ public class DayCanvasView extends View {
     /** Render a display list into a new transparent ARGB_8888 bitmap of `pw` x `ph` pixels,
      *  the canvas scaled by `scale` so the ops' points land where the screen puts them, and
      *  store it under `id` in {@link DayBridge#bitmaps}, the table decoded bitmaps live in. So
-     *  `imageEncode`, `imageRelease`, the image view and the canvas image op all take it. False
-     *  when the platform refuses, with the reason in {@link #exportError}. */
-    public static boolean renderBitmap(long id, double[] nums, String textsJoined, int pw, int ph,
-            double scale) {
+     *  `imageEncode`, `imageRelease`, the image view and the canvas image op all take it. Null
+     *  when it worked, else the platform's reason. Called from a painting thread (docs/canvas.md
+     *  "Exporting"): a `Bitmap`-backed `Canvas` draws from any thread, the image table is
+     *  concurrent, and the typeface cache is guarded. `geometry` is the third channel of
+     *  day_spec::encode_ops_with_geometry. */
+    public static String renderBitmap(long id, double[] nums, String textsJoined, double[] geometry,
+            int pw, int ph, double scale) {
         try {
             Bitmap bmp = Bitmap.createBitmap(pw, ph, Bitmap.Config.ARGB_8888);
             Canvas cv = new Canvas(bmp);
             cv.scale((float) scale, (float) scale);
-            new OpPainter().draw(cv, nums, splitTexts(textsJoined));
+            new OpPainter().draw(cv, nums, splitTexts(textsJoined), geometry);
             DayBridge.bitmaps.put(id, bmp);
-            return true;
+            return null;
         } catch (RuntimeException | OutOfMemoryError e) {
             // An exception thrown back across JNI would abort the process; the allocation is
             // the likely failure (a large bitmap against the per-app heap).
-            exportError = String.valueOf(e);
-            return false;
+            return String.valueOf(e);
         }
     }
 
@@ -359,7 +366,7 @@ public class DayCanvasView extends View {
         float density = getResources().getDisplayMetrics().density;
         cv.save();
         cv.scale(density, density);
-        painter.draw(cv, nums, texts);
+        painter.draw(cv, nums, texts, geometry);
         cv.restore();
     }
 
@@ -395,20 +402,30 @@ public class DayCanvasView extends View {
          *  means the encoder offered none, and that geometry is parsed as it always was. */
         private final java.util.HashMap<Long, android.graphics.Path> pathCache = new java.util.HashMap<>();
 
-        private android.graphics.Path cachedPath(double key, String spec, int rule) {
+        /** The geometry channel of the list being drawn, or null when the points ride the
+         *  texts channel (a PDF page). Set by {@link #draw} for the records it replays. */
+        private double[] geometry;
+
+        /** A path from the texts channel (`spec`) or, when the list came with a geometry
+         *  channel, from `count` numbers at `offset` in it (day_spec::path_numbers). */
+        private android.graphics.Path cachedPath(double key, String spec, double offset, double count, int rule) {
             long k = (long) key;
-            if (k == 0) return parsePath(spec, rule);
-            android.graphics.Path hit = pathCache.get(k);
+            android.graphics.Path hit = k == 0 ? null : pathCache.get(k);
             if (hit != null) return hit;
-            android.graphics.Path built = parsePath(spec, rule);
-            if (pathCache.size() > 512) pathCache.clear();
-            pathCache.put(k, built);
+            android.graphics.Path built = geometry != null
+                    ? pathFromNumbers(geometry, (int) offset, (int) count, rule)
+                    : parsePath(spec, rule);
+            if (k != 0) {
+                if (pathCache.size() > 512) pathCache.clear();
+                pathCache.put(k, built);
+            }
             return built;
         }
 
-        /** The polygon counterpart: "x,y x,y …" as one closed path, cached the same way. Returns an
-         *  EMPTY path when the payload held no points, which is what the callers already test for. */
-        private android.graphics.Path cachedPolygon(double key, String pts) {
+        /** The polygon counterpart: "x,y x,y …", or `count` numbers at `offset` in the geometry
+         *  channel (x y per point), as one closed path, cached the same way. Returns an EMPTY
+         *  path when the payload held no points, which is what the callers already test for. */
+        private android.graphics.Path cachedPolygon(double key, String pts, double offset, double count) {
             long k = (long) key;
             if (k != 0) {
                 android.graphics.Path hit = pathCache.get(k);
@@ -416,15 +433,22 @@ public class DayCanvasView extends View {
             }
             android.graphics.Path built = new android.graphics.Path();
             boolean first = true;
-            for (String pair : pts.split(" ")) {
-                int comma = pair.indexOf(',');
-                if (comma <= 0) continue;
-                try {
-                    float x = Float.parseFloat(pair.substring(0, comma));
-                    float y = Float.parseFloat(pair.substring(comma + 1));
+            if (geometry != null) {
+                int end = Math.min(geometry.length, (int) offset + (int) count);
+                for (int i = (int) offset; i + 1 < end; i += 2) {
+                    float x = (float) geometry[i], y = (float) geometry[i + 1];
                     if (first) { built.moveTo(x, y); first = false; } else { built.lineTo(x, y); }
-                } catch (NumberFormatException nfe) {
-                    android.util.Log.w("Day", "canvas point parse failed: " + pair, nfe);
+                }
+            } else {
+                NumberScanner in = new NumberScanner(pts);
+                while (in.skipSpaces()) {
+                    // A pair is "x,y"; a malformed pair is skipped up to the next space, as the
+                    // split-based reader before this one skipped it.
+                    if (!in.number()) { in.skipToken(); continue; }
+                    float x = (float) in.value;
+                    if (!in.eat(',') || !in.number()) { in.skipToken(); continue; }
+                    float y = (float) in.value;
+                    if (first) { built.moveTo(x, y); first = false; } else { built.lineTo(x, y); }
                 }
             }
             if (!first) built.close();
@@ -469,8 +493,15 @@ public class DayCanvasView extends View {
         }
 
         /** Replay `nums` (nine numbers a record) and `texts` (one entry per record that carries
-         *  text, in order) onto `cv`. */
+         *  text, in order) onto `cv`, the points of paths and polygons on the texts channel. */
         void draw(Canvas cv, double[] nums, String[] texts) {
+            draw(cv, nums, texts, null);
+        }
+
+        /** {@link #draw(Canvas, double[], String[])} with the geometry channel `geom` carrying
+         *  the points of paths and polygons (null: they ride the texts channel). */
+        void draw(Canvas cv, double[] nums, String[] texts, double[] geom) {
+            geometry = geom;
             // Pending records never carry over from the previous draw.
             stylePending = false;
             fontPending = false;
@@ -594,7 +625,7 @@ public class DayCanvasView extends View {
                         // The texts entry is consumed either way: that channel is positional, so a
                         // cache hit that skipped it would desynchronize every record after this one.
                         String t = ti < texts.length ? texts[ti++] : "";
-                        android.graphics.Path path = cachedPolygon(a, t);
+                        android.graphics.Path path = cachedPolygon(a, t, b, c);
                         if (!path.isEmpty()) {
                             if (k == 11) {
                                 paint.setStyle(Paint.Style.FILL);
@@ -614,7 +645,7 @@ public class DayCanvasView extends View {
                     }
                     case 15: case 16: { // path (15 fill / 16 stroke); segments ride texts, f = fill rule
                         String t = ti < texts.length ? texts[ti++] : "";
-                        android.graphics.Path path = cachedPath(a, t, (int) f);
+                        android.graphics.Path path = cachedPath(a, t, b, c, (int) f);
                         if (k == 15) {
                             paint.setStyle(Paint.Style.FILL);
                             if (gradPending) {
@@ -642,8 +673,8 @@ public class DayCanvasView extends View {
                             case 2: clip.addOval(new RectF(a, b, a+c, b+d), android.graphics.Path.Direction.CW); break;
                             // These two REPLACE the path rather than adding to it, so the cached
                             // object is never mutated afterwards — `cv.clipPath` only reads it.
-                            case 3: clip = cachedPath(a, ti < texts.length ? texts[ti++] : "", (int) e); break;
-                            case 4: clip = cachedPolygon(a, ti < texts.length ? texts[ti++] : ""); break;
+                            case 3: clip = cachedPath(a, ti < texts.length ? texts[ti++] : "", b, c, (int) e); break;
+                            case 4: clip = cachedPolygon(a, ti < texts.length ? texts[ti++] : "", b, c); break;
                             default: clip.addRect(a, b, a+c, b+d, android.graphics.Path.Direction.CW); break;
                         }
                         // Canvas.clipPath intersects with the current clip, which is the spec's rule.
@@ -747,35 +778,149 @@ public class DayCanvasView extends View {
         }
     }
 
-    /** Parse "M x y L x y Q .. C .. Z" (day_spec::encode_path) into an Android Path. */
+    /** Parse "M x y L x y Q .. C .. Z" (day_spec::encode_path) into an Android Path.
+     *
+     *  One pass over the characters with {@link NumberScanner}: `split` plus `Float.parseFloat`
+     *  made a substring and a boxed parse of every token, and that, not Skia, was half of a map
+     *  tile's export time (docs/canvas.md "Exporting"). A command short of its numbers ends the
+     *  parse with what was read, as before. */
     private static android.graphics.Path parsePath(String spec, int rule) {
         android.graphics.Path path = new android.graphics.Path();
         path.setFillType(rule == 1 ? android.graphics.Path.FillType.EVEN_ODD
                                    : android.graphics.Path.FillType.WINDING);
-        String[] tok = spec.trim().isEmpty() ? new String[0] : spec.split(" ");
-        int i = 0;
-        try {
-            while (i < tok.length) {
-                String op = tok[i++];
-                if (op.equals("M") && i + 1 < tok.length) {
-                    path.moveTo(Float.parseFloat(tok[i++]), Float.parseFloat(tok[i++]));
-                } else if (op.equals("L") && i + 1 < tok.length) {
-                    path.lineTo(Float.parseFloat(tok[i++]), Float.parseFloat(tok[i++]));
-                } else if (op.equals("Q") && i + 3 < tok.length) {
-                    path.quadTo(Float.parseFloat(tok[i++]), Float.parseFloat(tok[i++]),
-                                Float.parseFloat(tok[i++]), Float.parseFloat(tok[i++]));
-                } else if (op.equals("C") && i + 5 < tok.length) {
-                    path.cubicTo(Float.parseFloat(tok[i++]), Float.parseFloat(tok[i++]),
-                                 Float.parseFloat(tok[i++]), Float.parseFloat(tok[i++]),
-                                 Float.parseFloat(tok[i++]), Float.parseFloat(tok[i++]));
-                } else if (op.equals("Z")) {
-                    path.close();
-                }
+        NumberScanner in = new NumberScanner(spec);
+        float[] v = new float[6];
+        while (in.skipSpaces()) {
+            char op = in.s.charAt(in.pos++);
+            int need;
+            switch (op) {
+                case 'M': case 'L': need = 2; break;
+                case 'Q': need = 4; break;
+                case 'C': need = 6; break;
+                case 'Z': path.close(); continue;
+                default: in.skipToken(); continue;
             }
-        } catch (NumberFormatException nfe) {
-            // Draw what parsed rather than dropping the frame.
-            android.util.Log.w("Day", "canvas path parse failed", nfe);
+            int got = 0;
+            while (got < need && in.skipSpaces() && in.number()) v[got++] = (float) in.value;
+            if (got < need) break;
+            switch (op) {
+                case 'M': path.moveTo(v[0], v[1]); break;
+                case 'L': path.lineTo(v[0], v[1]); break;
+                case 'Q': path.quadTo(v[0], v[1], v[2], v[3]); break;
+                default: path.cubicTo(v[0], v[1], v[2], v[3], v[4], v[5]); break;
+            }
         }
         return path;
+    }
+
+    /** Build a path from `count` numbers at `offset` in the geometry channel: a command code then
+     *  its points, 0 move, 1 line, 2 quad, 3 cubic, 4 close (day_spec::path_numbers). A command
+     *  short of its numbers ends the path with what was read. */
+    private static android.graphics.Path pathFromNumbers(double[] g, int offset, int count, int rule) {
+        android.graphics.Path path = new android.graphics.Path();
+        path.setFillType(rule == 1 ? android.graphics.Path.FillType.EVEN_ODD
+                                   : android.graphics.Path.FillType.WINDING);
+        int i = Math.max(0, offset), end = Math.min(g.length, offset + count);
+        while (i < end) {
+            int cmd = (int) g[i++];
+            switch (cmd) {
+                case 0: if (i + 1 >= end) return path; path.moveTo((float) g[i], (float) g[i + 1]); i += 2; break;
+                case 1: if (i + 1 >= end) return path; path.lineTo((float) g[i], (float) g[i + 1]); i += 2; break;
+                case 2: if (i + 3 >= end) return path;
+                        path.quadTo((float) g[i], (float) g[i + 1], (float) g[i + 2], (float) g[i + 3]); i += 4; break;
+                case 3: if (i + 5 >= end) return path;
+                        path.cubicTo((float) g[i], (float) g[i + 1], (float) g[i + 2], (float) g[i + 3],
+                                     (float) g[i + 4], (float) g[i + 5]); i += 6; break;
+                case 4: path.close(); break;
+                default: return path;
+            }
+        }
+        return path;
+    }
+
+    /** A cursor over the texts channel's number syntax (day_spec's `push_wire_num`: an optional
+     *  sign, digits, an optional fraction, and, from the general fallback only, an exponent),
+     *  reading each number straight off the characters with no substring. */
+    static final class NumberScanner {
+        final String s;
+        int pos = 0;
+        /** The last number {@link #number} read. */
+        double value;
+
+        NumberScanner(String s) { this.s = s; }
+
+        /** Skip spaces; false at the end of the text. */
+        boolean skipSpaces() {
+            int n = s.length();
+            while (pos < n && s.charAt(pos) == ' ') pos++;
+            return pos < n;
+        }
+
+        /** Skip to the next space, past a token this reader does not understand. */
+        void skipToken() {
+            int n = s.length();
+            while (pos < n && s.charAt(pos) != ' ') pos++;
+        }
+
+        /** Consume `c` if it is next. */
+        boolean eat(char c) {
+            if (pos < s.length() && s.charAt(pos) == c) { pos++; return true; }
+            return false;
+        }
+
+        /** Read a number into {@link #value}; false, with the cursor unmoved, when none starts
+         *  here. Digits accumulate in a long and the decimal point and exponent are applied once,
+         *  which keeps every value the encoder writes exact to float precision. */
+        boolean number() {
+            int n = s.length(), i = pos;
+            boolean neg = false;
+            if (i < n && (s.charAt(i) == '-' || s.charAt(i) == '+')) { neg = s.charAt(i) == '-'; i++; }
+            long mant = 0;
+            int digits = 0, exp = 0;
+            boolean any = false;
+            for (; i < n; i++) {
+                char c = s.charAt(i);
+                if (c < '0' || c > '9') break;
+                any = true;
+                // Past 18 digits a long would overflow; a float never had that precision, so
+                // further integer digits only scale the value and further fraction digits drop.
+                if (digits < 18) { mant = mant * 10 + (c - '0'); digits++; } else exp++;
+            }
+            if (i + 1 < n && s.charAt(i) == '.' && s.charAt(i + 1) >= '0' && s.charAt(i + 1) <= '9') {
+                for (i++; i < n; i++) {
+                    char c = s.charAt(i);
+                    if (c < '0' || c > '9') break;
+                    any = true;
+                    if (digits < 18) { mant = mant * 10 + (c - '0'); digits++; exp--; }
+                }
+            }
+            if (!any) return false;
+            if (i < n && (s.charAt(i) == 'e' || s.charAt(i) == 'E')) {
+                int j = i + 1;
+                boolean eneg = false;
+                if (j < n && (s.charAt(j) == '-' || s.charAt(j) == '+')) { eneg = s.charAt(j) == '-'; j++; }
+                int e = 0;
+                boolean edigits = false;
+                for (; j < n && s.charAt(j) >= '0' && s.charAt(j) <= '9'; j++) {
+                    e = Math.min(e * 10 + (s.charAt(j) - '0'), 400);
+                    edigits = true;
+                }
+                if (edigits) { exp += eneg ? -e : e; i = j; }
+            }
+            double v = mant;
+            // Exact powers of ten up to 1e22, so "183.472938" divides out to the double the
+            // encoder started from; beyond that range the general power is close enough.
+            if (exp < 0) v = -exp <= 22 ? v / POW10[-exp] : v * Math.pow(10, exp);
+            else if (exp > 0) v = exp <= 22 ? v * POW10[exp] : v * Math.pow(10, exp);
+            value = neg ? -v : v;
+            pos = i;
+            return true;
+        }
+
+        private static final double[] POW10 = new double[23];
+        static {
+            double p = 1;
+            for (int i = 0; i < POW10.length; i++) { POW10[i] = p; p *= 10; }
+        }
     }
 }

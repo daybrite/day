@@ -5320,6 +5320,100 @@ mod imp {
         /// pointer: one bitmap outlives any view and may be drawn by several at once. Entries
         /// leave only through `release_image`.
         static BITMAPS: RefCell<HashMap<u64, UikitBitmap>> = RefCell::new(HashMap::new());
+        /// The fonts a painting thread's text ops resolve to, keyed by (size bits, font):
+        /// filled by [`OffscreenResources`] for one export at a time (docs/canvas.md
+        /// "Exporting"), so the painter asks UIKit's font machinery only from the UI thread.
+        /// Empty on the UI thread itself.
+        static OFFSCREEN_FONTS: RefCell<Vec<OffscreenFont>> = const { RefCell::new(Vec::new()) };
+    }
+
+    /// One entry of `OFFSCREEN_FONTS`: the (size bits, canvas font) a text op asked for, and
+    /// the `UIFont` the UI thread resolved it to.
+    type OffscreenFont = ((u64, day_spec::CanvasFont), Retained<objc2_ui_kit::UIFont>);
+
+    /// A UIKit object on its way to or from a painting thread (docs/canvas.md "Exporting").
+    struct Sendable<T>(T);
+
+    // SAFETY: wrapped only around objects UIKit documents as usable from any thread —
+    // `UIImage` and `UIFont` are immutable, and `UIGraphicsImageRenderer` is thread-safe —
+    // and each wrapped value is used by one thread at a time: the painter borrows it for one
+    // export, then the UI thread owns the result.
+    unsafe impl<T> Send for Sendable<T> {}
+
+    /// Everything the painter would read from the UI thread's tables, resolved there before an
+    /// export leaves for a painting thread (docs/canvas.md "Exporting"): the decoded images its
+    /// image ops draw, and the font each of its text runs needs.
+    struct OffscreenResources {
+        images: Vec<(u64, UikitBitmap)>,
+        fonts: Vec<OffscreenFont>,
+    }
+
+    impl OffscreenResources {
+        /// Walk `ops` on the UI thread. An image whose handle was already released is simply
+        /// absent, and the painter draws nothing for it, as it does on screen.
+        fn collect(ops: &[DrawOp]) -> Self {
+            let mut images: Vec<(u64, UikitBitmap)> = Vec::new();
+            let mut fonts: Vec<OffscreenFont> = Vec::new();
+            for op in ops {
+                match op {
+                    DrawOp::Image { image, .. } => {
+                        if images.iter().any(|(id, _)| *id == image.0) {
+                            continue;
+                        }
+                        let held = BITMAPS.with(|m| {
+                            m.borrow().get(&image.0).map(|b| UikitBitmap {
+                                image: b.image.clone(),
+                                info: b.info,
+                            })
+                        });
+                        if let Some(bitmap) = held {
+                            images.push((image.0, bitmap));
+                        }
+                    }
+                    DrawOp::Text { size, font, .. } => {
+                        let key = (size.to_bits(), font.clone());
+                        if fonts.iter().any(|(k, _)| *k == key) {
+                            continue;
+                        }
+                        let resolved = canvas_uifont(*size, font);
+                        fonts.push((key, resolved));
+                    }
+                    _ => {}
+                }
+            }
+            Self { images, fonts }
+        }
+
+        /// Run `paint` with these as the calling thread's own tables, then take them back out.
+        /// Only entries this call added are removed afterwards, so a run on the UI thread
+        /// itself (no painting thread could start) leaves its tables as they were.
+        fn with_installed<R>(self, paint: impl FnOnce() -> R) -> R {
+            let mut added_images = Vec::with_capacity(self.images.len());
+            BITMAPS.with(|m| {
+                let mut m = m.borrow_mut();
+                for (id, bitmap) in self.images {
+                    if let std::collections::hash_map::Entry::Vacant(slot) = m.entry(id) {
+                        slot.insert(bitmap);
+                        added_images.push(id);
+                    }
+                }
+            });
+            let added_fonts = self.fonts.len();
+            OFFSCREEN_FONTS.with(|t| t.borrow_mut().extend(self.fonts));
+            let out = paint();
+            OFFSCREEN_FONTS.with(|t| {
+                let mut t = t.borrow_mut();
+                let keep = t.len().saturating_sub(added_fonts);
+                t.truncate(keep);
+            });
+            BITMAPS.with(|m| {
+                let mut m = m.borrow_mut();
+                for id in added_images {
+                    m.remove(&id);
+                }
+            });
+            out
+        }
     }
 
     /// A Day page joins a host's stack (the insert duty).
@@ -10253,33 +10347,45 @@ mod imp {
         }
     }
 
-    /// Render `ops` offscreen at `scale` pixels per point (docs/canvas.md "Exporting").
-    ///
-    /// `UIGraphicsImageRenderer` hands its block a UIKit context with the top-left origin a
-    /// canvas view draws in, so the painter runs unchanged. The format is pinned to the standard
-    /// (sRGB) range, the space canvas colors are written in, so an encode of the export carries
-    /// the bytes the drawing named rather than their Display P3 conversion.
-    fn render_bitmap_image(
-        ops: &[day_spec::DrawOp],
+    /// The renderer for one offscreen export, made on the UI thread: `preferredFormat` reads
+    /// the main screen's traits. The format is pinned to the standard (sRGB) range, the space
+    /// canvas colors are written in, so an encode of the export carries the bytes the drawing
+    /// named rather than their Display P3 conversion.
+    fn offscreen_renderer(
         size: Size,
         scale: f64,
-    ) -> Result<(Retained<objc2_ui_kit::UIImage>, day_spec::BitmapInfo), day_spec::ExportError>
-    {
+    ) -> Retained<objc2_ui_kit::UIGraphicsImageRenderer> {
         use objc2::AllocAnyThread as _;
-        let (pw, ph) = day_spec::export_pixels(size, scale);
-        // SAFETY: main thread (a Toolkit duty). The renderer runs the block synchronously,
-        // inside `imageWithActions`, so the ops it borrows outlive every use.
-        let image = unsafe {
+        // SAFETY: plain UIKit object construction on the UI thread.
+        unsafe {
             let format = objc2_ui_kit::UIGraphicsImageRendererFormat::preferredFormat();
             format.setScale(scale);
             format.setOpaque(false);
             format.setPreferredRange(objc2_ui_kit::UIGraphicsImageRendererFormatRange::Standard);
-            let renderer = objc2_ui_kit::UIGraphicsImageRenderer::initWithSize_format(
+            objc2_ui_kit::UIGraphicsImageRenderer::initWithSize_format(
                 objc2_ui_kit::UIGraphicsImageRenderer::alloc(),
                 CGSize::new(size.width, size.height),
                 &format,
-            );
-            let ops = ops.to_vec();
+            )
+        }
+    }
+
+    /// Render `ops` offscreen at `scale` pixels per point through `renderer` (docs/canvas.md
+    /// "Exporting"), on a painting thread: `UIGraphicsImageRenderer` is thread-safe, and it
+    /// hands its block a UIKit context with the top-left origin a canvas view draws in, so the
+    /// painter runs unchanged. The images and fonts the ops need are already this thread's
+    /// (`OffscreenResources`).
+    fn render_bitmap_image(
+        renderer: &objc2_ui_kit::UIGraphicsImageRenderer,
+        ops: Vec<day_spec::DrawOp>,
+        size: Size,
+        scale: f64,
+    ) -> Result<(Retained<objc2_ui_kit::UIImage>, day_spec::BitmapInfo), day_spec::ExportError>
+    {
+        let (pw, ph) = day_spec::export_pixels(size, scale);
+        // SAFETY: the renderer runs the block synchronously, inside `imageWithActions`, so the
+        // ops it owns outlive every use.
+        let image = unsafe {
             let block = block2::RcBlock::new(
                 move |_ctx: core::ptr::NonNull<objc2_ui_kit::UIGraphicsImageRendererContext>| {
                     day_spec::ffi_guard::contain((), || paint_ops(&ops));
@@ -10289,7 +10395,7 @@ mod imp {
         };
         // A renderer that could not allocate its backing store hands back an empty image
         // rather than an error; that is the only refusal UIKit reports here.
-        // SAFETY: reading the image's backing CGImage, on the thread that made it.
+        // SAFETY: reading the immutable image's backing CGImage, on the thread that made it.
         if unsafe { image.CGImage() }.is_none() {
             return Err(day_spec::ExportError::Failed(format!(
                 "UIGraphicsImageRenderer produced no image for {pw}x{ph} pixels"
@@ -10716,6 +10822,18 @@ mod imp {
     /// font with one warning.
     fn canvas_uifont(size: f64, font: &day_spec::CanvasFont) -> Retained<objc2_ui_kit::UIFont> {
         use objc2_ui_kit::*;
+        // A painting thread draws with the fonts the UI thread resolved for this export
+        // (`OffscreenResources`); on the UI thread the table is empty and the lookup falls
+        // through to UIKit.
+        let prepared = OFFSCREEN_FONTS.with(|t| {
+            t.borrow()
+                .iter()
+                .find(|(key, _)| key.0 == size.to_bits() && key.1 == *font)
+                .map(|(_, f)| f.clone())
+        });
+        if let Some(f) = prepared {
+            return f;
+        }
         let weight = font.weight.unwrap_or(day_spec::FontWeight::Regular);
         let mut traits = UIFontDescriptorSymbolicTraits::empty();
         if weight >= day_spec::FontWeight::Semibold {
@@ -14330,6 +14448,12 @@ mod imp {
 
         /// Offscreen through `UIGraphicsImageRenderer` with the canvas's own painter
         /// (docs/canvas.md "Exporting"), kept in the table `decode_image` fills.
+        ///
+        /// The paint runs on a `day_spec::offscreen` thread, where the renderer is documented
+        /// to work, so a long replay (a map tile of a thousand paths took 130 ms on an iPad
+        /// Air 2) no longer holds a frame. The images and fonts the ops need are resolved here
+        /// first, the `UIImage` comes back on the main queue, and the table insert and the
+        /// answer happen there, in that order.
         fn render_bitmap(
             &mut self,
             req: u64,
@@ -14338,11 +14462,32 @@ mod imp {
             size: Size,
             scale: f64,
         ) {
-            let result = render_bitmap_image(ops, size, scale).map(|(image, info)| {
-                BITMAPS.with(|m| m.borrow_mut().insert(id.0, UikitBitmap { image, info }));
-                info
+            let resources = Sendable(OffscreenResources::collect(ops));
+            let renderer = Sendable(offscreen_renderer(size, scale));
+            let ops = ops.to_vec();
+            day_spec::offscreen::spawn(move || {
+                // Bound whole so the closure captures the `Send` wrappers, not their fields.
+                let (resources, renderer) = (resources, renderer);
+                let painted = day_spec::ffi_guard::contain(
+                    Err(day_spec::ExportError::Failed(
+                        "the offscreen painter panicked".into(),
+                    )),
+                    || {
+                        resources
+                            .0
+                            .with_installed(|| render_bitmap_image(&renderer.0, ops, size, scale))
+                    },
+                );
+                let painted = Sendable(painted);
+                <Uikit as Platform>::post(Box::new(move || {
+                    let painted = painted;
+                    let result = painted.0.map(|(image, info)| {
+                        BITMAPS.with(|m| m.borrow_mut().insert(id.0, UikitBitmap { image, info }));
+                        info
+                    });
+                    emit(day_spec::WINDOW_NODE, Event::BitmapRendered { req, result });
+                }));
             });
-            emit(day_spec::WINDOW_NODE, Event::BitmapRendered { req, result });
         }
 
         /// One vector PDF through `UIGraphicsPDFRenderer`, a page per drawing.

@@ -358,6 +358,8 @@ public final class DayBridge extends DayRuntime {
     // --- factories + setters (called from Rust over JNI) ---
     // ---- canvas fonts (docs/fonts.md) -----------------------------------------------------
 
+    /** Guarded by its own monitor: the offscreen painter resolves typefaces from a painting
+     *  thread while the UI thread measures and draws (docs/canvas.md "Exporting"). */
     private static final java.util.Map<String, Typeface> CANVAS_FONT_CACHE = new java.util.HashMap<>();
 
     /**
@@ -365,11 +367,14 @@ public final class DayBridge extends DayRuntime {
      * system family or alias by name (`sans-serif-condensed`, `serif`, …, which `Typeface.create`
      * resolves from `fonts.xml`; an unknown name gives the default face), at a CSS weight (0 =
      * default) and slant. API 28+ picks the exact weight; older releases take the bold flag.
+     * Callable from any thread; `Typeface` objects are immutable.
      */
     public static Typeface canvasTypeface(String family, int weight, boolean italic) {
         String key = family + "|" + weight + "|" + italic;
-        Typeface cached = CANVAS_FONT_CACHE.get(key);
-        if (cached != null) return cached;
+        synchronized (CANVAS_FONT_CACHE) {
+            Typeface cached = CANVAS_FONT_CACHE.get(key);
+            if (cached != null) return cached;
+        }
         Typeface base = Typeface.DEFAULT;
         if (family != null && !family.isEmpty()) {
             base = bundledFontOrNull(family);
@@ -382,7 +387,9 @@ public final class DayBridge extends DayRuntime {
             int style = (weight >= 600 ? Typeface.BOLD : Typeface.NORMAL) | (italic ? Typeface.ITALIC : 0);
             tf = Typeface.create(base, style);
         }
-        CANVAS_FONT_CACHE.put(key, tf);
+        synchronized (CANVAS_FONT_CACHE) {
+            CANVAS_FONT_CACHE.put(key, tf);
+        }
         return tf;
     }
 
@@ -3835,16 +3842,19 @@ public final class DayBridge extends DayRuntime {
     }
 
     public static View makeCanvas(long id) { return new DayCanvasView(ctx, id); }
-    public static void setCanvasOps(View v, double[] nums, String textsJoined) {
-        ((DayCanvasView) v).setOps(nums, textsJoined);
+    public static void setCanvasOps(View v, double[] nums, String textsJoined, double[] geometry) {
+        ((DayCanvasView) v).setOps(nums, textsJoined, geometry);
     }
     // ---- Raster images from bytes (docs/images.md) -----------------------------------------
 
     /** Decoded bitmaps, keyed by the id day-core minted. A bitmap outlives any one view and may
      *  be drawn by several at once, so this is keyed by id rather than by View. Entries leave
      *  only through {@link #imageRelease}, which day-core calls when the app drops its last
-     *  handle. */
-    static final java.util.HashMap<Long, android.graphics.Bitmap> bitmaps = new java.util.HashMap<>();
+     *  handle. Concurrent because the offscreen painter reads and fills it from a painting
+     *  thread (docs/canvas.md "Exporting"); the bitmaps themselves are never mutated once
+     *  stored, so drawing one from two threads at once is safe. */
+    static final java.util.concurrent.ConcurrentHashMap<Long, android.graphics.Bitmap> bitmaps =
+            new java.util.concurrent.ConcurrentHashMap<>();
 
     /** The bitmap `id` names, or null once released: what DayCanvasView's image op draws. */
     public static android.graphics.Bitmap bitmapFor(long id) {

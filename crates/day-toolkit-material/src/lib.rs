@@ -779,7 +779,8 @@ mod imp {
         static fn setButtonContent(view: android.view.View, title: JString, icon_name: JString, icon_only: jboolean),
         static fn setButtonSelected(v: android.view.View, on: jboolean),
         static fn setButtonStyle(v: android.view.View, kind: jint, argb: jint, fg_argb: jint),
-        static fn setCanvasOps(v: android.view.View, nums: jdouble[], texts_joined: JString),
+        static fn setCanvasOps(v: android.view.View, nums: jdouble[], texts_joined: JString,
+            geometry: jdouble[]),
         static fn setContextMenu(v: android.view.View, spec: JString),
         static fn setContextMenuFn(v: android.view.View, token: jlong),
         static fn releaseContextMenu(v: android.view.View),
@@ -943,8 +944,8 @@ mod imp {
         DayCanvasView => dev.daybrite.day.bridge.DayCanvasView,
         methods {
             static fn exportError() -> JString,
-            static fn renderBitmap(id: jlong, nums: jdouble[], texts_joined: JString, pw: jint,
-                ph: jint, scale: jdouble) -> jboolean,
+            static fn renderBitmap(id: jlong, nums: jdouble[], texts_joined: JString,
+                geometry: jdouble[], pw: jint, ph: jint, scale: jdouble) -> JString,
             static fn renderPdf(nums: jdouble[], num_counts: jint[], texts_joined: JString,
                 text_counts: jint[], sizes: jdouble[]) -> jbyte[],
         },
@@ -2638,18 +2639,19 @@ mod imp {
         day_spec::ExportError::Failed(why)
     }
 
-    /// `render_bitmap`'s body: one JNI call that paints and stores the bitmap, then the facts
-    /// of what was stored. A free function so each refusal is an early return.
+    /// `render_bitmap`'s body, on a painting thread (docs/canvas.md "Exporting"): the ops
+    /// encoded for the wire, then one JNI call that paints and stores the bitmap, with the
+    /// facts of what was stored as the answer. `with_env` attaches this thread to the JVM for
+    /// the call, and the binding resolves `DayCanvasView` through the app class loader, so
+    /// the call works from a thread Java never saw. A free function so each refusal is an
+    /// early return.
     fn export_bitmap(
         id: day_spec::BitmapId,
         ops: &[DrawOp],
-        size: Size,
+        pw: u32,
+        ph: u32,
         scale: f64,
     ) -> Result<day_spec::BitmapInfo, day_spec::ExportError> {
-        if !vm_ready() {
-            return Err(day_spec::ExportError::Unsupported);
-        }
-        let (pw, ph) = day_spec::export_pixels(size, scale);
         // day-core caps a side at 16,384 pixels, so both fit an `int`.
         let (Ok(jw), Ok(jh)) = (i32::try_from(pw), i32::try_from(ph)) else {
             return Err(day_spec::ExportError::TooLarge {
@@ -2657,23 +2659,42 @@ mod imp {
                 height: ph,
             });
         };
-        let (nums, texts) = day_spec::encode_ops(ops);
+        let (nums, texts, geometry) = day_spec::encode_ops_with_geometry(ops);
         with_env(|env| {
-            let painted = java_in(env, |env| {
+            let refused = java_in(env, |env| {
                 let arr = env.new_double_array(nums.len())?;
                 arr.set_region(env, 0, &nums)?;
+                let geo = env.new_double_array(geometry.len())?;
+                geo.set_region(env, 0, &geometry)?;
                 let joined = JString::from_str(env, texts.join("\u{1f}"))?;
-                DayCanvasView::renderBitmap(env, id.0 as i64, &arr, &joined, jw, jh, scale)
+                let why = DayCanvasView::renderBitmap(
+                    env,
+                    id.0 as i64,
+                    &arr,
+                    &joined,
+                    &geo,
+                    jw,
+                    jh,
+                    scale,
+                )?;
+                if why.is_null() {
+                    return Ok(None);
+                }
+                Ok(Some(string_of(env, &why).unwrap_or_default()))
             });
-            match painted {
-                Some(true) => Ok(day_spec::BitmapInfo {
+            match refused {
+                Some(None) => Ok(day_spec::BitmapInfo {
                     pixels: Size::new(f64::from(pw), f64::from(ph)),
                     scale,
                     format: None,
                     // Created ARGB_8888 on a transparent field.
                     has_alpha: true,
                 }),
-                Some(false) => Err(export_failure(env, "the bitmap could not be created")),
+                Some(Some(why)) => Err(day_spec::ExportError::Failed(if why.is_empty() {
+                    "the bitmap could not be created".to_string()
+                } else {
+                    why
+                })),
                 None => Err(day_spec::ExportError::Failed(
                     "the bitmap render call failed".into(),
                 )),
@@ -4903,8 +4924,11 @@ mod imp {
             })
         }
 
+        /// The display list to `DayCanvasView` on three channels: the records, the texts, and
+        /// the path and polygon points as numbers (`encode_ops_with_geometry`), which cross JNI
+        /// as one `double[]` instead of being formatted here and parsed there every frame.
         fn replay(&mut self, h: &AHandle, ops: &[DrawOp], _size: Size) {
-            let (nums, texts) = day_spec::encode_ops(ops);
+            let (nums, texts, geometry) = day_spec::encode_ops_with_geometry(ops);
             with_env(|env| {
                 // Allocation failure (OOM-class) skips the frame instead of panicking out
                 // of a JNI up-call (which aborts); the next replay redraws in full.
@@ -4914,9 +4938,15 @@ mod imp {
                 if arr.set_region(env, 0, &nums).is_err() {
                     return;
                 }
+                let Ok(geo) = env.new_double_array(geometry.len()) else {
+                    return;
+                };
+                if geo.set_region(env, 0, &geometry).is_err() {
+                    return;
+                }
                 let joined = jstr(env, &texts.join("\u{1f}"));
                 let _ = java_in(env, |env| {
-                    DayBridge::setCanvasOps(env, h.0.as_obj(), &arr, &joined)
+                    DayBridge::setCanvasOps(env, h.0.as_obj(), &arr, &joined, &geo)
                 });
             });
         }
@@ -5058,6 +5088,13 @@ mod imp {
         /// Paint `ops` into a new `Bitmap` with the painter `replay` drives (`DayCanvasView`'s
         /// `OpPainter`), stored in `DayBridge.bitmaps` beside decoded bitmaps, so every image
         /// duty and the image piece take it (docs/canvas.md "Exporting").
+        ///
+        /// The whole job — encoding the ops for the wire, the JNI call, Skia's software paint
+        /// into the `Bitmap` — runs on a `day_spec::offscreen` thread: a `Bitmap`-backed
+        /// `Canvas` draws from any thread, and a map tile of a thousand paths took most of a
+        /// second on a Pixel 6. `DayBridge.bitmaps` is a concurrent map, so the images the ops
+        /// draw are read there directly and a bitmap that lands is visible to the UI thread at
+        /// once; the answer, and the `BITMAP_INFO` entry before it, are posted back here.
         fn render_bitmap(
             &mut self,
             req: u64,
@@ -5066,11 +5103,27 @@ mod imp {
             size: Size,
             scale: f64,
         ) {
-            let result = export_bitmap(id, ops, size, scale);
-            if let Ok(info) = result {
-                BITMAP_INFO.with(|m| m.borrow_mut().insert(id.0, info));
+            if !vm_ready() {
+                let result = Err(day_spec::ExportError::Unsupported);
+                emit(day_spec::WINDOW_NODE, Event::BitmapRendered { req, result });
+                return;
             }
-            emit(day_spec::WINDOW_NODE, Event::BitmapRendered { req, result });
+            let (pw, ph) = day_spec::export_pixels(size, scale);
+            let ops = ops.to_vec();
+            day_spec::offscreen::spawn(move || {
+                let result = day_spec::ffi_guard::contain(
+                    Err(day_spec::ExportError::Failed(
+                        "the offscreen painter panicked".into(),
+                    )),
+                    || export_bitmap(id, &ops, pw, ph, scale),
+                );
+                <Material as Platform>::post(Box::new(move || {
+                    if let Ok(info) = result {
+                        BITMAP_INFO.with(|m| m.borrow_mut().insert(id.0, info));
+                    }
+                    emit(day_spec::WINDOW_NODE, Event::BitmapRendered { req, result });
+                }));
+            });
         }
 
         /// One `PdfDocument` page per drawing, painted by the same `OpPainter`. The writer has

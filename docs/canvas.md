@@ -481,8 +481,19 @@ A call the target cannot run answers `Err(ExportError::Unsupported)` without rea
 - **Limits.** A bitmap larger than 16,384 pixels on a side or 64 megapixels in total answers
   `ExportError::TooLarge` before anything is allocated. A zero or non-finite size or scale, and a
   PDF with no pages, answer `ExportError::Invalid`.
-- **Threading.** Rendering runs on the UI thread, like every other toolkit call. A very large bitmap
-  or a long PDF holds the UI while it renders.
+- **Threading.** On macOS, iOS and Android a bitmap paints on a painting thread, not the UI
+  thread: Core Graphics, `UIGraphicsImageRenderer` and a `Bitmap`-backed `Canvas` all draw into
+  memory from any thread, so a long replay, such as a map tile of a thousand paths, does not
+  stall the app while it renders. The toolkit resolves on the UI thread, before the paint starts,
+  everything the painter would otherwise read there (the decoded images the drawing uses, the
+  fonts its text needs), and the finished bitmap and its answer come back on the UI thread, in
+  that order. Day keeps a few painting threads for the whole process, one short of the cores and
+  never more than four, so a screenful of requests cannot crowd out the app's own work; a request
+  waits its turn rather than starting a thread. Several requests may be in flight at once, and
+  each answer carries its own request, so they may complete in any order. A PDF, and a bitmap on
+  the other toolkits, still renders on the UI thread. Android also hands the list to its painter
+  with path and polygon points as numbers rather than text, which was the other half of a tile's
+  cost there.
 
 ## Performance
 

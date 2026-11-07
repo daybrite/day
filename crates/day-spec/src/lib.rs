@@ -432,6 +432,86 @@ pub mod ffi_guard {
     }
 }
 
+/// The painting threads behind the offscreen exports (docs/canvas.md "Exporting").
+///
+/// `Toolkit::render_bitmap` answers with an event, so a toolkit whose 2-D API can draw into a
+/// memory surface from any thread paints there and posts the answer back to the UI thread. The
+/// pool is shared by every toolkit in the process: a few threads, one short of the cores and
+/// never more than four, so a screenful of requests cannot starve the UI thread or the app's
+/// own work. Jobs run in the order they were queued.
+///
+/// Not built for the web: a browser's `createImageBitmap` is already asynchronous, and
+/// `wasm32-unknown-unknown` has no threads to spawn.
+#[cfg(not(target_arch = "wasm32"))]
+pub mod offscreen {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::{Arc, Mutex, OnceLock, mpsc};
+
+    type Job = Box<dyn FnOnce() + Send + 'static>;
+
+    static QUEUE: OnceLock<Mutex<mpsc::Sender<Job>>> = OnceLock::new();
+    /// How many painting threads started; zero means every job runs where it was queued.
+    static WORKERS: AtomicUsize = AtomicUsize::new(0);
+
+    /// Run `job` on a painting thread, or inline when none could be started. A panic inside
+    /// `job` is contained ([`crate::ffi_guard::contain`]) so one bad replay cannot take the
+    /// thread, and with it every later export, down; the job itself should answer its request
+    /// in that case, which is why toolkits wrap the paint and not the post.
+    pub fn spawn(job: impl FnOnce() + Send + 'static) {
+        let queue = QUEUE.get_or_init(start);
+        if WORKERS.load(Ordering::Acquire) == 0 {
+            crate::ffi_guard::contain((), job);
+            return;
+        }
+        let job: Job = Box::new(job);
+        // The receivers live as long as the process, so a refused send means every worker left
+        // its loop; the job still runs, inline, rather than a request going unanswered.
+        let refused = match queue.lock() {
+            Ok(sender) => sender.send(job).err().map(|e| e.0),
+            Err(_) => Some(job),
+        };
+        if let Some(job) = refused {
+            crate::ffi_guard::contain((), job);
+        }
+    }
+
+    fn start() -> Mutex<mpsc::Sender<Job>> {
+        let (tx, rx) = mpsc::channel::<Job>();
+        let rx = Arc::new(Mutex::new(rx));
+        let want = std::thread::available_parallelism()
+            .map(|n| n.get())
+            .unwrap_or(2)
+            .saturating_sub(1)
+            .clamp(1, 4);
+        let mut started = 0;
+        for i in 0..want {
+            let rx = Arc::clone(&rx);
+            let spawned = std::thread::Builder::new()
+                .name(format!("day-paint-{i}"))
+                .spawn(move || {
+                    loop {
+                        // The lock is held only while waiting for the next job, never while
+                        // running one, so the other workers queue behind it fairly.
+                        let next = match rx.lock() {
+                            Ok(guard) => guard.recv(),
+                            Err(_) => return,
+                        };
+                        match next {
+                            Ok(job) => crate::ffi_guard::contain((), job),
+                            Err(_) => return,
+                        }
+                    }
+                });
+            match spawned {
+                Ok(_) => started += 1,
+                Err(e) => log::error!("day-spec: could not start a painting thread: {e}"),
+            }
+        }
+        WORKERS.store(started, Ordering::Release);
+        Mutex::new(tx)
+    }
+}
+
 /// Realized-node identity as seen by backends (day-core's slotmap key, FFI-encoded).
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub struct NodeId(pub u64);
@@ -7821,9 +7901,10 @@ pub trait Toolkit: Sized + 'static {
     // --- canvas export (docs/canvas.md "Exporting") --------------------------------------
     //
     // Request-id shaped like the image duties above, for the same reason: the browser's
-    // `createImageBitmap` is a promise. Every other backend renders inline and raises the
-    // completion before returning. day-core validates sizes, enforces the pixel limits and
-    // probes the caps first, so a backend sees only requests it can attempt.
+    // `createImageBitmap` is a promise, and a native toolkit may paint on another thread. A
+    // backend may also answer inline, before returning. day-core validates sizes, enforces
+    // the pixel limits and probes the caps first, so a backend sees only requests it can
+    // attempt.
 
     /// Replay `ops` into a new offscreen bitmap of `size` points at `scale` pixels per point
     /// ([`export_pixels`] gives the pixel size), with a transparent background and the
@@ -7833,8 +7914,14 @@ pub trait Toolkit: Sized + 'static {
     /// [`BitmapInfo::scale`] is `scale`).
     ///
     /// The painter must be the one [`Self::replay`] uses, so text, gradients, clips and stamps
-    /// match the screen. Defaulted to nothing: day-core probes [`Cap::CanvasBitmap`] and answers
-    /// [`ExportError::Unsupported`] itself.
+    /// match the screen. Where the platform's 2-D API draws into a memory surface from any
+    /// thread, the paint runs on a thread of [`offscreen`] and the answer is posted back, so
+    /// a long replay never stalls the UI; the toolkit resolves on the UI thread, before it
+    /// hands the job over, everything the painter would otherwise read from UI-thread state
+    /// (the decoded images the ops reference, the fonts their text runs need). The contract
+    /// holds either way: one answer per request, carrying that request's `req`, raised on the
+    /// UI thread, and the bitmap in the table before it. Defaulted to nothing: day-core probes
+    /// [`Cap::CanvasBitmap`] and answers [`ExportError::Unsupported`] itself.
     fn render_bitmap(
         &mut self,
         _req: u64,
@@ -8998,8 +9085,9 @@ pub enum OpCode {
     Restore = 9,
     /// Concat an affine transform (a..f).
     Concat = 10,
-    /// Fill a polygon; points ride the texts channel as "x,y x,y …" (closed automatically).
-    /// `a` = the [`geometry_key`] of those points, or 0 for none.
+    /// Fill a polygon; points ride the texts channel as "x,y x,y …" (closed automatically),
+    /// or the geometry channel of [`encode_ops_with_geometry`] (b = offset, c = count, and
+    /// the texts entry is empty). `a` = the [`geometry_key`] of those points, or 0 for none.
     FillPolygon = 11,
     /// Stroke a polygon (g=width); points and key as [`OpCode::FillPolygon`].
     StrokePolygon = 12,
@@ -9011,7 +9099,9 @@ pub enum OpCode {
     /// resolves against the shape's bounding box.
     SetGradient = 14,
     /// Fill a path (f=fill rule: 0 non-zero / 1 even-odd); segments ride the texts channel
-    /// (see [`encode_path`]). `a` = the [`geometry_key`] of those segments, or 0 for none.
+    /// (see [`encode_path`]), or the geometry channel of [`encode_ops_with_geometry`]
+    /// (b = offset, c = count, see [`path_numbers`]; the texts entry is empty). `a` = the
+    /// [`geometry_key`] of those segments, or 0 for none.
     ///
     /// The key is a cache handle, not a payload: a decoder that recognizes it may keep the
     /// native geometry it built last time and skip re-parsing the segments, but it must still
@@ -9025,8 +9115,9 @@ pub enum OpCode {
     /// channel).
     ///
     /// For the two payload-bearing kinds (3 and 4) there is no geometry in the slots, so `a`
-    /// carries the [`geometry_key`] instead and b..d stay 0. The other three kinds put real
-    /// geometry in a..d and have nothing to cache.
+    /// carries the [`geometry_key`] instead, b and c the geometry channel's offset and count
+    /// when there is one, and d stays 0. The other three kinds put real geometry in a..d and
+    /// have nothing to cache.
     Clip = 17,
     /// Stroke style for the next stroke record (a=cap, b=join, c=miter limit, d=dash
     /// phase, e=dash count; the dash array rides the texts channel).
@@ -9190,21 +9281,80 @@ pub fn geometry_key(shape: &Shape) -> f64 {
     if masked == 0 { 1.0 } else { masked as f64 }
 }
 
-pub fn encode_path(path: &Path) -> String {
-    let mut out = String::with_capacity(path.segs.len() * 16);
-    for seg in &path.segs {
+/// Append a coordinate to the texts channel: a plain decimal with up to six fractional digits
+/// and no trailing zeros (`12`, `-0.5`, `183.472938`), never an exponent.
+///
+/// Six decimals of a canvas point is a millionth of a point, far below anything a transform an
+/// app would draw under can bring to a pixel, and the fixed form costs a tenth of the shortest
+/// round-trip repr: one integer write instead of a float formatter and a temporary `String` per
+/// coordinate, which was the larger half of a map tile's export on Android. The decoders parse
+/// with their platform's general float reader, so a value the fixed form cannot carry (a
+/// non-finite number, a magnitude past 2^53 millionths) falls back to `Display`.
+fn push_wire_num(out: &mut String, v: f64) {
+    use std::fmt::Write as _;
+    const SCALE: f64 = 1_000_000.0;
+    let scaled = (v * SCALE).round();
+    if scaled.is_nan() || scaled.abs() >= 9.0e15 {
+        let _ = write!(out, "{v}");
+        return;
+    }
+    let mut n = scaled as i64;
+    if n < 0 {
+        out.push('-');
+        n = -n;
+    }
+    let whole = n / 1_000_000;
+    let mut frac = n % 1_000_000;
+    let _ = write!(out, "{whole}");
+    if frac != 0 {
+        let mut digits = 6;
+        while frac % 10 == 0 {
+            frac /= 10;
+            digits -= 1;
+        }
+        out.push('.');
+        let _ = write!(out, "{frac:0digits$}");
+    }
+}
+
+/// Polygon points for the texts channel: `"x,y x,y …"`, numbers as [`push_wire_num`] writes
+/// them.
+fn encode_points(pts: &[Point]) -> String {
+    let mut out = String::with_capacity(pts.len() * 16);
+    for p in pts {
         if !out.is_empty() {
             out.push(' ');
         }
+        push_wire_num(&mut out, p.x);
+        out.push(',');
+        push_wire_num(&mut out, p.y);
+    }
+    out
+}
+
+/// Path segments for the texts channel: `"M x y L x y Q cx cy x y C … Z"`, one token per
+/// command or number, numbers as [`push_wire_num`] writes them.
+pub fn encode_path(path: &Path) -> String {
+    let mut out = String::with_capacity(path.segs.len() * 16);
+    let points = |out: &mut String, cmd: char, pts: &[Point]| {
+        if !out.is_empty() {
+            out.push(' ');
+        }
+        out.push(cmd);
+        for p in pts {
+            out.push(' ');
+            push_wire_num(out, p.x);
+            out.push(' ');
+            push_wire_num(out, p.y);
+        }
+    };
+    for seg in &path.segs {
         match seg {
-            PathSeg::Move(p) => out.push_str(&format!("M {} {}", p.x, p.y)),
-            PathSeg::Line(p) => out.push_str(&format!("L {} {}", p.x, p.y)),
-            PathSeg::Quad(c, p) => out.push_str(&format!("Q {} {} {} {}", c.x, c.y, p.x, p.y)),
-            PathSeg::Cubic(a, b, p) => out.push_str(&format!(
-                "C {} {} {} {} {} {}",
-                a.x, a.y, b.x, b.y, p.x, p.y
-            )),
-            PathSeg::Close => out.push('Z'),
+            PathSeg::Move(p) => points(&mut out, 'M', &[*p]),
+            PathSeg::Line(p) => points(&mut out, 'L', &[*p]),
+            PathSeg::Quad(c, p) => points(&mut out, 'Q', &[*c, *p]),
+            PathSeg::Cubic(a, b, p) => points(&mut out, 'C', &[*a, *b, *p]),
+            PathSeg::Close => points(&mut out, 'Z', &[]),
         }
     }
     out
@@ -9250,7 +9400,75 @@ fn rule_bits(rule: FillRule) -> f64 {
     }
 }
 
+/// Encode a display list for a decoder written in another language (Java, C++, JS): the
+/// numbers channel, nine `f64` slots per record (`[kind, a, b, c, d, e, f, g, color]`, kinds
+/// from [`OpCode`]), and the texts channel, one entry per record that carries text or
+/// variable-length geometry, in record order.
 pub fn encode_ops(ops: &[DrawOp]) -> (Vec<f64>, Vec<String>) {
+    encode_ops_into(ops, None)
+}
+
+/// [`encode_ops`] with a third, geometry channel: the points of every path and polygon (fills,
+/// strokes, clips) as numbers instead of text. Such a record's slot `b` is its offset into the
+/// channel and slot `c` its count, and its texts entry is empty, so that channel stays
+/// positional for a decoder that ignores the third one. Paths are written by
+/// [`path_numbers`], polygons by [`point_numbers`].
+///
+/// Formatting a coordinate and parsing it back were, together, half of what a map tile's export
+/// cost on Android (docs/canvas.md "Exporting"); a decoder that can take an array of doubles
+/// across its boundary skips both.
+pub fn encode_ops_with_geometry(ops: &[DrawOp]) -> (Vec<f64>, Vec<String>, Vec<f64>) {
+    let mut geometry = Vec::new();
+    let (nums, texts) = encode_ops_into(ops, Some(&mut geometry));
+    (nums, texts, geometry)
+}
+
+/// A path's segments for the geometry channel: a command code, then its points — `0` move
+/// (x y), `1` line (x y), `2` quad (cx cy x y), `3` cubic (x1 y1 x2 y2 x y), `4` close.
+pub fn path_numbers(path: &Path, out: &mut Vec<f64>) {
+    for seg in &path.segs {
+        match seg {
+            PathSeg::Move(p) => out.extend_from_slice(&[0.0, p.x, p.y]),
+            PathSeg::Line(p) => out.extend_from_slice(&[1.0, p.x, p.y]),
+            PathSeg::Quad(c, p) => out.extend_from_slice(&[2.0, c.x, c.y, p.x, p.y]),
+            PathSeg::Cubic(a, b, p) => out.extend_from_slice(&[3.0, a.x, a.y, b.x, b.y, p.x, p.y]),
+            PathSeg::Close => out.push(4.0),
+        }
+    }
+}
+
+/// A polygon's points for the geometry channel: x then y, per point.
+pub fn point_numbers(pts: &[Point], out: &mut Vec<f64>) {
+    for p in pts {
+        out.push(p.x);
+        out.push(p.y);
+    }
+}
+
+/// Put a path's or polygon's points on the wire: on the geometry channel when the caller opened
+/// one, as `numbers` writes them, answering (offset, count) for slots b and c and leaving an
+/// empty texts entry; else as `text` on the texts channel, answering (0, 0).
+fn geometry_payload(
+    geometry: &mut Option<&mut Vec<f64>>,
+    texts: &mut Vec<String>,
+    text: impl FnOnce() -> String,
+    numbers: impl FnOnce(&mut Vec<f64>),
+) -> (f64, f64) {
+    match geometry {
+        Some(g) => {
+            let offset = g.len();
+            numbers(g);
+            texts.push(String::new());
+            (offset as f64, (g.len() - offset) as f64)
+        }
+        None => {
+            texts.push(text());
+            (0.0, 0.0)
+        }
+    }
+}
+
+fn encode_ops_into(ops: &[DrawOp], mut geometry: Option<&mut Vec<f64>>) -> (Vec<f64>, Vec<String>) {
     fn color_bits(c: Color) -> f64 {
         let r = (c.r.clamp(0.0, 1.0) * 255.0) as u32;
         let g = (c.g.clamp(0.0, 1.0) * 255.0) as u32;
@@ -9318,6 +9536,7 @@ pub fn encode_ops(ops: &[DrawOp]) -> (Vec<f64>, Vec<String>) {
         col: Color,
         nums: &mut Vec<f64>,
         texts: &mut Vec<String>,
+        geometry: &mut Option<&mut Vec<f64>>,
     ) {
         match shape {
             Shape::Rect(r) => push(
@@ -9389,7 +9608,14 @@ pub fn encode_ops(ops: &[DrawOp]) -> (Vec<f64>, Vec<String>) {
             }
             Shape::Polygon(pts) => {
                 // Variable-length points ride the texts side-channel ("x,y x,y …"),
-                // consumed in record order exactly like text payloads.
+                // consumed in record order exactly like text payloads, or the geometry
+                // channel when there is one (slots b, c).
+                let (offset, count) = geometry_payload(
+                    geometry,
+                    texts,
+                    || encode_points(pts),
+                    |g| point_numbers(pts, g),
+                );
                 push(
                     if stroke {
                         OpCode::StrokePolygon
@@ -9397,8 +9623,8 @@ pub fn encode_ops(ops: &[DrawOp]) -> (Vec<f64>, Vec<String>) {
                         OpCode::FillPolygon
                     },
                     geometry_key(shape),
-                    0.0,
-                    0.0,
+                    offset,
+                    count,
                     0.0,
                     0.0,
                     0.0,
@@ -9406,16 +9632,16 @@ pub fn encode_ops(ops: &[DrawOp]) -> (Vec<f64>, Vec<String>) {
                     col,
                     nums,
                 );
-                texts.push(
-                    pts.iter()
-                        .map(|p| format!("{},{}", p.x, p.y))
-                        .collect::<Vec<_>>()
-                        .join(" "),
-                );
             }
             Shape::Path(path) => {
-                // Same side-channel as Polygon, one token per segment (see `encode_path`).
+                // Same side-channels as Polygon, one token per segment (see `encode_path`).
                 // The fill rule rides slot f; stroking ignores it.
+                let (offset, count) = geometry_payload(
+                    geometry,
+                    texts,
+                    || encode_path(path),
+                    |g| path_numbers(path, g),
+                );
                 push(
                     if stroke {
                         OpCode::StrokePath
@@ -9423,8 +9649,8 @@ pub fn encode_ops(ops: &[DrawOp]) -> (Vec<f64>, Vec<String>) {
                         OpCode::FillPath
                     },
                     geometry_key(shape),
-                    0.0,
-                    0.0,
+                    offset,
+                    count,
                     0.0,
                     0.0,
                     rule_bits(path.rule),
@@ -9432,7 +9658,6 @@ pub fn encode_ops(ops: &[DrawOp]) -> (Vec<f64>, Vec<String>) {
                     col,
                     nums,
                 );
-                texts.push(encode_path(path));
             }
         }
     }
@@ -9502,7 +9727,7 @@ pub fn encode_ops(ops: &[DrawOp]) -> (Vec<f64>, Vec<String>) {
                         Color::WHITE
                     }
                 };
-                shape_record(false, shape, 0.0, col, &mut nums, &mut texts);
+                shape_record(false, shape, 0.0, col, &mut nums, &mut texts, &mut geometry);
             }
             DrawOp::Stamp(st) => {
                 // No copies means no drawing. Some native decoders use an empty point
@@ -9577,10 +9802,26 @@ pub fn encode_ops(ops: &[DrawOp]) -> (Vec<f64>, Vec<String>) {
                     nums.extend_from_slice(&rec);
                 }
                 match &st.stroke {
-                    None => shape_record(false, &st.shape, 0.0, col, &mut nums, &mut texts),
+                    None => shape_record(
+                        false,
+                        &st.shape,
+                        0.0,
+                        col,
+                        &mut nums,
+                        &mut texts,
+                        &mut geometry,
+                    ),
                     Some(style) => {
                         stroke_style_record(style, &mut nums, &mut texts);
-                        shape_record(true, &st.shape, style.width, col, &mut nums, &mut texts);
+                        shape_record(
+                            true,
+                            &st.shape,
+                            style.width,
+                            col,
+                            &mut nums,
+                            &mut texts,
+                            &mut geometry,
+                        );
                     }
                 }
             }
@@ -9612,7 +9853,15 @@ pub fn encode_ops(ops: &[DrawOp]) -> (Vec<f64>, Vec<String>) {
                         Color::WHITE
                     }
                 };
-                shape_record(true, shape, style.width, col, &mut nums, &mut texts);
+                shape_record(
+                    true,
+                    shape,
+                    style.width,
+                    col,
+                    &mut nums,
+                    &mut texts,
+                    &mut geometry,
+                );
             }
             DrawOp::Clip(shape) => {
                 // One record for every clip shape, with the shape kind in slot f and the
@@ -9641,24 +9890,31 @@ pub fn encode_ops(ops: &[DrawOp]) -> (Vec<f64>, Vec<String>) {
                     ),
                     // Slot a carries the geometry key for these two sub-kinds only. The other
                     // three put real geometry there, which is why the key rides the same slot
-                    // the payload-bearing kinds leave empty.
-                    Shape::Path(p) => (
-                        3.0,
-                        [geometry_key(shape), 0.0, 0.0, 0.0],
-                        rule_bits(p.rule),
-                        Some(encode_path(p)),
-                    ),
-                    Shape::Polygon(pts) => (
-                        4.0,
-                        [geometry_key(shape), 0.0, 0.0, 0.0],
-                        0.0,
-                        Some(
-                            pts.iter()
-                                .map(|p| format!("{},{}", p.x, p.y))
-                                .collect::<Vec<_>>()
-                                .join(" "),
-                        ),
-                    ),
+                    // the payload-bearing kinds leave empty; b and c are the geometry
+                    // channel's offset and count when there is one.
+                    Shape::Path(p) => {
+                        let (offset, count) = geometry_payload(
+                            &mut geometry,
+                            &mut texts,
+                            || encode_path(p),
+                            |g| path_numbers(p, g),
+                        );
+                        (
+                            3.0,
+                            [geometry_key(shape), offset, count, 0.0],
+                            rule_bits(p.rule),
+                            None,
+                        )
+                    }
+                    Shape::Polygon(pts) => {
+                        let (offset, count) = geometry_payload(
+                            &mut geometry,
+                            &mut texts,
+                            || encode_points(pts),
+                            |g| point_numbers(pts, g),
+                        );
+                        (4.0, [geometry_key(shape), offset, count, 0.0], 0.0, None)
+                    }
                     // A clip to a line or an arc has no interior to clip to. Clipping to an
                     // empty region would blank everything after it, so clip to the shape's
                     // bounds instead: wrong in the same direction as no clip at all.
@@ -9975,6 +10231,85 @@ mod image_header_tests {
 #[cfg(test)]
 mod encode_ops_tests {
     use super::*;
+
+    /// The texts channel carries plain decimals: whole numbers without a point, fractions to
+    /// six places with the trailing zeros gone, and the general form only past what the fixed
+    /// one can hold.
+    #[test]
+    fn wire_numbers_are_short_plain_decimals() {
+        let text = |v: f64| {
+            let mut out = String::new();
+            push_wire_num(&mut out, v);
+            out
+        };
+        assert_eq!(text(12.0), "12");
+        assert_eq!(text(-0.5), "-0.5");
+        assert_eq!(text(183.472_938_472_938_4), "183.472938");
+        assert_eq!(text(0.1 + 0.2), "0.3");
+        assert_eq!(text(-0.000_000_1), "0");
+        assert_eq!(text(2.000_05), "2.00005");
+        assert_eq!(text(f64::INFINITY), "inf");
+        assert_eq!(text(1.0e17), "100000000000000000");
+        let path = Path {
+            segs: vec![
+                PathSeg::Move(Point::new(1.5, 2.0)),
+                PathSeg::Line(Point::new(-3.25, 4.0)),
+                PathSeg::Close,
+            ],
+            rule: FillRule::NonZero,
+        };
+        assert_eq!(encode_path(&path), "M 1.5 2 L -3.25 4 Z");
+        assert_eq!(
+            encode_points(&[Point::new(0.0, 0.0), Point::new(10.0, 0.125)]),
+            "0,0 10,0.125"
+        );
+    }
+
+    /// With the geometry channel open, a path's and a polygon's points leave the texts channel
+    /// (an empty entry keeps it positional) for the numbers, with offset and count in slots b
+    /// and c; without it the texts channel carries them exactly as before.
+    #[test]
+    fn geometry_channel_carries_points_as_numbers() {
+        let path = Shape::Path(Path {
+            segs: vec![
+                PathSeg::Move(Point::new(1.0, 2.0)),
+                PathSeg::Quad(Point::new(3.0, 4.0), Point::new(5.0, 6.0)),
+                PathSeg::Close,
+            ],
+            rule: FillRule::EvenOdd,
+        });
+        let polygon = Shape::Polygon(vec![Point::new(0.0, 0.0), Point::new(7.0, 8.0)]);
+        let ops = vec![
+            DrawOp::Clip(path.clone()),
+            DrawOp::Fill(path.clone(), Paint::Solid(Color::WHITE)),
+            DrawOp::Stroke(
+                polygon.clone(),
+                Paint::Solid(Color::WHITE),
+                StrokeStyle::default(),
+            ),
+        ];
+        let (nums, texts, geometry) = encode_ops_with_geometry(&ops);
+        assert_eq!(texts, vec!["", "", ""]);
+        assert_eq!(
+            geometry,
+            vec![
+                0.0, 1.0, 2.0, 2.0, 3.0, 4.0, 5.0, 6.0, 4.0, 0.0, 1.0, 2.0, 2.0, 3.0, 4.0, 5.0,
+                6.0, 4.0, 0.0, 0.0, 7.0, 8.0
+            ]
+        );
+        // The clip (kind 17, sub-kind 3 in f) and the fill (kind 15) point at the two copies
+        // of the path, the stroke (kind 12) at the polygon's four numbers.
+        assert_eq!((nums[0], nums[2], nums[3], nums[6]), (17.0, 0.0, 9.0, 3.0));
+        assert_eq!(
+            (nums[9], nums[11], nums[12], nums[15]),
+            (15.0, 9.0, 9.0, 1.0)
+        );
+        assert_eq!((nums[18], nums[20], nums[21]), (12.0, 18.0, 4.0));
+        let (plain_nums, plain_texts) = encode_ops(&ops);
+        assert_eq!(plain_texts[1], "M 1 2 Q 3 4 5 6 Z");
+        assert_eq!(plain_texts[2], "0,0 7,8");
+        assert_eq!((plain_nums[11], plain_nums[12]), (0.0, 0.0));
+    }
 
     /// A region outside the bitmap is clamped to it with its mapping into the rect kept, and an
     /// empty intersection draws nothing.
