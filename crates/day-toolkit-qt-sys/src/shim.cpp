@@ -2963,6 +2963,10 @@ static void day_paint_ops(QPainter &p, const QVector<double> &nums, const QStrin
     QVector<qreal> sDash;
     // A decoded kind-19 record (font), applied to the next text record only.
     bool fontPending = false;
+    // A decoded kind-23 record (image source): the region, in the image's own pixels, the next
+    // image record draws instead of the whole image.
+    bool srcPending = false;
+    QRectF srcRect;
     // A decoded kind-20 record (stamp): the positions the next shape record is drawn at, once
     // each. Empty means the ordinary one-shape-one-record case (docs/canvas.md "Stamping").
     QVector<QPointF> stampAt;
@@ -3200,10 +3204,29 @@ static void day_paint_ops(QPainter &p, const QVector<double> &nums, const QStrin
                 // re-records on every tracked read, so a handle can be dropped between the
                 // record and this replay.
                 if (it == day_qt_bitmaps().constEnd()) break;
+                QRectF target(a, b, c, d);
+                QRectF src(0, 0, it->width(), it->height());
+                if (srcPending) {
+                    // The region is in the image's pixels, which is what QPainter's source
+                    // rect takes whatever the image's devicePixelRatio. Clamped to the image
+                    // with its mapping into the target kept (day_spec::clamp_image_source); an
+                    // empty intersection draws nothing.
+                    const QRectF inside = srcRect.intersected(src);
+                    if (srcRect.isEmpty() || inside.isEmpty()) break;
+                    const qreal kx = c / srcRect.width(), ky = d / srcRect.height();
+                    target = QRectF(a + (inside.x() - srcRect.x()) * kx, b + (inside.y() - srcRect.y()) * ky,
+                                    inside.width() * kx, inside.height() * ky);
+                    src = inside;
+                }
                 const qreal was = p.opacity();
                 p.setOpacity(was * qBound(0.0, f, 1.0));
-                p.drawImage(QRectF(a, b, c, d), *it);
+                p.drawImage(target, *it, src);
                 p.setOpacity(was);
+                break;
+            }
+            case 23: { // image source for the next image: a,b origin · c,d size, in pixels
+                srcRect = QRectF(a, b, c, d);
+                srcPending = true;
                 break;
             }
         }
@@ -3214,6 +3237,7 @@ static void day_paint_ops(QPainter &p, const QVector<double> &nums, const QStrin
         // too, so it can never leak into a later record. Same for a font and its text.
         if (k != 18) stylePending = false;
         if (k != 19) fontPending = false;
+        if (k != 23) srcPending = false;
     }
 }
 

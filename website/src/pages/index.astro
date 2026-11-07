@@ -6,9 +6,11 @@
 // Stop with Ctrl-C. See website/authoring/copy-review/README.md for drafts and saved choices.
 import BaseLayout from '../layouts/BaseLayout.astro';
 import HeroCarousel from '../components/HeroCarousel.astro';
+import LocaleExplorer from '../components/LocaleExplorer.astro';
 import Logo from '../components/Logo.astro';
 import PlatformIcon from '../components/PlatformIcon.astro';
-import { url, site } from '../lib/site';
+import SidebarIcon from '../components/SidebarIcon.astro';
+import { url } from '../lib/site';
 import { primaryPlatforms } from '../lib/platforms.mjs';
 
 const platforms = primaryPlatforms.filter((p) => p.tier <= 2 && p.id !== 'linux-qt');
@@ -16,6 +18,18 @@ const benefits = [
   { title: 'One place for UI changes', body: 'Compose screens with Rust functions. The same definitions can be used by your desktop and mobile builds.', link: 'Explore the app structure', path: 'docs/overview' },
   { title: 'Packages for each target', body: 'Use the same project to prepare installers and mobile packages, then manage store listings and submissions.', link: 'See the release tools', path: 'docs/how-to/app-store-submissions' },
   { title: 'Native features when you need them', body: 'Extend the app with platform controls and services. Provide a fallback where the feature isn’t supported.', link: 'Add platform features', path: 'docs/extending' },
+];
+// Published extensions with substantive releases; omit unpublished crates and 0.0.1 placeholders.
+const ecosystem = [
+  { title: 'Embedded web views', page: 'webview', body: 'Embed a website or bundled HTML, control navigation, and call JavaScript from Rust.' },
+  { title: 'Lottie animations', page: 'lottie', body: 'Play Lottie motion graphics in your layouts, with playback and looping controls.' },
+  { title: 'Speech', page: 'speech', body: 'Read text aloud through the platform’s speech engine.' },
+  { title: 'Charts', page: 'charts', body: 'Build charts from bars, lines, points, and other marks, with scales and axes.' },
+  { title: 'Camera', page: 'camera', body: 'Show a live camera preview and capture photos on supported mobile targets.' },
+  { title: 'Audio and video', page: 'media', body: 'Play media through platform players, with observable playback state and a timeline.' },
+  { title: 'Sign-in and passkeys', page: 'auth', body: 'Connect accounts through OAuth, OpenID Connect, and native credential dialogs.' },
+  { title: 'Local network discovery', page: 'zeroconf', body: 'Find nearby services and advertise your app’s services using mDNS and DNS-SD.' },
+  { title: 'Crash reporting', page: 'break', body: 'Record crashes locally and let people review a report before sharing it.' },
 ];
 const stages = [
   { title: 'Edit', body: 'Use the VS Code extension to choose targets, build, and launch your app from the editor.', path: 'docs/how-to/vscode' },
@@ -74,6 +88,42 @@ const stages = [
     </div>
   </section>
 
+  <section class="section">
+    <div class="container split localization-layout">
+      <div>
+        <p class="eyebrow" id="localization">Living in a polyglot world</p>
+        <h2>First-class localization support</h2>
+        <p class="section-lead">Translation are implemented through Mozilla Fluent catalogs, and Day generates typed Rust accessors so the UI and its message arguments are checked together at build time. Use the same UI walkthrough in several languages to verify translated screens.</p>
+        <a href={url('docs/how-to/localization')}>See how localization works →</a>
+      </div>
+      <LocaleExplorer />
+    </div>
+  </section>
+
+  <section class="section" id="accessibility">
+    <div class="container">
+      <p class="eyebrow">All for one and one for all</p>
+      <h2>Native accessibility for an inclusive world</h2>
+      <p class="section-lead">Accessibility is a core feature of Day. Native controls use each platform’s accessibility technologies, and Day provides a shared API for labels, roles, and values. These tools help you build inclusive apps and address regional and government accessibility requirements.</p>
+      <a href={url('docs/how-to/accessibility')}>See accessibility support and limits →</a>
+    </div>
+  </section>
+
+  <section class="section ecosystem" id="ecosystem">
+    <div class="container">
+      <p class="eyebrow">The Daybrite ecosystem</p>
+      <h2>Everything you need to build a modern app</h2>
+      <p class="section-lead">Add a web view, play an animation, or read a passage aloud. Daybrite’s optional pieces and parts are ordinary Cargo dependencies: add the ones your app needs and use them alongside Day’s built-in controls and services. Each guide covers setup and platform support.</p>
+      <div class="ecosystem-grid">
+        {ecosystem.map(item => <a class="ecosystem-card" href={url(`docs/reference/${item.page}`)}>
+          <span class="ecosystem-icon"><SidebarIcon item={`/docs/reference/${item.page}`} /></span>
+          <h3>{item.title}<span aria-hidden="true"> →</span></h3>
+          <p>{item.body}</p>
+        </a>)}
+      </div>
+    </div>
+  </section>
+
   <section class="section lifecycle">
     <div class="container">
       <p class="eyebrow">Continuous verification across all platforms</p>
@@ -85,26 +135,6 @@ const stages = [
     </div>
   </section>
 
-  <section class="section tooling">
-    <div class="container">
-      <p class="eyebrow">Your gateway to a massive ecosystem</p>
-      <h2>Keep the library. Add the interface.</h2>
-      <p class="section-lead">Your data model can stay in its Cargo crate. Add a Day UI around, then build and deploy for every desktop and mobile target its dependencies support. Use any of the hundreds of thousands of libraries on crates.io without jumping through any hoops.</p>
-      <a href={url('docs/explanation/overview')}>How a Day project fits together →</a>
-    </div>
-  </section>
-
-  <section class="section">
-    <div class="container">
-      <p class="eyebrow">l10n, i18n, a11y, oh my!</p>
-      <h2>First-class accessibility and localization support</h2>
-      <div class="ownership-grid">
-        <article class="capability"><h3>Keep your app’s meaning across languages.</h3><p>Keep translations in Fluent catalogs. Day generates typed Rust accessors so the UI and its message arguments are checked together at build time. Use the same UI walkthrough in several languages to check translated screens.</p><a href={url('docs/how-to/localization')}>See how localization works →</a></article>
-        <article class="capability"><h3>Connect to native accessibility.</h3><p>Native controls supply accessibility roles and actions. Day’s shared API lets you annotate controls; on macOS and iOS, DayScript can verify their labels, roles, and values against the native accessibility tree.</p><a href={url('docs/how-to/accessibility')}>See accessibility support and limits →</a></article>
-      </div>
-    </div>
-  </section>
-
   <section class="section">
     <div class="container">
       <p class="eyebrow">For native developers and library authors</p>
@@ -112,7 +142,6 @@ const stages = [
       <div class="ownership-grid">
         <article class="capability"><h3>Native integrations in Cargo crates.</h3><p>Wrap a native widget or platform service behind a Rust API. Your crate can include Swift, Java, ArkTS, or C++ code. Day’s build tools collect the declared sources and dependencies into the app’s platform builds.</p><a href={url('contributing/extending')}>Build an extension →</a></article>
         <article class="capability"><h3>Share components across apps.</h3><p>Combine existing Day controls into reusable components using Rust alone. A composed component uses the backends of its underlying controls, so you can publish it as a crate without writing a renderer for each platform.</p><a href={url('contributing/tutorials/composite-piece')}>Build a reusable component →</a></article>
-        <article class="capability independent"><p class="eyebrow">For open-source maintainers</p><h3>Inspect and modify the frameworks you use.</h3><p>Day’s framework and build tools are 100% free and open source. If a platform bug blocks your app, you can trace it into the backend, test a fix locally, and contribute it upstream or keep your own fork.</p><a href={site.repo}>Browse the source →</a><a href={`${site.repo}/blob/main/LICENSE`}>Read the license →</a></article>
       </div>
     </div>
   </section>
@@ -164,17 +193,29 @@ const stages = [
   .stages li { border-top: 2px solid var(--brand); padding-top: 20px; }
   .stages h3 { font-size: 1.1rem; }
   .stages p { font-size: .94rem; margin: 0; }
-  .tooling { background: linear-gradient(135deg, color-mix(in srgb, var(--brand) 8%, var(--bg)), var(--bg)); }
+  .localization-layout { align-items: start; }
+  /* Match the heading below the eyebrow; stacked screens already have a grid gap. */
+  .localization-layout > :global(.locale-explorer) { margin-top: var(--eyebrow-block); }
+  @media (max-width: 880px) { .localization-layout > :global(.locale-explorer) { margin-top: 0; } }
+  .ecosystem { background: linear-gradient(135deg, color-mix(in srgb, var(--brand) 5%, var(--bg)), var(--bg)); }
+  .ecosystem-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; }
+  .ecosystem-card { display: block; padding: 24px; border: 1px solid var(--border-soft); border-radius: var(--radius-lg); background: var(--surface); color: var(--text); text-decoration: none; }
+  .ecosystem-card:hover { border-color: var(--brand); text-decoration: none; }
+  .ecosystem-card:focus-visible { outline: 2px solid var(--brand); outline-offset: 3px; }
+  .ecosystem-icon { display: inline-flex; padding: 10px; margin-bottom: 18px; border-radius: 12px; color: var(--brand); background: color-mix(in srgb, var(--brand) 10%, var(--surface)); }
+  .ecosystem-icon :global(.doc-nav-icon) { width: 26px; height: 26px; flex-basis: 26px; }
+  .ecosystem-card h3 { font-size: 1.1rem; margin-bottom: 10px; }
+  .ecosystem-card h3 span { color: var(--brand); }
+  .ecosystem-card p { color: var(--muted); line-height: 1.65; margin: 0; }
+  @media (max-width: 880px) { .ecosystem-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  @media (max-width: 560px) { .ecosystem-grid { grid-template-columns: minmax(0, 1fr); } }
   .ownership-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 22px; margin-top: 36px; }
-  .independent { grid-column: 1 / -1; padding: 40px; background: linear-gradient(120deg, color-mix(in srgb, var(--sun) 9%, var(--surface)), var(--surface)); }
-  .independent p { max-width: 75ch; }
-  .independent > a + a { margin-top: 14px; }
   .cta-inner { text-align: center; display: flex; flex-direction: column; align-items: center; gap: 20px; padding: 64px 28px; border-radius: var(--radius-lg); background: var(--surface); border: 1px solid var(--border-soft); }
   .cta-inner h2, .cta-inner p { margin: 0; }
   .cta-inner p { color: var(--muted); }
   @media (max-width: 1000px) { .stages { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
   /* .hero-grid/.split and .hero-media stack in styles/global.css, which owns that layout. */
   @media (max-width: 880px) { .benefit-grid { grid-template-columns: minmax(0, 1fr); gap: 32px; } .hero { padding-top: 40px; } }
-  @media (max-width: 560px) { .ownership-grid, .stages { grid-template-columns: minmax(0, 1fr); } .capability, .independent { padding: 24px; } .platform-strip { gap: 18px; } .performance-facts { padding-left: 22px; } }
+  @media (max-width: 560px) { .ownership-grid, .stages { grid-template-columns: minmax(0, 1fr); } .capability { padding: 24px; } .platform-strip { gap: 18px; } .performance-facts { padding-left: 22px; } }
   @media (prefers-reduced-motion: reduce) { .hero-day { transition: none; } }
 </style>

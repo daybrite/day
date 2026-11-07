@@ -381,6 +381,10 @@ public class DayCanvasView extends View {
         private int fWeight = 0;
         private boolean fItalic = false;
         private String fFamily = "";
+        // A decoded kind-23 record (image source): the region, in the bitmap's own pixels, the
+        // next image record draws instead of the whole bitmap.
+        private boolean srcPending = false;
+        private float isx = 0f, isy = 0f, isw = 0f, ish = 0f;
 
         /** Decoded geometry, keyed by the encoder's content key (day_spec::geometry_key).
          *
@@ -705,8 +709,29 @@ public class DayCanvasView extends View {
                             // rare in a display list, so the allocation is not on a hot path.
                             Paint ip = new Paint(Paint.FILTER_BITMAP_FLAG);
                             ip.setAlpha((int) Math.round(Math.max(0f, Math.min(1f, f)) * 255f));
-                            cv.drawBitmap(bmp, null, new RectF(a, b, a + c, b + d), ip);
+                            RectF dst = new RectF(a, b, a + c, b + d);
+                            Rect src = null;
+                            if (srcPending) {
+                                // The region is in the bitmap's pixels, clamped to it with its
+                                // mapping into the rect kept (day_spec::clamp_image_source); an
+                                // empty intersection draws nothing. `drawBitmap` takes the source
+                                // as an int Rect, so its edges round to whole pixels.
+                                float x0 = Math.max(0f, isx), y0 = Math.max(0f, isy);
+                                float x1 = Math.min(bmp.getWidth(), isx + isw);
+                                float y1 = Math.min(bmp.getHeight(), isy + ish);
+                                if (!(isw > 0f && ish > 0f && x1 > x0 && y1 > y0)) break;
+                                float kx = c / isw, ky = d / ish;
+                                dst = new RectF(a + (x0 - isx) * kx, b + (y0 - isy) * ky,
+                                                a + (x1 - isx) * kx, b + (y1 - isy) * ky);
+                                src = new Rect(Math.round(x0), Math.round(y0), Math.round(x1), Math.round(y1));
+                            }
+                            cv.drawBitmap(bmp, src, dst, ip);
                         }
+                        break;
+                    }
+                    case 23: { // image source for the next image: a,b origin · c,d size, in pixels
+                        isx = a; isy = b; isw = c; ish = d;
+                        srcPending = true;
                         break;
                     }
                 }
@@ -717,6 +742,7 @@ public class DayCanvasView extends View {
                 // likewise applies to one text.
                 if (k != 18) stylePending = false;
                 if (k != 19) fontPending = false;
+                if (k != 23) srcPending = false;
             }
         }
     }

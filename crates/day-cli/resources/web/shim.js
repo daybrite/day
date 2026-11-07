@@ -2642,16 +2642,17 @@ function listen(id, mask) {
     host.addEventListener('pointerdown', (e) => {
       // Primary button only: a right-click is a summon (the contextmenu listener above), and
       // the pointerup it also produces must not come out as a tap; on Day-Sketch the phantom
-      // tap re-targeted the selection under the menu the summon had just built.
-      if (e.button !== 0) { tap = null; return; }
+      // tap re-targeted the selection under the menu the summon had just built. A second
+      // finger is a pinch, not a tap, however little it moves.
+      if (e.button !== 0 || tap) { tap = null; return; }
       const r = host.getBoundingClientRect();
-      tap = [e.clientX - r.left, e.clientY - r.top, e.clientX, e.clientY];
+      tap = [e.clientX - r.left, e.clientY - r.top, e.clientX, e.clientY, e.pointerId];
     });
     host.addEventListener('pointermove', (e) => {
-      if (tap && Math.hypot(e.clientX - tap[2], e.clientY - tap[3]) > 4) tap = null;
+      if (tap && e.pointerId === tap[4] && Math.hypot(e.clientX - tap[2], e.clientY - tap[3]) > 4) tap = null;
     });
-    host.addEventListener('pointerup', () => {
-      if (!tap) return;
+    host.addEventListener('pointerup', (e) => {
+      if (!tap || e.pointerId !== tap[4]) return;
       wasm.day_dom_event(id, 8, tap[0], tap[1], 0, 0);
       tap = null;
     });
@@ -2682,16 +2683,31 @@ function listen(id, mask) {
     // The drag engages only past the same small slop, with Began at the original press point,
     // so a clean click never produces a zero-length drag, and a real drag never produces a
     // tap.
-    let start = null, dragging = false;
+    // One pointer drags, the one that pressed first: a second finger ends the drag where it
+    // was and no drag starts again until every finger has lifted, so the two fingers of a
+    // pinch never come out as drags (docs/canvas.md "Zoom and pan").
+    let start = null, dragging = false, pointer = null, last = null;
+    const down = new Set();
+    const finish = (e) => {
+      if (!start) return;
+      if (dragging) wasm.day_dom_event(id, 11, e.clientX - start[2], e.clientY - start[3], e.clientX - start[0], e.clientY - start[1]);
+      start = null;
+      dragging = false;
+    };
     host.addEventListener('pointerdown', (e) => {
       if (e.button !== 0) return; // primary-button drags only (see the tap guard above)
+      down.add(e.pointerId);
+      if (down.size > 1) { if (last) finish(last); return; }
       host.setPointerCapture(e.pointerId);
       const r = host.getBoundingClientRect();
       start = [e.clientX, e.clientY, r.left, r.top];
+      pointer = e.pointerId;
+      last = e;
       dragging = false;
     });
     host.addEventListener('pointermove', (e) => {
-      if (!start) return;
+      if (!start || e.pointerId !== pointer) return;
+      last = e;
       if (!dragging) {
         if (Math.hypot(e.clientX - start[0], e.clientY - start[1]) < 4) return;
         dragging = true;
@@ -2699,14 +2715,71 @@ function listen(id, mask) {
       }
       wasm.day_dom_event(id, 10, e.clientX - start[2], e.clientY - start[3], e.clientX - start[0], e.clientY - start[1]);
     });
-    const finish = (e) => {
-      if (!start) return;
-      if (dragging) wasm.day_dom_event(id, 11, e.clientX - start[2], e.clientY - start[3], e.clientX - start[0], e.clientY - start[1]);
-      start = null;
-      dragging = false;
+    const lift = (e) => {
+      down.delete(e.pointerId);
+      if (e.pointerId === pointer) { finish(e); pointer = null; last = null; }
     };
-    host.addEventListener('pointerup', finish);
-    host.addEventListener('pointercancel', finish);
+    host.addEventListener('pointerup', lift);
+    host.addEventListener('pointercancel', lift);
+  }
+  if (mask & 4096) {
+    // Pinch (docs/canvas.md "Zoom and pan"). Two fingers: the scale is the distance between
+    // them over the distance at Began (cumulative), the location their midpoint. A trackpad
+    // pinch is what the browser reports as a wheel with ctrlKey set: each tick is a lone
+    // Changed whose scale is the tick's own factor, and the default is prevented so the page
+    // does not zoom with it. touch-action none keeps the browser from taking the two fingers
+    // for its own zoom (and cancelling the pointers) on the one element that handles them.
+    host.style.touchAction = 'none';
+    const fingers = new Map();
+    let span0 = 0, pinching = false, lastScale = 1;
+    const local = (x, y) => { const r = host.getBoundingClientRect(); return [x - r.left, y - r.top]; };
+    const geometry = () => {
+      const [a, b] = [...fingers.values()];
+      const [cx, cy] = local((a[0] + b[0]) / 2, (a[1] + b[1]) / 2);
+      return [Math.hypot(a[0] - b[0], a[1] - b[1]), cx, cy];
+    };
+    host.addEventListener('pointerdown', (e) => {
+      if (e.pointerType !== 'touch' || fingers.size >= 2) return;
+      fingers.set(e.pointerId, [e.clientX, e.clientY]);
+      if (fingers.size < 2) return;
+      const [d, cx, cy] = geometry();
+      span0 = d; pinching = true; lastScale = 1;
+      wasm.day_dom_event(id, 21, cx, cy, 1, 0);
+    });
+    host.addEventListener('pointermove', (e) => {
+      if (!fingers.has(e.pointerId)) return;
+      fingers.set(e.pointerId, [e.clientX, e.clientY]);
+      if (!pinching || fingers.size < 2) return;
+      const [d, cx, cy] = geometry();
+      lastScale = span0 > 0 ? d / span0 : 1;
+      wasm.day_dom_event(id, 22, cx, cy, lastScale, 0);
+    });
+    const lift = (e) => {
+      if (!fingers.has(e.pointerId)) return;
+      if (pinching) {
+        const [, cx, cy] = geometry();
+        wasm.day_dom_event(id, 23, cx, cy, lastScale, 0);
+        pinching = false;
+      }
+      fingers.clear(); // both fingers must lift before another pinch begins
+    };
+    host.addEventListener('pointerup', lift);
+    host.addEventListener('pointercancel', lift);
+    host.addEventListener('wheel', (e) => {
+      if (!e.ctrlKey) return;
+      e.preventDefault(); e.stopPropagation();
+      const r = host.getBoundingClientRect();
+      // A trackpad tick is a few pixels; a mouse notch with ctrl held is a hundred, and
+      // clamping keeps that to about a quarter step instead of a nearly threefold jump.
+      const dy = e.deltaMode === 0 ? e.deltaY : e.deltaY * 40;
+      const factor = Math.exp(Math.max(-25, Math.min(25, -dy)) * 0.01);
+      wasm.day_dom_event(id, 22, e.clientX - r.left, e.clientY - r.top, factor, 0);
+    }, {passive: false});
+    // Safari reports a trackpad pinch through these as well; preventing them keeps the page
+    // from zooming, while the wheel above still carries the scale.
+    for (const name of ['gesturestart', 'gesturechange', 'gestureend']) {
+      host.addEventListener(name, (e) => e.preventDefault());
+    }
   }
   if (mask & 512) {
     // Hover: pointer entry, motion and exit. `pointerType` gates it to a real pointer: a touch
@@ -3033,17 +3106,33 @@ function paint(ctx, ops, strs) {
     } else if (op === 3) ctx.save();
     else if (op === 4) ctx.restore();
     else if (op === 5) { const a = next(), b = next(), c = next(), d = next(), e = next(), f = next(); ctx.transform(a, b, c, d, e, f); }
-    else if (op === 8) { // image: id, x, y, w, h, opacity (docs/images.md)
+    else if (op === 8 || op === 9) { // image: id, x, y, w, h, opacity (docs/images.md)
       // Every slot is read before the bitmap is looked up: this stream is variable-length, so a
-      // branch that consumed fewer slots would desync every record after it.
+      // branch that consumed fewer slots would desync every record after it. Op 9 is the same
+      // with a source region (sx, sy, sw, sh) in the bitmap's own pixels after the opacity.
       const id = next(), x = next(), y = next(), w = next(), h = next(), alpha = next();
+      let sx = 0, sy = 0, sw = 0, sh = 0;
+      if (op === 9) { sx = next(); sy = next(); sw = next(); sh = next(); }
       const b = bitmaps.get(id);
       // A released bitmap draws nothing rather than a placeholder: a canvas re-records on every
       // tracked read, so a handle can be dropped between the record and this replay.
       if (b && b.bitmap && w > 0 && h > 0) {
         const was = ctx.globalAlpha;
         ctx.globalAlpha = was * Math.max(0, Math.min(1, alpha));
-        ctx.drawImage(b.bitmap, x, y, w, h);
+        if (op === 8) ctx.drawImage(b.bitmap, x, y, w, h);
+        else {
+          // The region clamped to the bitmap with its mapping into the rect kept
+          // (day_spec::clamp_image_source): the part inside draws where it would have, an empty
+          // intersection draws nothing. Done here rather than left to `drawImage` so every
+          // engine agrees, and so an out-of-range source can never throw mid-replay.
+          const x0 = Math.max(0, sx), y0 = Math.max(0, sy);
+          const x1 = Math.min(b.bitmap.width, sx + sw), y1 = Math.min(b.bitmap.height, sy + sh);
+          if (sw > 0 && sh > 0 && x1 > x0 && y1 > y0) {
+            const kx = w / sw, ky = h / sh;
+            ctx.drawImage(b.bitmap, x0, y0, x1 - x0, y1 - y0,
+              x + (x0 - sx) * kx, y + (y0 - sy) * ky, (x1 - x0) * kx, (y1 - y0) * ky);
+          }
+        }
         ctx.globalAlpha = was;
       }
     }

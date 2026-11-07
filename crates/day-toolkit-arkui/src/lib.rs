@@ -1712,8 +1712,9 @@ mod imp {
             // Text the full route committed (docs/menus.md "The full route"): what the key
             // typed, with the modifier mask in `num`.
             k if k == K::Text as i32 => Event::Key(day_spec::KeyEvent::typed_text(text, num as u8)),
-            // Pan/drag gesture (docs/shapes.md): `num` = phase (1 began, 2 changed, 3 ended),
-            // `text` = "x,y,tx,ty" in px, converted to vp like the Android bridge.
+            // Gestures (docs/shapes.md, docs/canvas.md "Zoom and pan"): `num` = phase (1/2/3
+            // drag began/changed/ended, 4/5/6 pinch, 7/8/9 viewport pan), `text` = "x,y,tx,ty"
+            // in px, converted to vp like the Android bridge; a pinch's `tx` is its scale.
             k if k == K::Gesture as i32 => {
                 let p: Vec<f64> = text.split(',').filter_map(|s| s.parse().ok()).collect();
                 if p.len() < 4 {
@@ -1723,6 +1724,24 @@ mod imp {
                 let at = Point::new(p[0] / d, p[1] / d);
                 let tr = Point::new(p[2] / d, p[3] / d);
                 match num as i32 {
+                    4..=6 => Event::Pinch {
+                        phase: match num as i32 {
+                            4 => day_spec::DragPhase::Began,
+                            6 => day_spec::DragPhase::Ended,
+                            _ => day_spec::DragPhase::Changed,
+                        },
+                        scale: p[2],
+                        location: at,
+                    },
+                    7..=9 => Event::Pan {
+                        phase: match num as i32 {
+                            7 => day_spec::DragPhase::Began,
+                            9 => day_spec::DragPhase::Ended,
+                            _ => day_spec::DragPhase::Changed,
+                        },
+                        delta: tr,
+                        location: at,
+                    },
                     1 => Event::Drag {
                         phase: day_spec::DragPhase::Began,
                         location: at,
@@ -4114,6 +4133,10 @@ mod imp {
                 }
                 GestureKind::Drag => crate::gesture::enable_pan(h.0, node_id.0),
                 GestureKind::LongPress => crate::gesture::enable_long_press(h.0, node_id.0),
+                // Two-finger recognizers plus the axis events of a wheel or a touchpad
+                // (docs/canvas.md "Zoom and pan").
+                GestureKind::Pinch => crate::gesture::enable_pinch(h.0, node_id.0),
+                GestureKind::Pan => crate::gesture::enable_viewport_pan(h.0, node_id.0),
                 // Hover is deliberately unwired here (docs/canvas.md "Interaction"): the C node
                 // API's `NODE_ON_HOVER` reports only entered/exited with no coordinates, and the
                 // contract is a POINT. `NODE_ON_MOUSE` carries one, but this is the one target

@@ -143,6 +143,12 @@ pub fn create(id: u64) -> Handle {
     host
 }
 
+/// Whether `host` is a canvas host (gesture.rs: a wheel pan over a canvas takes every tick,
+/// over any other container only sideways movement).
+pub(crate) fn is_canvas(host: Handle) -> bool {
+    !surface_of(host).is_null()
+}
+
 /// The drawing node inside canvas host `host`, or null for a handle that is not a canvas.
 fn surface_of(host: Handle) -> Handle {
     SURFACES.with(|s| {
@@ -560,6 +566,9 @@ unsafe fn draw(ops: &Ops, cv: *mut OH_Drawing_Canvas, px_per_vp: f32) {
         let mut grad = Gradient::default();
         let mut style = StrokeStyle::default();
         let mut fontp: Option<FontReq> = None;
+        // A decoded kind-23 record (image source): the region, in the bitmap's pixels, the
+        // next image record draws instead of the whole bitmap.
+        let mut srcp: Option<day_spec::Rect> = None;
         // Dash effects created during this replay, destroyed once the last op has been drawn.
         let mut dash_effects: Vec<*mut OH_Drawing_PathEffect> = Vec::new();
         // A decoded kind-20 record (stamp): the positions the next shape record is drawn at,
@@ -896,13 +905,45 @@ unsafe fn draw(ops: &Ops, cv: *mut OH_Drawing_Canvas, px_per_vp: f32) {
                         // placeholder: the canvas re-records on every tracked read, so a
                         // handle can be dropped between record and replay.
                         let pm = crate::images::bitmap(e as u64);
+                        let region = srcp.take();
                         if !pm.is_null() && c > 0.0 && dd > 0.0 {
                             let dpm = OH_Drawing_PixelMapGetFromOhPixelMapNative(pm);
                             if !dpm.is_null() {
                                 let (iw, ih, _) = crate::images::info(pm);
-                                if iw > 0 && ih > 0 {
-                                    let src = OH_Drawing_RectCreate(0.0, 0.0, iw as f32, ih as f32);
-                                    let dst = OH_Drawing_RectCreate(a, b, a + c, b + dd);
+                                // The whole pixel map, or the pending region (kind 23) clamped
+                                // to it with its mapping into the rect kept; `DrawPixelMapRect`
+                                // takes the source in pixels, exactly the space the op names.
+                                let rects = if iw > 0 && ih > 0 {
+                                    let whole =
+                                        day_spec::Rect::new(0.0, 0.0, f64::from(iw), f64::from(ih));
+                                    let dest = day_spec::Rect::new(
+                                        f64::from(a),
+                                        f64::from(b),
+                                        f64::from(c),
+                                        f64::from(dd),
+                                    );
+                                    match region {
+                                        None => Some((whole, dest)),
+                                        Some(src) => {
+                                            day_spec::clamp_image_source(src, dest, whole.size)
+                                        }
+                                    }
+                                } else {
+                                    None
+                                };
+                                if let Some((sr, dr)) = rects {
+                                    let src = OH_Drawing_RectCreate(
+                                        sr.origin.x as f32,
+                                        sr.origin.y as f32,
+                                        (sr.origin.x + sr.size.width) as f32,
+                                        (sr.origin.y + sr.size.height) as f32,
+                                    );
+                                    let dst = OH_Drawing_RectCreate(
+                                        dr.origin.x as f32,
+                                        dr.origin.y as f32,
+                                        (dr.origin.x + dr.size.width) as f32,
+                                        (dr.origin.y + dr.size.height) as f32,
+                                    );
                                     let so = OH_Drawing_SamplingOptionsCreate(
                                         OH_Drawing_FilterMode::FILTER_MODE_LINEAR,
                                         OH_Drawing_MipmapMode::MIPMAP_MODE_NONE,
@@ -942,6 +983,16 @@ unsafe fn draw(ops: &Ops, cv: *mut OH_Drawing_Canvas, px_per_vp: f32) {
                             }
                         }
                     }
+                    // Image source (23): the region (a,b origin · c,dd size, in the bitmap's
+                    // pixels) the next image record draws.
+                    23 => {
+                        srcp = Some(day_spec::Rect::new(
+                            f64::from(a),
+                            f64::from(b),
+                            f64::from(c),
+                            f64::from(dd),
+                        ));
+                    }
                     _ => {}
                 }
                 if !stamp_at.is_empty() {
@@ -960,6 +1011,9 @@ unsafe fn draw(ops: &Ops, cv: *mut OH_Drawing_Canvas, px_per_vp: f32) {
             }
             if kind != 19 {
                 fontp = None;
+            }
+            if kind != 23 {
+                srcp = None;
             }
         }
         OH_Drawing_CanvasRestore(cv);

@@ -37,6 +37,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join, resolve } from 'node:path';
 import galleryConfig from '../gallery.config.mjs';
+import { loadReleaseGallery } from './release-gallery.mjs';
 import { platformsById } from '../src/lib/platforms.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -144,6 +145,7 @@ function captureKey(theme, locale) {
  *  links resolve — caching the last good copy so a later build survives an unreachable site (and
  *  so a local checkout works offline once it has fetched). */
 async function loadIndex(app, log) {
+  if (app.screenshotRelease) return loadReleaseGallery(app);
   const cacheFile = join(CACHE_DIR, `${app.id}.json`);
   const failures = [];
   for (const source of indexCandidates(app)) {

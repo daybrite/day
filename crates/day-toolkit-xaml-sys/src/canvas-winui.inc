@@ -200,6 +200,8 @@ static void paint_canvas(WC::CanvasDrawingSession const& ds, CanvasDisplayList c
     WCG::CanvasStrokeStyle style{nullptr};
     std::vector<float> style_dash; float style_phase = 0;
     int weight = 0; bool italic = false; std::string family;
+    // A kind-23 record: the region, in the bitmap's pixels, the next image record draws.
+    bool has_source = false; WF::Rect source{};
     for (size_t i = 0; i + 8 < ops.nums.size(); i += 9) {
         auto p = ops.nums.data() + i;
         int k = int(p[0]); float a=float(p[1]), b=float(p[2]), c=float(p[3]), d=float(p[4]);
@@ -216,6 +218,7 @@ static void paint_canvas(WC::CanvasDrawingSession const& ds, CanvasDisplayList c
         }
         if (k == 10) { cur = WFN::float3x2{a,b,c,d,e,f} * cur; continue; }
         if (k == 19) { weight=int(a); italic=b!=0; family=text(); continue; }
+        if (k == 23) { source=WF::Rect{a,b,c,d}; has_source=true; continue; }
         if (k == 18) {
             style = WCG::CanvasStrokeStyle();
             auto cap = int(a)==1 ? WCG::CanvasCapStyle::Round : int(a)==2 ? WCG::CanvasCapStyle::Square : WCG::CanvasCapStyle::Flat;
@@ -297,11 +300,27 @@ static void paint_canvas(WC::CanvasDrawingSession const& ds, CanvasDisplayList c
                 float y=b-(vertical==1?bounds.Height/2:vertical==2?(lines.empty()?0:lines[0].Baseline):vertical==3?bounds.Height:0);
                 ds.DrawTextLayout(layout,{x,y},color);
             } else if(k==22 && c>0 && d>0) {
-                if(auto bitmap=canvas_image(device,static_cast<uint64_t>(p[5])))
-                    ds.DrawImage(bitmap,WF::Rect{a,b,c,d},bitmap.Bounds(),std::clamp(f,0.0f,1.0f));
+                if(auto bitmap=canvas_image(device,static_cast<uint64_t>(p[5]))) {
+                    // The bitmap is created at 96 DPI, so its bounds are its pixels: the space
+                    // a region names. The region is clamped to the bitmap with its mapping into
+                    // the rect kept (day_spec::clamp_image_source); an empty intersection
+                    // draws nothing.
+                    auto bounds=bitmap.Bounds(); WF::Rect dest{a,b,c,d}; WF::Rect src=bounds; bool draw=true;
+                    if(has_source) {
+                        float x0=(std::max)(0.0f,source.X), y0=(std::max)(0.0f,source.Y);
+                        float x1=(std::min)(bounds.Width,source.X+source.Width), y1=(std::min)(bounds.Height,source.Y+source.Height);
+                        draw=source.Width>0 && source.Height>0 && x1>x0 && y1>y0;
+                        if(draw) {
+                            float kx=c/source.Width, ky=d/source.Height;
+                            dest=WF::Rect{a+(x0-source.X)*kx,b+(y0-source.Y)*ky,(x1-x0)*kx,(y1-y0)*ky};
+                            src=WF::Rect{x0,y0,x1-x0,y1-y0};
+                        }
+                    }
+                    if(draw) ds.DrawImage(bitmap,dest,src,std::clamp(f,0.0f,1.0f));
+                }
             }
         }
-        stamps.clear(); stops.clear(); style=nullptr; weight=0; italic=false; family.clear();
+        stamps.clear(); stops.clear(); style=nullptr; weight=0; italic=false; family.clear(); has_source=false;
     }
 }
 

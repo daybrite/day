@@ -307,6 +307,45 @@ impl Draw {
             image: image.id(),
             rect,
             opacity: opacity.clamp(0.0, 1.0),
+            source: None,
+        });
+    }
+
+    /// Draw the `source` region of a decoded image into `rect` (docs/images.md "Drawing on a
+    /// canvas").
+    ///
+    /// `source` is in the bitmap's own PIXELS, not points: a sprite sheet lays its cells out in
+    /// pixels, and [`Bitmap::info`](day_core::Bitmap::info) says how many of them make a point.
+    /// The region is scaled into `rect` exactly as [`Draw::image`] scales the whole image. A
+    /// region reaching outside the bitmap is clamped to it, never an error, and an empty
+    /// intersection draws nothing.
+    ///
+    /// ```ignore
+    /// let sheet = day::decode_image(sprites).await?;         // once
+    /// canvas(move |d, _| d.image_region(&sheet, icon.cell, Rect::new(10.0, 10.0, 24.0, 24.0)))
+    /// ```
+    pub fn image_region(
+        &mut self,
+        image: &day_core::Bitmap,
+        source: day_spec::Rect,
+        rect: day_spec::Rect,
+    ) {
+        self.image_region_with_opacity(image, source, rect, 1.0);
+    }
+
+    /// [`Draw::image_region`] with an opacity in `0.0..=1.0` multiplying the image's own alpha.
+    pub fn image_region_with_opacity(
+        &mut self,
+        image: &day_core::Bitmap,
+        source: day_spec::Rect,
+        rect: day_spec::Rect,
+        opacity: f64,
+    ) {
+        self.ops.push(DrawOp::Image {
+            image: image.id(),
+            rect,
+            opacity: opacity.clamp(0.0, 1.0),
+            source: Some(source),
         });
     }
 

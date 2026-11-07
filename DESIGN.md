@@ -3284,6 +3284,20 @@ made native nav containers possible without a scaffold migration.
 > assemble a HAP. The xaml arm is written BLIND; nothing here can build it. Both stand on CI. GTK also stopped re-encoding the whole display list
 > on every expose — it encodes once in `replay` — and the web shim keeps its `Path2D`s, its
 > payload now length-prefixed so a hit can jump the geometry rather than walk it.
+>
+> **2026-11 — image regions.** `DrawOp::Image` carries `source: Option<Rect>`, the region of
+> the bitmap to draw in the bitmap's own pixels (`Draw::image_region`, [docs/images.md](docs/images.md)), so one
+> decoded sprite sheet serves every icon of the vector map piece. The wire gained
+> `OpCode::ImageSource`, a prefix record consumed by the image record after it, like `SetFont`,
+> and the web encoder its own op 9; a whole-image draw emits neither and encodes exactly as
+> before. `day_spec::clamp_image_source` is the one definition of an out-of-range region: the
+> part inside the bitmap draws where its mapping into the rect puts it, an empty intersection
+> draws nothing, and the C++/Java/JS decoders repeat its arithmetic. The native sub-rect draw is
+> used where it is one call — AppKit `drawInRect:fromRect:` (the image's bottom-left space), Qt
+> `drawImage(target, image, source)`, android `drawBitmap(bitmap, src, dst)`, Win2D
+> `DrawImage(bitmap, dest, source)`, arkui `DrawPixelMapRect`, the web's 9-argument
+> `drawImage` — and UIKit and GTK clip to the rect and draw the whole image scaled, which is
+> exact and keeps a `UIImage`'s orientation.
 
 ```rust
 pub fn gauge(value: Signal<f64>) -> impl Piece {
@@ -4788,7 +4802,7 @@ headless runtime path is exercised in HarmonyOS CI, never by a local emulator te
 | `day icon build [master]` / `day icon new` / `day icon check [master]` | render platform assets, create a seeded source icon, or check for drift (exit 5). A subcommand is required; `new --out preview.svg` writes a preview without changing a project |
 | `day metadata [--json]` | machine-readable project metadata (versioned, grow-only envelope — IDE tooling consumes this, never Day.toml directly) |
 | `day lint` | fluent coverage (missing/unused/unknown keys), duplicate element ids, unknown navigation routes (including `[[shortcuts]]` routes), shortcut-label coverage, permission declaration/manifest drift ([docs/permissions.md](docs/permissions.md)), store-listing rules ([docs/store.md](docs/store.md)), Day.toml schema, every `Day-<name>.toml` flavor ([docs/flavors.md](docs/flavors.md)) — fast, source-level  Findings carry `file:line:column` and a severity; `--json` emits them as a versioned envelope with the fix a rule proposes, and `--fix` applies those fixes  Under GitHub Actions (`GITHUB_ACTIONS=true`) findings also emit `::warning::`/`::error::` annotations on stdout, anchored to their line, and a markdown table into `$GITHUB_STEP_SUMMARY` |
-| `day patch [--local <checkout>]… [--git <url>[@<ref>]]… [--main] [--check]` | build a project against LOCAL checkouts, FORKS, or the `main` branches of the crates it takes from crates.io (or from git): `--local` (repeatable: the day checkout, an external piece or part repository — each identified by the `day-app` crate it carries or its manifest's `repository`) writes the machine-local `.cargo/config.toml` `[patch.crates-io]` table (plus a git-keyed table for crates still taken from git); `--git` (repeatable) takes a repository's crates from that URL and ref for the whole graph (external pieces follow, unchanged; `@<ref>` is a branch, a 40-hex commit, or `tag=`/`branch=`/`rev=`); `--main` follows every other `day-*` crate to the repository crates.io records for it, under `github.com/daybrite`, pinned to the head of its default branch, which is what CI runs on a push. The crates.io table starts with every crate a source carries and drops what a resolve under it leaves unused, since a graph that asks for an unreleased version cannot be resolved without it. `--check` fails when a patched repository's crate still resolves from crates.io or git — a missing entry, a checkout behind the newest release, or a version the requirement does not accept — the guard against a stale table silently mixing a local framework with a published one. Works from an app (Day.toml) or from any cargo package root, so a piece crate patches its own day dependency the same way. `day build`/`launch` separately refuse a graph carrying two copies of any day crate (§15.2) |
+| `day patch [--local <checkout>]… [--git <url>[@<ref>]]… [--main] [--check]` | build a project against LOCAL checkouts, FORKS, or the `main` branches of the crates it takes from crates.io (or from git): `--local` (repeatable: the day checkout, an external piece or part repository — each identified by the `day-app` crate it carries or its manifest's `repository`) writes the machine-local `.cargo/config.toml` `[patch.crates-io]` table (plus a git-keyed table for crates still taken from git); `--git` (repeatable) takes a repository's crates from that URL and ref for the whole graph (external pieces follow, unchanged; `@<ref>` is a branch, a 40-hex commit, or `tag=`/`branch=`/`rev=`); `--main` follows every other `day-*` crate to the repository crates.io records for it, under `github.com/daybrite`, pinned to the head of its default branch, which is what CI runs on a push. The crates.io table starts with every crate a source carries and drops what a resolve under it leaves unused, since a graph that asks for an unreleased version cannot be resolved without it. `--check` fails when a patched repository's crate still resolves from crates.io or git — a missing entry, a checkout behind the newest release, or a version the requirement does not accept — the guard against a stale table silently mixing a local framework with a published one. The table governs every cargo project beneath it, so a piece's or part's `demo/` (a project of its own, with its own `[workspace]` and lock, beside the crate) is read, relocked, resolved and checked together with the root; a table computed from the crate alone would leave the demo's `day-app` on crates.io, half-patched. Works from an app (Day.toml) or from any cargo package root, so a piece crate patches its own day dependency the same way. `day build`/`launch` separately refuse a graph carrying two copies of any day crate (§15.2) |
 | `day store <init\|migrate\|stage\|screenshots\|export>` | the App Store / Google Play listing, one file (`store/storefront.toml` or `storefront.yaml`; the older `app.*` names still read): `init` writes `[storefront.metadata]` tables for every locale the app ships and the listing lacks, `migrate` folds the older `store/<locale>/*.txt` layout into them, `stage` generates the fastlane trees a release uploads ([docs/store.md](docs/store.md)), refusing a listing with any lint error (`--allow-placeholders` lets TODO text through), `export` writes the listing resolved per target, store and locale as one JSON document with the stores' rules in force (`--out FILE`; what the website is built from and a release carries as `storefront.json`); `stage --screenshots <gallery.json\|URL>` also places the listing's screenshots, the captures `store/storefront.toml` `[storefront…screenshots]` declares (§14.7), from a gallery index; `screenshots <gallery.json\|URL>` checks that set against each store's rules, the `store-rules.toml` the CLI embeds and `--rules` / `DAY_STORE_RULES` / `store/rules.toml` replace ([docs/store.md](docs/store.md)) |
 | `day localize <list\|add\|remove>` | the project's locale surfaces — `resource/locales/`, the store listing's locale tables in `store/storefront.toml`, the iOS `project.xcproj` localizations, `website/site.toml`'s `locales` array — surveyed (`list`, with drift warnings; `day lint` reports the same findings) or edited together (`add`/`remove` a Day BCP-47 tag on every surface the project has; per-store and Xcode spellings remain a generation-time concern) |
 | `day screenshot index` | merge capture trees (`--screenshot-paths`, default `build/day/screenshots`) into `gallery.json` — the published machine-readable screenshot index: URL, localized title/caption from the dayscript metadata (§14.7), theme, locale, platform, dimensions, byte size, sha-256, and `listings`, the store and website lists `store/storefront.toml` `[storefront]` declares, resolved per target and device kind. App sites serve it at `/gallery/gallery.json`; `--out` places it |
@@ -6379,6 +6393,25 @@ The `daybrite/actions` companion repository provides reusable workflows for exte
    hosted images: one copy of the bytes, owned by the app that captured them, and `/gallery/<App>/`
    for each of Day-Showcase, Day-Rise, Day-Skies, Day-Trader, Day-News, Day-Sketch, Day-Tunes and
    Games-Fair under a hub at `/gallery/`.
+   Day Travel can also use a pinned public release bundle (`screenshotRelease` in that config).
+   `release-gallery.mjs` verifies its SHA-256, extracts only indexed regular PNGs with matching
+   checksums/dimensions, and creates cached lossless WebP renditions under generated
+   `public/gallery-media`. This supports a release whose project Pages site is not deployed.
+   The landing page's `LocaleExplorer.astro` consumes the same assembled app entry: desktops
+   use `overview`, while phones require exact-locale/theme `top` and `bottom` pairs. Hover,
+   tap, and keyboard selections retain the other dimensions; decoded images and their opaque
+   backgrounds fade together over 480 ms, with reduced-motion support. Screenshot appearance
+   follows the site’s resolved `data-theme`, including saved and system preferences; the
+   explorer has no separate theme picker. Phone screenshots appear without bezels. Shared
+   `DeviceShell.astro` templates frame content-only desktop captures; AppKit and WinUI keep
+   their captured window chrome.
+   Missing combinations
+   are disabled; image failures keep the last complete view and restore its controls.
+   The landing carousel selects reviewed app/screen/toolkit combinations in `website/hero.config.mjs`
+   from that same gallery manifest, including locally materialized release images. Generated WebP
+   files carry the app label and gallery-row URL; each image and selection dash links to its app.
+   Captures containing window chrome bypass the decorative desktop shell. The cache key covers
+   the selection and source URLs, and matching verified dark images follow the site theme.
    Adding an app is one entry in `website/gallery.config.mjs`; its rows, columns, themes and
    languages come from its index, so a newly captured screen appears with no change here. An
    unreachable app site falls back to the cached copy of its last index and says so on the page.

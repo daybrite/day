@@ -7,9 +7,11 @@
 // `src/data/gallery-manifest.json` exists before the gallery pages import it. The images come from
 // the index each Day app's own site publishes, so this needs the network (or a warm `.cache/`).
 import { assembleGallery } from '../scripts/assemble-gallery.mjs';
-import { APP_ID as HERO_APP_ID, assembleHeroShots } from '../scripts/hero-shots.mjs';
+import { assembleHeroShots } from '../scripts/hero-shots.mjs';
 import { assembleDownloads } from '../scripts/assemble-downloads.mjs';
 import { verifyMarketingEvidence } from '../scripts/verify-marketing-evidence.mjs';
+
+const SHOWCASE_APP_ID = 'Day-Showcase';
 
 /** @returns {import('astro').AstroIntegration} */
 export default function gallery() {
@@ -34,22 +36,19 @@ export default function gallery() {
         // the live gallery for local previews). Only verified, non-blank screenshots are admitted.
         const { count } = await assembleHeroShots({ quiet: true });
         logger.info(`hero carousel: ${count} verified screenshot(s)`);
-        // The front page leads with the Showcase: the hero carousel is built from its screenshots
-        // alone, and /gallery/ opens on it. A build that could not read them still renders — an
-        // empty carousel, a gallery without its first app — and on 2026-09-13 exactly that went
-        // live, with nothing failing. So a build that is going to be PUBLISHED refuses to finish
-        // without them, which keeps the last good deploy up until the Showcase's site answers.
+        // Publishing still requires the Showcase index for /showcase and its gallery, plus
+        // a nonempty hero pool. The carousel can include other apps independently.
         //
         // ci.yml's `website` job sets DAY_REQUIRE_SHOWCASE on every run that deploys. `astro dev`, a local
         // build and a pull request's build go on rendering without the network, as they always
         // have: none of them publishes anything.
         if (process.env.DAY_REQUIRE_SHOWCASE) {
           const problems = [];
-          if (dropped.includes(HERO_APP_ID)) {
-            problems.push(`${HERO_APP_ID}'s gallery could not be built (${reasons[HERO_APP_ID] ?? 'no usable index'})`);
-          } else if (stale.includes(HERO_APP_ID)) {
+          if (dropped.includes(SHOWCASE_APP_ID)) {
+            problems.push(`${SHOWCASE_APP_ID}'s gallery could not be built (${reasons[SHOWCASE_APP_ID] ?? 'no usable index'})`);
+          } else if (stale.includes(SHOWCASE_APP_ID)) {
             // A cached index links images on a site that just failed to answer.
-            problems.push(`${HERO_APP_ID}'s gallery is only a cached index — its site did not answer this build`);
+            problems.push(`${SHOWCASE_APP_ID}'s gallery is only a cached index — its site did not answer this build`);
           }
           if (count === 0) problems.push('the front-page carousel has no verified screenshot');
           if (problems.length) {

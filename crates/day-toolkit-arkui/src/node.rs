@@ -68,6 +68,8 @@ pub const EV_TEXT_PICKER_CHANGE: ArkUI_NodeEventType =
 pub const EV_TOGGLE_CHANGE: ArkUI_NodeEventType = ArkUI_NodeEventType::NODE_TOGGLE_ON_CHANGE;
 pub const EV_TOUCH: ArkUI_NodeEventType = ArkUI_NodeEventType::NODE_TOUCH_EVENT;
 pub const EV_KEY: ArkUI_NodeEventType = ArkUI_NodeEventType::NODE_ON_KEY_EVENT;
+/// A mouse wheel or touchpad axis event (API 17); gesture.rs turns it into a pan or a pinch.
+pub const EV_AXIS: ArkUI_NodeEventType = ArkUI_NodeEventType::NODE_ON_AXIS;
 pub const EV_SLIDER_CHANGE: ArkUI_NodeEventType = ArkUI_NodeEventType::NODE_SLIDER_EVENT_ON_CHANGE;
 pub const EV_SWIPER_CHANGE: ArkUI_NodeEventType = ArkUI_NodeEventType::NODE_SWIPER_EVENT_ON_CHANGE;
 

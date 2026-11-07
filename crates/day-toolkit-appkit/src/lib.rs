@@ -5889,24 +5889,53 @@ fn draw_op(op: &DrawOp) {
                 image,
                 rect,
                 opacity,
+                source,
             } => {
-                let img = BITMAPS.with(|m| m.borrow().get(&image.0).map(|b| b.image.clone()));
-                if let Some(img) = img {
-                    let dest = NSRect::new(
-                        NSPoint::new(rect.origin.x, rect.origin.y),
-                        NSSize::new(rect.size.width, rect.size.height),
-                    );
-                    // DayCanvas is flipped (top-left origin). Respect that context so image
-                    // rows stay upright, including under the canvas's rotation/zoom transforms.
-                    // A zero `fromRect` means the whole image; `fraction` multiplies its alpha.
-                    img.drawInRect_fromRect_operation_fraction_respectFlipped_hints(
-                        dest,
-                        NSRect::ZERO,
-                        objc2_app_kit::NSCompositingOperation::SourceOver,
-                        *opacity,
-                        true,
-                        None,
-                    );
+                let held = BITMAPS.with(|m| {
+                    m.borrow()
+                        .get(&image.0)
+                        .map(|b| (b.image.clone(), b.info.pixels))
+                });
+                if let Some((img, pixels)) = held {
+                    // A zero `fromRect` means the whole image. A region (`source`, in the
+                    // bitmap's pixels) clamps to the bitmap with its mapping into `rect` kept,
+                    // and an empty intersection draws nothing. `fromRect` is in the image's own
+                    // space: its point size, origin at the BOTTOM-left the way NSImage counts,
+                    // so the pixel region converts by the points-per-pixel ratio and flips.
+                    let region = match source {
+                        None => Some((NSRect::ZERO, *rect)),
+                        Some(src) => {
+                            day_spec::clamp_image_source(*src, *rect, pixels).map(|(src, dest)| {
+                                let sz = img.size();
+                                let (rx, ry) = (sz.width / pixels.width, sz.height / pixels.height);
+                                let from = NSRect::new(
+                                    NSPoint::new(
+                                        src.origin.x * rx,
+                                        (pixels.height - src.origin.y - src.size.height) * ry,
+                                    ),
+                                    NSSize::new(src.size.width * rx, src.size.height * ry),
+                                );
+                                (from, dest)
+                            })
+                        }
+                    };
+                    if let Some((from, dest)) = region {
+                        let dest = NSRect::new(
+                            NSPoint::new(dest.origin.x, dest.origin.y),
+                            NSSize::new(dest.size.width, dest.size.height),
+                        );
+                        // DayCanvas is flipped (top-left origin). Respect that context so image
+                        // rows stay upright, including under the canvas's rotation/zoom
+                        // transforms. `fraction` multiplies the image's alpha.
+                        img.drawInRect_fromRect_operation_fraction_respectFlipped_hints(
+                            dest,
+                            from,
+                            objc2_app_kit::NSCompositingOperation::SourceOver,
+                            *opacity,
+                            true,
+                            None,
+                        );
+                    }
                 }
             }
             DrawOp::Save => NSGraphicsContext::saveGraphicsState_class(),

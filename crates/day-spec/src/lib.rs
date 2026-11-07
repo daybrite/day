@@ -4810,10 +4810,20 @@ pub enum DrawOp {
     ///
     /// `opacity` multiplies the image's own alpha. A backend that cannot draw a bitmap at all
     /// draws nothing rather than a placeholder rectangle, the same way an unknown op is skipped.
+    ///
+    /// `source` is the region of the bitmap to draw, in the bitmap's own PIXELS (not points:
+    /// [`BitmapInfo::scale`] says how many pixels make a point), `None` meaning the whole
+    /// image. It is what lets one decoded sprite sheet serve every icon on a map: each draw
+    /// picks its cell and scales it into `rect`. A region reaching outside the bitmap is clamped
+    /// to it, never an error: the part inside draws where the mapping into `rect` puts it, and
+    /// an empty intersection draws nothing. A backend without a sub-rect draw clips to `rect`
+    /// and draws the whole image scaled so the region lands there ([`clamp_image_source`] is
+    /// the shared arithmetic).
     Image {
         image: BitmapId,
         rect: Rect,
         opacity: f64,
+        source: Option<Rect>,
     },
     /// Intersect the clip with `shape`; everything drawn afterwards is confined to it.
     ///
@@ -9047,12 +9057,19 @@ pub enum OpCode {
     /// exactly up to 2^53; ids are minted from 1 per process, so that ceiling is unreachable.
     /// Nothing rides the texts channel for this op.
     Image = 22,
+    /// The source region for the next image record (`a,b` = origin, `c,d` = size, in the
+    /// bitmap's own pixels): [`DrawOp::Image`]'s `source`. Like [`OpCode::SetFont`] it is a
+    /// prefix, consumed by the record that follows and then cleared, and a whole-image draw
+    /// emits none, so a drawing without regions encodes exactly as it did before this op
+    /// existed. A decoder clamps the region to the bitmap and draws nothing for an empty
+    /// intersection ([`clamp_image_source`]).
+    ImageSource = 23,
 }
 
 impl OpCode {
     /// Every code, in wire order. The density test iterates this so a new variant that
     /// forgets to join fails loudly.
-    pub const ALL: [OpCode; 23] = [
+    pub const ALL: [OpCode; 24] = [
         OpCode::FillRect,
         OpCode::StrokeRect,
         OpCode::FillRrect,
@@ -9076,6 +9093,7 @@ impl OpCode {
         OpCode::Stamp,
         OpCode::StampPoints,
         OpCode::Image,
+        OpCode::ImageSource,
     ];
 
     /// The code back from a wire number (a decoder-side aid and the round-trip test's
@@ -9190,6 +9208,38 @@ pub fn encode_path(path: &Path) -> String {
         }
     }
     out
+}
+
+/// Clamp a [`DrawOp::Image`] `source` region to the bitmap it indexes (`pixels` wide and high),
+/// keeping the region's mapping into `rect`: the answer is the part of the region inside the
+/// bitmap and the part of `rect` it lands in.
+///
+/// The single definition of what an out-of-range region means. The mapping is kept rather than
+/// the clamped part stretched over the whole of `rect`, because that is what every native
+/// sub-rect draw does on its own (Qt, the HTML canvas) and what the clip-and-scale fallback
+/// gives for free, so the backends agree. `None` (an empty region, an empty intersection, or a
+/// bitmap with no pixels) draws nothing. Every backend that replays in Rust calls this; the
+/// C++/Java/JS decoders repeat the same arithmetic.
+pub fn clamp_image_source(source: Rect, rect: Rect, pixels: Size) -> Option<(Rect, Rect)> {
+    if !(source.size.width > 0.0 && source.size.height > 0.0) {
+        return None;
+    }
+    let x0 = source.origin.x.max(0.0);
+    let y0 = source.origin.y.max(0.0);
+    let x1 = (source.origin.x + source.size.width).min(pixels.width);
+    let y1 = (source.origin.y + source.size.height).min(pixels.height);
+    if !(x1 > x0 && y1 > y0) {
+        return None;
+    }
+    let kx = rect.size.width / source.size.width;
+    let ky = rect.size.height / source.size.height;
+    let dest = Rect::new(
+        rect.origin.x + (x0 - source.origin.x) * kx,
+        rect.origin.y + (y0 - source.origin.y) * ky,
+        (x1 - x0) * kx,
+        (y1 - y0) * ky,
+    );
+    Some((Rect::new(x0, y0, x1 - x0, y1 - y0), dest))
 }
 
 /// `FillRule` as a wire number: 0 non-zero, 1 even-odd.
@@ -9682,18 +9732,35 @@ pub fn encode_ops(ops: &[DrawOp]) -> (Vec<f64>, Vec<String>) {
                 image,
                 rect,
                 opacity,
-            } => push(
-                OpCode::Image,
-                rect.origin.x,
-                rect.origin.y,
-                rect.size.width,
-                rect.size.height,
-                image.0 as f64,
-                *opacity,
-                0.0,
-                Color::CLEAR,
-                &mut nums,
-            ),
+                source,
+            } => {
+                if let Some(src) = source {
+                    push(
+                        OpCode::ImageSource,
+                        src.origin.x,
+                        src.origin.y,
+                        src.size.width,
+                        src.size.height,
+                        0.0,
+                        0.0,
+                        0.0,
+                        Color::CLEAR,
+                        &mut nums,
+                    );
+                }
+                push(
+                    OpCode::Image,
+                    rect.origin.x,
+                    rect.origin.y,
+                    rect.size.width,
+                    rect.size.height,
+                    image.0 as f64,
+                    *opacity,
+                    0.0,
+                    Color::CLEAR,
+                    &mut nums,
+                );
+            }
             DrawOp::Save => push(
                 OpCode::Save,
                 0.0,
@@ -9909,6 +9976,44 @@ mod image_header_tests {
 mod encode_ops_tests {
     use super::*;
 
+    /// A region outside the bitmap is clamped to it with its mapping into the rect kept, and an
+    /// empty intersection draws nothing.
+    #[test]
+    fn image_source_clamps_to_the_bitmap() {
+        let px = Size::new(64.0, 32.0);
+        let dest = Rect::new(100.0, 200.0, 32.0, 32.0); // 2 points per source pixel
+        assert_eq!(
+            clamp_image_source(Rect::new(-8.0, -8.0, 16.0, 16.0), dest, px),
+            Some((
+                Rect::new(0.0, 0.0, 8.0, 8.0),
+                Rect::new(116.0, 216.0, 16.0, 16.0)
+            ))
+        );
+        assert_eq!(
+            clamp_image_source(Rect::new(60.0, 28.0, 16.0, 16.0), dest, px),
+            Some((
+                Rect::new(60.0, 28.0, 4.0, 4.0),
+                Rect::new(100.0, 200.0, 8.0, 8.0)
+            ))
+        );
+        assert_eq!(
+            clamp_image_source(Rect::new(16.0, 8.0, 16.0, 16.0), dest, px),
+            Some((Rect::new(16.0, 8.0, 16.0, 16.0), dest))
+        );
+        assert_eq!(
+            clamp_image_source(Rect::new(64.0, 0.0, 8.0, 8.0), dest, px),
+            None
+        );
+        assert_eq!(
+            clamp_image_source(Rect::new(0.0, 0.0, 0.0, 8.0), dest, px),
+            None
+        );
+        assert_eq!(
+            clamp_image_source(Rect::new(0.0, 0.0, 8.0, 8.0), dest, Size::new(0.0, 0.0)),
+            None
+        );
+    }
+
     /// The wire codes are a frozen dense table: any gap, duplicate, or variant missing from
     /// `ALL` breaks a decoder somewhere, so it must break here first.
     #[test]
@@ -10004,6 +10109,13 @@ mod encode_ops_tests {
                 image: BitmapId(7),
                 rect: r,
                 opacity: 0.5,
+                source: None,
+            },
+            DrawOp::Image {
+                image: BitmapId(7),
+                rect: r,
+                opacity: 1.0,
+                source: Some(Rect::new(16.0, 32.0, 8.0, 8.0)),
             },
         ];
         let (nums, texts) = encode_ops(&ops);
@@ -10059,6 +10171,8 @@ mod encode_ops_tests {
                 Concat,
                 Restore,
                 Image,
+                ImageSource, // a region precedes its image record; a whole-image draw has none
+                Image,
             ]
         };
         assert_eq!(decoded, expected);
@@ -10069,6 +10183,12 @@ mod encode_ops_tests {
             .find(|r| r[0] == OpCode::Image as i32 as f64)
             .expect("Image record");
         assert_eq!(&img[1..7], &[1.0, 2.0, 3.0, 4.0, 7.0, 0.5]);
+        // The region rides its own prefix record, in bitmap pixels, with nothing else in it.
+        let src = nums
+            .chunks(9)
+            .find(|r| r[0] == OpCode::ImageSource as i32 as f64)
+            .expect("ImageSource record");
+        assert_eq!(&src[1..8], &[16.0, 32.0, 8.0, 8.0, 0.0, 0.0, 0.0]);
         // …carrying the CSS weight and the slant, with the family on the texts channel.
         let font_rec = nums
             .chunks(9)

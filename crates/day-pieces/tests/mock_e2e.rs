@@ -9699,6 +9699,7 @@ fn a_canvas_draws_a_decoded_image_by_its_handle() {
             image,
             rect,
             opacity,
+            source,
         }) => {
             // The id is the one the toolkit minted for these bytes, and the rect is the
             // canvas's size the draw closure was handed.
@@ -9708,9 +9709,92 @@ fn a_canvas_draws_a_decoded_image_by_its_handle() {
             );
             assert_eq!(rect.size, Size::new(120.0, 90.0));
             assert_eq!(*opacity, 1.0);
+            // `image` is the whole-bitmap form: no region.
+            assert_eq!(*source, None);
         }
         other => panic!("expected an image op, got {other:?}"),
     }
+}
+
+/// A canvas draws one region of a decoded image: the sprite-sheet form, where the op carries the
+/// cell in the bitmap's own pixels and the toolkit scales that cell into the rect.
+#[test]
+fn a_canvas_draws_one_region_of_a_decoded_image() {
+    let probe = boot(|| {
+        let img: Signal<Option<day_core::Bitmap>> = Signal::new(None);
+        column((
+            button("load")
+                .action(move || {
+                    day_core::task(async move {
+                        if let Ok(bitmap) = day_core::decode_image(png_bytes()).await {
+                            img.set(Some(bitmap));
+                        }
+                    });
+                })
+                .id(day_core::id!(load)),
+            canvas(move |d, _size| {
+                if let Some(bitmap) = img.get() {
+                    let cell = day_spec::Rect::new(1.0, 2.0, 2.0, 1.0);
+                    d.image_region(&bitmap, cell, day_spec::Rect::new(10.0, 20.0, 40.0, 20.0));
+                    d.image_region_with_opacity(
+                        &bitmap,
+                        cell,
+                        day_spec::Rect::new(50.0, 20.0, 40.0, 20.0),
+                        0.25,
+                    );
+                }
+            })
+            .frame(120.0, 90.0),
+        ))
+        .any()
+    });
+
+    probe.emit(node_id(&probe, "day.button", 0), Event::Pressed);
+    flush_sync();
+
+    let ops = probe.find_by_kind("day.canvas")[0].1.ops.clone();
+    let id = match ops.first() {
+        Some(day_spec::DrawOp::Image { image, .. }) => *image,
+        other => panic!("expected an image op, got {other:?}"),
+    };
+    let cell = day_spec::Rect::new(1.0, 2.0, 2.0, 1.0);
+    assert_eq!(
+        ops,
+        vec![
+            day_spec::DrawOp::Image {
+                image: id,
+                rect: day_spec::Rect::new(10.0, 20.0, 40.0, 20.0),
+                opacity: 1.0,
+                source: Some(cell),
+            },
+            day_spec::DrawOp::Image {
+                image: id,
+                rect: day_spec::Rect::new(50.0, 20.0, 40.0, 20.0),
+                opacity: 0.25,
+                source: Some(cell),
+            },
+        ]
+    );
+    // The region is in pixels of THIS bitmap; the mock decode is a fixed-size image, and the
+    // cell sits inside it, so the shared clamp keeps it whole. A cell past the edge keeps only
+    // the part inside, landing where the mapping puts it, and one wholly outside draws nothing.
+    let px = Size::new(day_mock::MOCK_IMAGE_W, day_mock::MOCK_IMAGE_H);
+    let dest = day_spec::Rect::new(10.0, 20.0, 40.0, 20.0);
+    assert_eq!(
+        day_spec::clamp_image_source(cell, dest, px),
+        Some((cell, dest))
+    );
+    assert_eq!(
+        day_spec::clamp_image_source(day_spec::Rect::new(px.width - 1.0, 0.0, 4.0, 1.0), dest, px),
+        Some((
+            day_spec::Rect::new(px.width - 1.0, 0.0, 1.0, 1.0),
+            day_spec::Rect::new(10.0, 20.0, 10.0, 20.0)
+        ))
+    );
+    assert_eq!(
+        day_spec::clamp_image_source(day_spec::Rect::new(px.width, 0.0, 4.0, 1.0), dest, px),
+        None
+    );
 }
 
 #[test]

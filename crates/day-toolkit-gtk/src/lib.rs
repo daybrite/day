@@ -703,6 +703,9 @@ fn cairo_draw(cr: &gtk4::cairo::Context, nums: &[f64], texts: &[String]) {
     let mut pending: Option<PendingGradient> = None;
     let mut pending_stroke: Option<PendingStroke> = None;
     let mut pending_font: Option<PendingFont> = None;
+    // A decoded kind-23 record (image source): the region, in the bitmap's pixels, the next
+    // image record draws instead of the whole bitmap.
+    let mut pending_source: Option<day_spec::Rect> = None;
     // A decoded kind-20 record (stamp): the positions the next shape record is drawn at, once
     // each. Empty means the ordinary one-shape-one-record case (docs/canvas.md "Stamping").
     let mut stamp_at: Vec<(f64, f64)> = Vec::new();
@@ -727,6 +730,9 @@ fn cairo_draw(cr: &gtk4::cairo::Context, nums: &[f64], texts: &[String]) {
         }
         if k != 19 && k != 7 {
             pending_font = None;
+        }
+        if k != 23 && k != 22 {
+            pending_source = None;
         }
         // Stamp prefix and its coordinate records: collected, never drawn on their own.
         if k == 20 {
@@ -1047,17 +1053,42 @@ fn cairo_draw(cr: &gtk4::cairo::Context, nums: &[f64], texts: &[String]) {
                         .with(|m| m.borrow().get(&(e as u64)).and_then(|b| b.pixbuf.clone()));
                     if let Some(pixbuf) = pixbuf {
                         let (pw, ph) = (f64::from(pixbuf.width()), f64::from(pixbuf.height()));
-                        if pw > 0.0 && ph > 0.0 && c > 0.0 && d > 0.0 {
+                        // A pending region (kind 23, in the pixbuf's pixels) is drawn by
+                        // clipping to the rect and scaling the whole pixbuf so the region lands
+                        // in it: cairo has no sub-rect paint, and the clip is exact. The shared
+                        // clamp decides only whether anything is inside the bitmap at all.
+                        let region = match pending_source.take() {
+                            None => Some((day_spec::Rect::new(0.0, 0.0, pw, ph), false)),
+                            Some(src) => day_spec::clamp_image_source(
+                                src,
+                                day_spec::Rect::new(a, b, c, d),
+                                Size::new(pw, ph),
+                            )
+                            .map(|_| (src, true)),
+                        };
+                        if let Some((src, clip)) = region
+                            && pw > 0.0
+                            && ph > 0.0
+                            && c > 0.0
+                            && d > 0.0
+                        {
                             use gtk4::gdk::prelude::GdkCairoContextExt as _;
                             cr.save().ok();
+                            if clip {
+                                cr.rectangle(a, b, c, d);
+                                cr.clip();
+                            }
                             cr.translate(a, b);
-                            cr.scale(c / pw, d / ph);
-                            cr.set_source_pixbuf(&pixbuf, 0.0, 0.0);
+                            cr.scale(c / src.size.width, d / src.size.height);
+                            cr.set_source_pixbuf(&pixbuf, -src.origin.x, -src.origin.y);
                             let _ = cr.paint_with_alpha(f.clamp(0.0, 1.0));
                             cr.restore().ok();
                         }
                     }
                 }
+                // Image source (23): the region (a,b origin · c,d size, in the bitmap's pixels)
+                // the next image record draws.
+                23 => pending_source = Some(day_spec::Rect::new(a, b, c, d)),
                 _ => {}
             }
             if stamp_at.get(rep).is_some() {

@@ -40,3 +40,6 @@ pnpm-debug.log*
 
 # Optional local Copyedit configuration (the normal build stays independent of it)
 /astro.copyedit.config.mjs
+
+# Verified, generated screenshot renditions from pinned release bundles.
+/public/gallery-media/

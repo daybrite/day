@@ -716,6 +716,12 @@ mod ev {
     pub const HOVER_MOVED: u32 = 18;
     pub const HOVER_LEFT: u32 = 19;
     pub const PAN: u32 = 20;
+    /// a,b = local centroid; c = scale, cumulative since `PINCH_BEGAN` for a two-finger
+    /// touch, the tick's own factor for a trackpad pinch (a ctrl+wheel, which arrives as a
+    /// lone `PINCH_MOVED`; docs/canvas.md "Zoom and pan").
+    pub const PINCH_BEGAN: u32 = 21;
+    pub const PINCH_MOVED: u32 = 22;
+    pub const PINCH_ENDED: u32 = 23;
 }
 
 // ---------------------------------------------------------------------------
@@ -3159,10 +3165,10 @@ impl Toolkit for Dom {
             GestureKind::Tap => 128,
             GestureKind::Drag => 256,
             GestureKind::Hover => 512,
-            // Long-press and pinch are not delivered on this backend yet
-            // (docs/canvas.md "Zoom and pan").
-            GestureKind::LongPress | GestureKind::Pinch => 0,
+            // Long-press is not delivered on this backend yet.
+            GestureKind::LongPress => 0,
             GestureKind::Pan => 2048,
+            GestureKind::Pinch => 4096,
         };
         if mask != 0 {
             unsafe { day_dom_listen(h.0, mask) };
@@ -4985,6 +4991,7 @@ fn encode_ops(ops: &[DrawOp]) -> (Vec<f64>, Vec<u8>) {
                 image,
                 rect,
                 opacity,
+                source: None,
             } => buf.extend([
                 8.0,
                 image.0 as f64,
@@ -4993,6 +5000,27 @@ fn encode_ops(ops: &[DrawOp]) -> (Vec<f64>, Vec<u8>) {
                 rect.size.width,
                 rect.size.height,
                 *opacity,
+            ]),
+            // [9, id, x, y, w, h, opacity, sx, sy, sw, sh]: the same with a source region in
+            // bitmap pixels, the 9-argument `drawImage`. Its own code rather than four more
+            // slots on 8, so a whole-image draw encodes exactly as it always did.
+            DrawOp::Image {
+                image,
+                rect,
+                opacity,
+                source: Some(src),
+            } => buf.extend([
+                9.0,
+                image.0 as f64,
+                rect.origin.x,
+                rect.origin.y,
+                rect.size.width,
+                rect.size.height,
+                *opacity,
+                src.origin.x,
+                src.origin.y,
+                src.size.width,
+                src.size.height,
             ]),
             DrawOp::Concat(m) => buf.extend([5.0, m.a, m.b, m.c, m.d, m.tx, m.ty]),
         }
@@ -5267,6 +5295,15 @@ fn day_dom_event_inner(el: u32, kind: u32, a: f64, b: f64, c: f64, d: f64) {
             phase: day_spec::DragPhase::Changed,
             location: Point::new(a, b),
             delta: Point::new(c, d),
+        },
+        ev::PINCH_BEGAN | ev::PINCH_MOVED | ev::PINCH_ENDED => Event::Pinch {
+            phase: match kind {
+                ev::PINCH_BEGAN => day_spec::DragPhase::Began,
+                ev::PINCH_ENDED => day_spec::DragPhase::Ended,
+                _ => day_spec::DragPhase::Changed,
+            },
+            scale: c,
+            location: Point::new(a, b),
         },
         ev::SCROLL => Event::ScrollChanged(Point::new(a, b)),
         ev::CONTEXT => Event::ContextMenu {

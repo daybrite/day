@@ -30,6 +30,14 @@
 //! resolves that crate from crates.io, and the build silently mixes a local (or forked) framework
 //! with a published one: green, and testing something other than what you think.
 //!
+//! The table governs every cargo project beneath the file, not only the one at its root: cargo
+//! reads `.cargo/config.toml` from the working directory upward, so a piece's or part's `demo/`
+//! (a project of its own, with its own `[workspace]` and lock) builds under the table its
+//! repository's root writes. The command therefore reads, resolves, relocks and checks the root
+//! and each such nested project together ([`projects_under`]). A table computed from the root
+//! crate alone covers what the piece needs and nothing the demo adds, and the demo then builds
+//! half-patched: the piece's crates from the checkout, `day-app` and the rest from crates.io.
+//!
 //! A crates.io table starts with every crate the source carries, because a graph that needs an
 //! unpublished version cannot be resolved to ask which ones it uses; the command then resolves
 //! under the table and drops the entries cargo reported unused. `--check` proves the result, by
@@ -584,10 +592,11 @@ fn wanted_by_source(
     // from crates.io, and a table left from before the project moved to crates.io is stale;
     // claiming either for git would write a second table nothing uses.
     let keyed = git_keys(&root.join(".cargo/config.toml"));
-    let mut named: Vec<String> = manifest_git_deps(root)?
-        .into_iter()
-        .map(|(_, u)| u)
-        .collect();
+    let projects = projects_under(root);
+    let mut named: Vec<String> = Vec::new();
+    for project in &projects {
+        named.extend(manifest_git_deps(project)?.into_iter().map(|(_, u)| u));
+    }
     if let Ok(own) = checkout_crates(root) {
         for dir in own.values() {
             named.extend(
@@ -614,8 +623,10 @@ fn wanted_by_source(
             list.push(name);
         }
     };
-    for (name, url) in manifest_git_deps(root)? {
-        add(name, url);
+    for project in &projects {
+        for (name, url) in manifest_git_deps(project)? {
+            add(name, url);
+        }
     }
     // A coordinated rename may not resolve against Git at all yet. Read the selected local
     // consumers too, so a renamed transitive dependency is patched before the first resolve.
@@ -627,9 +638,11 @@ fn wanted_by_source(
             }
         }
     }
-    for triple in PATCH_TRIPLES {
-        for (name, url) in resolved_git_packages(root, triple, &rerun) {
-            add(name, url);
+    for project in &projects {
+        for triple in PATCH_TRIPLES {
+            for (name, url) in resolved_git_packages(project, triple, &rerun) {
+                add(name, url);
+            }
         }
     }
     for list in wanted.values_mut() {
@@ -771,24 +784,45 @@ fn settle(
     let (table, written) = render(sources, &wanted, header, &BTreeSet::new())?;
     std::fs::write(config, table).map_err(|e| format!("{}: {e}", config.display()))?;
     let flag = one_run.then_some(config);
+    let projects = projects_under(root);
     // A lock that holds a patched crate at another version keeps it over the table.
     let urls = git_keys(config);
-    relock(root, &urls, &registry_entries(config), flag)?;
-    if let Err(e) = resolve(root, flag) {
-        status(
-            "Warning",
-            &format!(
-                "could not resolve under the table, so it keeps every crate the sources carry \
-                 (cargo warns about each one it does not use): {e}"
-            ),
-        );
-        return Ok(written);
+    let registry = registry_entries(config);
+    for project in &projects {
+        relock(project, &urls, &registry, flag)?;
+    }
+    for project in &projects {
+        if let Err(e) = resolve(project, flag) {
+            status(
+                "Warning",
+                &format!(
+                    "could not resolve {} under the table, so it keeps every crate the sources \
+                     carry (cargo warns about each one it does not use): {e}",
+                    project.display()
+                ),
+            );
+            return Ok(written);
+        }
     }
     // `cargo metadata --all-features` turns on the project's own features only. A piece's
     // backend feature that `day build` adds (`<piece>/<toolkit>`) can bring in an optional crate
     // that resolution never saw, so a crate the manifests name stays in the table.
-    let named = registry_deps(root);
-    let unused: BTreeSet<String> = unused_entries(root)
+    let mut named = BTreeSet::new();
+    for project in &projects {
+        named.extend(registry_deps(project));
+    }
+    // An entry the root's resolve passed over may be exactly what its demo takes, so only what
+    // every project left unused goes.
+    let mut unused: Option<BTreeSet<String>> = None;
+    for project in &projects {
+        let here = unused_entries(project);
+        unused = Some(match unused {
+            None => here,
+            Some(so_far) => &so_far & &here,
+        });
+    }
+    let unused: BTreeSet<String> = unused
+        .unwrap_or_default()
         .into_iter()
         .filter(|n| !named.contains(n))
         .collect();
@@ -797,8 +831,10 @@ fn settle(
     }
     let (table, written) = render(sources, &wanted, header, &unused)?;
     std::fs::write(config, table).map_err(|e| format!("{}: {e}", config.display()))?;
-    // Once more, so the lock forgets the `[[patch.unused]]` records of the entries just dropped.
-    resolve(root, flag)?;
+    // Once more, so each lock forgets the `[[patch.unused]]` records of the entries just dropped.
+    for project in &projects {
+        resolve(project, flag)?;
+    }
     Ok(written)
 }
 
@@ -876,7 +912,11 @@ fn write_patch(root: &Path, sources: &[Source], header: &str) -> Result<usize, S
     let local = sources
         .iter()
         .any(|s| matches!(s.target, Target::Checkout(_)));
-    if local && root.join("Cargo.lock").exists() {
+    if local
+        && projects_under(root)
+            .iter()
+            .any(|p| p.join("Cargo.lock").exists())
+    {
         status(
             "Note",
             "Cargo.lock now points at the checkout — do not commit it while patched \
@@ -1106,9 +1146,12 @@ pub fn check(root: &Path) -> Result<CheckReport, String> {
     let org = canon(DAY_ORG);
     let mut report = CheckReport::default();
     let mut asked = false;
-    for triple in PATCH_TRIPLES {
+    for (project, triple) in projects_under(root)
+        .iter()
+        .flat_map(|p| PATCH_TRIPLES.iter().map(move |t| (p, *t)))
+    {
         let out = Command::new("cargo")
-            .current_dir(root)
+            .current_dir(project)
             .args([
                 "metadata",
                 "--format-version",
@@ -1359,6 +1402,33 @@ fn registry_deps(root: &Path) -> BTreeSet<String> {
     out
 }
 
+/// The cargo projects a `.cargo/config.toml` at `root` governs: `root` itself, then each project
+/// of its own directly beneath it — a piece's or part's `demo/` or `gallery/`, a package with its
+/// own `[workspace]` table rather than a member of the root's. Cargo reads the config file from
+/// the working directory upward, so a build in the nested project runs under the root's table,
+/// while nothing in the root's manifests reaches the nested project's graph (the demo depends on
+/// the piece by path, not the other way round). Read, relocked, resolved and checked together.
+fn projects_under(root: &Path) -> Vec<PathBuf> {
+    let mut out = vec![root.to_path_buf()];
+    let Ok(entries) = std::fs::read_dir(root) else {
+        return out;
+    };
+    let mut nested: Vec<PathBuf> = entries
+        .flatten()
+        .map(|e| e.path())
+        .filter(|dir| {
+            dir.file_name()
+                .and_then(|n| n.to_str())
+                .is_some_and(|n| !n.starts_with('.'))
+                && patch_doc(&dir.join("Cargo.toml"))
+                    .is_some_and(|doc| doc.get("workspace").is_some())
+        })
+        .collect();
+    nested.sort();
+    out.extend(nested);
+    out
+}
+
 /// The packages whose manifests say what a checkout takes from crates.io: the root package, its
 /// workspace, every package [`checkout_crates`] counts as the checkout's, and every package any
 /// of those reaches through a `path` dependency. A piece's demo reaches the piece itself that way
@@ -1436,7 +1506,7 @@ fn upstream_sources(
     let org = canon(DAY_ORG);
     let mut covered: BTreeSet<String> = BTreeSet::new();
     let mut followed: BTreeSet<String> = given.iter().map(|s| canon(&s.url)).collect();
-    let mut queue: Vec<PathBuf> = vec![root.to_path_buf()];
+    let mut queue: Vec<PathBuf> = projects_under(root);
     for source in given {
         covered.extend(checkout_crates(source.dir())?.into_keys());
         queue.push(source.dir().to_path_buf());
@@ -3007,6 +3077,109 @@ day-build = "0.6"
             deps,
             ["day-app", "day-core", "day-piece-webview"],
             "{deps:?}"
+        );
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    /// A part's demo is a project of its own beneath the part, built under the table the part's
+    /// root writes: the root and the demo are governed together, while a workspace member, a
+    /// hidden directory and a directory without a manifest are not projects of their own.
+    #[test]
+    fn projects_under_a_root_include_its_nested_demo() {
+        let tmp = std::env::temp_dir().join(format!("day-patch-nested-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        for dir in ["demo", "crates/member", ".hidden", "target"] {
+            std::fs::create_dir_all(tmp.join(dir)).unwrap();
+        }
+        std::fs::write(
+            tmp.join("Cargo.toml"),
+            "[package]\nname = \"day-part-zeroconf\"\nversion = \"0.1.0\"\n\n\
+             [workspace]\nmembers = [\"crates/member\"]\n",
+        )
+        .unwrap();
+        std::fs::write(
+            tmp.join("demo/Cargo.toml"),
+            "[package]\nname = \"demo\"\nversion = \"0.1.0\"\n\n[dependencies]\n\
+             day-part-zeroconf = { path = \"..\" }\n\n[workspace]\n",
+        )
+        .unwrap();
+        std::fs::write(
+            tmp.join("crates/member/Cargo.toml"),
+            "[package]\nname = \"member\"\nversion = \"0.1.0\"\n",
+        )
+        .unwrap();
+        std::fs::write(
+            tmp.join(".hidden/Cargo.toml"),
+            "[package]\nname = \"hidden\"\nversion = \"0.1.0\"\n\n[workspace]\n",
+        )
+        .unwrap();
+        assert_eq!(projects_under(&tmp), [tmp.clone(), tmp.join("demo")]);
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    /// `--main` run at a part's root follows the crates its demo asks crates.io for too, since
+    /// the root's table governs the demo's build: a part that itself takes only `day-build`
+    /// still brings day (for the demo's `day-app`) and the piece the demo shows.
+    #[test]
+    fn main_follows_the_nested_demo_s_crates() {
+        let tmp =
+            std::env::temp_dir().join(format!("day-patch-nested-main-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        let root = tmp.join("part");
+        std::fs::create_dir_all(root.join("demo")).unwrap();
+        std::fs::write(
+            root.join("Cargo.toml"),
+            "[package]\nname = \"day-part-zeroconf\"\nversion = \"0.1.0\"\n\n\
+             [build-dependencies]\nday-build = \"0.*\"\n\n[workspace]\n",
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("demo/Cargo.toml"),
+            "[package]\nname = \"demo\"\nversion = \"0.1.0\"\n\n[dependencies]\n\
+             day = { package = \"day-app\", version = \"0.*\" }\n\
+             day-piece-settings = \"0.*\"\nday-part-zeroconf = { path = \"..\" }\n\n\
+             [workspace]\n",
+        )
+        .unwrap();
+        let day = day_checkout(&tmp.join("day"), &["day-app", "day-build"]);
+        let settings = piece_checkout(
+            &tmp.join("settings"),
+            "day-piece-settings",
+            "https://github.com/daybrite/day-piece-settings",
+        );
+        let mut asked = Vec::new();
+        let mut lookup = |name: &str| -> Result<Option<String>, String> {
+            asked.push(name.to_string());
+            Ok(match name {
+                "day-app" | "day-build" => Some("https://github.com/daybrite/day".into()),
+                "day-piece-settings" => {
+                    Some("https://github.com/daybrite/day-piece-settings".into())
+                }
+                _ => None,
+            })
+        };
+        let mut fetch = |url: &str| -> Result<(PathBuf, String), String> {
+            let dir = match url {
+                "https://github.com/daybrite/day" => day.clone(),
+                "https://github.com/daybrite/day-piece-settings" => settings.clone(),
+                other => return Err(format!("unexpected fetch of {other}")),
+            };
+            Ok((dir, "0123456789abcdef0123456789abcdef01234567".into()))
+        };
+        let found = upstream_sources(&root, &[], &mut lookup, &mut fetch).expect("sources");
+        let mut urls: Vec<&str> = found.iter().map(|s| s.url.as_str()).collect();
+        urls.sort();
+        assert_eq!(
+            urls,
+            [
+                "https://github.com/daybrite/day",
+                "https://github.com/daybrite/day-piece-settings",
+            ],
+            "the demo's piece is followed from the part's root"
+        );
+        assert!(
+            asked.iter().any(|n| n == "day-piece-settings"),
+            "the demo's manifest was read: {asked:?}"
         );
         let _ = std::fs::remove_dir_all(&tmp);
     }

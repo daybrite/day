@@ -1,0 +1,91 @@
+---
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: CC-BY-SA-4.0
+// Publication UI only. The temporary approval/notes/export interface stays in Day-Travel.
+import manifest from '../data/gallery-manifest.json';
+import PlatformIcon from './PlatformIcon.astro';
+import DeviceShell from './DeviceShell.astro';
+import { url } from '../lib/site';
+import { travelCaptures, travelTargets, travelLocales } from '../lib/travel-explorer.mjs';
+const app = manifest.apps.find(a => a.id === 'Day-Travel');
+const captures = travelCaptures(app).map(c => ({ ...c, images: c.images.map(i => ({ ...i, src: url(i.src) })) }));
+const initial = captures.find(c => c.target === 'macos-appkit' && c.locale === 'en' && c.theme === 'light') ?? captures[0];
+const shellTargets = travelTargets.filter(([target]) => ['linux-gtk', 'linux-qt', 'web-dom'].includes(target));
+const payload = JSON.stringify(captures).replace(/</g, '\\u003c');
+---
+{initial && <div class="locale-explorer" data-locale-explorer>
+  <div class="explorer-grid">
+    <div class="explorer-stage" id="locale-explorer-stage" aria-label="Day Travel screenshots" aria-busy="false">
+      <div class="explorer-slide" data-theme={initial.theme} data-capture={`${initial.target}/${initial.theme}/${initial.locale}`}>
+        <p class="explorer-caption">{initial.platform} · {initial.language} · {initial.appearance}</p>
+        <div class:list={['explorer-images', { 'is-mobile': initial.mobile }]}>
+          {initial.images.map(shot => <figure style={`--shot-ratio:${shot.width / shot.height}`}>
+            <a href={shot.src} target="_blank" rel="noopener"><img src={shot.src} width={shot.width} height={shot.height} loading="lazy" decoding="async" alt={`Day Travel · ${initial.platform} · ${initial.language} · ${initial.appearance} · ${shot.label}`} /></a>
+          </figure>)}
+        </div>
+      </div>
+    </div>
+    <div class="explorer-controls explorer-platforms" role="group" aria-label="Platform and toolkit" hidden>
+      {travelTargets.filter(([target]) => captures.some(c => c.target === target)).map(([value, label]) => <button type="button" class="explorer-choice" data-axis="target" data-value={value} data-pf={value} aria-label={label} aria-pressed={initial.target === value} aria-controls="locale-explorer-stage">
+        <span class="explorer-dash" aria-hidden="true"></span><PlatformIcon id={value} /><span class="explorer-tip" aria-hidden="true">{label}</span>
+      </button>)}
+    </div>
+    <div class="explorer-controls explorer-locales" role="group" aria-label="Screenshot language" hidden>
+      {travelLocales.filter(([locale]) => captures.some(c => c.locale === locale)).map(([value, label]) => <button type="button" class="explorer-choice" data-axis="locale" data-value={value} aria-label={label} aria-pressed={initial.locale === value} aria-controls="locale-explorer-stage">
+        <span class="explorer-dash" aria-hidden="true"></span><span lang={value} dir="auto">{label}</span>
+      </button>)}
+    </div>
+  </div>
+  <p class="visually-hidden" aria-live="polite" aria-atomic="true"><strong data-platform>{initial.platform}</strong> · <span data-detail>{initial.language} · {initial.appearance}</span></p>
+  <p class="explorer-error" role="status" hidden>That screenshot could not be loaded. Please try another selection.</p>
+  {/* Clone the shared Astro shell markup for client-side selections; keep its chrome in one place.
+      The release's AppKit and WinUI images already contain their native window decorations. */}
+  {shellTargets.map(([target]) => <template data-explorer-shell={target}>
+    <DeviceShell platform={target} title="Day Travel" w={1} h={1}><span data-screen-slot /></DeviceShell>
+  </template>)}
+  <script type="application/json" data-captures set:html={payload} />
+</div>}
+<script>
+  import { initializeLocaleExplorer } from '../lib/locale-explorer-client.mjs';
+  document.querySelectorAll('[data-locale-explorer]').forEach(initializeLocaleExplorer);
+</script>
+<style is:global>
+  /* Scoped with a root class so dynamically created slides share these styles. */
+  .locale-explorer { width: 100%; max-width: 1080px; margin: 0; }
+  .locale-explorer [hidden] { display: none !important; }
+  .explorer-grid { display: grid; grid-template-columns: minmax(0,1fr) 48px; grid-template-rows: auto 64px; gap: 4px; }
+  .explorer-stage { grid-area: 1 / 1; height: clamp(380px, 52vh, 560px); position: relative; overflow: hidden; isolation: isolate; border: 1px solid var(--border); border-radius: 18px; background: var(--surface); }
+  .explorer-stage[aria-busy=true] { cursor: progress; }
+  .explorer-slide { position: absolute; inset: 0; padding: 18px; display: flex; flex-direction: column; gap: 12px; background: radial-gradient(ellipse at 15% 0%, #176c6510, transparent 70%), #f7faf8; }
+  .explorer-slide[data-theme=dark] { background: radial-gradient(ellipse at 15% 0%, #244d49, transparent 75%), #172629; }
+  .explorer-images { container-type: size; display: flex; justify-content: center; align-items: center; gap: 8px; flex: 1; min-height: 0; }
+  .explorer-images figure { flex: 1; min-width: 0; margin: 0; height: 100%; display: flex; flex-direction: column; gap: 8px; }
+  .explorer-images.is-mobile figure { flex: 0 1 auto; width: min(calc((100cqw - 8px)/2), calc(100cqh * var(--shot-ratio))); }
+  .explorer-images a { display: flex; align-items: center; justify-content: center; min-height: 0; flex: 1; --shell-h: 100cqh; }
+  .explorer-images img { display: block; max-width: 100%; max-height: 100%; width: auto; height: auto; object-fit: contain; }
+  .explorer-images a > img { border-radius: 8px; filter: drop-shadow(0 5px 9px #10282818); }
+  .explorer-controls { display: flex; align-items: center; justify-content: center; }
+  .explorer-platforms { grid-area: 1 / 2; flex-direction: column; align-self: center; }
+  .explorer-locales { grid-area: 2 / 1; width: min(100%, 560px); justify-self: center; justify-content: flex-start; overflow-x: auto; scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
+  .explorer-choice { position: relative; display: flex; align-items: center; justify-content: center; gap: 8px; width: 48px; min-width: 0; height: 58px; padding: 6px; border: 0; border-radius: 6px; background: transparent; color: var(--muted); font: inherit; cursor: pointer; touch-action: manipulation; }
+  .explorer-choice:focus-visible { outline: 2px solid var(--brand); outline-offset: -2px; }
+  .explorer-choice:disabled { opacity: .3; cursor: default; }
+  .explorer-choice svg { display: block; width: 21px; height: 21px; flex: none; }
+  .explorer-dash { display: block; height: 3px; width: 100%; background: var(--border); border-radius: 4px; transition: background 160ms; flex: none; }
+  .explorer-locales .explorer-choice { flex-direction: column; }
+  .explorer-locales .explorer-choice { flex: 1 0 64px; font-size: 12px; white-space: nowrap; }
+  .explorer-platforms .explorer-choice { height: 44px; justify-content: flex-start; gap: 9px; }
+  .explorer-platforms svg { color: var(--pf); }
+  .explorer-platforms .explorer-dash { height: 25px; width: 3px; }
+  .explorer-choice[aria-pressed=true] { color: var(--brand); }
+  .explorer-choice[aria-pressed=true] .explorer-dash { background: var(--pf, var(--brand)); }
+  .explorer-tip { position: absolute; z-index: 2; opacity: 0; pointer-events: none; white-space: nowrap; background: var(--text); color: var(--bg); padding: 5px 9px; border-radius: 6px; font-size: 12px; }
+  .explorer-platforms .explorer-tip { right: 100%; }
+  .explorer-choice:focus-visible .explorer-tip { opacity: 1; }
+  @media(hover:hover) { .explorer-choice:not(:disabled):hover .explorer-tip { opacity: 1; } .explorer-choice:not(:disabled):hover .explorer-dash { background: var(--pf, var(--brand)); } }
+  .explorer-caption { flex: none; margin: 0; color: #526d71; font-size: 11px; line-height: 18px; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .explorer-slide[data-theme=dark] .explorer-caption { color: #b1c3c0; }
+  .explorer-error { color: var(--muted); text-align: center; }
+  @media(max-width:600px) { .explorer-grid { grid-template-columns: minmax(0,1fr) 44px; gap: 2px; } .explorer-stage { height: 430px; border-radius: 12px; } .explorer-slide { padding: 8px; } .explorer-locales { grid-column: 1 / -1; } .explorer-platforms .explorer-choice { width: 44px; } .explorer-tip { font-size: 11px; } }
+  @media(prefers-reduced-motion:reduce) { .explorer-dash { transition: none; } }
+</style>

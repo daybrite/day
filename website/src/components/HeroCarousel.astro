@@ -1,7 +1,7 @@
 ---
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: CC-BY-SA-4.0
-// Auto-advancing carousel of real Day Showcase screenshots — one native rendering per platform,
+// Auto-advancing carousel of reviewed gallery screenshots from Day apps,
 // cross-fading, with the platform name + toolkit animating in below each image. The pool is built
 // (and every image verified non-blank) at build time by scripts/hero-shots.mjs. Each slide carries
 // its light capture plus, where CI produced one, the matching dark capture; the site theme picks
@@ -15,6 +15,10 @@ const shots: {
   src: string;
   srcDark?: string;
   shot?: string;
+  app: string;
+  label: string;
+  gallery: string;
+  framed: boolean;
   width?: number;
   height?: number;
   os: string;
@@ -31,14 +35,19 @@ const accents = [...new Set(shots.map((s) => s.accent))];
   <figure class="hero-carousel" data-hero-carousel aria-roledescription="carousel" aria-label="Day apps running natively on each platform">
     {/* The frame links to the gallery, anchored at the row for the screen currently showing —
         the controller retargets the href on every image change. */}
-    <a class="hc-link" data-hc-link href={url('gallery/Day-Showcase')} aria-label="Compare this screen across platforms in the gallery">
+    <a class="hc-link" data-hc-link href={url(shots[0].gallery)} aria-label={`See ${shots[0].label} in the gallery`}>
       <div class="hc-stage">
         <div class="hc-glow" aria-hidden="true" data-hc-glow></div>
         {shots.map((s, i) => (
           <div class:list={['hc-slide', { 'is-active': i === 0 }]}>
-            {/* Each shot wears its platform's shell — the same window chrome and phone bezels the
-                gallery draws (src/lib/shells.ts explains why a capture needs one). */}
-            <DeviceShell platform={s.accent} w={s.width} h={s.height}>
+            {/* Use the gallery's device shell unless the capture already includes window chrome. */}
+            {s.framed ? <div class="hc-capture">
+              <img class="hc-img" src={url(s.src)} alt={s.alt} width={s.width} height={s.height}
+                decoding="async" loading={i < 3 ? 'eager' : 'lazy'}
+                data-src-light={url(s.src)} data-src-dark={s.srcDark ? url(s.srcDark) : undefined}
+                data-shot={s.shot} data-gallery={url(s.gallery)} data-app={s.label}
+                data-os={s.os} data-toolkit={s.toolkit} data-accent={s.accent} />
+            </div> : <DeviceShell platform={s.accent} title={s.label} w={s.width} h={s.height}>
               <img
                 class="hc-img"
                 src={url(s.src)}
@@ -50,11 +59,13 @@ const accents = [...new Set(shots.map((s) => s.accent))];
                 data-src-light={url(s.src)}
                 data-src-dark={s.srcDark ? url(s.srcDark) : undefined}
                 data-shot={s.shot}
+                data-gallery={url(s.gallery)}
+                data-app={s.label}
                 data-os={s.os}
                 data-toolkit={s.toolkit}
                 data-accent={s.accent}
               />
-            </DeviceShell>
+            </DeviceShell>}
           </div>
         ))}
       </div>
@@ -64,14 +75,15 @@ const accents = [...new Set(shots.map((s) => s.accent))];
         Their hrefs and labels are per-position, so the controller fills them in once the
         shuffled order for this visit is known. */}
     <div class="hc-track" data-hc-track>
-      {shots.map(() => (
-        <a class="hc-seg" data-hc-seg href={url('gallery/Day-Showcase')}><span class="hc-bar"><i></i></span></a>
+      {shots.map(s => (
+        <a class="hc-seg" data-hc-seg href={url(s.gallery)} aria-label={`Show ${s.label} on ${s.os}`}><span class="hc-bar"><i></i></span></a>
       ))}
     </div>
     <div class="hc-icons" data-hc-icons aria-hidden="true">
       {accents.map((a) => <span data-icon-for={a}><PlatformIcon id={a} /></span>)}
     </div>
     <figcaption class="hc-caption" data-hc-caption>
+      <span class="hc-app" data-hc-app>{shots[0].label}</span>
       <span class="hc-plat">
         <span class="hc-icon" data-hc-icon aria-hidden="true"></span>
         <b class="hc-os" data-hc-os></b>
@@ -119,6 +131,9 @@ const accents = [...new Set(shots.map((s) => s.accent))];
     transform: scale(1.015);
     transition: opacity 0.7s ease, transform 0.7s ease;
   }
+  .hc-capture { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; }
+  .hc-capture img { max-width: 100%; max-height: 100%; width: auto; height: auto; object-fit: contain; border-radius: 8px; box-shadow: 0 26px 60px -24px rgba(0, 0, 0, .45); }
+  .hc-app { color: var(--muted); font-size: .85rem; }
   .hc-slide.is-active { opacity: 1; transform: scale(1); }
   /* Window shells size themselves from --shell-h + the capture's aspect (see .hc-stage), so
      they need no height cap here. Bezels still do: they have no data-fit path. */
@@ -232,6 +247,7 @@ const accents = [...new Set(shots.map((s) => s.accent))];
     const osEl = root.querySelector<HTMLElement>('[data-hc-os]');
     const iconEl = root.querySelector<HTMLElement>('[data-hc-icon]');
     const tkEl = root.querySelector<HTMLElement>('[data-hc-toolkit]');
+    const appEl = root.querySelector<HTMLElement>('[data-hc-app]');
     if (imgs.length === 0) return;
 
     const INTERVAL = 3400;
@@ -302,13 +318,12 @@ const accents = [...new Set(shots.map((s) => s.accent))];
         seg.classList.toggle('is-past', i < p);
       });
 
-      // Retarget the frame link at the gallery row for the screen now showing (the row anchors
-      // are the shot ids); without a shot id the link falls back to the gallery top.
-      if (link) {
-        const base = (link.getAttribute('href') ?? '').split('#')[0];
-        const shot = img.dataset.shot;
-        link.setAttribute('href', shot ? `${base}#${shot}` : base);
+      // Each screenshot links to its app's exact gallery row.
+      if (link && img.dataset.gallery) {
+        link.href = img.dataset.gallery;
+        link.setAttribute('aria-label', `See ${img.dataset.app} in the gallery`);
       }
+      if (appEl) appEl.textContent = img.dataset.app ?? '';
 
       if (iconEl) {
         const mark = root!.querySelector(`[data-icon-for="${img.dataset.accent}"]`);
@@ -346,14 +361,10 @@ const accents = [...new Set(shots.map((s) => s.accent))];
     // position i, so hovering it jumps there (the root's hover already halts the timer, so it
     // simply stays), and following it opens that slide's gallery row rather than the current
     // one. Advancing later resumes from wherever the pointer left off.
-    const galleryBase = (link?.getAttribute('href') ?? '').split('#')[0];
     segs.forEach((seg, i) => {
       const img = imgs[order[i]];
-      const shot = img.dataset.shot;
-      if (seg instanceof HTMLAnchorElement) {
-        seg.href = shot ? `${galleryBase}#${shot}` : galleryBase;
-      }
-      const label = `${img.dataset.os ?? ''} ${img.dataset.toolkit ?? ''}`.trim();
+      if (seg instanceof HTMLAnchorElement && img.dataset.gallery) seg.href = img.dataset.gallery;
+      const label = `${img.dataset.app ?? ''} · ${img.dataset.os ?? ''} ${img.dataset.toolkit ?? ''}`.trim();
       seg.setAttribute('aria-label', label ? `Show the ${label} screenshot` : 'Show this screenshot');
       const jump = () => {
         if (pos === i) return;

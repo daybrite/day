@@ -63,6 +63,19 @@ app decodes once and draws a number. [`Draw::image_with_opacity`](https://docs.r
 Images follow the canvas's top-left origin and current affine transform, including rotation and
 zoom. AppKit respects its flipped canvas context, keeping image rows upright.
 
+[`Draw::image_region`](https://docs.rs/day-pieces/latest/day_pieces/struct.Draw.html#method.image_region) draws one region of the bitmap, a sprite sheet's cell, scaled into the rect the
+same way:
+
+```rust
+let sheet = day::decode_image(sprites).await?;        // one decode for every icon
+canvas(move |d, _| d.image_region(&sheet, Rect::new(64.0, 0.0, 32.0, 32.0), Rect::new(10.0, 10.0, 16.0, 16.0)))
+```
+
+The region is in the bitmap's own **pixels**, not points: a sheet lays its cells out in pixels, and
+[`info().scale`](https://docs.rs/day-core/latest/day_core/image/struct.Bitmap.html#method.info) says how many of them make a point. A region reaching outside the bitmap is
+clamped, never an error: the part inside draws where the mapping into the rect puts it, and an
+empty intersection draws nothing. [`Draw::image_region_with_opacity`](https://docs.rs/day-pieces/latest/day_pieces/struct.Draw.html#method.image_region_with_opacity) adds the alpha multiplier.
+
 A released bitmap draws nothing rather than a placeholder: a handle can be dropped between the
 record and the replay, and a frame that flashes a grey box is worse than one that omits the image.
 

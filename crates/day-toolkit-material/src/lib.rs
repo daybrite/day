@@ -708,6 +708,7 @@ mod imp {
         static fn enableHover(v: android.view.View, id: jlong),
         static fn enableKeys(v: android.view.View, id: jlong),
         static fn enablePan(v: android.view.View, id: jlong),
+        static fn enablePinch(v: android.view.View, id: jlong),
         static fn focusNavSearch(nav_host: android.view.View),
         static fn focusView(v: android.view.View, focused: jboolean),
         static fn focusWindow(node: jlong),
@@ -1861,8 +1862,10 @@ mod imp {
                     result: day_spec::present::PresentResult::decode(3, 0, text),
                 }
             }
-            // Gestures (docs/shapes.md): num = phase (0=tap 1=began 2=changed 3=ended),
-            // string = "x,y,tx,ty" in px. Convert to dp like FrameChanged does.
+            // Gestures (docs/shapes.md): num = phase (0=tap 1=began 2=changed 3=ended,
+            // 4/5/6 = pinch began/changed/ended, 8 = pan), string = "x,y,tx,ty" in px (for a
+            // pinch, "fx,fy,scale,0": the focus in px and the cumulative scale). Convert to dp
+            // like FrameChanged does.
             K_GESTURE => {
                 let text: String = string_of(env, jstr).ok().unwrap_or_default();
                 let p: Vec<f64> = text.split(',').filter_map(|s| s.parse().ok()).collect();
@@ -1874,6 +1877,17 @@ mod imp {
                 let tr = Point::new(p[2] / d, p[3] / d);
                 match num as i32 {
                     0 => Event::Tap(at),
+                    // Pinch (docs/canvas.md "Zoom and pan"): the ScaleGestureDetector's focus
+                    // and its span relative to the span at Began, a cumulative scale.
+                    4..=6 => Event::Pinch {
+                        phase: match num as i32 {
+                            4 => day_spec::DragPhase::Began,
+                            6 => day_spec::DragPhase::Ended,
+                            _ => day_spec::DragPhase::Changed,
+                        },
+                        scale: p[2],
+                        location: at,
+                    },
                     8 => Event::Pan {
                         phase: day_spec::DragPhase::Changed,
                         location: at,
@@ -4438,13 +4452,15 @@ mod imp {
         }
 
         fn enable_gesture(&mut self, h: &AHandle, node: NodeId, kind: day_spec::GestureKind) {
-            // Pinch and pan are not delivered on this backend yet (docs/canvas.md "Zoom and
-            // pan"), and must not fall through to the tap wire below.
+            // Pan is a wheel listener and pinch a ScaleGestureDetector fed from the shared
+            // touch listener (docs/canvas.md "Zoom and pan"); neither falls through to the tap
+            // wire below.
             if kind == day_spec::GestureKind::Pan {
                 bridge(|env| DayBridge::enablePan(env, h.0.as_obj(), node.0 as i64));
                 return;
             }
             if kind == day_spec::GestureKind::Pinch {
+                bridge(|env| DayBridge::enablePinch(env, h.0.as_obj(), node.0 as i64));
                 return;
             }
             // Hover is a separate listener (`setOnHoverListener`), not a touch one: MotionEvent's

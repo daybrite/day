@@ -103,6 +103,10 @@ day_core::tls_group! {
     static SCROLL_STATE: RefCell<HashMap<usize, *mut c_void>> = RefCell::new(HashMap::new());
     /// Handles with a native gesture recognizer wired, keyed by (handle ptr, kind) — idempotent.
     static GESTURES: RefCell<HashSet<(usize, c_int)>> = RefCell::new(HashSet::new());
+    /// Canvas host ptrs: a wheel pan over a canvas takes every tick, over any other container
+    /// only sideways movement, so vertical scrolling keeps its native behavior
+    /// (docs/canvas.md "Zoom and pan").
+    static CANVASES: RefCell<HashSet<usize>> = RefCell::new(HashSet::new());
 
     /// INSPECTOR host ptr → its SplitView state.
     static INSPECTOR_STATE: RefCell<HashMap<usize, XamlInspector>> = RefCell::new(HashMap::new());
@@ -1496,6 +1500,7 @@ impl Toolkit for Xaml {
                         let h =
                             ffi::day_xaml_canvas_new(id.0, on_key_handled, on_text_handled, on_key);
                         ffi::day_xaml_enable_focus(h, id.0, on_focus);
+                        CANVASES.with(|c| c.borrow_mut().insert(h as usize));
                         WinHandle(h)
                     }
                     #[cfg(not(feature = "winui"))]
@@ -2378,6 +2383,7 @@ impl Toolkit for Xaml {
             unsafe { ffi::day_xaml_delete(content) };
         }
         GESTURES.with(|g| g.borrow_mut().retain(|(ptr, _)| *ptr != key));
+        CANVASES.with(|c| c.borrow_mut().remove(&key));
         // A cover torn down while presented (no Dismiss patch first) must leave the
         // presented set — `window_resized` writes through every entry's raw pointer, and a
         // stale one is a use-after-free once `day_xaml_delete` runs below.
@@ -2831,8 +2837,16 @@ impl Toolkit for Xaml {
             day_spec::GestureKind::LongPress => 1,
             day_spec::GestureKind::Drag => 2,
             day_spec::GestureKind::Hover => 3,
-            // Not delivered on this backend yet (docs/canvas.md "Zoom and pan").
-            day_spec::GestureKind::Pinch | day_spec::GestureKind::Pan => return,
+            // A scale manipulation plus ctrl+wheel, and wheel ticks: every tick over a canvas,
+            // sideways ones over any other container (docs/canvas.md "Zoom and pan").
+            day_spec::GestureKind::Pinch => 4,
+            day_spec::GestureKind::Pan => {
+                if CANVASES.with(|c| c.borrow().contains(&(h.0 as usize))) {
+                    5
+                } else {
+                    6
+                }
+            }
         };
         // Idempotent per (handle, kind) — day-core may re-enable on rebuild.
         if !GESTURES.with(|g| g.borrow_mut().insert((h.0 as usize, k))) {
@@ -4020,8 +4034,11 @@ extern "C" fn present_cb(req: u64, tag: c_int, index: i64, text: *const c_char) 
 }
 
 // A native pointer recognizer fired (docs/shapes.md). Phase codes match the shim's
-// day_xaml_enable_gesture: 0 Tap, 1/2/3 Drag Began/Changed/Ended, 4 LongPress. `x,y` are the
-// node-local location; `tx,ty` the cumulative drag translation.
+// day_xaml_enable_gesture: 0 Tap, 1/2/3 Drag Began/Changed/Ended, 4 LongPress, 5/6/7 Pinch
+// Began/Changed/Ended, 8 Pan, 10/11/12 Hover. `x,y` are the node-local location; `tx,ty` the
+// cumulative drag translation, or for a pinch `tx` the scale (cumulative since Began for a
+// manipulation, the tick's own factor for a lone ctrl+wheel Changed), for a pan the tick's
+// delta (docs/canvas.md "Zoom and pan").
 extern "C" fn on_gesture(
     id: u64,
     phase: c_int,
@@ -4036,6 +4053,20 @@ extern "C" fn on_gesture(
         let ev = match phase {
             0 => Event::Tap(at),
             4 => Event::LongPress(at),
+            5..=7 => Event::Pinch {
+                phase: match phase {
+                    5 => DragPhase::Began,
+                    7 => DragPhase::Ended,
+                    _ => DragPhase::Changed,
+                },
+                scale: tx,
+                location: at,
+            },
+            8 => Event::Pan {
+                phase: DragPhase::Changed,
+                delta: Point::new(tx, ty),
+                location: at,
+            },
             10..=12 => Event::Hover {
                 phase: match phase {
                     10 => DragPhase::Began,

@@ -52,6 +52,7 @@ and [localization setup](/docs/how-to/localization).
 | [`clip(shape)`](https://docs.rs/day-pieces/latest/day_pieces/struct.Draw.html#method.clip) / [`clipped(shape, f)`](https://docs.rs/day-pieces/latest/day_pieces/struct.Draw.html#method.clipped) | Confine what follows to a shape |
 | [`text(text, at, style)`](https://docs.rs/day-pieces/latest/day_pieces/struct.Draw.html#method.text) | One line of text at a point, in a size, color and [font](fonts.md) |
 | [`image(&bitmap, rect)`](https://docs.rs/day-pieces/latest/day_pieces/fn.image.html) / [`image_with_opacity(…)`](https://docs.rs/day-pieces/latest/day_pieces/struct.Draw.html#method.image_with_opacity) | A decoded [image](images.md) scaled into a rect — the handle, never bytes |
+| [`image_region(&bitmap, source, rect)`](https://docs.rs/day-pieces/latest/day_pieces/struct.Draw.html#method.image_region) / [`image_region_with_opacity(…)`](https://docs.rs/day-pieces/latest/day_pieces/struct.Draw.html#method.image_region_with_opacity) | One region of a decoded image, in its pixels, scaled into a rect — a sprite sheet's cell |
 | [`save`](https://docs.rs/day-pieces/latest/day_pieces/struct.Draw.html#method.save) / [`restore`](https://docs.rs/day-pieces/latest/day_pieces/struct.Draw.html#method.restore) / [`concat(affine)`](https://docs.rs/day-pieces/latest/day_pieces/struct.Draw.html#method.concat) | Transform and clip state |
 
 `Shape` covers `Rect`, `RoundedRect`, `Ellipse`, `Arc`, `Line`, `Polygon`, and `Path`.
@@ -344,16 +345,22 @@ the fingers; a toolkit that cannot know it (GTK's scroll controller) reports `Po
 
 Where they come from: trackpad magnify and two-finger scroll on macOS (a plain mouse wheel also
 pans), [`GtkGestureZoom`](https://docs.gtk.org/gtk4/class.GestureZoom.html) and the scroll controller on GTK, native zoom gestures and wheel events
-on Qt, and pinch plus a two-finger pan recognizer on iOS; one-finger drags still go to
-[`.on_drag`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.on_drag), so selection and panning coexist. DOM also delivers wheel pans (Changed phase,
-with negative browser wheel deltas to express content displacement). Android delivers horizontal
-pointer-wheel pans. Pinch remains unavailable on those toolkits.
+on Qt, pinch plus a two-finger pan recognizer on iOS, a `ScaleGestureDetector` on Android, a
+scale manipulation on WinUI, and a two-finger pinch recognizer on ArkUI; one-finger drags still
+go to [`.on_drag`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.on_drag), so selection and panning coexist, and a second finger ends the drag
+rather than doubling it. In a browser, two fingers pinch, and a trackpad pinch arrives as the
+ctrl+wheel the browser reports it as. Each tick is a lone `Changed` whose `scale` is the tick's
+own factor, and the page's own zoom is suppressed. A ctrl+wheel on WinUI and a touchpad pinch
+on ArkUI arrive the same way. Wheel pans are lone `Changed` events too. DOM reports them with
+negative browser wheel deltas, to express content displacement; WinUI reports each wheel tick
+(shift, or a tilt wheel, for sideways); ArkUI reports a two-finger pan and wheel ticks; Android
+reports horizontal pointer-wheel pans.
 
-On AppKit, GTK, Qt and DOM, a non-canvas container with [`.on_pan`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.on_pan) receives horizontal wheel
+On AppKit, GTK, Qt, DOM, WinUI and ArkUI, a non-canvas container with [`.on_pan`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.on_pan) receives horizontal wheel
 movement over its descendants, while vertical scrolling keeps its native behavior. Android
 containers likewise intercept horizontal pointer-wheel input. Accumulate deltas and suppress
-inertial repeats when using a gesture to navigate. Keep visible navigation buttons: WinUI and
-ArkUI do not deliver these container pans, and touch-only devices may have no wheel input.
+inertial repeats when using a gesture to navigate. Keep visible navigation buttons: touch-only
+devices may have no wheel input.
 
 ## Stamping
 

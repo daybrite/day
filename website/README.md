@@ -213,6 +213,12 @@ to its screenshot row in the gallery.
 every dev/build. Gallery indexes come from the apps’ published sites, with saved indexes under
 `.cache/gallery/` available for offline builds. Cached indexes are labeled when used. Gallery
 images remain hosted by their apps; the hero downloads and caches its images under `public/hero/`.
+The landing carousel uses the reviewed app/screen/toolkit selections in `hero.config.mjs`.
+Each slide links to its own gallery row and names its app. Set `framed: true` for captures
+that already contain desktop window chrome. Review the actual images before changing a pick;
+missing selections are logged, with no automatic substitution of another screen. The build
+accepts light or unthemed captures and verified matching dark captures, creates compact WebP
+images, and invalidates the cache when selections or published URLs change.
 Run `node scripts/hero-shots.mjs --refresh` to rebuild the hero pool. A cold build needs access to
 the app sites; a warm checkout can build from its cached indexes and hero images.
 
@@ -258,3 +264,29 @@ The website lane is independent of framework checks. Canonical non-PR runs, incl
 each need explicit authorization; this overhaul's phase approval does not provide it.
 
 Enable Pages with **Build and deployment → Source → GitHub Actions** in the repository settings.
+
+## Day Travel localization explorer
+
+`LocaleExplorer.astro` reads Day Travel from the same generated gallery manifest as
+`/gallery/Day-Travel`. It pairs `top` and `bottom` only when both captures match the
+selected phone target, locale, and appearance. Desktop targets use `overview`.
+Missing combinations are disabled; an image-loading failure retains the last complete
+view. The controls support hover, tap, keyboard navigation, and reduced motion.
+Screenshot appearance follows the site’s theme selector, including its system setting;
+the explorer has no separate theme control. Phone screenshots appear without bezels.
+Missing desktop chrome uses the shared `DeviceShell.astro` component; AppKit and WinUI
+retain their captured title bars.
+
+Day Travel's v0.1.0 project website was not deployed when its release was published.
+Its `screenshotRelease` entry in `gallery.config.mjs` pins the released `screenshots.tar.xz`
+by tag and SHA-256. The website build downloads it once into `.cache/release-gallery`,
+checks the archive and individual image checksums, and generates lossless WebP renditions
+under ignored `public/gallery-media`. The gallery and explorer share those URLs; app
+source and screenshots do not need to be committed to this repository. A cold build
+needs access to GitHub; subsequent builds reuse the verified archive and renditions.
+
+To adopt another release, update the tag, metadata URL, and archive digest together.
+Keep the old release pinned until its replacement has a complete, reviewed capture set.
+Run `node --test scripts/travel-explorer.test.mjs` and
+`python3 -B -m unittest discover -s scripts -p 'test_release_gallery.py'`, then build the site
+and check hover/tap selection, both phone positions, and narrow-screen layout.

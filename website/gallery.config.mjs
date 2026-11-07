@@ -60,6 +60,7 @@ export const preferReleaseScreenshots = false;
  * @property {string[]} [order]  Shot ids first in row order; the index's own order fills in behind.
  * @property {Record<string,string>} [labels]  Row headings for shots whose index metadata has none.
  * @property {string[]} [hide]   Shot ids to leave out.
+ * @property {{tag: string, sha256: string}} [screenshotRelease]  Pinned release bundle, cached and served locally.
  * @property {string[]} [platforms]  Column allow list. Absent = every platform the index carries.
  * @type {App[]}
  */
@@ -111,6 +112,23 @@ export const apps = [
     // gallery needs no hiding and no relabelling here (2026-09).
     hide: [],
     labels: {},
+  },
+  {
+    id: 'Day-Travel',
+    label: 'Day Travel',
+    blurb: 'A travel screen with translated text, local date and number formats, and right-to-left layouts.',
+    repo: 'https://github.com/daybrite/Day-Travel',
+    metadata: 'https://github.com/daybrite/Day-Travel/releases/download/v0.1.0/gallery.json',
+    // The release exists before its project Pages site. Pin the reviewed screenshot
+    // bundle; both the gallery and localization explorer reuse its generated images.
+    screenshotRelease: {
+      tag: 'v0.1.0',
+      sha256: 'a48b8edbfba1ae8932bb1f15f87e81284eec911d4d48f0d299cdc2aade0e2b0b',
+    },
+    platforms: ['ios-uikit', 'android-material', 'harmony-arkui', 'macos-appkit', 'windows-winui', 'linux-gtk', 'linux-qt', 'web-dom'],
+    hero: 'overview',
+    order: ['overview', 'top', 'bottom'],
+    labels: { overview: 'Trip overview', top: 'Trip · top', bottom: 'Trip · bottom' },
   },
   {
     id: 'Day-Rise',

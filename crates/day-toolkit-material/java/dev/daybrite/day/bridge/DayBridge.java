@@ -16,6 +16,7 @@ import android.view.KeyEvent;
 import android.view.Menu;
 import android.view.MenuItem;
 import android.view.MotionEvent;
+import android.view.ScaleGestureDetector;
 import android.view.SubMenu;
 import android.view.View;
 import android.view.ViewGroup;
@@ -1544,6 +1545,50 @@ public final class DayBridge extends DayRuntime {
 
     private static final java.util.WeakHashMap<View, View.OnTouchListener> gestureTouches =
             new java.util.WeakHashMap<>();
+    private static final java.util.WeakHashMap<View, ScaleGestureDetector> pinchDetectors =
+            new java.util.WeakHashMap<>();
+
+    /**
+     * Pinch (docs/canvas.md "Zoom and pan"): a ScaleGestureDetector fed from the shared touch
+     * listener. Phases 4/5/6 are day_spec::Event::Pinch's Began/Changed/Ended; the payload is the
+     * focus point in px and the scale, which is CUMULATIVE since Began (the current span over
+     * the span the gesture started with, not the detector's per-event factor). Quick scale
+     * (double-tap-and-drag) stays off so a double tap remains two taps.
+     */
+    public static void enablePinch(View v, final long id) {
+        // Idempotent, like the WinUI side's gesture set: a detector swapped in mid-gesture
+        // would never have seen the press. Note that the detector only engages once the span
+        // passes ViewConfiguration's minimum scaling span (27 mm), Android's own threshold.
+        if (pinchDetectors.containsKey(v)) return;
+        ScaleGestureDetector d = new ScaleGestureDetector(v.getContext(),
+                new ScaleGestureDetector.SimpleOnScaleGestureListener() {
+            float span0, scale;
+            @Override public boolean onScaleBegin(ScaleGestureDetector sd) {
+                span0 = sd.getCurrentSpan(); scale = 1f;
+                nativeOnEvent(id, K_GESTURE, 4, sd.getFocusX() + "," + sd.getFocusY() + ",1,0");
+                return true;
+            }
+            @Override public boolean onScale(ScaleGestureDetector sd) {
+                if (span0 > 0) scale = sd.getCurrentSpan() / span0;
+                nativeOnEvent(id, K_GESTURE, 5,
+                        sd.getFocusX() + "," + sd.getFocusY() + "," + scale + ",0");
+                return true;
+            }
+            @Override public void onScaleEnd(ScaleGestureDetector sd) {
+                // The end's own span is measured over the finger still down (a single one
+                // spans nothing), so the gesture ends at the scale it last reported.
+                nativeOnEvent(id, K_GESTURE, 6,
+                        sd.getFocusX() + "," + sd.getFocusY() + "," + scale + ",0");
+            }
+        });
+        d.setQuickScaleEnabled(false);
+        d.setStylusScaleEnabled(false);
+        pinchDetectors.put(v, d);
+        // Clickable, so View keeps the touch stream flowing after a press that nothing of ours
+        // consumed (the same reason the drag listener below sets it).
+        v.setClickable(true);
+        updateTouchListener(v);
+    }
 
     private static void setGestureTouchListener(View v, View.OnTouchListener listener) {
         gestureTouches.put(v, listener);
@@ -1552,20 +1597,39 @@ public final class DayBridge extends DayRuntime {
 
     // Observe menu coordinates without consuming touches or replacing a declared gesture.
     private static void updateTouchListener(View v) {
-        if (!contextMenus.containsKey(v) && !gestureTouches.containsKey(v)) {
+        if (!contextMenus.containsKey(v) && !gestureTouches.containsKey(v)
+                && !pinchDetectors.containsKey(v)) {
             v.setOnTouchListener(null);
             return;
         }
+        final boolean[] multi = new boolean[1]; // a second finger landed in this touch stream
         v.setOnTouchListener((view, event) -> {
+            int action = event.getActionMasked();
+            boolean finished = action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL;
             ContextMenuBinding menu = contextMenus.get(view);
             if (menu != null) {
-                boolean finished = event.getActionMasked() == MotionEvent.ACTION_UP
-                        || event.getActionMasked() == MotionEvent.ACTION_CANCEL;
                 menu.x = finished ? 0 : event.getX();
                 menu.y = finished ? 0 : event.getY();
             }
+            if (action == MotionEvent.ACTION_DOWN) multi[0] = false;
+            else if (action == MotionEvent.ACTION_POINTER_DOWN) multi[0] = true;
             View.OnTouchListener gesture = gestureTouches.get(view);
-            return gesture != null && gesture.onTouch(view, event);
+            boolean consumed = gesture != null && gesture.onTouch(view, event);
+            // The detector sees each event after the drag listener, so a second finger ends
+            // the drag before the pinch it starts reports its Began.
+            ScaleGestureDetector pinch = pinchDetectors.get(view);
+            if (pinch != null) pinch.onTouchEvent(event);
+            if (pinch == null || !multi[0]) return consumed;
+            // Two fingers: ours, not View's. Its own onTouchEvent never saw the second finger,
+            // so the release would still count as the click the press armed; cancel that
+            // instead, and a pinch never ends in a tap.
+            if (finished) {
+                MotionEvent cancel = MotionEvent.obtain(event);
+                cancel.setAction(MotionEvent.ACTION_CANCEL);
+                view.onTouchEvent(cancel);
+                cancel.recycle();
+            }
+            return true;
         });
     }
 
@@ -1594,17 +1658,29 @@ public final class DayBridge extends DayRuntime {
         v.setClickable(true);
         setGestureTouchListener(v, new View.OnTouchListener() {
             float sx, sy;
+            boolean pinched; // a second finger ended the drag; the rest of the stream is the pinch's
             public boolean onTouch(View view, MotionEvent ev) {
                 float x = ev.getX(), y = ev.getY();
                 switch (ev.getActionMasked()) {
                     case MotionEvent.ACTION_DOWN:
-                        sx = x; sy = y;
+                        sx = x; sy = y; pinched = false;
                         if (f[1]) nativeOnEvent(id, K_GESTURE, 1, x + "," + y + ",0,0");
                         return true;
+                    case MotionEvent.ACTION_POINTER_DOWN:
+                        // On a pinch target the second finger hands the stream to the
+                        // detector: the one-finger drag ends here, and the two fingers never
+                        // come out as drags (docs/canvas.md "Zoom and pan").
+                        if (!pinchDetectors.containsKey(view)) return false;
+                        if (!pinched) {
+                            pinched = true;
+                            if (f[1]) nativeOnEvent(id, K_GESTURE, 3, x + "," + y + "," + (x - sx) + "," + (y - sy));
+                        }
+                        return true;
                     case MotionEvent.ACTION_MOVE:
-                        if (f[1]) nativeOnEvent(id, K_GESTURE, 2, x + "," + y + "," + (x - sx) + "," + (y - sy));
+                        if (f[1] && !pinched) nativeOnEvent(id, K_GESTURE, 2, x + "," + y + "," + (x - sx) + "," + (y - sy));
                         return true;
                     case MotionEvent.ACTION_UP:
+                        if (pinched) return true;
                         if (f[1]) nativeOnEvent(id, K_GESTURE, 3, x + "," + y + "," + (x - sx) + "," + (y - sy));
                         if (f[0] && Math.abs(x - sx) < 40 && Math.abs(y - sy) < 40) {
                             nativeOnEvent(id, K_GESTURE, 0, x + "," + y + ",0,0");
@@ -1612,7 +1688,7 @@ public final class DayBridge extends DayRuntime {
                         }
                         return true;
                     case MotionEvent.ACTION_CANCEL:
-                        if (f[1]) nativeOnEvent(id, K_GESTURE, 3, x + "," + y + "," + (x - sx) + "," + (y - sy));
+                        if (f[1] && !pinched) nativeOnEvent(id, K_GESTURE, 3, x + "," + y + "," + (x - sx) + "," + (y - sy));
                         return true;
                 }
                 return false;

@@ -9931,20 +9931,56 @@ mod imp {
                     image,
                     rect,
                     opacity,
+                    source,
                 } => {
-                    let img = BITMAPS.with(|m| m.borrow().get(&image.0).map(|b| b.image.clone()));
-                    if let Some(img) = img {
+                    let held = BITMAPS.with(|m| {
+                        m.borrow()
+                            .get(&image.0)
+                            .map(|b| (b.image.clone(), b.info.pixels))
+                    });
+                    if let Some((img, pixels)) = held {
                         let dest = CGRect::new(
                             CGPoint::new(rect.origin.x, rect.origin.y),
                             CGSize::new(rect.size.width, rect.size.height),
                         );
                         // UIImage's plain drawInRect always draws at full opacity, even if
                         // CGContext's alpha was set. Use its explicit compositing overload.
-                        img.drawInRect_blendMode_alpha(
-                            dest,
-                            objc2_core_graphics::CGBlendMode::Normal,
-                            *opacity,
-                        );
+                        match source {
+                            None => img.drawInRect_blendMode_alpha(
+                                dest,
+                                objc2_core_graphics::CGBlendMode::Normal,
+                                *opacity,
+                            ),
+                            // A region (in the bitmap's pixels): clip to the rect and draw the
+                            // whole image scaled so the region lands in it. `UIImage` has no
+                            // sub-rect draw that keeps its orientation, and this is exact for
+                            // any image at any scale, because `drawInRect` scales the whole
+                            // image into the rect whatever its point size. The shared clamp
+                            // decides only whether anything is inside the bitmap at all; the
+                            // clip does the rest.
+                            Some(src) => {
+                                if day_spec::clamp_image_source(*src, *rect, pixels).is_some() {
+                                    let ctx = objc2_ui_kit::UIGraphicsGetCurrentContext();
+                                    CGContext::save_g_state(ctx.as_deref());
+                                    CGContext::clip_to_rect(ctx.as_deref(), dest);
+                                    let kx = rect.size.width / src.size.width;
+                                    let ky = rect.size.height / src.size.height;
+                                    let full = CGRect::new(
+                                        CGPoint::new(
+                                            rect.origin.x - src.origin.x * kx,
+                                            rect.origin.y - src.origin.y * ky,
+                                        ),
+                                        CGSize::new(pixels.width * kx, pixels.height * ky),
+                                    );
+                                    img.drawInRect_blendMode_alpha(
+                                        full,
+                                        objc2_core_graphics::CGBlendMode::Normal,
+                                        *opacity,
+                                    );
+                                    CGContext::restore_g_state(ctx.as_deref());
+                                }
+                            }
+                        }
                     }
                 }
                 DrawOp::Save => {

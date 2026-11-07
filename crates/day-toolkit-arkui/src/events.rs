@@ -159,6 +159,17 @@ pub fn gesture(id: u64, phase: f64, x: f32, y: f32, tx: f32, ty: f32) {
     );
 }
 
+/// A pinch on the gesture wire (phases 4/5/6): the center in px and the scale, with the
+/// precision a smooth zoom needs.
+pub fn pinch(id: u64, phase: f64, x: f32, y: f32, scale: f32) {
+    crate::on_event(
+        id,
+        K::Gesture as i32,
+        phase,
+        &format!("{x:.2},{y:.2},{scale:.5},0"),
+    );
+}
+
 unsafe extern "C" fn receiver(ev: *mut ArkUI_NodeEvent) {
     if ev.is_null() {
         return;
@@ -249,6 +260,10 @@ unsafe extern "C" fn receiver(ev: *mut ArkUI_NodeEvent) {
                             end.i32_,
                         );
                     }
+                }
+                // A wheel or touchpad tick over a node that asked for a pan or a pinch.
+                Ev::NODE_ON_AXIS => {
+                    crate::gesture::axis(id, OH_ArkUI_NodeEvent_GetInputEvent(ev));
                 }
                 Ev::NODE_ON_KEY_PRE_IME => {
                     let input = OH_ArkUI_NodeEvent_GetInputEvent(ev);
