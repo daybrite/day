@@ -19,7 +19,7 @@ Screen Wake Lock API and page visibility.
 Add it to your app:
 
 ```sh
-cargo add day-part-wakelock
+cargo add 'day-part-wakelock@0.*'
 ```
 
 ## Documentation

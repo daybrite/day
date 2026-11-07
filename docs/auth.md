@@ -33,7 +33,7 @@ biometric prompt alone does not sign the person in to that service.
 Add [`day-part-auth`](https://crates.io/crates/day-part-auth) to your app:
 
 ```sh
-cargo add day-part-auth
+cargo add 'day-part-auth@0.*'
 ```
 
 It takes Day from crates.io like the other [parts](/docs/reference/parts). Build the app with the

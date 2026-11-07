@@ -21,7 +21,7 @@ flag. It uses a fallback when a platform cannot report a field.
 Add [`day-part-device`](https://github.com/daybrite/day/tree/main/crates/day-part-device) to your app:
 
 ```sh
-cargo add day-part-device
+cargo add 'day-part-device@0.*'
 ```
 
 The implementation is selected by the compilation target; no toolkit feature flags

@@ -22,7 +22,7 @@ record video.
 Add [`day-piece-camera`](https://crates.io/crates/day-piece-camera) to your app:
 
 ```sh
-cargo add day-piece-camera
+cargo add 'day-piece-camera@0.*'
 ```
 
 [Crate](https://crates.io/crates/day-piece-camera) ·

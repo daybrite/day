@@ -5,5 +5,5 @@ edition = "2024"
 publish = false
 
 [dependencies]
-day-core = { path = "../../../.." }
-day-macros = { path = "../../../../../day-macros" }
+day-core = { version = "0.*", path = "../../../.." }
+day-macros = { version = "0.*", path = "../../../../../day-macros" }

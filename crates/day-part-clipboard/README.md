@@ -19,7 +19,7 @@ app’s data is available.
 Add it to your app:
 
 ```sh
-cargo add day-part-clipboard
+cargo add 'day-part-clipboard@0.*'
 ```
 
 ## Documentation

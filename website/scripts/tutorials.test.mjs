@@ -38,7 +38,7 @@ test('all six lessons render exactly the recipe steps for each platform, without
           assert(code, step.key);
           const copy = /data-copy-text="([^"]+)"/.exec(match[3]);
           assert(copy, step.key);
-          assert.equal(decodeURIComponent(copy[1]), step.body);
+        assert.equal(decodeURIComponent(htmlText(copy[1])), step.body);
           assert.equal(htmlText(code[1]), step.body, `${platform} ${step.key}`);
         }
       }
@@ -83,7 +83,7 @@ test('main compatibility is explicit and never mutates the reader plan', () => {
   assert.equal(JSON.stringify(plan), before);
   // The reader's manifest names no Day release: `cargo add` picks the newest one.
   assert.doesNotMatch(plan.filter(s => s.path === 'Cargo.toml').map(s => s.body).join(''), /day-app|day-build/);
-  assert.match(plan.find(s => s.key === 'first-app/dependencies').body, /^cargo add day-app --rename day\n/);
+  assert.match(plan.find(s => s.key === 'first-app/dependencies').body, /^cargo add 'day-app@0\.\*' --rename day\n/);
   assert.match(main.find(s => s.key === 'first-app/dependencies').body, /--path '\/synthetic\/checkout\/crates\/day'/);
   assert.deepEqual(main.filter((s, i) => s.body !== plan[i].body).map(s => s.key), ['first-app/install', 'first-app/dependencies']);
   const ps = shellProgram(plan, "C:/Synthetic Fixture's path", 'powershell');

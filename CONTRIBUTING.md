@@ -23,6 +23,25 @@ first. PRs without a linked conversation are likely to be closed with a pointer 
 
 ## When a patch is agreed on
 
+### Dependency policy before Day 1.0
+
+Daybrite-owned crates and apps use `"0.*"` for dependencies on Day and other Daybrite-owned
+0.x crates. This includes internal framework dependencies and dependencies between external
+parts and pieces. Keep path sources and workspace inheritance where needed; their version
+requirement is still `"0.*"`. Third-party dependencies keep their existing requirements.
+Test-only path dependencies that must be stripped during publication omit the version field;
+adding a version would publish their reverse edges and create dependency cycles.
+
+We accept source and behavior changes between 0.x releases. A wildcard allows those releases
+to resolve; it does not promise compatibility. Apps that need a fixed dependency set commit
+`Cargo.lock` and build with `--locked`. Review and test lockfile updates before shipping.
+Libraries cannot use their own lockfile to constrain a consuming app's dependency graph.
+
+Package versions remain concrete release numbers. A 0.x release bump must preserve the
+wildcard requirements. Revisit this policy when Day reaches 1.0.
+
+### Preparing the patch
+
 Once a discussion lands on "yes, send a patch":
 
 1. Reference the discussion or issue in the PR description.

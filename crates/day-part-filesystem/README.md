@@ -19,7 +19,7 @@ origin permissions and eviction policies.
 Add it to your app:
 
 ```sh
-cargo add day-part-filesystem
+cargo add 'day-part-filesystem@0.*'
 ```
 
 Day apps can also enable the `fs` feature of

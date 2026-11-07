@@ -22,7 +22,7 @@ capabilities and explanations required by each operating system.
 Add [`day-part-permissions`](https://github.com/daybrite/day/tree/main/crates/day-part-permissions) to your app:
 
 ```sh
-cargo add day-part-permissions
+cargo add 'day-part-permissions@0.*'
 ```
 
 The implementation is selected by the compilation target; no toolkit feature flags

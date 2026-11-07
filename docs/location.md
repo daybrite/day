@@ -22,7 +22,7 @@ before starting.
 Add [`day-part-location`](https://github.com/daybrite/day/tree/main/crates/day-part-location) to your app:
 
 ```sh
-cargo add day-part-location
+cargo add 'day-part-location@0.*'
 ```
 
 The implementation is selected by the compilation target; no toolkit feature flags

@@ -25,7 +25,7 @@ size, text and highlight color, plus paragraph alignment, indent, spacing and li
 Add [`day-piece-text-editor`](https://github.com/daybrite/day/tree/main/crates/day-piece-text-editor) to your app:
 
 ```sh
-cargo add day-piece-text-editor
+cargo add 'day-piece-text-editor@0.*'
 ```
 
 `day build -t <target>` enables this direct dependency’s matching toolkit feature

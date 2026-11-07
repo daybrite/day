@@ -20,7 +20,7 @@ Add this crate to the app’s dependencies and forward the matching toolkit feat
 the tweak guide:
 
 ```sh
-cargo add day-tweak-tooltip
+cargo add 'day-tweak-tooltip@0.*'
 ```
 
 ## Documentation

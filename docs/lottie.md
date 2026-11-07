@@ -21,7 +21,7 @@ separate model API for inspecting animation metadata without opening a player.
 Add [`day-piece-lottie`](https://crates.io/crates/day-piece-lottie) to your app:
 
 ```sh
-cargo add day-piece-lottie
+cargo add 'day-piece-lottie@0.*'
 ```
 
 [Crate](https://crates.io/crates/day-piece-lottie) ·
@@ -107,7 +107,7 @@ Add an animation playground to an app without copying the example JSON files.
 ### Add the example library
 
 ```sh
-cargo add day-piece-lottie-gallery
+cargo add 'day-piece-lottie-gallery@0.*'
 ```
 
 [Crate](https://crates.io/crates/day-piece-lottie-gallery) ·

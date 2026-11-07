@@ -14,8 +14,8 @@
 //! box. A piece also gets `demo/`: the app template, written by the same code as `day new app` and
 //! cut to one page that shows the piece (`--no-demo` skips it).
 //!
-//! Dependencies default to **versioned crates.io** deps at this CLI's own version (`day-cli x.y.z`
-//! scaffolds against `day x.y.z`); `--git` takes them from the **`day` git remote** instead, and the
+//! Dependencies default to **crates.io** deps with the `0.*` requirement before Day 1.0;
+//! `--git` takes them from the **`day` git remote** instead, and the
 //! hidden `--local <path>` flag (or the `DAY_LOCAL` env var) emits `path` deps rooted at a local
 //! `day` checkout, which CI uses to build a freshly-scaffolded crate against the day tree under
 //! test. `--day-version <spec>` pins whichever of those applies to one day: a crates.io version,
@@ -126,7 +126,7 @@ fn is_release(s: &str) -> bool {
 
 #[derive(Debug)]
 enum Deps {
-    /// Versioned crates.io deps (the default), at this CLI's version or at
+    /// Versioned crates.io deps (the default), accepting `0.*` before Day 1.0 or at
     /// `--day-version <x.y.z>`: `day = { package = "day-app", version = "x.y.z" }`.
     Version(String),
     /// The `day` git remote (`--git`, or a `--day-version` that names a branch or a commit):
@@ -164,8 +164,8 @@ impl Deps {
 
     /// Resolve the dependency source: a local checkout (`--local` or `DAY_LOCAL`) wins, then
     /// `--git` (the git remote, at the `--day-version` pin), then the default, versioned
-    /// crates.io deps: `--day-version x.y.z` if given, else this CLI's own version, so a
-    /// `day-cli x.y.z` binary scaffolds an app depending on `day x.y.z`. A `--day-version` that
+    /// crates.io deps: `--day-version x.y.z` if given, else `0.*` before Day 1.0 and this CLI's
+    /// version afterward. A `--day-version` that
     /// names a branch or a commit has no crates.io version, so it takes the git remote too.
     ///
     /// The combinations that name two different days are refused rather than silently ranked.
@@ -200,7 +200,7 @@ impl Deps {
             return Ok(Deps::Git(day));
         }
         match day {
-            None => Ok(Deps::Version(env!("CARGO_PKG_VERSION").to_string())),
+            None => Ok(Deps::Version(default_requirement().to_string())),
             Some(DaySource::Release(v)) => Ok(Deps::Version(v)),
             // A branch or a commit has no crates.io version to ask for.
             Some(other) if registry => Err(format!(
@@ -232,6 +232,16 @@ impl Deps {
                 sub = subpath(name)
             ),
         }
+    }
+}
+
+/// Before 1.0, Daybrite crates accept every stable 0.x release; lockfiles select a build.
+fn default_requirement() -> &'static str {
+    let version = env!("CARGO_PKG_VERSION");
+    if version.starts_with("0.") {
+        "0.*"
+    } else {
+        version
     }
 }
 
@@ -1450,7 +1460,10 @@ impl PieceDemo<'_> {
         // code beside it.
         ctx.insert(
             "day_piece_deps",
-            format!("{} = {{ path = \"..\" }}", self.piece.crate_name),
+            format!(
+                "{} = {{ version = \"0.*\", path = \"..\" }}",
+                self.piece.crate_name
+            ),
         );
     }
 
@@ -3261,7 +3274,7 @@ It depends on the crate by path, so it always builds the code here. From `demo/`
 const DEMO_README: &str = r#"# __TITLE__
 
 A one-page app that shows [`__CRATE__`](..). It depends on the piece by path
-(`__CRATE__ = { path = ".." }`), so it always builds the code beside it.
+(`__CRATE__ = { version = "0.*", path = ".." }`), so it always builds the code beside it.
 
 ## Run it
 
@@ -3820,18 +3833,18 @@ mod day_version_tests {
         assert!(e.contains("--registry"), "{e}");
         assert!(e.contains("branch main"), "{e}");
 
-        // No --day-version: the CLI's own version, as before.
+        // No --day-version: the pre-1.0 wildcard policy.
         let d = Deps::resolve(None, false, true, None).unwrap();
         assert_eq!(
             d.dep("day", ""),
             format!(
                 "day = {{ package = \"day-app\", version = \"{}\" }}",
-                env!("CARGO_PKG_VERSION")
+                default_requirement()
             )
         );
     }
 
-    /// With no flag, a scaffold depends on the published crates at this CLI's version; a branch
+    /// With no flag, a scaffold accepts published 0.x crates before Day 1.0; a branch
     /// or a commit has no crates.io version, so it takes the git remote; `--git` with
     /// `--registry` names two sources and is refused.
     #[test]
@@ -3841,7 +3854,7 @@ mod day_version_tests {
             d.dep("day", ""),
             format!(
                 "day = {{ package = \"day-app\", version = \"{}\" }}",
-                env!("CARGO_PKG_VERSION")
+                default_requirement()
             )
         );
         assert!(
@@ -4207,7 +4220,7 @@ mod scaffold_tests {
             let cargo = text("Cargo.toml");
             assert!(cargo.contains("name = \"day-piece-chip-demo\""), "{cargo}");
             assert!(
-                cargo.contains("day-piece-chip = { path = \"..\" }"),
+                cargo.contains("day-piece-chip = { version = \"0.*\", path = \"..\" }"),
                 "{cargo}"
             );
             for starter_dep in ["serde", "model", "day-piece-settings"] {

@@ -21,7 +21,7 @@ attached to a screen, or an audio session when playback needs to outlive that sc
 Add [`day-piece-media`](https://crates.io/crates/day-piece-media) to your app:
 
 ```sh
-cargo add day-piece-media
+cargo add 'day-piece-media@0.*'
 ```
 
 [Crate](https://crates.io/crates/day-piece-media) ·

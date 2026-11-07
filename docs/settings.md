@@ -23,7 +23,7 @@ available:
 Add [`day-piece-settings`](https://github.com/daybrite/day/tree/main/crates/day-piece-settings) to your app:
 
 ```sh
-cargo add day-piece-settings
+cargo add 'day-piece-settings@0.*'
 ```
 
 `day build -t <target>` enables this direct dependency’s matching toolkit feature

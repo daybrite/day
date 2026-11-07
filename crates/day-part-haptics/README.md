@@ -18,7 +18,7 @@ feedback: unsupported devices leave calls without an effect.
 Add it to your app:
 
 ```sh
-cargo add day-part-haptics
+cargo add 'day-part-haptics@0.*'
 ```
 
 ## Documentation

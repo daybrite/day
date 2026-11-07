@@ -19,7 +19,7 @@ app.
 Add it to your app:
 
 ```sh
-cargo add day-part-permissions
+cargo add 'day-part-permissions@0.*'
 ```
 
 Day apps can also enable the `permissions` feature of

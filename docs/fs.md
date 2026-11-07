@@ -24,7 +24,7 @@ policies.
 Add [`day-part-filesystem`](https://github.com/daybrite/day/tree/main/crates/day-part-filesystem) to your app:
 
 ```sh
-cargo add day-part-filesystem
+cargo add 'day-part-filesystem@0.*'
 ```
 
 The implementation is selected by the compilation target; no toolkit feature flags

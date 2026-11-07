@@ -64,7 +64,7 @@ notification does not change language later. The remaining code blocks are integ
 Add [`day-part-local-notify`](/docs/reference/notify) and [`day-part-permissions`](/docs/reference/permissions) to your app:
 
 ```sh
-cargo add day-part-local-notify day-part-permissions
+cargo add 'day-part-local-notify@0.*' 'day-part-permissions@0.*'
 ```
 
 Declare notification access in `Day.toml`:

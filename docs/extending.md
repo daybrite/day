@@ -622,8 +622,9 @@ cx.under(node, |cx| { let _ = child.build(cx); });               // mount the Da
 > [!WARNING]
 > **The toolkit SPI is unstable.** Everything a backend implements (day-spec's `Toolkit` and
 > `Platform` traits, `Event`, `Cap`, the per-kind props structs) evolves with this repository and
-> carries no stability promise between releases. An external toolkit pins the day crates to one
-> exact version (`day-spec = "=0.6.1"`) and expects breakage between releases. This section describes the `[package.metadata.day.toolkit]`
+> carries no stability promise between releases. Daybrite toolkits use `day-spec = "0.*"` and expect
+> breakage between releases. A consuming app can retain tested versions in `Cargo.lock`.
+> This section describes the `[package.metadata.day.toolkit]`
 > registration, which is the part that will stay; the contract behind it firms up at SPI
 > stabilization.
 
@@ -704,10 +705,10 @@ piece to live in a separate repository: an iOS/Android-only piece that pulls an 
 on each platform, the lottie-ios SwiftPM package (via the `[package.metadata.day.ios]` mechanism
 above) and `com.airbnb.android:lottie` (Gradle). Its Swift and Java shims each wrap a
 `LottieAnimationView` behind a flat C ABI / static method. It is also the reference for an external
-repository: crates.io version requirements on day (as `cargo add day-core` writes them, so the consuming app's
-`Cargo.lock` picks one day version for the whole graph), its own crates published to crates.io on a
+repository: `"0.*"` requirements on Day and other Daybrite-owned 0.x crates, with the consuming
+app's `Cargo.lock` recording the tested dependency set, its own crates published to crates.io on a
 version tag (its CI is the shared `daylib.yml` workflow of daybrite/actions), a
-`[package.metadata.day] compat = "0.6"` line naming the day minor it was tested against, a `demo/`
+`[package.metadata.day] compat = "0.*"` line accepting every Day 0.x release, a `demo/`
 app whose dayscript is the on-device test, and a headless `model` module tested on the host. In
 this tree, `scripts/ci/scaffold-check.sh` keeps `swift-packages` exercised on the ios-uikit leg
 with a fixture piece that pulls swift-collections.

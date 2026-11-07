@@ -18,7 +18,7 @@ operating system and hardware; callers must handle unavailable information.
 Add it to your app:
 
 ```sh
-cargo add day-part-device
+cargo add 'day-part-device@0.*'
 ```
 
 ## Documentation

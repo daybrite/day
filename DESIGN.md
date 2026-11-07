@@ -4189,16 +4189,22 @@ ArkUI; emulator acceptance remains in CI.
 > Windows arm from one `bridge!`, and the consumer of the stacked `on_open_url` handlers
 > ([§8](#8-the-toolkit-specification-day-spec)). Nothing about
 > the layout or the aggregation changed; what an external repository adds is a dependency rule
-> and a test harness. Its day dependencies are crates.io release requirements (as `cargo add day-core` writes them), and the
+> and a test harness. Its Daybrite-owned dependencies use the crates.io requirement `0.*`
+> before Day 1.0, and the
 > repository publishes its own crates to crates.io on a version tag (daybrite/actions'
 > `daylib.yml`, [§20](#20-continuous-integration)), so an app takes pieces and day the same way and cargo unifies them by
 > version. (Until 2026-10-25 they named the bare canonical git URL, since cargo unifies a git
 > dependency only when URL and ref match.) A push builds against everything's `main` through
 > `day patch --main`, which follows each `day-*` crate to the repository crates.io records for
 > it; a nightly run builds against the newest releases. The consuming app's `Cargo.lock` picks
-> one version for the whole graph;
-> `[package.metadata.day] compat = "X.Y"` records the day minor the crate was tested against and
-> `day build` notes a mismatch; `day build`/`launch` refuse a graph carrying two copies of any
+> the tested versions for the graph; `0.*` permits upgrades across 0.x minors, including
+> breaking changes. `[package.metadata.day] compat = "0.*"` accepts the pre-1.0 series;
+> older `X.Y` notes still report minor mismatches. The policy covers internal dependencies,
+> sibling libraries, apps, and default scaffolds; package release versions stay concrete
+> and 0.x version bumps preserve the wildcard. Test-only path dependencies omit versions
+> so Cargo strips reverse edges during publication. See
+> [CONTRIBUTING](CONTRIBUTING.md#dependency-policy-before-day-10).
+> `day build`/`launch` refuse a graph carrying two copies of any
 > day crate (`crate::patch::verify_graph`). A `demo/` app in the repository depends on the crate
 > by path, and its dayscript is the on-device test; `day patch --local <checkout>` takes any
 > number of checkouts (day, pieces, parts) and works from a piece crate's own root, and

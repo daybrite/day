@@ -8,10 +8,10 @@ publish = false
 members = ["widgets"]
 
 [dependencies]
-day-core = { path = "../../.." }
-day-macros = { path = "../../../../day-macros" }
-day-script = { path = "../../../../day-script" }
-registry-widgets = { path = "widgets", optional = true }
+day-core = { version = "0.*", path = "../../.." }
+day-macros = { version = "0.*", path = "../../../../day-macros" }
+day-script = { version = "0.*", path = "../../../../day-script" }
+registry-widgets = { version = "0.*", path = "widgets", optional = true }
 
 [features]
 default = ["provider"]

@@ -72,7 +72,7 @@ described below for these views.
 Add the piece, then declare the package in the app's `Cargo.toml`:
 
 ```sh
-cargo add day-piece-swiftui
+cargo add 'day-piece-swiftui@0.*'
 ```
 
 ```toml

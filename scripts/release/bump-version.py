@@ -6,13 +6,13 @@
     scripts/release/bump-version.py 0.6.3     # rewrite, then refresh every committed lock
     scripts/release/bump-version.py --check   # report anything not at the workspace version
 
-A release changes the version in three kinds of place, and a tag whose commit misses one fails
+A release changes package and lockfile versions, and a tag whose commit misses one fails
 CI on `--locked` (v0.6.2's tag run: the conformance app and two day-core fixtures still locked
 the day crates at 0.6.1):
 
   * `[workspace.package].version` in the root Cargo.toml, which every framework crate inherits;
-  * every internal path dependency that carries a `version` (crates.io requires one): the
-    `[workspace.dependencies]` table, and the few member manifests that name a sibling directly;
+  * internal dependency requirements stay `0.*` throughout the pre-1.0 series;
+    the 1.0 transition replaces that policy with the new release requirement;
   * every committed Cargo.lock, whose entries for the workspace's own crates record their
     versions. `cargo update --workspace --offline`, run inside each lock's workspace, rewrites
     exactly those entries and nothing else.
@@ -55,10 +55,10 @@ def workspace_version(manifest):
     sys.exit(f"bump-version: no [workspace.package] version in {manifest}")
 
 
-# A path dependency's inline table that pins a version: `{ path = "…", version = "x.y.z", … }`,
+# A path dependency's inline table with a requirement: `{ path = "…", version = "0.*", … }`,
 # either key first. Third-party requirements carry no `path`, so they never match.
 PATH_DEP = re.compile(r'\{[^}]*\bpath\s*=\s*"[^"]*"[^}]*\}')
-VERSION_IN = re.compile(r'(\bversion\s*=\s*")(\d+\.\d+\.\d+)(")')
+VERSION_IN = re.compile(r'(\bversion\s*=\s*")([^"\n]+)(")')
 
 
 def path_dep_versions(text):
@@ -68,12 +68,18 @@ def path_dep_versions(text):
             yield dep.start() + v.start(2), dep.start() + v.end(2), v.group(2)
 
 
+def dependency_requirement(version):
+    return "0.*" if version.startswith("0.") else version
+
+
 def rewrite_manifest(path, old, new, is_root):
-    """Replace `old` with `new` in path-dependency versions (and the root's package version)."""
+    """Update the package version and preserve the pre-1.0 dependency policy."""
     text = path.read_text()
-    spans = [(s, e) for s, e, v in path_dep_versions(text) if v == old]
+    requirement = dependency_requirement(new)
+    spans = [(s, e) for s, e, v in path_dep_versions(text)
+             if v in {old, dependency_requirement(old)} and v != requirement]
     for s, e in reversed(spans):
-        text = text[:s] + new + text[e:]
+        text = text[:s] + requirement + text[e:]
     changed = len(spans)
     if is_root:
         lines = text.splitlines(keepends=True)
@@ -87,7 +93,8 @@ def rewrite_manifest(path, old, new, is_root):
 
 
 def stale_manifest_versions(path, version):
-    return [(path, v) for _, _, v in path_dep_versions(path.read_text()) if v != version]
+    requirement = dependency_requirement(version)
+    return [(path, v) for _, _, v in path_dep_versions(path.read_text()) if v != requirement]
 
 
 def lock_is_current(lock_dir):
@@ -153,7 +160,8 @@ def main():
     failed = False
     for manifest in manifests:
         for path, v in stale_manifest_versions(manifest, current):
-            print(f"behind: {path.relative_to(ROOT)} pins a path dependency at {v}, not {current}")
+            print(f"behind: {path.relative_to(ROOT)} requires a path dependency at {v}, "
+                  f"not {dependency_requirement(current)}")
             failed = True
     for lock in locks:
         behind = {n: v for n, v in lock_versions(lock, names).items() if v != current}

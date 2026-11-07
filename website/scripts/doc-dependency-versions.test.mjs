@@ -16,7 +16,10 @@ test('aliased, multiline, target, workspace, and bare Day dependencies may not n
     '[build-dependencies]\nday-build = { version = "0.6", optional = true }',
     'day-piece-webview = "0.4.4"',
   ]) assert.match(checkCargo(input).join('\n'), /names the release .*cargo add/);
-  assert.match(checkCargo('day = { package = "day-app", version = "0.6" }')[0], /cargo add day-app --rename day/);
+  assert.match(checkCargo('day = { package = "day-app", version = "0.6" }')[0], /cargo add 'day-app@0\.\*' --rename day/);
+  assert.deepEqual(checkCargo('day = { package = "day-app", version = "0.*" }'), []);
+  assert.deepEqual(checkCargo('[dependencies.day-spec]\nversion = "0.*"'), []);
+  assert.deepEqual(checkCargo('[workspace.dependencies]\nday-build = "0.*"'), []);
   assert.deepEqual(checkCargo('day-build = { path = "../day-build" }'), []);
   assert.deepEqual(checkCargo('day-build = { workspace = true }'), []);
   assert.deepEqual(checkCargo('day = { package = "day-app", git = "https://github.com/daybrite/day" }'), []);

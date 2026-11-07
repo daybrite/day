@@ -19,7 +19,7 @@ policy.
 Add it to your app:
 
 ```sh
-cargo add day-part-local-notify
+cargo add 'day-part-local-notify@0.*'
 ```
 
 ## Documentation

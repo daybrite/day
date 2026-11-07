@@ -23,7 +23,7 @@ connection information; the app chooses whether and how to connect.
 Add [`day-part-zeroconf`](https://crates.io/crates/day-part-zeroconf) to your app:
 
 ```sh
-cargo add day-part-zeroconf
+cargo add 'day-part-zeroconf@0.*'
 ```
 
 [Crate](https://crates.io/crates/day-part-zeroconf) ·

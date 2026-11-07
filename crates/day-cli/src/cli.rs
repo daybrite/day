@@ -859,7 +859,7 @@ enum NewKind {
         /// Use Day dependencies from Git
         #[arg(long)]
         git: bool,
-        /// Use Day dependencies from crates.io at the selected version (default)
+        /// Use Day dependencies from crates.io (default: 0.* before Day 1.0)
         #[arg(long)]
         registry: bool,
         /// Day dependency version: release, latest, branch, or commit
@@ -898,7 +898,7 @@ enum NewKind {
         /// Use Day dependencies from Git
         #[arg(long)]
         git: bool,
-        /// Use Day dependencies from crates.io at the selected version (default)
+        /// Use Day dependencies from crates.io (default: 0.* before Day 1.0)
         #[arg(long)]
         registry: bool,
         /// Day dependency version: release, latest, branch, or commit
@@ -964,7 +964,7 @@ enum NewKind {
         /// Use Day dependencies from Git
         #[arg(long)]
         git: bool,
-        /// Use Day dependencies from crates.io at the selected version (default)
+        /// Use Day dependencies from crates.io (default: 0.* before Day 1.0)
         #[arg(long)]
         registry: bool,
         /// Day dependency version: release, latest, branch, or commit
@@ -1243,7 +1243,7 @@ pub enum DoctorCmd {
         /// Use Day dependencies from Git
         #[arg(long)]
         git: bool,
-        /// Use Day dependencies from crates.io at the selected version (default)
+        /// Use Day dependencies from crates.io (default: 0.* before Day 1.0)
         #[arg(long)]
         registry: bool,
         /// Day version to check: release, latest, branch, or commit (default: this CLI)

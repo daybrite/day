@@ -23,7 +23,7 @@ of every row's.
 Enable the `model` feature on your existing Day dependency:
 
 ```sh
-cargo add day-app --rename day --features model
+cargo add 'day-app@0.*' --rename day --features model
 ```
 
 `use day::prelude::*` then brings `Store`, `Keyed`, `Elem`, `Field`, `Source`, the

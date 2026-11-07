@@ -21,7 +21,7 @@ next launch. Your app chooses the destination and when to request consent.
 Add [`day-piece-crash-reporter`](https://crates.io/crates/day-piece-crash-reporter) to your app:
 
 ```sh
-cargo add day-piece-crash-reporter
+cargo add 'day-piece-crash-reporter@0.*'
 ```
 
 [Crate](https://crates.io/crates/day-piece-crash-reporter) ·

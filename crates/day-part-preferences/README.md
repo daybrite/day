@@ -20,7 +20,7 @@ Day apps normally use the default-enabled `prefs` feature of
 For direct use:
 
 ```sh
-cargo add day-part-preferences
+cargo add 'day-part-preferences@0.*'
 ```
 
 ## Documentation

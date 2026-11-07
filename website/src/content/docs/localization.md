@@ -179,8 +179,8 @@ app/core lookup and cannot check a key or its arguments at compile time.
 Add these dependencies to the reusable crate:
 
 ```sh
-cargo add day-localization-ui
-cargo add --build day-build
+cargo add 'day-localization-ui@0.*'
+cargo add --build 'day-build@0.*'
 ```
 
 In that crate's `build.rs`:

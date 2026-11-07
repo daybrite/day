@@ -21,7 +21,7 @@ download service when they need to continue while the app is suspended or closed
 Add [`day-part-downloads`](https://github.com/daybrite/day/tree/main/crates/day-part-downloads) to your app:
 
 ```sh
-cargo add day-part-downloads
+cargo add 'day-part-downloads@0.*'
 ```
 
 The implementation is selected by the compilation target; no toolkit feature flags

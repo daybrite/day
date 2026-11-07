@@ -19,7 +19,7 @@ follow browser security rules, including CORS.
 Add it to your app:
 
 ```sh
-cargo add day-part-http
+cargo add 'day-part-http@0.*'
 ```
 
 ## Documentation

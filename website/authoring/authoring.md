@@ -220,10 +220,9 @@ documentation pages.
 Documentation names no Day release, because every Day crate releases often and a version in an
 example goes stale with the next one:
 
-- Install a crate with `cargo add <crate>`, which takes the newest release. The umbrella crate is
-  `cargo add day-app --rename day`, a build dependency `cargo add --build day-build`, and a
-  feature `--features <name>`. A manifest example shows the rest of `Cargo.toml` without the Day
-  dependencies.
+- Install a crate with `cargo add '<crate>@0.*'`, which accepts stable pre-1.0 releases. The umbrella crate is
+  `cargo add 'day-app@0.*' --rename day`, a build dependency `cargo add --build 'day-build@0.*'`, and a
+  feature `--features <name>`. Manifest examples may show Day dependencies with `"0.*"`.
 - Write `--day-version latest` or `main`, or an `X.Y.Z` placeholder where the text means a release
   the reader picks.
 - Link docs.rs pages through `latest`.

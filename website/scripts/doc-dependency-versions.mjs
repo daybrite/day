@@ -1,8 +1,8 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: CC-BY-SA-4.0
 // Published documentation names no Day release. Every crate here releases often, so a version in
-// an example goes stale with the next one: install commands are `cargo add <crate>`, which takes
-// the newest release; CLI examples say `--day-version latest` (or an `X.Y.Z` placeholder); API
+// an example goes stale with the next one: dependencies use `0.*`, and installation commands
+// use `cargo add '<crate>@0.*'`. CLI examples say `--day-version latest` (or an `X.Y.Z` placeholder); API
 // links use docs.rs's `latest`. Path, git, and workspace dependencies carry no release and pass.
 import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import { resolve, relative } from 'node:path';
@@ -25,8 +25,8 @@ export function checkCargo(source, location = 'Cargo example') {
     const pkg = value?.package ?? (alias === 'day' ? 'day-app' : alias);
     if (!isDay(pkg)) return;
     const requirement = typeof value === 'string' ? value : value?.version;
-    if (requirement === undefined) return;
-    const add = pkg === 'day-app' && alias === 'day' ? 'cargo add day-app --rename day' : `cargo add ${pkg}`;
+    if (requirement === undefined || requirement === '0.*') return;
+    const add = pkg === 'day-app' && alias === 'day' ? "cargo add 'day-app@0.*' --rename day" : `cargo add '${pkg}@0.*'`;
     errors.push(`${location}: ${pkg} names the release ${JSON.stringify(requirement)}; show \`${add}\`, which takes the newest one.`);
   };
   const visit = (object) => {

@@ -19,7 +19,7 @@ sound effects rather than a media-player interface.
 Add it to your app:
 
 ```sh
-cargo add day-part-sound
+cargo add 'day-part-sound@0.*'
 ```
 
 ## Documentation

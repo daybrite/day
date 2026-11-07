@@ -27,7 +27,7 @@ export function mainCompatibility(plan, checkout) {
     // The reader's `cargo add` takes the newest release; main takes the same crates from the
     // checkout. A recipe that adds anything else must say how main resolves it.
     if (step.compatibility === 'dependencies') {
-      const reader = 'cargo add day-app --rename day\ncargo add --build day-build\n';
+      const reader = "cargo add 'day-app@0.*' --rename day\ncargo add --build 'day-build@0.*'\n";
       if (step.body !== reader) throw new Error('Update the explicit main-compatibility dependency substitutions.');
       return { ...step, body: `cargo add day-app --rename day --path ${quote(join(checkout, 'crates/day'), step.shell)}\n` +
         `cargo add --build day-build --path ${quote(join(checkout, 'crates/day-build'), step.shell)}\n` };

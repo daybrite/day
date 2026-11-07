@@ -22,7 +22,7 @@ across toolkits.
 Add [`day-piece-charts`](https://crates.io/crates/day-piece-charts) to your app:
 
 ```sh
-cargo add day-piece-charts
+cargo add 'day-piece-charts@0.*'
 ```
 
 [Crate](https://crates.io/crates/day-piece-charts) ·
@@ -120,7 +120,7 @@ construction walkthrough, mark combinations, and interactive examples.
 ### Add the example library
 
 ```sh
-cargo add day-piece-charts-gallery
+cargo add 'day-piece-charts-gallery@0.*'
 ```
 
 [Crate](https://crates.io/crates/day-piece-charts-gallery) ·

@@ -19,7 +19,7 @@ needed.
 Add it to your app:
 
 ```sh
-cargo add day-part-location
+cargo add 'day-part-location@0.*'
 ```
 
 ## Documentation

@@ -21,7 +21,7 @@ effect on devices without a supported haptic engine.
 Add [`day-part-haptics`](https://github.com/daybrite/day/tree/main/crates/day-part-haptics) to your app:
 
 ```sh
-cargo add day-part-haptics
+cargo add 'day-part-haptics@0.*'
 ```
 
 The implementation is selected by the compilation target; no toolkit feature flags

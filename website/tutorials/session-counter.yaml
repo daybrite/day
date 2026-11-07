@@ -152,8 +152,8 @@ lessons:
         kind: run
         cwd: first-app
         command: |
-          cargo add day-app --rename day
-          cargo add --build day-build
+          cargo add 'day-app@0.*' --rename day
+          cargo add --build 'day-build@0.*'
         compatibility: dependencies
       - id: features
         kind: file

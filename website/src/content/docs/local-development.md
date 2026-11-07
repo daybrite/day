@@ -11,7 +11,7 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-`cargo add day-app --rename day` adds the published Day framework to your app.
+`cargo add 'day-app@0.*' --rename day` adds the published Day framework to your app.
 Anyone who clones the app builds against the published crates. When you are changing a day crate
 and the app screen that demonstrates it, the app has to build against your checkout instead;
 `day patch` makes the switch:
@@ -68,6 +68,19 @@ which is which: `Day Rise (0.1.0+main-2d77edbf/appkit)` beside
 
 Reach for `day patch` when you're working on the framework and the app together over a session,
 and `--day-src` or `--patch-local` when you're comparing.
+
+## Dependency versions before Day 1.0
+
+Daybrite crates and apps use `"0.*"` for dependencies on Day and other Daybrite-owned 0.x
+crates, including external parts and pieces. This permits updates across 0.x minor versions;
+source changes may still be needed after an update. Package release versions and third-party
+dependency requirements are unchanged by this policy.
+
+Commit an app's `Cargo.lock` to retain its tested dependency set, and build with `--locked`.
+Update the lock when you want newer releases, then test the app. A library's lockfile does not
+pin dependencies for apps that use the library. Day still checks for duplicate framework crates
+because a broad requirement alone does not guarantee that Cargo selects one version throughout
+the graph.
 
 ## What it writes
 

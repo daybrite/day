@@ -19,7 +19,7 @@ on the server, and background transfer support depends on the operating system.
 Add it to your app:
 
 ```sh
-cargo add day-part-downloads
+cargo add 'day-part-downloads@0.*'
 ```
 
 ## Documentation

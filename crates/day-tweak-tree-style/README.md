@@ -20,7 +20,7 @@ Add this crate to the app’s dependencies and forward the matching toolkit feat
 the tweak guide:
 
 ```sh
-cargo add day-tweak-tree-style
+cargo add 'day-tweak-tree-style@0.*'
 ```
 
 ## Documentation

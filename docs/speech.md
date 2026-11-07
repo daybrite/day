@@ -21,7 +21,7 @@ consider [sound](/docs/reference/sound) and [accessibility](/docs/reference/acce
 Add [`day-part-speech`](https://crates.io/crates/day-part-speech) to your app:
 
 ```sh
-cargo add day-part-speech
+cargo add 'day-part-speech@0.*'
 ```
 
 Build with the [Day CLI](/docs/reference/cli) so its native bridge code is packaged. This

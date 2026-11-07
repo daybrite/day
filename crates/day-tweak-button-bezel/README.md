@@ -19,7 +19,7 @@ Add this crate to the app’s dependencies and forward the matching toolkit feat
 the tweak guide:
 
 ```sh
-cargo add day-tweak-button-bezel
+cargo add 'day-tweak-button-bezel@0.*'
 ```
 
 ## Documentation

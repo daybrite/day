@@ -21,7 +21,7 @@ the same item. Access depends on the operating system’s privacy and focus rule
 Add [`day-part-clipboard`](https://github.com/daybrite/day/tree/main/crates/day-part-clipboard) to your app:
 
 ```sh
-cargo add day-part-clipboard
+cargo add 'day-part-clipboard@0.*'
 ```
 
 The implementation is selected by the compilation target; no toolkit feature flags

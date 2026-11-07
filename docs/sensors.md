@@ -22,7 +22,7 @@ Add [`day-part-sensors`](https://github.com/daybrite/day/tree/main/crates/day-pa
 to your app:
 
 ```sh
-cargo add day-part-sensors
+cargo add 'day-part-sensors@0.*'
 ```
 
 Platform selection follows the compilation target. There are no toolkit feature flags.

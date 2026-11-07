@@ -22,7 +22,7 @@ as authentication, caching, redirects, and timeouts.
 Add [`day-part-http`](https://github.com/daybrite/day/tree/main/crates/day-part-http) to your app:
 
 ```sh
-cargo add day-part-http
+cargo add 'day-part-http@0.*'
 ```
 
 The implementation is selected by the compilation target; no toolkit feature flags

@@ -22,7 +22,7 @@ be read, including requiring verification of the person where the platform suppo
 Add [`day-part-keychain`](https://github.com/daybrite/day/tree/main/crates/day-part-keychain) to your app:
 
 ```sh
-cargo add day-part-keychain
+cargo add 'day-part-keychain@0.*'
 ```
 
 The implementation is selected by the compilation target; no toolkit feature flags or dependency

@@ -20,7 +20,7 @@ report unavailable.
 Add it to your app:
 
 ```sh
-cargo add day-part-sensors
+cargo add 'day-part-sensors@0.*'
 ```
 
 ## Documentation

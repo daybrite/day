@@ -19,7 +19,7 @@ in your networking code.
 Add it to your app:
 
 ```sh
-cargo add day-part-connectivity
+cargo add 'day-part-connectivity@0.*'
 ```
 
 ## Documentation

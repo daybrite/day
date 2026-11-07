@@ -72,11 +72,11 @@ A composite piece is an ordinary library crate built from Day primitives. `day n
 the dependencies below. To add them manually, run these commands in the crate directory:
 
 ```sh
-cargo add day-pieces           # primitives + prelude (row, canvas, Decorate, …)
-cargo add day-core             # Piece / BuildCx / RNode / AnyPiece
-cargo add day-reactive         # Signal (also re-exported through day-pieces' prelude)
-cargo add day-localization-ui
-cargo add --build day-build
+cargo add 'day-pieces@0.*'           # primitives + prelude (row, canvas, Decorate, …)
+cargo add 'day-core@0.*'             # Piece / BuildCx / RNode / AnyPiece
+cargo add 'day-reactive@0.*'         # Signal (also re-exported through 'day-pieces@0.*'' prelude)
+cargo add 'day-localization-ui@0.*'
+cargo add --build 'day-build@0.*'
 ```
 
 The rest of the manifest is short:

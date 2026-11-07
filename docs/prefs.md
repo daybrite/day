@@ -26,7 +26,7 @@ For direct use, the API is defined in [`day-part-preferences`](https://github.co
 when you need it directly:
 
 ```sh
-cargo add day-part-preferences
+cargo add 'day-part-preferences@0.*'
 ```
 
 The implementation is selected by the compilation target; no toolkit feature flags

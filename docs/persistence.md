@@ -17,8 +17,8 @@ dependency.
 Add both to your app:
 
 ```sh
-cargo add day-app --rename day --features model
-cargo add day-persistence
+cargo add 'day-app@0.*' --rename day --features model
+cargo add 'day-persistence@0.*'
 ```
 
 The default features provide bundled SQLite and the live-list adapter. Other options include

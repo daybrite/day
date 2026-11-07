@@ -19,7 +19,7 @@ authentication failures explicitly.
 Add it to your app:
 
 ```sh
-cargo add day-part-keychain
+cargo add 'day-part-keychain@0.*'
 ```
 
 ## Documentation

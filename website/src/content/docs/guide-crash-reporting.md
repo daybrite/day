@@ -26,7 +26,7 @@ Add the crate and call `init` as early as possible: before [`day::launch`](https
 startup is still recorded:
 
 ```sh
-cargo add day-piece-crash-reporter
+cargo add 'day-piece-crash-reporter@0.*'
 ```
 
 The showcase wraps it in a helper called from every entry point:
@@ -101,7 +101,8 @@ Effect::new(move || {
 Three transports ship with the crate:
 
 - **`RestReporter::new(url)`** POSTs the report JSON via [`day-part-http`](/docs/reference/http), off the UI thread;
-  `.named("our crash server")` sets the name shown to the user. It's also the shape a
+  [`.named("our crash server")`](https://docs.rs/day-piece-crash-reporter/latest/day_piece_crash_reporter/struct.RestReporter.html#method.named)
+  sets the name shown to the user. It's also the shape a
   GitHub-issue proxy takes: a small server accepts the JSON and opens the issue with your repo
   token held server-side, never on the device.
 - **`GithubIssueReporter::new(owner, repo)`** opens a prefilled new-issue page in the browser;

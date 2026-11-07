@@ -23,7 +23,7 @@ does not guarantee that a particular service is reachable.
 Add [`day-part-connectivity`](https://github.com/daybrite/day/tree/main/crates/day-part-connectivity) to your app:
 
 ```sh
-cargo add day-part-connectivity
+cargo add 'day-part-connectivity@0.*'
 ```
 
 The implementation is selected by the compilation target; no toolkit feature flags

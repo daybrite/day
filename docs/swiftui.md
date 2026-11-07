@@ -22,7 +22,7 @@ typed Rust constructors. This integration requires the AppKit or UIKit toolkit.
 Add [`day-piece-swiftui`](https://github.com/daybrite/day/tree/main/crates/day-piece-swiftui) to your app:
 
 ```sh
-cargo add day-piece-swiftui
+cargo add 'day-piece-swiftui@0.*'
 ```
 
 `day build -t <target>` enables this direct dependency’s matching toolkit feature
@@ -51,7 +51,7 @@ Add the piece, declare the package once in the app's `Cargo.toml`, and surface t
 module in lib.rs:
 
 ```sh
-cargo add day-piece-swiftui
+cargo add 'day-piece-swiftui@0.*'
 ```
 
 ```toml

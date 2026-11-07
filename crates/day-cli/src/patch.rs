@@ -7,8 +7,8 @@
 //! An app outside this repository declares its framework dependencies by version:
 //!
 //! ```toml
-//! day = { package = "day-app", version = "0.6" }
-//! day-piece-lottie = "0.4"
+//! day = { package = "day-app", version = "0.*" }
+//! day-piece-lottie = "0.*"
 //! ```
 //!
 //! which is what a user's app looks like and what a scheduled CI run resolves. Three situations
@@ -1630,9 +1630,8 @@ pub fn run(
 /// worse, two `RENDERERS` slices and a widget that quietly renders as a placeholder. Asked of
 /// cargo here, once, before anything compiles, so the answer is one sentence naming both sources.
 ///
-/// Also the home of the `[package.metadata.day] compat = "X.Y"` note: an external crate says
-/// which day minor it was built and tested against, and a mismatch is worth a line before the
-/// build rather than a linker error after it.
+/// Also the home of the `[package.metadata.day] compat` note: `0.*` accepts every Day 0.x
+/// release. Older `X.Y` notes still describe a tested minor and report a mismatch.
 pub fn verify_graph(project: &Project) -> Result<(), String> {
     let mut cmd = Command::new("cargo");
     apply_day_src(&mut cmd);
@@ -1711,10 +1710,8 @@ pub fn verify_graph(project: &Project) -> Result<(), String> {
         ));
     }
 
-    // The compat note: external crates declare the day minor they were tested against.
+    // The compat note accepts the pre-1.0 policy or an older tested-minor declaration.
     if let Some(day_version) = day_version {
-        let minor = |v: &str| v.splitn(3, '.').take(2).collect::<Vec<_>>().join(".");
-        let resolved = minor(&day_version);
         for pkg in &packages {
             let Some(compat) = pkg
                 .get("metadata")
@@ -1724,7 +1721,7 @@ pub fn verify_graph(project: &Project) -> Result<(), String> {
             else {
                 continue;
             };
-            if minor(compat) != resolved {
+            if !compat_matches(compat, &day_version) {
                 let name = pkg.get("name").and_then(|n| n.as_str()).unwrap_or_default();
                 status(
                     "Note",
@@ -1737,6 +1734,14 @@ pub fn verify_graph(project: &Project) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+fn compat_matches(compat: &str, version: &str) -> bool {
+    if compat == "0.*" {
+        return version.starts_with("0.");
+    }
+    let minor = |v: &str| v.split('.').take(2).collect::<Vec<_>>().join(".");
+    minor(compat) == minor(version)
 }
 
 // --- `--day-src`: the same patch, for exactly one build ------------------------------------------
@@ -2100,6 +2105,16 @@ pub(crate) fn restore(path: &Path, before: Option<&[u8]>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn wildcard_compat_accepts_future_zero_minors_but_not_one() {
+        for version in ["0.6.4", "0.7.0", "0.99.0"] {
+            assert!(compat_matches("0.*", version), "{version}");
+        }
+        assert!(!compat_matches("0.*", "1.0.0"));
+        assert!(compat_matches("0.6", "0.6.4"));
+        assert!(!compat_matches("0.6", "0.7.0"));
+    }
 
     fn fixture(dir: &Path, manifest: &str) -> Project {
         std::fs::create_dir_all(dir).expect("mkdir");

@@ -22,7 +22,7 @@ scheduling support depend on the platform.
 Add [`day-part-local-notify`](https://github.com/daybrite/day/tree/main/crates/day-part-local-notify) to your app:
 
 ```sh
-cargo add day-part-local-notify
+cargo add 'day-part-local-notify@0.*'
 ```
 
 The implementation is selected by the compilation target; no toolkit feature flags

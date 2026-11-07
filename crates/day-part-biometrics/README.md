@@ -19,7 +19,7 @@ to an account service.
 Add it to your app:
 
 ```sh
-cargo add day-part-biometrics
+cargo add 'day-part-biometrics@0.*'
 ```
 
 ## Documentation

@@ -25,7 +25,7 @@ form of feedback.
 Add [`day-part-sound`](https://github.com/daybrite/day/tree/main/crates/day-part-sound) to your app:
 
 ```sh
-cargo add day-part-sound
+cargo add 'day-part-sound@0.*'
 ```
 
 The implementation is selected by the compilation target; no toolkit feature flags

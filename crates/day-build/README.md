@@ -20,7 +20,7 @@ build-script setup.
 Add it as a build dependency:
 
 ```sh
-cargo add --build day-build
+cargo add --build 'day-build@0.*'
 ```
 
 A `build.rs` entry point:

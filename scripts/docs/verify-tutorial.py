@@ -55,9 +55,9 @@ def local_framework_fixture(app):
     source = manifest.read_text()
     (app / 'Cargo.toml.documented').write_text(source)
     for published, local in (
-        ('day = { package = "day-app", version = "0.6" }',
+        ('day = { package = "day-app", version = "0.*" }',
          'day = { package = "day-app", path = "../../crates/day" }'),
-        ('day-build = "0.6"', 'day-build = { path = "../../crates/day-build" }'),
+        ('day-build = "0.*"', 'day-build = { path = "../../crates/day-build" }'),
     ):
         assert source.count(published) == 1, f'Unexpected tutorial dependency: {published}'
         source = source.replace(published, local)

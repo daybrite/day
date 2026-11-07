@@ -109,8 +109,9 @@ every Day repository (`--main`), and verifies the switch took;
 Run `day new` with no arguments to be walked through choosing what to create (app / piece / part) and
 which platforms and [toolkits](/docs/reference/glossary#toolkit) to support. Every question has an equivalent flag, so the same choices
 can be made non-interactively, e.g. `day new app my-app --toolkit ios-uikit --toolkit macos-appkit
---appid com.example.myapp --title "My App"`. Scaffolds depend on the Day crates from crates.io at
-your CLI's version; `--git` takes them from the day git repository instead.
+--appid com.example.myapp --title "My App"`. Before Day 1.0, scaffolds depend on the Day crates
+from crates.io with `"0.*"`. Commit `Cargo.lock` to retain a tested dependency set; `--git`
+takes dependencies from the day git repository instead.
 
 `--appid` has to name an id every chosen target accepts, since one id serves them all. Android and
 HarmonyOS read it as a Java package name, so each segment starts with a letter and carries no

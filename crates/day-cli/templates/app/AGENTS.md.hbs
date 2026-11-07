@@ -62,3 +62,10 @@ Run `cargo fmt --all`, `cargo fmt --all -- --check`, `cargo test`, and
 Run the walkthrough with `day launch -t <target> --script dayscript/demo.yaml` and inspect the
 screenshots of changed screens. Use `day drive -t <target> --steps-json '[…]'` to inspect a
 running app. Available Day MCP tools provide equivalent launch and drive operations.
+
+## Dependency versions
+
+Before Day 1.0, dependencies on Day and other Daybrite-owned 0.x crates use `"0.*"`.
+Keep package release versions concrete and third-party requirements separate. Commit Cargo.lock
+and use --locked when the app needs a fixed dependency set. Updating the lock may require code
+changes; compatibility between Day 0.x releases is not guaranteed.

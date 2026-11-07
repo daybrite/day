@@ -194,6 +194,8 @@ jobs:
         run: python3 -B scripts/ci/check-platform-runtimes.py
       - name: Readiness gate regression tests
         run: python3 scripts/ci/test-readiness.py
+      - name: Pre-1.0 dependency policy regression tests
+        run: python3 -B scripts/release/test-bump-version.py
 
   # ===========================================================================
   # Per-combo FRAMEWORK jobs: one job per <platform>-<toolkit>. Each installs the toolkit's deps

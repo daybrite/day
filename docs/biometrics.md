@@ -28,7 +28,7 @@ server session.
 Add [`day-part-biometrics`](https://github.com/daybrite/day/tree/main/crates/day-part-biometrics) to your app:
 
 ```sh
-cargo add day-part-biometrics
+cargo add 'day-part-biometrics@0.*'
 ```
 
 The implementation is selected by the compilation target; no toolkit feature flags are needed. The

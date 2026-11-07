@@ -30,7 +30,7 @@ and [browser profiles](#browser-profiles).
 Add [`day-piece-webview`](https://crates.io/crates/day-piece-webview) to your app:
 
 ```sh
-cargo add day-piece-webview
+cargo add 'day-piece-webview@0.*'
 ```
 
 [Crate](https://crates.io/crates/day-piece-webview) ·

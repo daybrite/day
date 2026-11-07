@@ -24,7 +24,7 @@ platform.
 Add [`day-part-wakelock`](https://github.com/daybrite/day/tree/main/crates/day-part-wakelock) to your app:
 
 ```sh
-cargo add day-part-wakelock
+cargo add 'day-part-wakelock@0.*'
 ```
 
 The implementation is selected by the compilation target; no toolkit feature flags
