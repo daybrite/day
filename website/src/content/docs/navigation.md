@@ -240,7 +240,7 @@ stringly, move to an enum when the app grows, mix the two freely (a typed nav ho
 ## Patterns and limits
 
 - **Desktop split layouts:** `NavStyle::Sidebar` gives the two-pane desktop shape. Give the
-  detail pane [`.grow()`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.grow) or it collapses to its content width.
+  detail pane [`.grow(Dimension::Both)`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.grow) or it collapses to its content width.
 - **State restoration:** [`.restore(key)`](https://docs.rs/day-pieces/latest/day_pieces/trait.NavBuilder.html#tymethod.restore) persists and restores selection and path through the
   installed nav store, as described above. Persist your own signals (see
   [parts: prefs](/docs/reference/parts)) only for custom state beyond navigation.
@@ -307,7 +307,7 @@ pub fn sections(section: Signal<Section>, count: Signal<i64>) -> impl Piece {
                 .padding(Space::L)
         })
         .id(id!(recipe_sections))
-        .grow()
+        .grow(Dimension::Both)
 }
 ```
 

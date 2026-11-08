@@ -34,7 +34,7 @@ fn label_frames(probe: &MockProbe) -> Vec<Rect> {
 /// The leading column places the row at its own 100pt rather than the window's width.
 fn wrap_columns(grow_first: bool) -> AnyPiece {
     let first = if grow_first {
-        label("aa").grow_w().any()
+        label("aa").grow(Dimension::Width).any()
     } else {
         label("aa").any()
     };

@@ -5,11 +5,13 @@ import Logo from './Logo.astro';
 import Search from './Search.astro';
 import ThemeToggle from './ThemeToggle.astro';
 import { url, site } from '../lib/site';
+import { res } from '../generated/strings.mjs';
 interface Props { active?: string }
 const { active } = Astro.props;
 const links = [
   { href: url('gallery'), label: 'Gallery', key: 'gallery' },
   { href: url('showcase'), label: 'Showcase', key: 'showcase' },
+  { href: url('blog'), label: res.str.blog_nav(), key: 'blog' },
   { href: url('docs'), label: 'Docs', key: 'docs' },
 ];
 const product = [['', 'Home'], ['features', 'Features'], ['platforms', 'Platforms'],

@@ -1124,7 +1124,7 @@ impl ListItem {
         ))
         .spacing(2.0)
         .align(crate::HAlign::Leading)
-        .grow_w();
+        .grow(Dimension::Width);
         let detail = self.detail.map(|t| label(t).secondary());
         let checked = self.checked.clone();
         let mark = checked.map(|on| {
@@ -1143,7 +1143,7 @@ impl ListItem {
         row((leading, titles, detail, mark))
             .spacing(crate::Space::M)
             .align(crate::VAlign::Center)
-            .grow_w()
+            .grow(Dimension::Width)
             .a11y(move |a| match selected {
                 Some(on) => a.selected(move || on.get()),
                 None => a,

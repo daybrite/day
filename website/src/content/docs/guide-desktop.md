@@ -121,7 +121,7 @@ and disappears when it leaves the screen. The platform decides where to place th
 the [toolbar reference](/docs/reference/toolbars) describes each toolkit’s behavior.
 
 ```rust
-item_list(scene).grow().toolbar([
+item_list(scene).grow(Dimension::Both).toolbar([
     toolbar_toggle(id!(show_done), res::str::show_done(), scene.show_done).icon(Symbol::Filter),
     toolbar_button(id!(add), res::str::add())
         .icon(Symbol::Add)

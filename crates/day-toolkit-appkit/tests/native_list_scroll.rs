@@ -224,7 +224,7 @@ mod native {
                         list(items(move || rows.get(), |r: &u64| *r), move |slot| {
                             label(move || format!("Fixture row {}", slot.get()))
                                 .padding(10.)
-                                .grow_w()
+                                .grow(Dimension::Width)
                         })
                         .on_selection(move |ids| selected.set(ids.first().copied()))
                         .selected_rows(move || {
@@ -243,14 +243,14 @@ mod native {
                         }))
                         .row_height(RowHeight::Uniform(44.))
                         .height(280.)
-                        .grow_w()
+                        .grow(Dimension::Width)
                         .id(day_core::id!(fixture_list)),
                         label(move || format!("{} fixture rows", rows.with(|r| r.len()))),
                     ))
                     .spacing(10.)
                     .padding(20.),
                 )
-                .grow()
+                .grow(Dimension::Both)
                 .any()
             },
         );

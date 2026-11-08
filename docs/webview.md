@@ -80,7 +80,7 @@ pub fn browser_panel(url: Signal<String>) -> impl Piece {
                 .action(move || back.notify()),
             button(res::str::browser_reload()).action(move || reload.notify()),
         )),
-        web_view(url).back(back).reload(reload).grow(),
+        web_view(url).back(back).reload(reload).grow(Dimension::Both),
     ))
 }
 ```
@@ -121,7 +121,7 @@ use day::prelude::*;
 use day_piece_webview::web_view_inline;
 
 pub fn bundled_help() -> impl Piece {
-    web_view_inline(res::assets::site).grow()
+    web_view_inline(res::assets::site).grow(Dimension::Both)
 }
 ```
 

@@ -510,8 +510,8 @@ pub(super) fn row_piece(inst: Rc<Installed>, r: &Row, _desktop: bool) -> Option<
                 s = s.step(*st);
             }
             let ctl = match &id {
-                Some(i) => s.id(i.clone()).grow_w().min_width(140.0).any(),
-                None => s.grow_w().min_width(140.0).any(),
+                Some(i) => s.id(i.clone()).grow(Dimension::Width).min_width(140.0).any(),
+                None => s.grow(Dimension::Width).min_width(140.0).any(),
             };
             let ctl = match value_text {
                 Some(f) => {
@@ -520,7 +520,7 @@ pub(super) fn row_piece(inst: Rc<Installed>, r: &Row, _desktop: bool) -> Option<
                     row((ctl, label(move || f(v.get())).tabular().secondary()))
                         .spacing(8.0)
                         .align(VAlign::Center)
-                        .grow_w()
+                        .grow(Dimension::Width)
                         .any()
                 }
                 None => ctl,
@@ -550,10 +550,10 @@ pub(super) fn row_piece(inst: Rc<Installed>, r: &Row, _desktop: bool) -> Option<
                 Some(i) => f
                     .enabled(enabled_fn)
                     .id(i.clone())
-                    .grow_w()
+                    .grow(Dimension::Width)
                     .min_width(160.0)
                     .any(),
-                None => f.enabled(enabled_fn).grow_w().min_width(160.0).any(),
+                None => f.enabled(enabled_fn).grow(Dimension::Width).min_width(160.0).any(),
             };
             native(props(false, None), Some(ctl), Some(160.0), None)
         }

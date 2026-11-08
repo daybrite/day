@@ -1,5 +1,8 @@
 # build output
 dist/
+
+# Local blog drafts; the content loader also excludes these from production builds.
+/src/content/blog/**/drafts/
 # generated types
 .astro/
 

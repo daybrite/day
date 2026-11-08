@@ -57,7 +57,7 @@ The UI snippets use generated `res::str` accessors from an app's Fluent catalog;
   `Fn() -> f64`, each under a disjoint marker so the three call forms stay coherent.
 - Out-of-range fractions are clamped to `0.0..=1.0` before they ever reach a toolkit,
   so a toolkit never has to defend against `1.7` or `-0.2`.
-- A determinate bar takes [`grow_w`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.grow_w) (it fills the available width like a slider); a spinner
+- A determinate bar takes [`grow_w`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.grow) (it fills the available width like a slider); a spinner
   keeps its fixed intrinsic size.
 
 A constant [`progress(0.5)`](https://docs.rs/day-pieces/latest/day_pieces/fn.progress.html) installs no binding. There is nothing to update after build,

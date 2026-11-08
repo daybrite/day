@@ -123,7 +123,11 @@ fn sidebar_footer_reserves_space_without_recreating_menu_or_destination() {
             .footer(move || {
                 when(
                     move || busy.get(),
-                    || label("Fixture sync progress").height(40.0).grow_w(),
+                    || {
+                        label("Fixture sync progress")
+                            .height(40.0)
+                            .grow(Dimension::Width)
+                    },
                 )
             })
             .any()

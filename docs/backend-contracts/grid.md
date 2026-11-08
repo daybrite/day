@@ -37,16 +37,16 @@ One `geometry()` function serves both `measure` and `place`:
 1. **Collect**: flatten group anchors; classify children into rows (`is_row`) and full-width
    cells; assign column indices from spans.
 2. **Pass A (ideals)**: measure every span-1 cell **unconstrained**; rigid cells set their
-   column's ideal (max), [`grow_w`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.grow_w) cells flag their column flexible (their ideal is recorded only
+   column's ideal (max), [`grow_w`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.grow) cells flag their column flexible (their ideal is recorded only
    when the grid itself is width-unconstrained). Spanning rigid cells then distribute any deficit
-   (once, closed-form). Full-width rigid cells record the grid-wide ideal; a full-width [`grow_w`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.grow_w)
+   (once, closed-form). Full-width rigid cells record the grid-wide ideal; a full-width [`grow_w`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.grow)
    cell makes the grid width-flexible.
 3. **Resolve columns**: with a width proposal and flexible columns, leftover = proposal − rigid
    ideals − gutters, split evenly among the flexible columns; otherwise every column takes its
    ideal. Grid width = the proposal when anything is flexible, else max(columns+gutters,
    full-width ideal).
 4. **Pass B (heights)**: measure every cell once at its final span width ([`Proposal::new(Some(w),
-   None)`](https://docs.rs/day-geometry/latest/day_geometry/struct.Proposal.html#method.new)); row height = max cell height; [`grow_h`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.grow_h) rows stretch additively under a height
+   None)`](https://docs.rs/day-geometry/latest/day_geometry/struct.Proposal.html#method.new)); row height = max cell height; [`grow_h`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.grow) rows stretch additively under a height
    proposal (stretching never re-measures).
 5. **Place**: re-run `geometry` at [`Proposal::exact(bounds)`](https://docs.rs/day-geometry/latest/day_geometry/struct.Proposal.html#method.exact); every per-cell proposal is
    bit-identical to the measure pass (only `p.width` affects cell proposals), so placement

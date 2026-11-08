@@ -83,7 +83,7 @@ impl Piece for Pager {
         cx.under(node, |cx| {
             for (slot, page) in pages.into_iter().enumerate() {
                 // A stable native wrapper per slot, even when its content is a conditional.
-                let page = column((page,)).grow();
+                let page = column((page,)).grow(Dimension::Both);
                 if native {
                     page.build(cx);
                 } else {

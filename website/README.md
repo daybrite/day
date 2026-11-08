@@ -13,6 +13,61 @@ The [App websites guide](src/content/docs/websites.md) covers their configuratio
 themes, custom Astro pages, built-in Actions deployment, and GitHub Pages/custom-domain setup.
 This directory maintains Day's own documentation and marketing site.
 
+## Blog and RSS
+
+The header links to `/blog`. Posts use Astro's Markdown/MDX content collection in
+`src/content/blog/`, with file-based URLs such as `/blog/coming-soon`. The blog index shows
+newest posts first. Published posts also appear in the sitemap and Pagefind search index.
+
+Create a post with frontmatter:
+
+```yaml
+---
+title: Your post title
+description: A short summary for the blog index and RSS feed.
+pubDate: 2026-11-08
+author: The Daybrite Project
+# updatedDate: 2026-11-09
+---
+```
+
+Write the body below the frontmatter. Use `.md` for prose or `.mdx` when embedding Astro
+components. Keep filenames lowercase with hyphens. The publication date controls ordering;
+it does not schedule publication. Keep unpublished work in the drafts folder instead.
+
+### Local drafts
+
+Create `src/content/blog/drafts/` and write posts there with the same frontmatter. The folder
+and its contents are ignored by Git and excluded from the production content loader. A normal
+`npm run dev` session includes them in the blog index with a draft label and previews them at
+`/blog/drafts/<filename>`. Draft previews carry `noindex, nofollow`. Keep the local development
+server private while it contains private drafts.
+
+To publish, move the file out of `drafts/` into `src/content/blog/`. A post anywhere in the
+collection may also use `draft: true`; such posts preview locally but never enter production
+routes, RSS, sitemap, or search. This frontmatter flag does not prevent Git from tracking the
+file; the ignored folder provides that protection. Remove the flag when publishing.
+
+`npm run build` and `npm run preview` show the production version, without drafts. The RSS
+feed and sitemap exclude drafts even in development. Draft frontmatter must be valid to
+preview locally; unfinished files in `drafts/` cannot break a production build.
+
+### Feed discovery and UI strings
+
+`/rss.xml` is generated with `@astrojs/rss`. It contains each published post's title, summary,
+publication date, and absolute permalink/GUID. Readers follow the link to the complete article.
+The blog and footer provide subscription links. `BaseLayout.astro` adds RSS autodiscovery to
+normal pages, and the blog integration adds it to copied HTML during production builds.
+
+New blog UI text lives in `src/locales/en.json`. The build generates symbolic `res.str`
+accessors in `src/generated/strings.mjs`; edit the catalog, not the generated file. Use
+`npm run strings:generate` after editing the catalog during a dev session. Post titles,
+summaries, author names, and article bodies are publication content.
+
+Run `npm run blog:test`, `npm run strings:check`, `npm run build`, and `npm run linkcheck`
+after changing blog behavior. Check that a local draft is absent from `dist/`, the feed,
+sitemap, and search results before publication.
+
 ## Analytics
 
 Production builds include [GoatCounter](https://www.goatcounter.com/help/start) in
@@ -52,12 +107,13 @@ directory. The guide explains how to prepare new alternatives and preserve decis
 
 ## Content structure and routes
 
-[`src/data/content-routes.json`](src/data/content-routes.json) assigns every content source one
-route metadata, primary type, and audience. Source paths are independent of public URLs;
+[`src/data/content-routes.json`](src/data/content-routes.json) assigns documentation sources their
+route metadata, primary type, and audience. Blog posts use the separate collection described above.
+Documentation source paths are independent of public URLs;
 `published: false` retains a source in the catalog without publishing it:
 
-- Public pages: `/`, `/features`, `/platforms`, `/gallery`, `/showcase`, `/examples`,
-  and `/community`. The header is Gallery, Showcase, Docs, and Explore, followed by search and
+- Public pages: `/`, `/features`, `/platforms`, `/gallery`, `/showcase`, `/blog`, `/examples`,
+  and `/community`. The header is Gallery, Showcase, Blog, Docs, and Explore, followed by search and
   theme controls. Contributing and GitHub are in Explore.
 - App documentation: `/docs`, with tutorials, how-to guides, reference, and explanation.
 - Contributors: `/contributing`, with setup, architecture, extension tutorials, documentation
@@ -80,7 +136,7 @@ The checks reject missing sources, duplicate routes, unplaced pages, and wrong p
 [`plugins/content-links.mjs`](plugins/content-links.mjs) resolves repository-relative links from
 their canonical source path. [`route-migrations.json`](src/data/route-migrations.json) translates
 source-era site links; it does not publish old routes or redirects. Update authored links to the
-new routes. The catalog also drives `sitemap.xml`; the normal build indexes new routes with Pagefind.
+new routes. The catalog and published blog collection drive `sitemap.xml`; the normal build indexes new routes with Pagefind.
 The reference index is rendered from content metadata and no longer rewritten during builds.
 Retired `/contributing/backend-contracts` URLs return 404; do not add redirects or aliases.
 App testing, element IDs, and native-project configuration belong in the app documentation.

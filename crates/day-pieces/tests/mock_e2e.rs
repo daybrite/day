@@ -411,7 +411,11 @@ fn a_min_width_control_overflows_a_starved_row_and_stacks() {
     // "aa" beside a 320-wide minimum in a 400 window: 372 left, so it fits and stays a row.
     let probe = boot(|| {
         let v = Signal::new(0.5f64);
-        column((labeled("aa", slider(v).min_width(320.0).grow()),)).any()
+        column((labeled(
+            "aa",
+            slider(v).min_width(320.0).grow(Dimension::Both),
+        ),))
+        .any()
     });
     let sliders = probe.find_by_kind("day.slider");
     assert_eq!(sliders[0].1.frame.origin, day_spec::Point::new(28.0, 0.0));
@@ -422,7 +426,11 @@ fn a_min_width_control_overflows_a_starved_row_and_stacks() {
     // A 380 minimum does not: the row stacks, and the slider takes the full width under it.
     let probe = boot(|| {
         let v = Signal::new(0.5f64);
-        column((labeled("aa", slider(v).min_width(380.0).grow()),)).any()
+        column((labeled(
+            "aa",
+            slider(v).min_width(380.0).grow(Dimension::Both),
+        ),))
+        .any()
     });
     // (The slider's frame is relative to its min-width wrapper, so the stacking shows in the
     // width it is given: the whole row, not the 372 beside the label.)
@@ -865,7 +873,7 @@ fn when_builds_and_disposes() {
 fn typed_chain() -> Decorated<day_pieces::Label> {
     label("chained")
         .padding(4.0)
-        .grow_w()
+        .grow(Dimension::Width)
         .id(day_core::id!(chained))
 }
 
@@ -3360,12 +3368,12 @@ fn pooled_list_cells_skip_resize_and_dirty_layout_until_rebound() {
                 column((label(move || {
                     format!("row {} {}", slot.get(), changed.get())
                 }),))
-                .grow()
+                .grow(Dimension::Both)
             },
         )
         .id(day_core::id!(viewport))
         .row_height(RowHeight::Uniform(40.))
-        .grow()
+        .grow(Dimension::Both)
     });
     let host = probe.find_by_kind("day.list")[0].0;
     for index in 0..256 {
@@ -3894,7 +3902,12 @@ fn reactive_background_patches_the_surface() {
 // `grow_w` makes the surface fill the offered width (a filling pane); the layout honors Flex.
 #[test]
 fn grow_w_fills_the_available_width() {
-    let probe = boot(|| row((label("a").background(Color::hex(0x222222)).grow_w(),)).any());
+    let probe = boot(|| {
+        row((label("a")
+            .background(Color::hex(0x222222))
+            .grow(Dimension::Width),))
+        .any()
+    });
     let surface = probe
         .find_by_kind("day.container")
         .into_iter()
@@ -4750,11 +4763,11 @@ fn inspector_list_can_own_its_bounded_scroll_view() {
                 label(move || n.get().to_string())
             })
             .row_height(RowHeight::Uniform(44.0))
-            .grow()
+            .grow(Dimension::Both)
         })
         .padding(4.0)
         .not_scrollable()
-        .grow()
+        .grow(Dimension::Both)
     });
     assert_eq!(probe.find_by_kind("day.list").len(), 1);
     assert!(
@@ -6167,7 +6180,7 @@ fn open_window_builds_and_lays_out_at_its_own_size() {
     let probe = boot(|| label("main").any());
     let handle = day_core::open_window(win_options("second", 300.0, 200.0), || {
         column((label("in window").id(day_core::id!(w2_label)),))
-            .grow()
+            .grow(Dimension::Both)
             .any()
     });
     flush_sync();
@@ -6223,9 +6236,9 @@ fn cross_window_find_and_tap_by_id() {
 
 #[test]
 fn window_resize_relayouts_only_that_window() {
-    let probe = boot(|| column((label("main"),)).grow().any());
+    let probe = boot(|| column((label("main"),)).grow(Dimension::Both).any());
     day_core::open_window(win_options("second", 300.0, 200.0), || {
-        column((label("w2"),)).grow().any()
+        column((label("w2"),)).grow(Dimension::Both).any()
     });
     flush_sync();
     let node = probe.windows()[0].node;
@@ -6512,7 +6525,7 @@ fn preferences_fallback_adapts_to_width_without_changing_other_windows() {
         probe.clear_log();
         let window = day_core::open_window(
             win_options("Fixture settings", 520.0, 640.0).kind(kind),
-            || label("fixture modal content").grow().any(),
+            || label("fixture modal content").grow(Dimension::Both).any(),
         );
         flush_sync();
         assert!(probe.log().iter().any(|entry| entry.contains("day.cover")
@@ -11487,7 +11500,7 @@ fn tree_native_header_height_survives_rebinding() {
             move |_| {
                 row((label(move || title.get()).height(12.0),))
                     .align(VAlign::Center)
-                    .grow()
+                    .grow(Dimension::Both)
             },
         )
         .row_height(RowHeight::Uniform(48.0))
@@ -11969,7 +11982,7 @@ fn scripted_tap_by_id_reaches_only_that_elements_handler() {
                 .on_tap(move || opened.set(Some(i)))
                 .a11y(move |a| a.label(format!("Tile {i}")))
                 .id(day_core::id!(tile, i))
-                .grow_w()
+                .grow(Dimension::Width)
         };
         column((
             row((tile(0), tile(1), tile(2)))
@@ -12345,4 +12358,132 @@ fn reactive_cursor_may_read_the_tree() {
     let labels = probe.find_by_kind("day.label");
     assert_eq!(labels.len(), 1);
     assert_eq!(labels[0].1.cursor, Some(day_spec::Cursor::Pointer));
+}
+
+// Alignment fixtures use synthetic text and the mock toolkit's 8×16 label metrics.
+#[test]
+fn aligned_places_intrinsic_content_at_each_anchor_without_native_wrappers() {
+    use day_spec::Rect;
+    let native_containers = boot(|| label("xx")).find_by_kind("day.container").len();
+    for (alignment, x, y) in [
+        (Alignment::TopLeading, 0., 0.),
+        (Alignment::Top, 192., 0.),
+        (Alignment::TopTrailing, 384., 0.),
+        (Alignment::Leading, 0., 292.),
+        (Alignment::Center, 192., 292.),
+        (Alignment::Trailing, 384., 292.),
+        (Alignment::BottomLeading, 0., 584.),
+        (Alignment::Bottom, 192., 584.),
+        (Alignment::BottomTrailing, 384., 584.),
+    ] {
+        let probe = boot(move || label("xx").aligned(alignment).grow(Dimension::Both));
+        let labels = probe.find_by_kind("day.label");
+        assert_eq!(
+            labels[0].1.frame,
+            Rect::new(x, y, 16., 16.),
+            "{alignment:?}"
+        );
+        assert_eq!(probe.find_by_kind("day.container").len(), native_containers);
+    }
+}
+
+#[test]
+fn aligned_respects_modifier_order_and_expansion_dimensions() {
+    for (dimension, width, height) in [
+        (Dimension::Width, 400., 16.),
+        (Dimension::Height, 16., 600.),
+        (Dimension::Both, 400., 600.),
+    ] {
+        // The row's leading/top placement lets the growing wrapper request each dimension.
+        let probe = boot(move || {
+            row((label("xx").aligned(Alignment::Center).grow(dimension),)).align(VAlign::Top)
+        });
+        let frame = probe.find_by_kind("day.label")[0].1.frame;
+        assert_eq!(frame.size, Size::new(16., 16.));
+        assert_eq!(frame.origin.x, (width - 16.) / 2.);
+        assert_eq!(frame.origin.y, (height - 16.) / 2.);
+    }
+    let probe = boot(|| label("xx").grow(Dimension::Both).aligned(Alignment::Center));
+    assert_eq!(
+        probe.find_by_kind("day.label")[0].1.frame.size,
+        Size::new(400., 600.)
+    );
+}
+
+#[test]
+fn aligned_leading_tracks_rtl_without_double_mirroring() {
+    use day_geometry::LayoutDirection;
+    for (direction, x) in [(LayoutDirection::Ltr, 0.), (LayoutDirection::Rtl, 384.)] {
+        day_core::set_layout_direction(direction);
+        let probe = boot(|| {
+            label("xx")
+                .aligned(Alignment::Leading)
+                .grow(Dimension::Both)
+        });
+        assert_eq!(probe.find_by_kind("day.label")[0].1.frame.origin.x, x);
+    }
+    day_core::set_layout_direction(LayoutDirection::Ltr);
+}
+
+#[test]
+fn aligned_forwards_offset_baseline_through_sizing_wrappers() {
+    for mode in 0..3 {
+        let probe = boot(move || {
+            let aligned = label("aligned").aligned(Alignment::Bottom);
+            let sized = match mode {
+                0 => aligned.height(60.).any(),
+                1 => aligned.grow(Dimension::Height).any(),
+                _ => aligned.aspect_ratio(2.).any(),
+            };
+            row((label("plain"), sized)).align(VAlign::FirstBaseline)
+        });
+        let labels = probe.find_by_kind("day.label");
+        assert_eq!(
+            labels[0].1.frame.origin.y, labels[1].1.frame.origin.y,
+            "mode {mode}"
+        );
+        assert_eq!(labels[1].1.frame.size.height, 16.);
+    }
+}
+
+#[test]
+fn aligned_preserves_overflow_and_unbounded_scroll_content() {
+    let probe = boot(|| {
+        label("x")
+            .width(500.)
+            .aligned(Alignment::Trailing)
+            .grow(Dimension::Both)
+    });
+    let frame = probe.find_by_kind("day.label")[0].1.frame;
+    assert_eq!(frame.origin.x, 0.);
+    assert_eq!(frame.size.width, 500.);
+    let probe = boot(|| {
+        scroll(column((label("xx")
+            .aligned(Alignment::Center)
+            .grow(Dimension::Both),)))
+    });
+    let frame = probe.find_by_kind("day.label")[0].1.frame;
+    // Scroll placement grants at least the viewport height, even after unbounded measurement.
+    assert_eq!(frame.origin.y, 292.);
+    assert_eq!(
+        probe.find_by_kind("day.scroll")[0].1.scroll_content.height,
+        600.
+    );
+}
+
+#[test]
+fn aligned_repositions_after_reactive_text_changes() {
+    let text = Signal::new("xx".to_string());
+    let probe = boot(move || {
+        label(text)
+            .aligned(Alignment::Center)
+            .grow(Dimension::Width)
+    });
+    let label = probe.find_by_kind("day.label")[0].0;
+    assert_eq!(probe.widget(label).frame.origin.x, 192.);
+    text.set("xxxx".to_string());
+    flush_sync();
+    let frame = probe.widget(label).frame;
+    assert_eq!(frame.origin.x, 184.);
+    assert_eq!(frame.size.width, 32.);
 }

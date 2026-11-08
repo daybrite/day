@@ -35,7 +35,7 @@ pub fn root() -> AnyPiece {
             })
             .id(day_core::id!(mount_tabs)),
         label(move || format!("Generation {}", reset.get())),
-        when(move || mounted.get(), tabs).grow(),
+        when(move || mounted.get(), tabs).grow(Dimension::Both),
     ))
     .any()
 }
@@ -142,7 +142,7 @@ fn scroll_probe() -> impl Piece {
             .padding(8.),
         )
         .id(day_core::id!(probe_scroll))
-        .grow(),
+        .grow(Dimension::Both),
     ))
     .spacing(8.)
     .padding(12.)

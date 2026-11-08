@@ -1,0 +1,55 @@
+---
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: CC-BY-SA-4.0
+// Static illustration: the drawn controls are not interactive or keyboard stops.
+---
+<figure class="accessibility-illustration" role="img" aria-label="An audio player illustrates keyboard focus and accessibility information. The focused volume slider has the name Volume, role Slider, and value 40 percent.">
+  <div aria-hidden="true">
+    <div class="player">
+      <div class="track">
+        <svg class="artwork" viewBox="0 0 64 64" fill="none"><path d="M12 29v6m8-14v22m8-30v38m8-32v26m8-21v16m8-13v10" stroke="currentColor" stroke-width="3" stroke-linecap="round" /></svg>
+        <div><strong>A quieter afternoon</strong><span class="subtitle">Field recordings</span></div>
+      </div>
+      <div class="controls">
+        <span class="play"><svg viewBox="0 0 24 24"><path d="m9 5 11 7-11 7Z" fill="currentColor" /></svg></span>
+        <div class="volume">
+          <div class="volume-label"><span>Volume</span><span>40%</span></div>
+          <div class="slider"><span></span><i></i></div>
+        </div>
+      </div>
+      <div class="keyboard"><kbd>Tab ⇥</kbd><span>Move between controls</span></div>
+    </div>
+    <div class="connector"></div>
+    <div class="readout">
+      <div><span>Name</span><strong>Volume</strong></div>
+      <div><span>Role</span><strong>Slider</strong></div>
+      <div><span>Value</span><strong>40%</strong></div>
+    </div>
+    <p class="caption">Labels and values that assistive tools can read</p>
+  </div>
+</figure>
+<style>
+  .accessibility-illustration { margin: 0; padding: clamp(18px, 4vw, 32px); border: 1px solid var(--border); border-radius: 20px; background: linear-gradient(145deg, color-mix(in srgb, var(--brand) 9%, var(--surface)), var(--surface)); }
+  .player { padding: 22px; border: 1px solid var(--border); border-radius: 14px; background: var(--surface); }
+  .track { display: flex; align-items: center; gap: 14px; }
+  .artwork { width: 56px; height: 56px; flex: 0 0 auto; border-radius: 12px; color: var(--brand); background: color-mix(in srgb, var(--brand) 12%, var(--surface)); }
+  .track strong { display: block; font-size: .95rem; font-weight: 600; line-height: 1.4; }
+  .subtitle { display: block; color: var(--muted); font-size: .8rem; margin-top: 4px; }
+  .controls { display: flex; align-items: center; gap: 20px; margin: 24px 0; }
+  .play { display: grid; place-items: center; flex: 0 0 42px; height: 42px; border-radius: 50%; background: var(--brand-strong); color: white; }
+  .play svg { width: 22px; height: 22px; margin-left: -2px; }
+  .volume { flex: 1; padding: 9px 12px 14px; border-radius: 8px; outline: 2px solid var(--brand); outline-offset: 4px; }
+  .volume-label { display: flex; justify-content: space-between; gap: 8px; font-size: .8rem; }
+  .slider { position: relative; height: 5px; margin-top: 14px; border-radius: 4px; background: var(--border); }
+  .slider span { display: block; width: 40%; height: 100%; border-radius: inherit; background: var(--brand); }
+  .slider i { position: absolute; left: 40%; top: 50%; transform: translate(-50%, -50%); width: 15px; height: 15px; border-radius: 50%; background: var(--surface); border: 2px solid var(--brand); }
+  .keyboard { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: .75rem; }
+  kbd { padding: 3px 7px; border: 1px solid var(--border); border-bottom-width: 2px; border-radius: 5px; font: inherit; white-space: nowrap; color: var(--text); }
+  .connector { height: 20px; width: 1px; margin: auto; background: var(--brand); opacity: .5; }
+  .readout { display: grid; grid-template-columns: repeat(3, 1fr); padding: 14px 8px; border: 1px solid color-mix(in srgb, var(--brand) 30%, var(--border)); border-radius: 10px; background: var(--surface); text-align: center; }
+  .readout div + div { border-left: 1px solid var(--border); }
+  .readout span { display: block; color: var(--muted); font-size: .7rem; margin-bottom: 4px; }
+  .readout strong { font-size: .85rem; font-weight: 600; }
+  .caption { text-align: center; margin: 12px 0 0; color: var(--muted); font-size: .75rem; line-height: 1.5; }
+  @media (max-width: 400px) { .player { padding: 16px; } .controls { gap: 16px; } }
+</style>

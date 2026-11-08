@@ -1385,9 +1385,9 @@ fn section_sidebar<K: Route, S: Binding<K>>(
                         row((label(move || slot.field(|r| r.title.clone()))
                             .font(day_spec::Font::Caption)
                             .single_line()
-                            .grow_w(),))
+                            .grow(Dimension::Width),))
                         .align(VAlign::Center)
-                        .grow()
+                        .grow(Dimension::Both)
                         .any()
                     },
                 )
@@ -1403,7 +1403,7 @@ fn section_sidebar<K: Route, S: Binding<K>>(
                         ),
                         label(move || slot.field(|r| r.title.clone()))
                             .single_line()
-                            .grow_w(),
+                            .grow(Dimension::Width),
                         label(move || slot.field(|r| r.badge.clone().unwrap_or_default()))
                             .font(day_spec::Font::Caption),
                         when(
@@ -1415,10 +1415,10 @@ fn section_sidebar<K: Route, S: Binding<K>>(
                     .align(VAlign::Center)
                     // The surrounding `when` fills the native cell. Its content must
                     // fill the height too, so centering uses the entire selection row.
-                    .grow()
+                    .grow(Dimension::Both)
                     .any()
                 })
-                .grow()
+                .grow(Dimension::Both)
                 .build(cx);
                 with_tree(|t| {
                     t.set_context_menu_fn(node, Rc::new(move |_| slot.field(|r| r.menu.clone())))
@@ -1469,7 +1469,7 @@ fn section_sidebar<K: Route, S: Binding<K>>(
     })
     .row_id(|id| day_core::id!(sidebar, id))
     .id(day_core::id!(nav_sections))
-    .grow()
+    .grow(Dimension::Both)
     .any()
 }
 
@@ -1547,7 +1547,7 @@ fn reorder_sidebar<K: Route, S: Binding<K>>(
                         label(move || slot.field(|r| r.title.clone()))
                             .font(day_spec::Font::Caption)
                             .padding(day_spec::Insets::symmetric(8.0, 0.0))
-                            .grow_w()
+                            .grow(Dimension::Width)
                     },
                 )
                 .otherwise(move || {
@@ -1562,7 +1562,7 @@ fn reorder_sidebar<K: Route, S: Binding<K>>(
                         ),
                         label(move || slot.field(|r| r.title.clone()))
                             .single_line()
-                            .grow_w(),
+                            .grow(Dimension::Width),
                         label(move || slot.field(|r| r.badge.clone().unwrap_or_default()))
                             .font(day_spec::Font::Caption),
                         when(
@@ -1573,10 +1573,10 @@ fn reorder_sidebar<K: Route, S: Binding<K>>(
                     .spacing(8.0)
                     .align(VAlign::Center)
                     .padding(day_spec::Insets::symmetric(8.0, 0.0))
-                    .grow_w()
+                    .grow(Dimension::Width)
                 }),))
                 .align(VAlign::Center)
-                .grow()
+                .grow(Dimension::Both)
                 .id_of(move || day_core::id!(sidebar, slot.field(|r| r.id.clone())))
                 .on_tap(move || {
                     if let Some(key) = slot.field(|r| r.key.clone()) {
@@ -1657,7 +1657,7 @@ fn reorder_sidebar<K: Route, S: Binding<K>>(
         }
     })
     .id(day_core::id!(nav_reorder_list))
-    .grow()
+    .grow(Dimension::Both)
     .any()
 }
 
@@ -3094,7 +3094,7 @@ fn gated_detail_nested<K: Route>(cfg: GatedDetail<K>) -> impl Piece {
                 day_spec::ToolbarColumn::List,
                 || {
                     let mut pcx = BuildCx::new(root_page);
-                    let _ = (cfg.list)().grow().build(&mut pcx);
+                    let _ = (cfg.list)().grow(Dimension::Both).build(&mut pcx);
                 },
             );
         });
@@ -3146,7 +3146,7 @@ fn gated_detail_merged<K: Route>(cfg: GatedDetail<K>) -> impl Piece {
         };
         let node = with_nav_host(Some(target.clone()), || {
             day_core::with_page_gated(page, Some(covered), day_spec::ToolbarColumn::List, || {
-                (cfg.list)().grow().build(cx)
+                (cfg.list)().grow(Dimension::Both).build(cx)
             })
         });
         wire_gated_detail(&cfg, target);
@@ -3220,7 +3220,7 @@ fn wire_gated_detail<K: Route>(cfg: &GatedDetail<K>, target: NavHostCx) {
                 with_nav_host(Some(tc), || {
                     day_core::with_page(page, || {
                         let mut c = BuildCx::new(page);
-                        let _ = content.grow().build(&mut c);
+                        let _ = content.grow(Dimension::Both).build(&mut c);
                     });
                 });
             });
@@ -3943,7 +3943,9 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Nav<S, K>, cx: &mut BuildCx) -> 
                 .any(),
         };
         let content = match sel.footer {
-            Some(footer) => column((content.grow(), footer())).grow().any(),
+            Some(footer) => column((content.grow(Dimension::Both), footer()))
+                .grow(Dimension::Both)
+                .any(),
             None => content,
         };
         with_nav_host(Some(host_cx.clone()), || {
@@ -4078,7 +4080,11 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Nav<S, K>, cx: &mut BuildCx) -> 
                         let (l, i, k) = (l1.clone(), i1.clone(), k1.clone());
                         PageContext::enter(
                             &page,
-                            row((l().width(width).grow_h(), i.build_page(&k).grow())).grow(),
+                            row((
+                                l().width(width).grow(Dimension::Height),
+                                i.build_page(&k).grow(Dimension::Both),
+                            ))
+                            .grow(Dimension::Both),
                         )
                     }
                 },

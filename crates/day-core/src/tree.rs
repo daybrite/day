@@ -1665,7 +1665,7 @@ impl<B: Toolkit> TreeOps for Tree<B> {
             kinds.push(kind);
         }
         // `.on_tap`/`.on_drag` often land on a layout-only wrapper (`.frame()`, `.padding()`,
-        // `.grow()` produce one) that has no native view to carry a recognizer. Descend
+        // `.grow(Dimension::Both)` produce one) that has no native view to carry a recognizer. Descend
         // through single-child layout-only nodes to the nearest native descendant and attach
         // there, but deliver events against the original node, where the modifier registered
         // its handler.

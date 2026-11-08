@@ -43,7 +43,7 @@ export const hubs = [
   { route: '/community', title: 'Community', description: 'Discuss app development, report bugs, and share Day apps and extensions.', audience: 'evaluator' },
 ];
 
-export const fixedRoutes = ['/', '/gallery', '/showcase', '/privacy', '/examples', '/docs/reference/api'];
+export const fixedRoutes = ['/', '/gallery', '/showcase', '/blog', '/privacy', '/examples', '/docs/reference/api'];
 export const groups = [
   { name: 'Tutorials', route: '/docs/tutorials', audience: 'app developer', sequential: true },
   { name: 'How-to guides', route: '/docs/how-to', audience: 'app developer' },

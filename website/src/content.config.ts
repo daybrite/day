@@ -40,4 +40,20 @@ const repository = defineCollection({
   schema: z.object({ title: z.string().optional(), description: z.string().optional(), order: z.number().optional() }),
 });
 
-export const collections = { docs, internal, repository };
+// Folder drafts never enter the production collection, even with incomplete frontmatter.
+const blog = defineCollection({
+  loader: glob({
+    pattern: import.meta.env.DEV ? '**/*.{md,mdx}' : ['**/*.{md,mdx}', '!**/drafts/**'],
+    base: './src/content/blog',
+  }),
+  schema: z.object({
+    title: z.string(),
+    description: z.string(),
+    pubDate: z.coerce.date(),
+    updatedDate: z.coerce.date().optional(),
+    author: z.string().optional(),
+    draft: z.boolean().default(false),
+  }),
+});
+
+export const collections = { docs, internal, repository, blog };

@@ -449,7 +449,7 @@ fn panel<C: Binding<Color>>(
                 .action(close)
                 .id(day_core::id!(color_picker_done)),
         ))
-        .grow_w()
+        .grow(Dimension::Width)
         .any(),
     );
 
@@ -472,7 +472,7 @@ fn panel<C: Binding<Color>>(
     // column has nothing to overflow.
     column((spacer(), card, spacer()))
         .align(HAlign::Center)
-        .grow()
+        .grow(Dimension::Both)
         .any()
 }
 
@@ -612,7 +612,7 @@ fn preset_row(
     row(swatches)
         .spacing(6.0)
         .fit(RowFit::Wrap { run_spacing: 6.0 })
-        .grow_w()
+        .grow(Dimension::Width)
         .id(day_core::id!(color_picker_presets))
         .any()
 }

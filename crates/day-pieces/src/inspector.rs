@@ -391,7 +391,7 @@ fn build_composed<V: Binding<bool>>(inspector: Inspector<V>, cx: &mut BuildCx) -
                     ))
                 },
             ),
-            content.grow(),
+            content.grow(Dimension::Both),
         ))
         .build(cx);
     }
@@ -405,7 +405,7 @@ fn build_composed<V: Binding<bool>>(inspector: Inspector<V>, cx: &mut BuildCx) -
         width,
         show_pane.clone(),
         (
-            content.grow(),
+            content.grow(Dimension::Both),
             // The side pane: mounted only while visible on a non-compact window, so the compact
             // home (the sheet below) is never doubled. Its width is the split's to decide
             // (`pane_width`), so the row fills whatever it is proposed.
@@ -413,12 +413,12 @@ fn build_composed<V: Binding<bool>>(inspector: Inspector<V>, cx: &mut BuildCx) -
             // pane's full height.
             column((when(show_pane, move || {
                 row((
-                    divider().width(1.0).grow_h(),
-                    panel_content(side_panel(), scrollable).grow(),
+                    divider().width(1.0).grow(Dimension::Height),
+                    panel_content(side_panel(), scrollable).grow(Dimension::Both),
                 ))
-                .grow()
+                .grow(Dimension::Both)
             }),))
-            .grow(),
+            .grow(Dimension::Both),
             // The compact home: a sheet, fullscreen or (`half_sheet`) half-height over the
             // content it describes. Unrouted, because the inspector is chrome, not a place
             // (`Cover::unrouted`), and carrying its own way out, since a modal has no divider
@@ -434,7 +434,7 @@ fn build_composed<V: Binding<bool>>(inspector: Inspector<V>, cx: &mut BuildCx) -
                                 .id(day_core::id!(day_inspector_done)),
                         ))
                         .padding(Insets::symmetric(12.0, 8.0)),
-                        panel_content(sheet_panel(), scrollable).grow(),
+                        panel_content(sheet_panel(), scrollable).grow(Dimension::Both),
                     ))
                 })
                 .unrouted();

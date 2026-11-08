@@ -605,7 +605,7 @@ impl PdfDocument {
 ///
 /// ```ignore
 /// zstack((
-///     canvas(move |d, sz| draw(d, sz, state)).grow(),
+///     canvas(move |d, sz| draw(d, sz, state)).grow(Dimension::Both),
 ///     frame_clock(move |dt| step(dt, state)),
 /// ))
 /// ```

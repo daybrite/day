@@ -6,7 +6,7 @@
 
 use crate::{Decorate, IntoText, NavStyle, Route, TextSource, item, nav};
 use day_core::with_tree;
-use day_core::{AnyPiece, BuildCx, Piece, RNode};
+use day_core::{AnyPiece, BuildCx, Dimension, Piece, RNode};
 use day_reactive::{Signal, batch};
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -431,7 +431,7 @@ impl<K: Route> Piece for DocumentTabs<K> {
                         .id(day_core::id!(document_new, prefix.as_str()))
                 },
             );
-            AnyPiece::new(crate::row((strip.grow(), add)).spacing(4.0))
+            AnyPiece::new(crate::row((strip.grow(Dimension::Both), add)).spacing(4.0))
         };
         let bar = AnyPiece::new(crate::when(
             move || !native(),
@@ -442,7 +442,7 @@ impl<K: Route> Piece for DocumentTabs<K> {
         ));
         let root = match layout {
             Some(build) => build(bar, host).build(cx),
-            None => crate::column((bar, host.grow())).build(cx),
+            None => crate::column((bar, host.grow(Dimension::Both))).build(cx),
         };
         if window_tabs {
             install_window_tabs(
@@ -1062,7 +1062,7 @@ pub(crate) mod conformance {
                     .id(day_core::id!(closes)),
             ))
             .spacing(8.0),
-            host.grow(),
+            host.grow(Dimension::Both),
         ))
         .spacing(8.0)
     }
@@ -1521,11 +1521,11 @@ pub(crate) mod conformance {
                     ))
                     .id(day_core::id!(custom_bar))
                 })
-                .layout(|bar, content| column((content.grow(), bar)));
+                .layout(|bar, content| column((content.grow(Dimension::Both), bar)));
                 column((
                     label(move || format!("selected {}", tabs.selected().unwrap_or("none".into())))
                         .id(day_core::id!(selected)),
-                    host.grow(),
+                    host.grow(Dimension::Both),
                 ))
             })
             .drive(|d: Drive| async move {

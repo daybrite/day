@@ -42,7 +42,7 @@ split(request_form(), response_view())
 - [`.min_pane(points)`](https://docs.rs/day-pieces/latest/day_pieces/trait.SplitBuilder.html#tymethod.min_pane) is the least length either pane can be dragged to (default 80).
 
 The split is greedy: it takes whatever its parent proposes on both axes, the way a nav host
-does, so it goes where a [`.grow()`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.grow) child would.
+does, so it goes where a [`.grow(Dimension::Both)`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.grow) child would.
 
 ## Native and composed
 

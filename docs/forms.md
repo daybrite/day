@@ -51,7 +51,7 @@ form((
 - [`labeled(text, control)`](https://docs.rs/day-pieces/latest/day_pieces/fn.labeled.html) — one form row: the label sits right-aligned in the form-wide column,
   on the same text baseline as the control ([docs/baseline](baseline.md); centered instead when either side
   has no baseline, e.g. a toggle, or on a toolkit that reports none); the control starts at the
-  column edge + 12. A control marked [`.grow()`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.grow)
+  column edge + 12. A control marked [`.grow(Dimension::Both)`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.grow)
   (text fields, sliders, or a [`row(( … ))`](https://docs.rs/day-pieces/latest/day_pieces/fn.row.html) wrapper) stretches to the row's remaining width;
   others hug their natural size. Outside a [`form`](https://docs.rs/day-pieces/latest/day_pieces/fn.form.html), the column is just that row's own label width.
   A control whose natural width does not fit beside the column — a two-button stepper in a

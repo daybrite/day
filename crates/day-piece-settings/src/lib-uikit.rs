@@ -222,8 +222,8 @@ fn row_parts(inst: Rc<Installed>, r: &Row) -> RowParts {
             // The slider fills the width its row leaves: the whole content width under the
             // title in a grouped cell, the title column's remainder in the standalone row.
             let ctl = match &id {
-                Some(i) => s.id(i.clone()).grow_w().any(),
-                None => s.grow_w().any(),
+                Some(i) => s.id(i.clone()).grow(Dimension::Width).any(),
+                None => s.grow(Dimension::Width).any(),
             };
             let ctl = match value_text {
                 Some(f) => {
@@ -238,7 +238,7 @@ fn row_parts(inst: Rc<Installed>, r: &Row) -> RowParts {
                     row((ctl, value_label))
                         .spacing(8.0)
                         .align(VAlign::Center)
-                        .grow_w()
+                        .grow(Dimension::Width)
                         .any()
                 }
                 None => ctl,
@@ -268,10 +268,10 @@ fn row_parts(inst: Rc<Installed>, r: &Row) -> RowParts {
                 Some(i) => f
                     .enabled(enabled_fn)
                     .id(i.clone())
-                    .grow_w()
+                    .grow(Dimension::Width)
                     .min_width(FIELD_MIN)
                     .any(),
-                None => f.enabled(enabled_fn).grow_w().min_width(FIELD_MIN).any(),
+                None => f.enabled(enabled_fn).grow(Dimension::Width).min_width(FIELD_MIN).any(),
             };
             parts.control(ctl, Host::Accessory)
         }
@@ -2228,7 +2228,7 @@ pub(super) fn about_page(inst: Rc<Installed>) -> Option<AnyPiece> {
         column(head)
             .spacing(6.0)
             .align(HAlign::Center)
-            .grow_w()
+            .grow(Dimension::Width)
             .any(),
     )]));
 
@@ -2285,7 +2285,7 @@ pub(super) fn about_page(inst: Rc<Installed>) -> Option<AnyPiece> {
                 .secondary()
                 .align(day_spec::props::TextAlign::Center)
                 .id(day_core::id!(about_copyright))
-                .grow_w()
+                .grow(Dimension::Width)
                 .any(),
         )]));
     }

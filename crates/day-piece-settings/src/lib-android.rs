@@ -573,8 +573,8 @@ pub(super) fn row_piece(inst: Rc<Installed>, r: &Row, _desktop: bool) -> Option<
             // `set_value` must reach the control, not a wrapper. The stretch goes on the
             // outermost wrapper, so the slider spans the row the way a SeekBarPreference does.
             let ctl = match &id {
-                Some(i) => s.id(i.clone()).min_width(140.0).grow_w().any(),
-                None => s.min_width(140.0).grow_w().any(),
+                Some(i) => s.id(i.clone()).min_width(140.0).grow(Dimension::Width).any(),
+                None => s.min_width(140.0).grow(Dimension::Width).any(),
             };
             let ctl = match value_text {
                 Some(f) => {
@@ -583,7 +583,7 @@ pub(super) fn row_piece(inst: Rc<Installed>, r: &Row, _desktop: bool) -> Option<
                     row((ctl, label(move || f(v.get())).tabular().secondary()))
                         .spacing(8.0)
                         .align(VAlign::Center)
-                        .grow_w()
+                        .grow(Dimension::Width)
                         .any()
                 }
                 None => ctl,
@@ -614,8 +614,8 @@ pub(super) fn row_piece(inst: Rc<Installed>, r: &Row, _desktop: bool) -> Option<
             // The id on the field itself (see the slider): `input` must reach the EditText.
             let f = f.enabled(enabled_fn);
             let ctl = match &id {
-                Some(i) => f.id(i.clone()).grow_w().min_width(160.0).any(),
-                None => f.grow_w().min_width(160.0).any(),
+                Some(i) => f.id(i.clone()).grow(Dimension::Width).min_width(160.0).any(),
+                None => f.grow(Dimension::Width).min_width(160.0).any(),
             };
             NativeRow::of(r).control(ctl).any()
         }
@@ -787,7 +787,7 @@ fn body(lines: Vec<AnyPiece>, id: day_core::ElementId) -> AnyPiece {
             bottom: PAGE_BOTTOM,
             trailing: 0.0,
         })
-        .grow_w()
+        .grow(Dimension::Width)
         .id(id)
         .any()
 }
@@ -892,7 +892,7 @@ pub(super) fn about_page(inst: Rc<Installed>) -> Option<AnyPiece> {
         column(hero)
             .spacing(6.0)
             .align(HAlign::Center)
-            .grow_w()
+            .grow(Dimension::Width)
             .any(),
         spacer().frame(1.0, HERO_PAD).any(),
     ];

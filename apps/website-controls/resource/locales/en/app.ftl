@@ -1,5 +1,6 @@
 app_title = Shared signal
-current_value = Value: { $value }
-adjust = Slide
-edit = Step
+value = Value: { NUMBER($value, style: "percent", maximumFractionDigits: 0) }
+percentage = { NUMBER($value, style: "percent", maximumFractionDigits: 0) }
+slide = Slide
+step = Step
 reset = Reset

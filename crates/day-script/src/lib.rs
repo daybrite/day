@@ -2447,7 +2447,7 @@ mod tests {
                 .action(move || presses.update(|n| *n += 1))
                 .id(day_core::id!(remove_fixture))
                 .height(50.)
-                .grow_w()
+                .grow(Dimension::Width)
                 .any()
         });
         let tap = |id, optional| {
@@ -2497,7 +2497,7 @@ mod tests {
                 .action(move || presses.update(|n| *n += 1))
                 .id(day_core::id!(fixture_download))
                 .height(50.)
-                .grow_w()
+                .grow(Dimension::Width)
                 .any()
         });
         let tap = || {

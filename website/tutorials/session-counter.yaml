@@ -366,7 +366,7 @@ lessons:
               ))
               .spacing(Space::M)
               .padding(Space::L)
-              .grow()
+              .grow(Dimension::Both)
           }
       - id: launch
         kind: launch
@@ -434,7 +434,7 @@ lessons:
                   .item("summary", res::str::nav_summary(), move || {
                       summary_page(count)
                   })
-                  .grow()
+                  .grow(Dimension::Both)
           }
 
           fn counter_page(count: Signal<i64>) -> impl Piece {
@@ -453,7 +453,7 @@ lessons:
               ))
               .spacing(Space::M)
               .padding(Space::L)
-              .grow()
+              .grow(Dimension::Both)
           }
 
           fn summary_page(count: Signal<i64>) -> impl Piece {
@@ -463,7 +463,7 @@ lessons:
               ))
               .spacing(Space::M)
               .padding(Space::L)
-              .grow()
+              .grow(Dimension::Both)
           }
       - id: launch
         kind: launch
@@ -539,7 +539,7 @@ lessons:
                   .item("summary", res::str::nav_summary(), move || {
                       summary_page(count)
                   })
-                  .grow()
+                  .grow(Dimension::Both)
           }
 
           fn counter_page(count: Signal<i64>) -> impl Piece {
@@ -559,7 +559,7 @@ lessons:
               ))
               .spacing(Space::M)
               .padding(Space::L)
-              .grow()
+              .grow(Dimension::Both)
           }
 
           fn summary_page(count: Signal<i64>) -> impl Piece {
@@ -570,7 +570,7 @@ lessons:
               ))
               .spacing(Space::M)
               .padding(Space::L)
-              .grow()
+              .grow(Dimension::Both)
           }
       - id: launch
         kind: launch

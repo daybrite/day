@@ -162,7 +162,7 @@ fn vector_resize_retains_fine_detail() -> Case {
                         vector(res::vectors::vector_detail)
                             .tint(Color::hex(0xff0000))
                             .height(128.0)
-                            .grow_w()
+                            .grow(Dimension::Width)
                             // The sized box, not the vector's own node.
                             .wrapper_id(day::id!(detail)),
                         when(move || compact.get(), || spacer().width(768.0)),

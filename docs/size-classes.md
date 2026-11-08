@@ -244,7 +244,7 @@ longer exists. Release builds skip the check entirely.
 `Wrap` breaks onto additional lines where the next child would overflow, like wrapped text, the
 shape a chip row, a button strip, or a tag cloud wants. Lines are `run_spacing` apart, and
 children align within their line via [`.align(VAlign::…)`](https://docs.rs/day-pieces/latest/day_pieces/trait.AdaptiveBuilder.html#tymethod.align). Wrapping replaces main-axis
-negotiation, so [`.grow()`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.grow) and [`spacer()`](https://docs.rs/day-pieces/latest/day_pieces/fn.spacer.html) are inert, and a single child wider than the window
+negotiation, so [`.grow(Dimension::Both)`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.grow) and [`spacer()`](https://docs.rs/day-pieces/latest/day_pieces/fn.spacer.html) are inert, and a single child wider than the window
 still overflows.
 
 `WrapColumns` wraps the same way but into aligned columns: every cell takes the widest child's
@@ -259,7 +259,7 @@ Wrap          [Item 1][ Item 2 ][Item 3][ Item 4 ]     WrapColumns   [ Item 1 ][
 
 The column count follows the available width, so it re-flows as the window changes. Left at
 that, the columns keep the widest child's width and whatever width is left over trails the last
-column. When any child grows ([`.grow_w()`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.grow_w)), the widest child's width becomes the narrowest a column
+column. When any child grows ([`.grow(Dimension::Width)`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.grow)), the widest child's width becomes the narrowest a column
 gets instead, and the columns stretch to share the whole width. That is the adaptive grid a
 gallery of tiles wants, SwiftUI's `GridItem(.adaptive(minimum:))`: tiles that can grow fill each
 line edge to edge, and a line with fewer tiles than columns leaves the rest of its columns
@@ -270,7 +270,7 @@ cells take the window's width and their text wraps.
 row((tiles,))
     .spacing(Space::L)
     .fit(RowFit::WrapColumns { run_spacing: 16.0 })
-// each tile: …min_width(120.0).grow_w(), with anything inside that should scale sized from it
+// each tile: …min_width(120.0).grow(Dimension::Width), with anything inside that should scale sized from it
 ```
 
 An authored, fixed column count with per-cell spans is a different job; that is

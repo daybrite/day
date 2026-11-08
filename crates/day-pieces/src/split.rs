@@ -407,8 +407,12 @@ pub(crate) mod conformance {
                         .action(move || share.set(0.25))
                         .id(day_core::id!(quarter)),
                     split(
-                        column((label("First"),)).grow().id(day_core::id!(first)),
-                        column((label("Second"),)).grow().id(day_core::id!(second)),
+                        column((label("First"),))
+                            .grow(Dimension::Both)
+                            .id(day_core::id!(first)),
+                        column((label("Second"),))
+                            .grow(Dimension::Both)
+                            .id(day_core::id!(second)),
                     )
                     .fraction(share)
                     .width(400.0)
@@ -452,8 +456,12 @@ pub(crate) mod conformance {
                         .action(move || share.set(0.02))
                         .id(day_core::id!(sliver)),
                     split(
-                        column((label("First"),)).grow().id(day_core::id!(first)),
-                        column((label("Second"),)).grow().id(day_core::id!(second)),
+                        column((label("First"),))
+                            .grow(Dimension::Both)
+                            .id(day_core::id!(first)),
+                        column((label("Second"),))
+                            .grow(Dimension::Both)
+                            .id(day_core::id!(second)),
                     )
                     .fraction(share)
                     .min_pane(80.0)
@@ -493,8 +501,12 @@ pub(crate) mod conformance {
                     // frame assertions read; a native pane's Day frame carries its toolkit
                     // size but not its toolkit position.
                     split(
-                        column((label("First"),)).grow().id(day_core::id!(first)),
-                        column((label("Second"),)).grow().id(day_core::id!(second)),
+                        column((label("First"),))
+                            .grow(Dimension::Both)
+                            .id(day_core::id!(first)),
+                        column((label("Second"),))
+                            .grow(Dimension::Both)
+                            .id(day_core::id!(second)),
                     )
                     .axis(move || {
                         if stacked.get() {

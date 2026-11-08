@@ -1,0 +1,12 @@
+{
+  "blog_nav": "Blog",
+  "blog_title": "The Day Blog",
+  "blog_description": "Updates, announcements, and engineering stories from Day.",
+  "blog_feed_title": "Day Blog RSS feed",
+  "blog_subscribe": "Subscribe via RSS",
+  "blog_back": "All posts",
+  "blog_empty": "No posts yet.",
+  "blog_draft": "Draft",
+  "blog_draft_notice": "Local draft preview. This post is excluded from production builds and the RSS feed.",
+  "blog_updated": "Updated"
+}

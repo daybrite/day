@@ -31,7 +31,7 @@ pub(crate) fn welcome() -> impl Piece {
         ))
         .spacing(Space::L)
         // Fill the pane before padding it, so the column centers in the whole pane.
-        .grow()
+        .grow(Dimension::Both)
         .padding(Space::XL),
     )
 }
@@ -104,9 +104,9 @@ pub(crate) fn item_list() -> impl Piece {
         )
         .a11y(|a| a.label(res::str::nav_items()))
         .id(day::id!(item_list))
-        .grow(),
+        .grow(Dimension::Both),
     ))
-    .grow()
+    .grow(Dimension::Both)
     // The window toolbar holds the field on desktop; a phone shows it with the list.
     .searchable(Search::new(scene.query).prompt(res::str::search_items()))
     .toolbar(
@@ -158,7 +158,7 @@ pub(crate) fn editor() -> impl Piece {
             },
         ),
     ))
-    .grow()
+    .grow(Dimension::Both)
     .toolbar(
         toolbar_button(day::id!(tb_delete), res::str::cmd_delete())
             .icon(Symbol::Delete)

@@ -21,6 +21,7 @@ use crate::prelude::*;
 use day_core::{BuildCx, Flex, Piece, RNode, with_tree};
 use day_reactive::{Binding, bind_seeded};
 use day_spec::{Event, Support};
+use std::rc::Rc;
 
 pub use day_spec::controls::stepper::*;
 
@@ -56,6 +57,14 @@ pub fn fmt_value(v: f64, decimals: u32) -> String {
     format!("{v:.prec$}", prec = decimals as usize)
 }
 
+type ParseValue = Rc<dyn Fn(&str) -> Option<f64>>;
+
+#[derive(Clone)]
+struct ValueFormat {
+    display: Rc<dyn Fn(f64) -> String>,
+    parse: ParseValue,
+}
+
 /// A stepper field bound two-way to a numeric binding. Build with [`stepper`].
 pub struct Stepper<V: Binding<f64>> {
     value: V,
@@ -63,6 +72,7 @@ pub struct Stepper<V: Binding<f64>> {
     max: f64,
     step: f64,
     decimals: u32,
+    format: Option<ValueFormat>,
     idiom: StepperIdiom,
     key: day_core::ElementId,
 }
@@ -77,6 +87,7 @@ pub fn stepper<V: Binding<f64>>(value: V) -> Stepper<V> {
         max: 100.0,
         step: 1.0,
         decimals: 0,
+        format: None,
         idiom: StepperIdiom::Automatic,
         key: day_core::id!(stepper),
     }
@@ -99,12 +110,32 @@ impl<V: Binding<f64>> Stepper<V> {
         self.decimals = decimals;
         self
     }
+    /// Format the editable text and parse committed edits back to the bound number.
+    /// `display` can return a generated Fluent message (`Into<String>`). Reads made by
+    /// the formatter, including the locale, are reactive. `parse` returns `None` for
+    /// invalid input; non-finite results are rejected and finite results clamp to the range.
+    /// Return or focus loss restores the formatted value, including after a rejected edit.
+    ///
+    /// Custom formatting uses the composed − / field / + control on every toolkit,
+    /// overriding the idiom and `.decimals()` settings. Numeric stepping and scripted
+    /// `set_value` still use the bound number, not the displayed units.
+    pub fn format<T: Into<String>>(
+        mut self,
+        display: impl Fn(f64) -> T + 'static,
+        parse: impl Fn(&str) -> Option<f64> + 'static,
+    ) -> Self {
+        self.format = Some(ValueFormat {
+            display: Rc::new(move |v| display(v).into()),
+            parse: Rc::new(parse),
+        });
+        self
+    }
     /// Which control this renders as (see [`StepperIdiom`]).
     pub fn idiom(mut self, idiom: StepperIdiom) -> Self {
         self.idiom = idiom;
         self
     }
-    /// Pin the platform's own widget, [`StepperIdiom::Native`].
+    /// Pin the platform's own widget, [`StepperIdiom::Native`], unless `.format()` is set.
     pub fn native(self) -> Self {
         self.idiom(StepperIdiom::Native)
     }
@@ -128,7 +159,7 @@ impl<V: Binding<f64>> Piece for Stepper<V> {
             StepperIdiom::Native => true,
             StepperIdiom::Automatic => support() == Support::Native,
         };
-        if native {
+        if native && self.format.is_none() {
             build_native(self, cx)
         } else {
             build_composed(self, cx)
@@ -214,6 +245,7 @@ fn build_composed<V: Binding<f64>>(stepper: Stepper<V>, cx: &mut BuildCx) -> RNo
         max,
         step,
         decimals,
+        format,
         key,
         ..
     } = stepper;
@@ -239,6 +271,7 @@ fn build_composed<V: Binding<f64>>(stepper: Stepper<V>, cx: &mut BuildCx) -> RNo
         min: f64,
         max: f64,
         decimals: u32,
+        format: Option<ValueFormat>,
     }
     impl<V: Binding<f64>> Clone for FieldBinding<V> {
         fn clone(&self) -> Self {
@@ -247,22 +280,31 @@ fn build_composed<V: Binding<f64>>(stepper: Stepper<V>, cx: &mut BuildCx) -> RNo
                 min: self.min,
                 max: self.max,
                 decimals: self.decimals,
+                format: self.format.clone(),
             }
         }
     }
     impl<V: Binding<f64>> Binding<String> for FieldBinding<V> {
         fn read(&self) -> String {
-            fmt_value(self.value.read().clamp(self.min, self.max), self.decimals)
+            let value = self.value.read().clamp(self.min, self.max);
+            match &self.format {
+                Some(format) => (format.display)(value),
+                None => fmt_value(value, self.decimals),
+            }
         }
         fn peek(&self) -> String {
-            fmt_value(self.value.peek().clamp(self.min, self.max), self.decimals)
+            day_reactive::untrack(|| self.read())
         }
         fn write(&self, s: String) {
             self.write_commit(s);
         }
         fn write_preview(&self, _s: String) {}
         fn write_commit(&self, s: String) {
-            if let Ok(v) = s.trim().parse::<f64>() {
+            let parsed = match &self.format {
+                Some(format) => (format.parse)(&s).filter(|v| v.is_finite()),
+                None => s.trim().parse::<f64>().ok(),
+            };
+            if let Some(v) = parsed {
                 self.value.write_commit(v.clamp(self.min, self.max));
             }
         }
@@ -280,16 +322,24 @@ fn build_composed<V: Binding<f64>>(stepper: Stepper<V>, cx: &mut BuildCx) -> RNo
     // the native leaf does, so a scripted value reaches the binding on every toolkit.
     // The id goes on the field itself, before the width (which wraps it in a frame node), so
     // the events land on the node the handler is on.
+    let binding = FieldBinding {
+        value: value.clone(),
+        min,
+        max,
+        decimals,
+        format,
+    };
+    // A rejected edit or a differently spelled version of the same number does not
+    // change the signal. Restore the formatted text explicitly at the end of editing.
+    let restore = binding.format.as_ref().map(|_| {
+        let binding = binding.clone();
+        Rc::new(move || binding.peek()) as Rc<dyn Fn() -> String>
+    });
     let field = Valued {
-        inner: text_field(FieldBinding {
-            value: value.clone(),
-            min,
-            max,
-            decimals,
-        })
-        .id(key),
+        inner: text_field(binding).id(key),
         value,
         clamp,
+        restore,
     }
     .width(56.0);
     row((
@@ -307,6 +357,7 @@ struct Valued<P: Piece, V: Binding<f64>, C: Fn(f64) -> f64 + 'static> {
     inner: P,
     value: V,
     clamp: C,
+    restore: Option<Rc<dyn Fn() -> String>>,
 }
 
 impl<P: Piece, V: Binding<f64>, C: Fn(f64) -> f64 + 'static> Piece for Valued<P, V, C> {
@@ -315,11 +366,27 @@ impl<P: Piece, V: Binding<f64>, C: Fn(f64) -> f64 + 'static> Piece for Valued<P,
             inner,
             value,
             clamp,
+            restore,
         } = self;
         let node = inner.build(cx);
         cx.on(node, move |ev| match ev {
             Event::ValueChanged(v) => value.write_preview(clamp(*v)),
             Event::ValueCommitted(v) => value.write_commit(clamp(*v)),
+            Event::Submitted | Event::FocusChanged(false) => {
+                if let Some(display) = &restore {
+                    let text = display();
+                    with_tree(|t| {
+                        t.patch(
+                            node,
+                            Box::new(day_spec::props::TextFieldPatch::Text {
+                                text,
+                                from_native: false,
+                            }),
+                            false,
+                        )
+                    });
+                }
+            }
             _ => {}
         });
         node
@@ -388,6 +455,116 @@ mod tests {
     fn emit(node: RNode, event: Event) {
         day_core::enqueue_event(day_core::rnode_to_id(node), event);
         flush_sync();
+    }
+
+    #[test]
+    fn formatted_edits_commit_once_clamp_and_restore_rejected_text() {
+        for idiom in [
+            StepperIdiom::Automatic,
+            StepperIdiom::Native,
+            StepperIdiom::Composed,
+        ] {
+            day_core::uninstall_tree();
+            let writes = Writes {
+                value: Signal::new(0.4),
+                events: Rc::default(),
+            };
+            let binding = writes.clone();
+            let (mock, probe) = MockToolkit::new();
+            day_core::launch_with(mock, WindowOptions::default(), move || {
+                // Synthetic formatting fixture; the website app exercises real Fluent messages.
+                stepper(binding)
+                    .range(0.0..=1.0)
+                    .step(0.01)
+                    .format(
+                        |v| format!("{:.0}%", v * 100.0),
+                        |text| {
+                            text.trim()
+                                .trim_end_matches('%')
+                                .trim()
+                                .parse::<f64>()
+                                .ok()
+                                .map(|v| v / 100.0)
+                        },
+                    )
+                    .idiom(idiom)
+                    .id(day_core::id!(fixture_stepper))
+                    .any()
+            });
+            let node = with_tree(|t| t.find_by_id("fixture_stepper")).unwrap();
+            let text = || probe.find_by_kind("day.text_field")[0].1.text.clone();
+            assert_eq!(text(), "40%");
+            assert!(
+                probe.find_by_kind(KIND).is_empty(),
+                "custom text always uses the composed control"
+            );
+            emit(node, Event::TextChanged("73%".into()));
+            assert!(
+                writes.events.borrow().is_empty(),
+                "unfinished typing is not a numeric edit"
+            );
+            emit(node, Event::Submitted);
+            emit(node, Event::FocusChanged(false));
+            assert_eq!(*writes.events.borrow(), [("commit", 0.73)]);
+            assert_eq!(text(), "73%");
+            for invalid in ["invalid", "NaN%", "inf%", "-inf%"] {
+                emit(node, Event::TextChanged(invalid.into()));
+                emit(node, Event::Submitted);
+                assert_eq!(writes.peek(), 0.73);
+                assert_eq!(text(), "73%");
+                assert_eq!(writes.events.borrow().len(), 1);
+            }
+            emit(node, Event::TextChanged("150%".into()));
+            emit(node, Event::FocusChanged(false));
+            assert_eq!(writes.peek(), 1.0);
+            assert_eq!(text(), "100%");
+            emit(node, Event::TextChanged("100".into()));
+            emit(node, Event::Submitted);
+            assert_eq!(
+                text(),
+                "100%",
+                "canonical text is restored even when the number is unchanged"
+            );
+            assert_eq!(writes.events.borrow().len(), 3);
+        }
+    }
+
+    #[test]
+    fn formatted_reads_track_dependencies_and_numeric_events_keep_bound_units() {
+        day_core::uninstall_tree();
+        let value = Signal::new(0.4);
+        let suffix = Signal::new("%");
+        let (mock, probe) = MockToolkit::new();
+        day_core::launch_with(mock, WindowOptions::default(), move || {
+            stepper(value)
+                .range(0.0..=1.0)
+                .step(0.01)
+                .format(
+                    move |v| format!("{:.0}{}", v * 100.0, suffix.get()),
+                    |_| None,
+                )
+                .id(day_core::id!(fixture_stepper))
+                .any()
+        });
+        let text = || probe.find_by_kind("day.text_field")[0].1.text.clone();
+        suffix.set(" %");
+        flush_sync();
+        assert_eq!(
+            text(),
+            "40 %",
+            "formatter dependencies update without a numeric change"
+        );
+        let node = with_tree(|t| t.find_by_id("fixture_stepper")).unwrap();
+        emit(node, Event::ValueChanged(0.6));
+        assert_eq!(value.get(), 0.6);
+        assert_eq!(text(), "60 %");
+        emit(node, Event::ValueCommitted(0.7));
+        assert_eq!(text(), "70 %");
+        let inc = day_core::id!(stepper_increment, "fixture_stepper");
+        let button = with_tree(|t| t.find_by_id(inc.as_str())).unwrap();
+        emit(button, Event::Pressed);
+        assert!((value.get() - 0.71).abs() < 1e-10);
+        assert_eq!(text(), "71 %");
     }
 
     #[test]

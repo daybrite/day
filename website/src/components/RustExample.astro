@@ -8,8 +8,10 @@ import demo from '../data/live-demo.json';
 // The build integration compiles this app before Astro reads the component. Display its
 // actual root function, including its shared signal and generated localization accessors.
 const code = demo.code;
+// Match the snippet (20px lines plus padding and borders), with room for the app's controls.
+const demoHeight = `${Math.max(240, code.split('\n').length * 20 + 20)}px`;
 ---
-<div class="rust-example">
+<div class="rust-example" style={{ '--demo-height': demoHeight }}>
   <div class="rust-example-source">
     <CodeSample code={code} chrome={false} />
   </div>
@@ -55,15 +57,15 @@ const code = demo.code;
   }
 </script>
 <style>
-  /* Keep the source width until the demo reaches its usable minimum. */
-  .rust-example { display: grid; grid-template-columns: minmax(0, 42rem) minmax(280px, 1fr); gap: 24px; align-items: center; }
+  /* CSS alone sets a 2:1 ratio; long source lines scroll inside their column. */
+  .rust-example { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: 24px; align-items: center; }
   .rust-example-source { min-width: 0; }
-  /* Eleven lines plus compact padding match the demo's 240px frame at desktop widths. */
-  .rust-example-source :global(pre) { font-size: .8125rem; line-height: 20px; padding: 9px 20px; }
+  /* Line height and padding also determine --demo-height above. */
+  .rust-example-source :global(pre) { min-height: calc(var(--demo-height) - 2px); font-size: .8125rem; line-height: 20px; padding: 9px 20px; }
   /* Narrow spaces visually while preserving the source's indentation when copied. */
   .rust-example-source :global(code) { word-spacing: -.15em; }
   .rust-example-result { margin: 0; min-width: 0; }
-  .demo-frame { position: relative; height: 240px; overflow: hidden; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
+  .demo-frame { position: relative; height: var(--demo-height); overflow: hidden; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
   .demo-frame :global(iframe) { display: block; width: 100%; height: 100%; border: 0; opacity: 0; }
   .demo-frame[data-ready=true] :global(iframe) { opacity: 1; }
   .demo-status { position: absolute; inset: 0; display: grid; place-content: center; margin: 0; padding: 24px; color: var(--muted); font-size: .85rem; }

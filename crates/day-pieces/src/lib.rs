@@ -31,7 +31,7 @@ pub mod render;
 pub mod dynreg;
 /// `#[day_pieces::builder(FooBuilder)]`: a piece's builder trait, generated from its inherent
 /// impl (docs/api-style.md "Typed builders and erasure").
-pub use day_core::{ElementId, IntoElementKey, id};
+pub use day_core::{Dimension, ElementId, IntoElementKey, id};
 pub use day_macros::builder;
 pub use day_spec::Renderer;
 pub use linkme;
@@ -171,8 +171,9 @@ pub mod prelude {
     pub use crate::{ModelSlot, Rows, StoreRows, StoreTree, StoreTrees};
     pub use crate::{Picker, TextArea};
     pub use day_core::{
-        Alignment, AnyPiece, BuildCx, Either, Piece, PieceFn, PieceSeq, RNode, ScrollTarget,
-        announce, announce_urgent, invalidate_size, open_url, piece_fn, with_animation,
+        Alignment, AnyPiece, BuildCx, Dimension, Either, Piece, PieceFn, PieceSeq, RNode,
+        ScrollTarget, announce, announce_urgent, invalidate_size, open_url, piece_fn,
+        with_animation,
     };
     pub use day_geometry::{Affine, Animatable, Color, Insets, Point, Rect, Size, Transform};
     pub use day_reactive::{

@@ -766,8 +766,8 @@ fn row_at(inst: Rc<Installed>, r: &Row, card: CardPos) -> Option<AnyPiece> {
                 s = s.step(*st);
             }
             let ctl = match &id {
-                Some(i) => s.id(i.clone()).grow_w().min_width(140.0).any(),
-                None => s.grow_w().min_width(140.0).any(),
+                Some(i) => s.id(i.clone()).grow(Dimension::Width).min_width(140.0).any(),
+                None => s.grow(Dimension::Width).min_width(140.0).any(),
             };
             row.control = Some(match value_text {
                 Some(f) => {
@@ -776,7 +776,7 @@ fn row_at(inst: Rc<Installed>, r: &Row, card: CardPos) -> Option<AnyPiece> {
                     day_pieces::prelude::row((ctl, label(move || f(v.get())).tabular().secondary()))
                         .spacing(8.0)
                         .align(VAlign::Center)
-                        .grow_w()
+                        .grow(Dimension::Width)
                         .any()
                 }
                 None => ctl,
@@ -804,10 +804,10 @@ fn row_at(inst: Rc<Installed>, r: &Row, card: CardPos) -> Option<AnyPiece> {
                 Some(i) => f
                     .enabled(enabled_fn)
                     .id(i.clone())
-                    .grow_w()
+                    .grow(Dimension::Width)
                     .min_width(160.0)
                     .any(),
-                None => f.enabled(enabled_fn).grow_w().min_width(160.0).any(),
+                None => f.enabled(enabled_fn).grow(Dimension::Width).min_width(160.0).any(),
             });
         }
         RowKind::Action {

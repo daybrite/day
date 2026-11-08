@@ -1092,6 +1092,22 @@ fn op_aspect_ratio(ratio: f64) -> impl FnOnce(Build) -> Build {
     }
 }
 
+fn op_aligned(align: Alignment) -> impl FnOnce(Build) -> Build {
+    move |inner| {
+        Box::new(move |cx| {
+            let node = cx.layout_only(
+                Rc::new(AlignmentLayout { align }),
+                Flex::default(),
+                Boundary::No,
+            );
+            cx.under(node, |cx| {
+                let _ = inner(cx);
+            });
+            node
+        })
+    }
+}
+
 fn op_grow_axes(w: bool, h: bool) -> impl FnOnce(Build) -> Build {
     move |inner| {
         Box::new(move |cx| {
@@ -1368,18 +1384,24 @@ impl<P: Piece> Decorated<P> {
     pub fn aspect_ratio(self, ratio: f64) -> Self {
         self.push(op_aspect_ratio(ratio))
     }
-    pub fn grow(self) -> Self {
-        self.grow_axes(true, true)
+    /// Position this piece within its assigned space; see [`Decorate::aligned`].
+    pub fn aligned(self, alignment: Alignment) -> Self {
+        self.push(op_aligned(alignment))
     }
+    /// Expand in the selected dimensions; see [`Decorate::grow`].
+    pub fn grow(self, dimension: Dimension) -> Self {
+        self.push(op_grow_axes(
+            matches!(dimension, Dimension::Width | Dimension::Both),
+            matches!(dimension, Dimension::Height | Dimension::Both),
+        ))
+    }
+    #[deprecated(note = "use .grow(Dimension::Width)")]
     pub fn grow_w(self) -> Self {
-        self.grow_axes(true, false)
+        self.grow(Dimension::Width)
     }
+    #[deprecated(note = "use .grow(Dimension::Height)")]
     pub fn grow_h(self) -> Self {
-        self.grow_axes(false, true)
-    }
-    #[doc(hidden)]
-    fn grow_axes(self, w: bool, h: bool) -> Self {
-        self.push(op_grow_axes(w, h))
+        self.grow(Dimension::Height)
     }
     pub fn grid_span(self, n: usize) -> Self {
         self.push_outer(op_grid_facts(GridFacts {
@@ -1885,8 +1907,8 @@ pub trait Decorate: Piece + Sized {
     /// Constrain this piece to a `width / height` ratio: the largest box of that shape which
     /// fits whatever the parent offers (SwiftUI's `.aspectRatio(_:contentMode: .fit)`).
     ///
-    /// Pair it with [`Self::grow_w`] for a piece that takes the width available and derives its
-    /// height from it: a `canvas` whose drawing has to keep its proportions as the window
+    /// Pair it with [`Self::grow`] and [`Dimension::Width`] to take the available width and
+    /// derive the height from it: a `canvas` whose drawing keeps its proportions as the window
     /// resizes, say. `image` has carried this since it shipped; this is the same layout, for any
     /// piece.
     ///
@@ -1895,21 +1917,34 @@ pub trait Decorate: Piece + Sized {
         Decorated::new(self).aspect_ratio(ratio)
     }
 
-    /// Expand to fill the available space on both axes (a filling pane / card that stretches to
-    /// its container). Wraps the piece in a layout-only node carrying grow [`Flex`]: the stack
-    /// offers it the space and it fills; no native backing, so this is a pure layout change.
-    fn grow(self) -> Decorated<Self> {
-        Decorated::new(self).grow()
+    /// Position this piece within its assigned space without stretching its content.
+    ///
+    /// Alignment alone hugs the content. Apply growth or a frame afterward to provide room:
+    /// `piece.aligned(Alignment::Center).grow(Dimension::Width)` centers a naturally sized
+    /// piece across the available width. Reversing that order centers already-expanded content.
+    /// Leading and trailing follow the locale's layout direction. This adds no native view,
+    /// accessibility role, or focus stop; text alignment remains a separate piece setting.
+    fn aligned(self, alignment: Alignment) -> Decorated<Self> {
+        Decorated::new(self).aligned(alignment)
     }
 
-    /// Expand to fill the available horizontal space.
+    /// Expand to fill the space offered in the selected dimensions.
+    ///
+    /// Other dimensions hug the content. An unbounded proposal (such as a scroll view's
+    /// scrolling axis) keeps the content's measured size. This layout-only wrapper carries
+    /// grow [`Flex`] so its parent can allocate extra space; it adds no native view.
+    fn grow(self, dimension: Dimension) -> Decorated<Self> {
+        Decorated::new(self).grow(dimension)
+    }
+
+    #[deprecated(note = "use .grow(Dimension::Width)")]
     fn grow_w(self) -> Decorated<Self> {
-        Decorated::new(self).grow_w()
+        Decorated::new(self).grow(Dimension::Width)
     }
 
-    /// Expand to fill the available vertical space.
+    #[deprecated(note = "use .grow(Dimension::Height)")]
     fn grow_h(self) -> Decorated<Self> {
-        Decorated::new(self).grow_h()
+        Decorated::new(self).grow(Dimension::Height)
     }
 
     #[doc(hidden)]
@@ -2234,7 +2269,7 @@ pub(crate) mod conformance {
     #[day_macros::test(day_core)]
     fn grow_width() -> Case {
         Case::new()
-            .proves_modifier("grow_w")
+            .proves_modifier("grow")
             .page(|| {
                 row((
                     rectangle()
@@ -2243,7 +2278,7 @@ pub(crate) mod conformance {
                     rectangle()
                         .fill(Color::rgb(0.0, 0.0, 1.0))
                         .height(20.0)
-                        .grow_w()
+                        .grow(Dimension::Width)
                         .id(day_core::id!(grower)),
                 ))
                 .spacing(0.0)
@@ -2254,6 +2289,34 @@ pub(crate) mod conformance {
                     "grower",
                     FrameExpect {
                         width: Some(160.0),
+                        ..Default::default()
+                    },
+                )
+                .await
+            })
+    }
+
+    /// Alignment preserves the child's size inside an explicitly sized area.
+    #[day_macros::test(day_core)]
+    fn aligned_intrinsic_frame() -> Case {
+        Case::new()
+            .proves_modifier("aligned")
+            .page(|| {
+                rectangle()
+                    .fill(Color::rgb(0.2, 0.5, 0.8))
+                    .frame(40.0, 20.0)
+                    .id(day_core::id!(aligned_child))
+                    .aligned(day_core::Alignment::BottomTrailing)
+                    .frame(200.0, 100.0)
+            })
+            .drive(|d: Drive| async move {
+                d.assert_frame(
+                    "aligned_child",
+                    FrameExpect {
+                        x: Some(160.0),
+                        y: Some(80.0),
+                        width: Some(40.0),
+                        height: Some(20.0),
                         ..Default::default()
                     },
                 )
@@ -2744,11 +2807,11 @@ pub(crate) mod conformance {
             })
     }
 
-    /// `.grow_h` takes the height its column has left, in a column and in a row alike.
+    /// `.grow(Dimension::Height)` takes the height its column has left, in a column and in a row alike.
     #[day_macros::test(day_core)]
     fn grow_vertical_fills_column() -> Case {
         Case::new()
-            .proves_modifier("grow_h")
+            .proves_modifier("grow")
             .page(|| {
                 row((
                     column((
@@ -2760,7 +2823,7 @@ pub(crate) mod conformance {
                             .fill(Color::rgb(0.0, 0.0, 1.0))
                             .id(day_core::id!(rest))
                             .width(40.0)
-                            .grow_h(),
+                            .grow(Dimension::Height),
                     ))
                     .spacing(0.0)
                     .height(120.0),
@@ -2768,7 +2831,7 @@ pub(crate) mod conformance {
                         .fill(Color::rgb(0.0, 1.0, 0.0))
                         .id(day_core::id!(both))
                         .width(30.0)
-                        .grow_h(),
+                        .grow(Dimension::Height),
                 ))
                 .spacing(0.0)
                 .align(VAlign::Top)

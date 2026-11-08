@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: CC-BY-SA-4.0
 import Logo from './Logo.astro';
 import { url, site } from '../lib/site';
+import { res } from '../generated/strings.mjs';
 ---
 <footer class="footer" data-pagefind-ignore>
   <div class="container foot-inner">
@@ -27,6 +28,8 @@ import { url, site } from '../lib/site';
         <a href={url('showcase')}>Showcase</a>
         <a href={url('examples')}>Examples</a>
         <a href={url('community')}>Community</a>
+        <a href={url('blog')}>{res.str.blog_nav()}</a>
+        <a href={url('rss.xml')}>{res.str.blog_subscribe()}</a>
       </div>
       <div>
         <h2>Contributing</h2>

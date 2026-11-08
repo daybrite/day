@@ -104,13 +104,13 @@ pub enum RowFit {
     Clip,
     /// Break onto additional lines where the next child would overflow, like wrapped text:
     /// the shape a chip row or button strip wants. `run_spacing` is the vertical gap between
-    /// lines. Wrapping replaces main-axis negotiation, so `.grow()` and `spacer()` are inert.
+    /// lines. Wrapping replaces main-axis negotiation, so `.grow(Dimension::Both)` and `spacer()` are inert.
     Wrap { run_spacing: f64 },
     /// Wrap into aligned columns rather than ragged lines: every cell takes the widest
     /// child's width, and each line holds as many as the window fits. The tidier arm of
     /// [`Wrap`](RowFit::Wrap): same wrapping, but the lines stack into a grid, which is what
     /// a set of peer choices (a keypad, a palette, evenly-weighted chips) wants. The column
-    /// count follows the available width. When any child grows (`.grow_w()`), the widest child
+    /// count follows the available width. When any child grows (`.grow(Dimension::Width)`), the widest child
     /// becomes the narrowest a column gets and the columns stretch to share the whole width,
     /// the adaptive grid a gallery of tiles wants. No cell is wider than the line: on a window
     /// narrower than the widest child, the cells take its width and their text wraps. An

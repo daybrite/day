@@ -33,7 +33,7 @@ day::open_window(
             label(res::str::loading()),
             button(res::str::close()).action(close_splash),
         ))
-        .grow() // fill the window; only the rounded corners stay see-through
+        .grow(Dimension::Both) // fill the window; only the rounded corners stay see-through
         .padding(Space::XL)
         .background(Color::rgba(0.15, 0.2, 0.35, 0.92))
         .corner_radius(24.0)

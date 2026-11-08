@@ -8,6 +8,7 @@ import BaseLayout from '../layouts/BaseLayout.astro';
 import HeroCarousel from '../components/HeroCarousel.astro';
 import LocaleExplorer from '../components/LocaleExplorer.astro';
 import RustExample from '../components/RustExample.astro';
+import AccessibilityIllustration from '../components/AccessibilityIllustration.astro';
 import Logo from '../components/Logo.astro';
 import PlatformIcon from '../components/PlatformIcon.astro';
 import SidebarIcon from '../components/SidebarIcon.astro';
@@ -22,15 +23,15 @@ const benefits = [
 ];
 // Published extensions with substantive releases; omit unpublished crates and 0.0.1 placeholders.
 const ecosystem = [
-  { title: 'Embedded web views', page: 'webview', body: 'Embed a website or bundled HTML, control navigation, and call JavaScript from Rust.' },
-  { title: 'Lottie animations', page: 'lottie', body: 'Play Lottie motion graphics in your layouts, with playback and looping controls.' },
-  { title: 'Speech', page: 'speech', body: 'Read text aloud through the platform’s speech engine.' },
-  { title: 'Charts', page: 'charts', body: 'Build charts from bars, lines, points, and other marks, with scales and axes.' },
-  { title: 'Camera', page: 'camera', body: 'Show a live camera preview and capture photos on supported mobile targets.' },
-  { title: 'Audio and video', page: 'media', body: 'Play media through platform players, with observable playback state and a timeline.' },
-  { title: 'Sign-in and passkeys', page: 'auth', body: 'Connect accounts through OAuth, OpenID Connect, and native credential dialogs.' },
-  { title: 'Local network discovery', page: 'zeroconf', body: 'Find nearby services and advertise your app’s services using mDNS and DNS-SD.' },
-  { title: 'Crash reporting', page: 'break', body: 'Record crashes locally and let people review a report before sharing it.' },
+  { title: 'Embedded web views', page: 'webview', accent: '#4973b9', body: 'Embed a website or bundled HTML, control navigation, and call JavaScript from Rust.' },
+  { title: 'Lottie animations', page: 'lottie', accent: '#8262ad', body: 'Play Lottie motion graphics in your layouts, with playback and looping controls.' },
+  { title: 'Speech', page: 'speech', accent: '#398477', body: 'Read text aloud through the platform’s speech engine.' },
+  { title: 'Charts', page: 'charts', accent: '#b5894e', body: 'Build charts from bars, lines, points, and other marks, with scales and axes.' },
+  { title: 'Camera', page: 'camera', accent: '#3e82a1', body: 'Show a live camera preview and capture photos on supported mobile targets.' },
+  { title: 'Audio and video', page: 'media', accent: '#b45f87', body: 'Play media through platform players, with observable playback state and a timeline.' },
+  { title: 'Sign-in and passkeys', page: 'auth', accent: '#65834a', body: 'Connect accounts through OAuth, OpenID Connect, and native credential dialogs.' },
+  { title: 'Local network discovery', page: 'zeroconf', accent: '#607ea4', body: 'Find nearby services and advertise your app’s services using mDNS and DNS-SD.' },
+  { title: 'Crash reporting', page: 'break', accent: '#ac6c58', body: 'Record crashes locally and let people review a report before sharing it.' },
 ];
 const stages = [
   { title: 'Edit', body: 'Use the VS Code extension to choose targets, build, and launch your app from the editor.', path: 'docs/how-to/vscode' },
@@ -76,7 +77,7 @@ const stages = [
     <div class="container">
       <p class="eyebrow">Intuitive, declarative, and reactive</p>
       <h2>A high-level interface for your low-level Rust</h2>
-      <p class="section-lead">Compose controls with Rust functions and bind them to reactive signals. Try the browser version below; the same Rust UI uses each platform’s native toolkit when built for desktop or mobile.</p>
+      <p class="section-lead">Assemble controls declaratively with Rust functions and bind them to reactive signals. Try the browser version below; the same Rust UI uses each platform’s native toolkit when built for desktop or mobile.</p>
       <RustExample />
     </div>
   </section>
@@ -94,11 +95,14 @@ const stages = [
   </section>
 
   <section class="section" id="accessibility">
-    <div class="container">
+    <div class="container split">
+      <div>
       <p class="eyebrow">All for one and one for all</p>
       <h2>Native accessibility for an inclusive world</h2>
-      <p class="section-lead">Accessibility is a core feature of Day. Native controls use each platform’s accessibility technologies, and Day provides a shared API for labels, roles, and values. These tools help you build inclusive apps and address regional and government accessibility requirements.</p>
-      <a href={url('docs/how-to/accessibility')}>See accessibility support and limits →</a>
+      <p class="section-lead">Help people use your app with a keyboard or screen reader. Day builds on the accessibility support of native controls, with a shared Rust API for localized labels, hints, and changing values. These tools help you address regional and government accessibility requirements.</p>
+      <a href={url('docs/how-to/accessibility')}>Build accessible interfaces →</a>
+      </div>
+      <AccessibilityIllustration />
     </div>
   </section>
 
@@ -108,7 +112,7 @@ const stages = [
       <h2>Everything you need to build a modern app</h2>
       <p class="section-lead">Add a web view, play an animation, or read a passage aloud. Daybrite’s optional pieces and parts are ordinary Cargo dependencies: add the ones your app needs and use them alongside Day’s built-in controls and services. Each guide covers setup and platform support.</p>
       <div class="ecosystem-grid">
-        {ecosystem.map(item => <a class="ecosystem-card" href={url(`docs/reference/${item.page}`)}>
+        {ecosystem.map(item => <a class="ecosystem-card" style={{ '--ecosystem-accent': item.accent }} href={url(`docs/reference/${item.page}`)}>
           <span class="ecosystem-icon"><SidebarIcon item={`/docs/reference/${item.page}`} /></span>
           <h3>{item.title}<span aria-hidden="true"> →</span></h3>
           <p>{item.body}</p>
@@ -190,18 +194,26 @@ const stages = [
   @media (max-width: 880px) { .localization-layout > :global(.locale-explorer) { margin-top: 0; } }
   .ecosystem { background: linear-gradient(135deg, color-mix(in srgb, var(--brand) 5%, var(--bg)), var(--bg)); }
   .ecosystem-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; }
-  .ecosystem-card { display: block; padding: 24px; border: 1px solid var(--border-soft); border-radius: var(--radius-lg); background: var(--surface); color: var(--text); text-decoration: none; }
-  .ecosystem-card:hover { border-color: var(--brand); text-decoration: none; }
+  /* Blend each accent with the current theme so the fills stay soft in both appearances. */
+  .ecosystem-card {
+    --ecosystem-ink: color-mix(in srgb, var(--ecosystem-accent) 75%, var(--text));
+    display: block; padding: 24px; border: 1px solid var(--border-soft); border-radius: var(--radius-lg);
+    background: linear-gradient(135deg,
+      color-mix(in srgb, var(--ecosystem-accent) 10%, var(--surface)),
+      color-mix(in srgb, var(--ecosystem-accent) 3%, var(--surface)) 60%, var(--surface));
+    color: var(--text); text-decoration: none;
+  }
+  .ecosystem-card:hover { border-color: color-mix(in srgb, var(--ecosystem-accent) 55%, var(--border)); text-decoration: none; }
   .ecosystem-card:focus-visible { outline: 2px solid var(--brand); outline-offset: 3px; }
-  .ecosystem-icon { display: inline-flex; padding: 10px; margin-bottom: 18px; border-radius: 12px; color: var(--brand); background: color-mix(in srgb, var(--brand) 10%, var(--surface)); }
+  .ecosystem-icon { display: inline-flex; padding: 10px; margin-bottom: 18px; border-radius: 12px; color: var(--ecosystem-ink); background: color-mix(in srgb, var(--ecosystem-accent) 14%, var(--surface)); }
   .ecosystem-icon :global(.doc-nav-icon) { width: 26px; height: 26px; flex-basis: 26px; }
   .ecosystem-card h3 { font-size: 1.1rem; margin-bottom: 10px; }
-  .ecosystem-card h3 span { color: var(--brand); }
+  .ecosystem-card h3 span { color: var(--ecosystem-ink); }
   .ecosystem-card p { color: var(--muted); line-height: 1.65; margin: 0; }
   @media (max-width: 880px) { .ecosystem-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
   @media (max-width: 560px) {
     .ecosystem-grid { grid-template-columns: minmax(0, 1fr); gap: 0; }
-    .ecosystem-card { display: grid; grid-template-columns: 32px minmax(0, 1fr); gap: 6px 12px; padding: 16px 0; border: 0; border-bottom: 1px solid var(--border); border-radius: 0; background: transparent; }
+    .ecosystem-card { display: grid; grid-template-columns: 32px minmax(0, 1fr); gap: 6px 12px; padding: 16px 0; border: 0; border-bottom: 1px solid var(--border); border-radius: 0; background: linear-gradient(110deg, color-mix(in srgb, var(--ecosystem-accent) 6%, transparent), transparent 70%); }
     .ecosystem-icon { grid-column: 1; grid-row: 1 / 3; align-self: start; padding: 6px; margin: 0; border-radius: 8px; }
     .ecosystem-icon :global(.doc-nav-icon) { width: 20px; height: 20px; flex-basis: 20px; }
     .ecosystem-card h3 { grid-column: 2; margin: 0; font-size: 1rem; line-height: 1.4; }

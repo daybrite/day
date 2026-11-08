@@ -31,7 +31,7 @@ use std::collections::HashMap;
 use std::rc::Rc;
 use std::sync::Mutex;
 
-use day_core::{Alignment, AnyPiece, ElementId};
+use day_core::{Alignment, AnyPiece, Dimension, ElementId};
 use day_reactive::Signal;
 use day_spec::{Color, Edges, Font};
 
@@ -794,9 +794,28 @@ fn apply_modifier(inner: Inner, name: &str, args: &[DynValue]) -> Result<Inner, 
                 });
             }
         },
-        "grow" => p.grow().any(),
-        "grow_w" => p.grow_w().any(),
-        "grow_h" => p.grow_h().any(),
+        "grow" => {
+            let dimension = match str_arg(args, 0, "grow")?.as_str() {
+                "width" => Dimension::Width,
+                "height" => Dimension::Height,
+                "both" => Dimension::Both,
+                _ => {
+                    return Err(DynError::Type {
+                        what: "grow",
+                        want: "width, height, or both",
+                    });
+                }
+            };
+            p.grow(dimension).any()
+        }
+        "aligned" => p
+            .aligned(
+                alignment_of(&str_arg(args, 0, "aligned")?).ok_or(DynError::Type {
+                    what: "aligned",
+                    want: "an alignment name",
+                })?,
+            )
+            .any(),
         "grid_span" => p.grid_span(num(args, 0, "grid_span")? as usize).any(),
         "grid_align" => p
             .grid_align(
@@ -906,9 +925,8 @@ pub fn catalog() -> Vec<SpecEntry> {
         g("corner_radius", "corner_radius(n)"),
         g("background", "background(#hex | fn)"),
         g("on_tap", "on_tap(fn)"),
-        g("grow", "grow()"),
-        g("grow_w", "grow_w()"),
-        g("grow_h", "grow_h()"),
+        g("grow", "grow(width | height | both)"),
+        g("aligned", "aligned(name)"),
         g("grid_span", "grid_span(n)"),
         g("grid_align", "grid_align(name)"),
         g("overlay", "overlay(piece)"),
@@ -971,6 +989,27 @@ mod tests {
         col.modify("id", &[DynValue::ElementId(day_core::id!(root))])
             .expect("id");
         let _ = col.into_any();
+    }
+
+    #[test]
+    fn alignment_and_growth_require_explicit_values() {
+        let piece = construct("label", &[DynValue::Str("fixture".into())]).unwrap();
+        piece
+            .modify("aligned", &[DynValue::Str("center".into())])
+            .unwrap();
+        piece
+            .modify("grow", &[DynValue::Str("width".into())])
+            .unwrap();
+        for args in [vec![], vec![DynValue::Str("horizontal".into())]] {
+            let piece = construct("label", &[DynValue::Str("fixture".into())]).unwrap();
+            assert!(piece.modify("grow", &args).is_err());
+        }
+        assert!(catalog().iter().any(|entry| entry.name == "aligned"));
+        assert!(
+            !catalog()
+                .iter()
+                .any(|entry| matches!(entry.name, "grow_w" | "grow_h"))
+        );
     }
 
     #[test]

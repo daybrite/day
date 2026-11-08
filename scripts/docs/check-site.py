@@ -4,11 +4,13 @@
 """Audit all rendered pages, independently of the scoped Markdown check."""
 from pathlib import Path
 from html.parser import HTMLParser
+from email.utils import parsedate_to_datetime
 import collections
 import json
 import sys
 import xml.etree.ElementTree as ET
 from urllib.parse import urlsplit
+from urllib.parse import unquote
 
 ROOT=Path(__file__).resolve().parents[2]
 WORK=ROOT/'.cache/docs'
@@ -17,8 +19,11 @@ DIST=Path(sys.argv[1]).resolve() if len(sys.argv)>1 else ROOT/'website/dist'
 class Page(HTMLParser):
     def __init__(self):
         super().__init__();self.ids=[];self.h1=0;self.main=0;self.lang=None;self.canonical=[];self.description=[];self.images=[];self.headings=[];self.in_main=False;self.title=False;self.title_text='';self.links=[]
+        self.in_head=False;self.feeds=[]
     def handle_starttag(self,tag,attrs):
         a=dict(attrs)
+        if tag=='head':self.in_head=True
+        if self.in_head and tag=='link' and a.get('type')=='application/rss+xml':self.feeds.append(a)
         if 'id' in a:self.ids.append(a['id'])
         if tag=='html':self.lang=a.get('lang')
         if tag=='main':self.main+=1;self.in_main=True
@@ -30,6 +35,7 @@ class Page(HTMLParser):
         if tag=='a':self.links.append(a.get('href'))
         if tag=='title':self.title=True
     def handle_endtag(self,tag):
+        if tag=='head':self.in_head=False
         if tag=='main':self.in_main=False
         if tag=='title':self.title=False
     def handle_data(self,d):
@@ -43,6 +49,42 @@ def main():
         '/contributing/backend-contracts/element-ids', '/contributing/backend-contracts/testing',
         '/contributing/backend-contracts/native-project-migration'])
     publication_failures=[]
+    # Include copied HTML hosts as well as Astro pages in the discovery audit.
+    for f in sorted(DIST.rglob('*.html')):
+        page=Page();page.feed(f.read_text())
+        feeds=[link for link in page.feeds if link.get('href')=='/rss.xml' and link.get('rel')=='alternate']
+        if len(feeds)!=1:
+            publication_failures.append(f'Missing or duplicate RSS discovery: {f.relative_to(DIST)}')
+    try:
+        feed=ET.parse(DIST/'rss.xml').getroot()
+        if feed.tag!='rss' or feed.get('version')!='2.0':
+            publication_failures.append('Feed must be RSS 2.0')
+        channel=feed.find('channel')
+        if channel is None:
+            raise ValueError('RSS channel is missing')
+        for field in ['title', 'description', 'link']:
+            if not channel.findtext(field):
+                publication_failures.append(f'RSS channel lacks {field}')
+        seen=set()
+        for item in channel.findall('item'):
+            link=item.findtext('link') or ''
+            parsed=urlsplit(link)
+            path=unquote(parsed.path).rstrip('/')
+            if parsed.scheme!='https' or parsed.netloc!='daybrite.dev' or not path.startswith('/blog/'):
+                publication_failures.append(f'RSS item has an invalid permalink: {link}')
+            elif not (DIST/path.lstrip('/')/'index.html').is_file():
+                publication_failures.append(f'RSS item has no published page: {link}')
+            if '/drafts/' in path:
+                publication_failures.append(f'Draft in RSS: {link}')
+            if not item.findtext('title') or not item.findtext('description'):
+                publication_failures.append(f'RSS item lacks title/summary: {link}')
+            guid=item.findtext('guid')
+            if guid!=link or guid in seen:
+                publication_failures.append(f'RSS item has invalid/duplicate GUID: {link}')
+            seen.add(guid)
+            parsedate_to_datetime(item.findtext('pubDate') or '')
+    except (OSError, ET.ParseError, ValueError, TypeError) as error:
+        publication_failures.append(f'Invalid RSS feed: {error}')
     for route in sorted(unpublished):
         if (DIST/route.lstrip('/')/'index.html').exists():
             publication_failures.append(f'Unpublished source rendered: {route}')

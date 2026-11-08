@@ -1,0 +1,52 @@
+---
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: CC-BY-SA-4.0
+import BaseLayout from '../../layouts/BaseLayout.astro';
+import { blogPosts, isDraftPost, postDate, postPath } from '../../lib/blog';
+import { url } from '../../lib/site';
+import { res } from '../../generated/strings.mjs';
+
+const posts = await blogPosts(import.meta.env.DEV);
+---
+<BaseLayout title={res.str.blog_nav()} description={res.str.blog_description()} active="blog">
+  <section class="section">
+    <div class="container blog-index">
+      <header class="blog-heading">
+        <h1>{res.str.blog_title()}</h1>
+        <p class="lead">{res.str.blog_description()}</p>
+        <a class="feed-link" href={url('rss.xml')}>{res.str.blog_subscribe()}</a>
+      </header>
+      <ul class="posts">
+        {posts.map((post) => (
+          <li>
+            <article>
+              <p class="post-meta"><time datetime={post.data.pubDate.toISOString()}>{postDate(post.data.pubDate)}</time>
+                {isDraftPost(post) && <span class="draft">{res.str.blog_draft()}</span>}
+              </p>
+              <h2><a href={url(postPath(post.id))}>{post.data.title}</a></h2>
+              <p class="description">{post.data.description}</p>
+              {post.data.author && <p class="author">{post.data.author}</p>}
+            </article>
+          </li>
+        ))}
+      </ul>
+      {posts.length === 0 && <p>{res.str.blog_empty()}</p>}
+    </div>
+  </section>
+</BaseLayout>
+
+<style>
+  .blog-index { max-width: 860px; }
+  .blog-heading { margin-bottom: 48px; }
+  h1 { font-size: clamp(2.4rem, 5vw, 3.5rem); letter-spacing: -.03em; margin: 0 0 16px; }
+  .feed-link { display: inline-block; margin-top: 12px; font-weight: 600; }
+  .posts { list-style: none; padding: 0; margin: 0; }
+  .posts li { border-top: 1px solid var(--border-soft); padding-block: 28px; }
+  h2 { font-size: clamp(1.5rem, 3vw, 2rem); margin: 12px 0; letter-spacing: -.02em; }
+  h2 a { color: var(--text); }
+  h2 a:hover { color: var(--brand); }
+  .post-meta, .author { color: var(--muted); font-size: .9rem; }
+  .post-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; margin: 0; }
+  .description { color: var(--muted); line-height: 1.7; }
+  .draft { border: 1px solid var(--border); padding: 2px 8px; border-radius: 4px; }
+</style>

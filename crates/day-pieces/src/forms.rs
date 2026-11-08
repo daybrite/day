@@ -195,7 +195,7 @@ impl day_core::Layout for SectionCardLayout {
 
 /// A form row: `label` sits in the form-wide aligned label column (right-aligned, vertically
 /// centered), `control` beside it. Outside a [`form`] the label column is just this row's own
-/// label width. A control with `.grow()` stretches to the row's remaining width.
+/// label width. A control with `.grow(Dimension::Both)` stretches to the row's remaining width.
 ///
 /// The label also names the control for assistive technology, unless the control carries an
 /// `.a11y(|a| a.label(..))` of its own.
@@ -332,7 +332,7 @@ impl LabeledLayout {
     ///
     /// The row's label, not the form-wide column: the column grows as the form's rows are
     /// measured, so a decision taken against it would flip between measure and place and
-    /// the rows would overlap. A `.grow()` control measures to what it is offered, so it
+    /// the rows would overlap. A `.grow(Dimension::Both)` control measures to what it is offered, so it
     /// stacks only when its content cannot fit that width.
     fn stacks(
         &self,
@@ -406,7 +406,7 @@ impl day_core::Layout for LabeledLayout {
         let ls = cx.measure_child(lbl, Proposal::UNCONSTRAINED);
         if self.stacks(cx, ctl, ls.width, bounds.size.width) {
             // Label at the leading edge, control under it across the whole row (a hugging
-            // control keeps its own width; a `.grow()` one takes the row).
+            // control keeps its own width; a `.grow(Dimension::Both)` one takes the row).
             let w = bounds.size.width;
             let cs = cx.measure_child(ctl, Proposal::new(Some(w), None));
             cx.place_child(lbl, Rect::new(0.0, 0.0, ls.width.min(w), ls.height));
@@ -443,7 +443,7 @@ impl day_core::Layout for LabeledLayout {
             lbl,
             Rect::new((colw - ls.width).max(0.0), lbl_y, ls.width, ls.height),
         );
-        // `.grow()` controls fill the remaining width (text fields, sliders); others hug.
+        // `.grow(Dimension::Both)` controls fill the remaining width (text fields, sliders); others hug.
         let cw = if cx.flex_of(ctl).grow_w {
             avail
         } else {

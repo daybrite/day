@@ -11,7 +11,7 @@ fn main() {
     let canvas = toolkit.realize(kinds::CANVAS, &CanvasProps::default(), NodeId(41));
 
     // The exact proposal comes from aspect_ratio's square. GrowLayout must be able to
-    // measure the un-grown height without requiring an extra .grow_h() on every canvas.
+    // measure the un-grown height without requiring an extra .grow(Dimension::Height) on every canvas.
     for edge in [144.0, 280.0, 96.0] {
         let square = Size::new(edge, edge);
         assert_eq!(

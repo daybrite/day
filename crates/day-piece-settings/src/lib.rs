@@ -1691,7 +1691,7 @@ fn group_body(inst: Rc<Installed>, g: &Group) -> AnyPiece {
     column((composed_group_form(inst, g, false),))
         .align(HAlign::Leading)
         .padding(16.0)
-        .grow_w()
+        .grow(Dimension::Width)
         .any()
 }
 
@@ -1719,7 +1719,7 @@ fn composed_group_page(inst: Rc<Installed>, g: &Group, desktop: bool) -> AnyPiec
             column((body,))
                 .align(HAlign::Leading)
                 .padding(20.0)
-                .grow_w(),
+                .grow(Dimension::Width),
         )
         .any()
     } else {
@@ -1727,7 +1727,7 @@ fn composed_group_page(inst: Rc<Installed>, g: &Group, desktop: bool) -> AnyPiec
             column((body,))
                 .align(HAlign::Leading)
                 .padding(16.0)
-                .grow_w(),
+                .grow(Dimension::Width),
         )
         .any()
     }
@@ -1812,7 +1812,7 @@ fn trailing_row(titles: AnyPiece, control: AnyPiece) -> AnyPiece {
     row((titles.max_width(TITLE_COLUMN_MAX), spacer(), control))
         .spacing(12.0)
         .align(VAlign::Center)
-        .grow_w()
+        .grow(Dimension::Width)
         .any()
 }
 
@@ -1918,8 +1918,12 @@ fn composed_row(inst: Rc<Installed>, r: &Row, _desktop: bool) -> AnyPiece {
             }
             let f = f.enabled(enabled_fn);
             let ctl = match &id {
-                Some(i) => f.id(i.clone()).grow_w().min_width(160.0).any(),
-                None => f.grow_w().min_width(160.0).any(),
+                Some(i) => f
+                    .id(i.clone())
+                    .grow(Dimension::Width)
+                    .min_width(160.0)
+                    .any(),
+                None => f.grow(Dimension::Width).min_width(160.0).any(),
             };
             trailing_row(title_column(r), ctl)
         }
@@ -1990,7 +1994,7 @@ fn composed_row(inst: Rc<Installed>, r: &Row, _desktop: bool) -> AnyPiece {
                 row((title_column(r), spacer(), label("›").secondary()))
                     .spacing(12.0)
                     .align(VAlign::Center)
-                    .grow_w()
+                    .grow(Dimension::Width)
                     .on_tap(open)
                     .any(),
             )
@@ -2251,7 +2255,7 @@ fn composed_root_page(inst: Rc<Installed>) -> AnyPiece {
                 row((leading, titles, spacer(), label("›").secondary()))
                     .spacing(12.0)
                     .align(VAlign::Center)
-                    .grow_w()
+                    .grow(Dimension::Width)
                     .on_tap(move || path.update(|p| p.push(SettingsRoute::Group(id.to_string()))))
                     .id(day_core::id!(prefs_group, id))
                     .any()
@@ -2262,7 +2266,7 @@ fn composed_root_page(inst: Rc<Installed>) -> AnyPiece {
     scroll(
         form(parts)
             .padding(16.0)
-            .grow_w()
+            .grow(Dimension::Width)
             .id(day_core::id!(settings_root)),
     )
     .any()
@@ -2290,7 +2294,7 @@ fn about_header(inst: Rc<Installed>, about: &About) -> AnyPiece {
     ))
     .spacing(12.0)
     .align(VAlign::Center)
-    .grow_w()
+    .grow(Dimension::Width)
     .on_tap(move || path.update(|p| p.push(SettingsRoute::About)))
     .id(day_core::id!(settings_about)),))
     .any()
@@ -2339,7 +2343,7 @@ fn about_page(inst: Rc<Installed>) -> AnyPiece {
         column(head)
             .spacing(6.0)
             .align(HAlign::Center)
-            .grow_w()
+            .grow(Dimension::Width)
             .any(),
     ];
     // Ids by position (`about-link-0`, …) and `about-privacy`: what a walkthrough asserts.
@@ -2401,7 +2405,7 @@ fn about_page(inst: Rc<Installed>) -> AnyPiece {
     }
     let body = form(parts)
         .padding(20.0)
-        .grow_w()
+        .grow(Dimension::Width)
         .id(day_core::id!(about_page));
     // The About window fits its content like the settings panel and scrolls past the height
     // it can have; a pushed page scrolls.

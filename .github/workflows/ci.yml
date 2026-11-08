@@ -1521,6 +1521,8 @@ jobs:
           npm ci
           npm run docs:check
           npm run docs:test
+          npm run blog:test
+          npm run strings:check
           npm run docs:architecture
           npm run build:site
 

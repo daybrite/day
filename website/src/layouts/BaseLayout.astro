@@ -5,13 +5,15 @@ import '../styles/global.css';
 import Nav from '../components/Nav.astro';
 import Footer from '../components/Footer.astro';
 import { url, site } from '../lib/site';
+import { res } from '../generated/strings.mjs';
 
 interface Props {
   title?: string;
   description?: string;
   active?: string;
+  noindex?: boolean;
 }
-const { title, description = site.description, active } = Astro.props;
+const { title, description = site.description, active, noindex = false } = Astro.props;
 const fullTitle = title ? `${title} — Day` : `Day — ${site.tagline}`;
 const canonicalPath = Astro.url.pathname.replace(/\/$/, '') || '/';
 const canonical = Astro.site ? new URL(canonicalPath, Astro.site).href : undefined;
@@ -28,6 +30,8 @@ const ogImage = Astro.site ? new URL(url('og-card.png'), Astro.site).href : unde
     <script is:inline data-day-theme src={url('scripts/theme.js')}></script>
     <title>{fullTitle}</title>
     <meta name="description" content={description} />
+    {noindex && <meta name="robots" content="noindex, nofollow" />}
+    <link rel="alternate" type="application/rss+xml" title={res.str.blog_feed_title()} href={url('rss.xml')} />
     <link rel="icon" type="image/svg+xml" href={url('favicon.svg')} />
     {canonical && <link rel="canonical" href={canonical} />}
     <meta property="og:title" content={fullTitle} />

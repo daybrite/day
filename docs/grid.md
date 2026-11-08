@@ -41,7 +41,7 @@ pub fn details(name: Signal<String>, location: Signal<String>) -> impl Piece {
     grid((
         label(res::str::grid_details()),
         grid_row((label(res::str::grid_name()), label(name))),
-        grid_row((label(res::str::grid_location()), label(location).grow_w())),
+        grid_row((label(res::str::grid_location()), label(location).grow(Dimension::Width))),
         grid_row((label(res::str::grid_note()).grid_span(2).padding(4.0),)),
     ))
     .column_spacing(16.0)
@@ -59,7 +59,7 @@ grid_note = Details for the selected item.
 ```
 
 Each row contributes two columns. The location value uses
-[`.grow_w()`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.grow_w), making the
+[`.grow(Dimension::Width)`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.grow), making the
 second column share the available width. The first label is a direct child of the grid, so
 it occupies a full-width row. The note spans both columns within a row.
 
@@ -84,14 +84,14 @@ Cells occupy columns in declaration order. The row with the most occupied column
 the grid's column count. Without growth modifiers, each column takes the largest ideal width
 of its single-column cells; spanning cells can require additional width.
 
-A cell with [`.grow_w()`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.grow_w)
+A cell with [`.grow(Dimension::Width)`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.grow)
 makes its column flexible. Under a bounded width, rigid columns retain their ideal widths and
 flexible columns split the remaining space after column gaps. When width is unconstrained,
 such as inside a horizontal [scroll view](/docs/reference/scroll), flexible columns use their
 ideal widths instead.
 
 Row heights account for the cells' heights at their final column widths, including wrapped
-text. A [`.grow_h()`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.grow_h) cell
+text. A [`.grow(Dimension::Height)`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.grow) cell
 lets its row share extra height when the grid receives a bounded height.
 
 Rigid content in a flexible column can clip when little width remains. Allow long text to

@@ -44,9 +44,36 @@ between groups, `L` for a page's edge inset, `XL` between major regions. [`label
 and supplies the control’s accessible name. Use [`scroll(content)`](https://docs.rs/day-pieces/latest/day_pieces/fn.scroll.html) when the content can be
 taller than its window.
 
-Containers fit their content by default. Add [`.grow()`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.grow) when a pane should take the available
-space in its parent’s direction. Use a fixed [`.frame()`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.frame) only when the design calls for a fixed
+Containers fit their content by default. Add [`.grow(Dimension::Both)`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.grow) when a pane should take the available
+width and height offered by its parent. Use a fixed [`.frame()`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.frame) only when the design calls for a fixed
 size; text needs room to wrap and to grow in translation.
+
+## Align a piece
+
+Use `.aligned(Alignment::Center)` to position a piece within a larger area. Add growth after
+alignment to keep the content at its natural size:
+
+```rust
+button(res::str::reset())
+    .aligned(Alignment::Center)
+    .grow(Dimension::Width)
+```
+
+`Dimension::Width`, `Height`, and `Both` select which dimensions expand. `Alignment` also
+supports `Leading`, `Trailing`, `Top`, `Bottom`, and the four corners. Leading and trailing
+follow the language's reading direction.
+
+Alignment alone adds no space. Give it room with `.grow(...)` or `.frame(...)` afterward.
+Reversing the order aligns content that has already expanded. Controls that naturally fill
+the available width still fill it. A scroll view measures content without a limit in its scrolling direction, then places it
+in an area at least as large as the viewport. Growing content can use that area.
+
+Use a container's `.align(...)` to align its children, and a label's `.align(TextAlign::...)`
+to align its text. Those settings serve different purposes from positioning the whole piece.
+
+When updating older code, replace `.grow()` with `.grow(Dimension::Both)`, `.grow_w()` with
+`.grow(Dimension::Width)`, and `.grow_h()` with `.grow(Dimension::Height)`. The last two methods
+remain deprecated migration shims.
 
 ## The modifier vocabulary
 
@@ -57,7 +84,7 @@ label(res::str::total())
     .padding(Insets::symmetric(12.0, 6.0))  // or .padding(Space::S) for all edges; Insets::horizontal(12.0),
                                             // ::vertical, ::top, ::bottom, ::leading, ::trailing for one side or pair
     .frame(200.0, 44.0)                     // fixed size (or .width / .height for one axis)
-    .grow();                                // take flexible space in the parent's axis
+    .grow(Dimension::Both);                                // fill available width and height
 
 column((a, b, c)).spacing(Space::S).align(HAlign::Leading);
 row((x, spacer(), y));                      // spacer pushes x and y apart
@@ -98,7 +125,7 @@ row answers 400×32
 ```
 
 Containers like [`row`](https://docs.rs/day-pieces/latest/day_pieces/fn.row.html) and [`column`](https://docs.rs/day-pieces/latest/day_pieces/fn.column.html) measure rigid children first, then divide the remaining space
-among flexible ones ([`spacer`](https://docs.rs/day-pieces/latest/day_pieces/fn.spacer.html), anything marked [`.grow()`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.grow)). A child is never forced: if you propose
+among flexible ones ([`spacer`](https://docs.rs/day-pieces/latest/day_pieces/fn.spacer.html), anything marked [`.grow(Dimension::Both)`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.grow)). A child is never forced: if you propose
 100 points to a label that needs 120, it answers 120, and the parent decides what to do about the
 overflow (usually: let [`scroll`](https://docs.rs/day-pieces/latest/day_pieces/fn.scroll.html) handle it).
 
@@ -106,7 +133,7 @@ The `Layout` trait is public and has no private privileges; [`column`](https://d
 same trait a custom masonry or flow container would use.
 
 Containers don't stretch children by default. A
-[`column`](https://docs.rs/day-pieces/latest/day_pieces/fn.column.html) is as wide as its widest child; a pane you want to fill available space needs [`.grow()`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.grow).
+[`column`](https://docs.rs/day-pieces/latest/day_pieces/fn.column.html) is as wide as its widest child; a pane you want to fill available space needs [`.grow(Dimension::Both)`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.grow).
 Forgetting this shows up as a view collapsing to its content size, or to nothing when it has no
 content.
 

@@ -983,7 +983,7 @@ mod imp {
     ///
     /// The registered-page lookup above matches only a page's OWN content view, and a nested host
     /// rarely lands there: it arrives inside whatever the page put between them — a `when` arm, a
-    /// column, a `.grow()` wrapper — all of them plain views. The responder chain is the general
+    /// column, a `.grow(Dimension::Both)` wrapper — all of them plain views. The responder chain is the general
     /// answer, because `nextResponder` on a view yields its controller where it has one and its
     /// superview where it does not, so walking it stops at the nearest enclosing controller.
     ///

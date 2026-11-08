@@ -353,8 +353,8 @@ pub(crate) fn place_node<B: Toolkit>(
 /// A single-child wrapper's baseline is its child's, moved by where the child sits inside it
 /// (docs/baseline.md).
 ///
-/// Every wrapper below places its one child at its own top-left, so `dy` is 0 for all of them
-/// but padding. Without this a decorated piece reports no baseline, and since decorators are
+/// Padding and alignment add vertical offsets; the other wrappers forward the child’s baseline
+/// at the size they assign during placement. Without this a decorated piece reports no baseline, and since decorators are
 /// invisible in the source (`.width(90)` on a label is still "a label" to the reader), a row
 /// would silently center the very children the author asked to align. That is exactly what
 /// happened to the showcase's first baseline demo.
@@ -965,7 +965,7 @@ impl FlowLayout {
             // Unbounded (inside a horizontal scroll): one line, like a plain row.
             _ => kids.len().max(1),
         };
-        // A growing child (`.grow_w()`) stretches the columns to share the whole line, the
+        // A growing child (`.grow(Dimension::Width)`) stretches the columns to share the whole line, the
         // adaptive grid: `cell_w` is then the narrowest a column gets, and a line with fewer
         // cells than columns leaves the rest empty. Without one, the leftover width trails the
         // last column.
@@ -1387,7 +1387,7 @@ impl Layout for GridLayout {
 }
 
 /// Two-axis placement of a child within a container's bounds (SwiftUI's `Alignment`). Used by
-/// the z-layering primitives ([`OverlayLayout`]): `zstack`, `overlay`/`overlay_aligned`.
+/// [`AlignmentLayout`] and the z-layering primitives ([`OverlayLayout`]).
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum Alignment {
     TopLeading,
@@ -1419,6 +1419,48 @@ impl Alignment {
             Alignment::BottomLeading | Alignment::Bottom | Alignment::BottomTrailing => 1.0,
         }
     }
+}
+
+/// Position one child within the space assigned to this layout-only wrapper.
+/// Alignment does not request extra space; use an outer grow or frame modifier for that.
+pub struct AlignmentLayout {
+    pub align: Alignment,
+}
+
+impl Layout for AlignmentLayout {
+    fn measure(&self, cx: &mut dyn LayoutOps, children: &[RNode], p: Proposal) -> Size {
+        children
+            .first()
+            .map_or(Size::ZERO, |&c| cx.measure_child(c, p))
+    }
+
+    fn place(&self, cx: &mut dyn LayoutOps, children: &[RNode], bounds: Rect) {
+        if let Some(&c) = children.first() {
+            let size = cx.measure_child(c, Proposal::exact(bounds.size));
+            // Keep oversized content at the leading/top edge; do not clip or shrink it.
+            // LayoutOps handles logical leading/trailing in RTL, exactly once.
+            let x = (bounds.size.width - size.width).max(0.0) * self.align.h_fraction();
+            let y = (bounds.size.height - size.height).max(0.0) * self.align.v_fraction();
+            cx.place_child(c, Rect::new(x, y, size.width, size.height));
+        }
+    }
+
+    fn baseline(&self, cx: &mut dyn LayoutOps, children: &[RNode], size: Size) -> Option<f64> {
+        let &child = children.first()?;
+        let child_size = cx.measure_child(child, Proposal::exact(size));
+        let offset = (size.height - child_size.height).max(0.0) * self.align.v_fraction();
+        cx.baseline_of(child, child_size)
+            .map(|baseline| baseline + offset)
+    }
+}
+
+/// Dimensions in which a piece expands to fill the space offered by its parent.
+/// Unlike [`Axis`], this can select both width and height.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Dimension {
+    Width,
+    Height,
+    Both,
 }
 
 /// Z-layering (§overlay): children share the container bounds, stacked back-to-front in child
@@ -1523,7 +1565,7 @@ impl Layout for PaddingLayout {
 /// The `aspect_ratio` decorator (§5.2): the largest `width / height == ratio` box that fits what
 /// the parent proposes, with the child given that whole box.
 ///
-/// With one axis proposed it derives the other, which is what makes `.grow_w().aspect_ratio(r)`
+/// With one axis proposed it derives the other, which is what makes `.grow(Dimension::Width).aspect_ratio(r)`
 /// take the width a container offers and compute the height from it: a canvas that keeps its
 /// proportions as the window resizes.
 pub struct AspectRatioLayout {
@@ -1552,11 +1594,11 @@ impl Layout for AspectRatioLayout {
         }
     }
     fn baseline(&self, cx: &mut dyn LayoutOps, children: &[RNode], size: Size) -> Option<f64> {
-        PassThrough::forward(cx, children, size)
+        wrapper_baseline(cx, children, size, 0.0)
     }
 }
 
-/// The `grow`/`grow_w`/`grow_h` decorators (§5.2): a single-child wrapper carrying grow [`Flex`]
+/// The `grow` decorator (§5.2): a single-child wrapper carrying grow [`Flex`]
 /// so the parent stack OFFERS it the space, and a greedy measure/place so the child actually
 /// FILLS it. Non-grown axes hug the child (like `frame(maxWidth: .infinity)` on one axis).
 pub struct GrowLayout {
@@ -1600,7 +1642,17 @@ impl Layout for GrowLayout {
         }
     }
     fn baseline(&self, cx: &mut dyn LayoutOps, children: &[RNode], size: Size) -> Option<f64> {
-        PassThrough::forward(cx, children, size)
+        let &child = children.first()?;
+        let measured = cx.measure_child(child, Proposal::exact(size));
+        wrapper_baseline(
+            cx,
+            children,
+            Size::new(
+                if self.w { size.width } else { measured.width },
+                if self.h { size.height } else { measured.height },
+            ),
+            0.0,
+        )
     }
 }
 
@@ -1767,7 +1819,7 @@ impl Layout for FrameLayout {
         }
     }
     fn baseline(&self, cx: &mut dyn LayoutOps, children: &[RNode], size: Size) -> Option<f64> {
-        PassThrough::forward(cx, children, size)
+        wrapper_baseline(cx, children, size, 0.0)
     }
 }
 

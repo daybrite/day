@@ -166,7 +166,7 @@ fn grid_height_for_width_rewrap() {
         grid((grid_row((
             label("aa"),
             // 30 chars × 8 = 240pt ideal; the flexible column will be 84pt wide.
-            label("abcdefghijklmnopqrstuvwxyz1234").grow_w(),
+            label("abcdefghijklmnopqrstuvwxyz1234").grow(Dimension::Width),
         )),))
         .align(Alignment::TopLeading)
         .width(100.0)

@@ -4,7 +4,7 @@
 //! Images decoded from reactive bytes, with a placeholder and optional clipping.
 //! Uses the core decoder and canvas; no toolkit-specific image pipeline or HTTP dependency.
 use crate::{Decorate, Decorated, canvas};
-use day_core::{BuildCx, Piece, RNode, TaskHandle};
+use day_core::{BuildCx, Dimension, Piece, RNode, TaskHandle};
 use day_reactive::{Scope, Signal, watch};
 use day_spec::{Color, Rect, Shape};
 use std::{cell::RefCell, rc::Rc, sync::Arc};
@@ -132,7 +132,7 @@ impl Piece for AsyncImage {
                 }
             });
         })
-        .grow()
+        .grow(Dimension::Both)
         .build(cx)
     }
 }

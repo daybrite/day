@@ -1092,10 +1092,32 @@ that group. The `absolute_route_replaces_remembered_path_in_newly_mounted_stack`
 in [mock_e2e.rs](crates/day-pieces/tests/mock_e2e.rs) covers replacement, preservation on a
 bare reopen, and returning to the root with one Back action on every toolkit.
 
+Sizing and placement have separate modifiers. `Dimension::{Width, Height, Both}` selects
+expansion through `.grow(dimension)`; `Axis` still describes one direction. The previous
+zero-argument `.grow()` becomes `.grow(Dimension::Both)`. `.grow_w()` and `.grow_h()` are
+deprecated migration shims. There are no `center`, `leading`, or `trailing` aliases.
+
+`.aligned(alignment)` creates a single-child `AlignmentLayout` with default `Flex` and
+`Boundary::No`. It measures the child with the available proposal and reports that size.
+Placement measures again for the assigned bounds and offsets the child within nonnegative
+free space. It preserves intrinsic size, overflow, and the child's baseline plus its vertical
+offset. `LayoutOps::place_child` performs the existing RTL mirror. The wrapper adds no native
+view, focus stop, or accessibility role. A greedy child still fills its proposal; alignment
+cannot make it intrinsic-sized. Unbounded measurement reports the child’s natural size. Scroll placement still grants at least
+the viewport size, so a growing child can use that space during placement.
+
+Modifiers wrap in call order: `button(...).aligned(Alignment::Center).grow(Dimension::Width)`
+centers a natural-width button inside an expanding wrapper. Reversing those modifiers aligns
+an already expanded child. Fixed frames, padding, and backgrounds retain the same order rules.
+`.id` identifies the underlying piece; `.wrapper_id` identifies an outer layout box when needed.
+Repeated alignment modifiers nest rather than replacing one another. Container `.align` and
+text alignment retain their existing meanings. See the alignment regressions in
+[tests/mock_e2e.rs](crates/day-pieces/tests/mock_e2e.rs).
+
 The **`Decorate`** extension trait carries the universal modifiers: `.id(id!(name))` / `.id(id!(family, key))`,
 `.padding()`, `.frame()` / `.width()` / `.height()`, `.max_width()` / `.max_height()` /
 `.min_width()` (caps that let content shrink to a smaller screen), `.aspect_ratio()`,
-`.grow()` variants, `.background()`,
+`.grow(Dimension::Width)` (or `Height` / `Both`), `.aligned(Alignment::…)`, `.background()`,
 `.corner_radius()`, `.overlay()` / `.overlay_aligned()`, `.grid_span()` / `.grid_align()`
 ([docs/grid.md](docs/grid.md); inert outside a grid), `.a11y()`, `.on_tap()` / `.on_drag()` /
 `.on_pinch()` / `.on_pan()` / `.on_rotate()` (the continuous zoom/scroll/turn gestures, [docs/canvas.md](docs/canvas.md)), `.focused()`,
@@ -1134,6 +1156,18 @@ regression test; see [docs/stepper.md](docs/stepper.md).
 The stepper's `.id()` names its interactive field in both idioms, wherever it sits in the chain.
 Both idioms are tested using the public `.id()` API, including range clamping and the
 preview/commit boundary.
+
+`Stepper::format(display, parse)` adds application-defined display text and committed-input
+parsing. The formatter accepts `Into<String>` results, including generated Fluent messages,
+and runs inside the text field's tracked read so locale dependencies refresh the display.
+The parser returns `Option<f64>`; rejected or non-finite results do not write the binding,
+while finite results clamp to its range. Typing remains uncommitted until Return or focus loss.
+The field restores canonical text on either event even when the number did not change.
+Custom formatting always uses the composed control, overriding idiom and decimal settings;
+native numeric stepper renderers have no application formatter/parser callback contract.
+Numeric events and arrow increments retain the binding's units. The `formatted_*` stepper
+tests cover rejected edits, commit counts, range clamping, reactive formatter dependencies,
+and numeric events. The website demo additionally tests Fluent percentages in real browsers.
 
 Example — the shipped composition idiom (from the showcase's Controls page; the live app is the
 complete reference, [Appendix A](#appendix-a--the-showcase-app-end-to-end)):
@@ -3325,7 +3359,7 @@ pub fn gauge(value: Signal<f64>) -> impl Piece {
   this node.
 - A canvas has no intrinsic content size. GTK accepts each proposed axis and reports zero for
   an unproposed axis, independent of prior native allocations. In particular,
-  `.grow_w().aspect_ratio(1.0)` must keep the square's proposed height; measuring the
+  `.grow(Dimension::Width).aspect_ratio(1.0)` must keep the square's proposed height; measuring the
   `GtkDrawingArea`'s zero natural height would collapse its drawing. The native regression
   [canvas layout test](crates/day-toolkit-gtk/tests/native_canvas_layout.rs) checks square proposals,
   shrinking, and unconstrained axes (requires a display; use `xvfb-run` on headless Linux).
@@ -6491,7 +6525,12 @@ triggers retain their existing behavior.
    `.cache/docs/` sessions with copied lockfiles. The tutorial image/source check runs on every
    site build and dev-server startup for the captures retained on `/examples`.
    The landing page's live Rust example comes from `apps/website-controls`: a slider, editable
-   stepper, progress bar, and Reset button share a signal. The Astro live-demo integration
+   stepper, progress bar, rounded rectangle's opacity, and Reset button share a 0–1 signal.
+   The heading and editable stepper use Fluent percentage messages; the demo's
+   English-input parser converts percentage points back to fractions. An
+   app-local `primary_tint()` helper receives the web control's computed accent color through
+   the existing appearance bridge; native builds use the app's blue. This helper is not a
+   framework API for querying native accent colors. The Astro live-demo integration
    builds this checkout's CLI with Cargo, compiles the app for web-dom, and extracts its actual
    root function for display beside an iframe. Source and output hashes permit cached builds
    for page-only edits. The iframe uses native `loading="lazy"` with browser-controlled fetch
