@@ -36,10 +36,11 @@
 name: doctor-verify
 
 on:
-  # Twice daily (UTC) rather than the four times install.yml ran: a cell now packages as well as
-  # builds, and does it in release, so it costs more wall clock than the old build-only job.
+  # Once overnight, separated from the framework run: native builds and packaging share
+  # the limited macOS runner pool with daytime development.
   schedule:
-    - cron: "0 0,12 * * *"
+    - cron: "0 4 * * *" # 04:00 Eastern; staggered across daybrite.
+      timezone: America/New_York
   workflow_dispatch:
   # PRs validate tutorial sources only; native checks run on the schedule or manual dispatch.
   pull_request:

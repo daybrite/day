@@ -35,12 +35,12 @@ export const hubs = [
   { route: '/docs/tutorials', title: 'Tutorials', description: 'Build a Session counter on macOS, Windows, or Linux in six lessons, from your first window to events, state, layout, navigation, and a tested app.', audience: 'app developer' },
   { route: '/docs/how-to', title: 'How-to guides', description: 'Find a procedure for a specific app development task.', audience: 'app developer' },
   { route: '/docs/explanation', title: 'Explanation', description: 'Understand pieces, signals, layout, state, and lifecycle.', audience: 'app developer' },
-  { route: '/contributing', title: 'Contributing', description: 'Set up framework development, understand the architecture, and build extensions.', audience: 'contributor' },
+  { route: '/contributing', title: 'Contributing', description: 'Contributions are currently invitation-only. Discussions and issues are welcome in any Daybrite repository.', audience: 'contributor' },
   { route: '/contributing/history', title: 'History', description: 'Retained migration and implementation history.', audience: 'contributor' },
   { route: '/contributing/tutorials', title: 'Contributor tutorials', description: 'Learn to create composite pieces, native pieces, and parts.', audience: 'contributor' },
   { route: '/contributing/documentation', title: 'Documentation authoring', description: 'The canonical style guide, terminology, authoring workflow, and validation commands.', audience: 'contributor' },
   { route: '/platforms', title: 'Platforms', description: 'Choose desktop and mobile targets by their support level, toolkit, and feature limits. Start with supported targets and inspect the full compatibility reference.', audience: 'evaluator' },
-  { route: '/community', title: 'Community', description: 'Help make Day useful to more app creators: share a reproducible issue, improve a guide, or contribute a tested native integration.', audience: 'evaluator' },
+  { route: '/community', title: 'Community', description: 'Discuss app development, report bugs, and share Day apps and extensions.', audience: 'evaluator' },
 ];
 
 export const fixedRoutes = ['/', '/gallery', '/showcase', '/privacy', '/examples', '/docs/reference/api'];

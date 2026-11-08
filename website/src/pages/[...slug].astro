@@ -69,7 +69,7 @@ const referenceSections = page.route === '/docs/reference' ? referenceNavigation
   </>}
   {page.route === '/contributing' && <>
     <ContentIndex pages={[...children.filter((p) => !p.route.slice('/contributing/'.length).includes('/')), ...categories]} />
-    <p>The repository’s <a href={`${site.repo}/blob/main/DESIGN.md`}>DESIGN.md</a> remains the architectural authority. It includes proposals and historical sections; consult their status before treating them as implemented contracts.</p>
+    <p>For framework architecture, see <a href={`${site.repo}/blob/main/DESIGN.md`}>DESIGN.md</a>. Proposals and historical notes are labeled separately.</p>
   </>}
   {page.route === '/platforms' && <>
     <h2>Supported desktop and mobile targets</h2>
@@ -93,8 +93,8 @@ const referenceSections = page.route === '/docs/reference' ? referenceNavigation
     <p>A small reproducible example helps others understand what you need. Include the target, Day revision, expected behavior, and what happened.</p>
     <p><a href={`${site.repo}/issues`}>Report an issue →</a></p>
     <h2>Share what you know</h2>
-    <p>If you know a native toolkit, help improve its controls or device integrations. If you have just learned Day, point out the step that held you up or contribute a clearer example.</p>
-    <p><a href={url('contributing/setup')}>Read the contribution workflow →</a></p>
+    <p>Share platform-specific findings or point out unclear documentation. Contributions are currently invitation-only.</p>
+    <p><a href={url('contributing/setup')}>Read the contribution policy →</a></p>
     <h2>Discuss an app or an extension</h2>
     <p>Describe the people you’re building for and the workflow you want to support. That gives a discussion about APIs and platform differences a concrete place to start.</p>
     <p><a href={`${site.repo}/discussions`}>Open project discussions →</a></p>

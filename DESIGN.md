@@ -6183,6 +6183,14 @@ The `daybrite/actions` companion repository provides reusable workflows for exte
 
 ## §20 Continuous integration
 
+Daily CI runs overnight in `America/New_York`: the framework workflow starts at 22:00 and
+`doctor-verify.yml` at 04:00, once per night. Sibling repositories stagger their schedules
+between 22:00 and 06:00 Eastern; lowercase `day` repositories start on the hour and `Day`
+apps on the half-hour. The [shared actions schedule](https://github.com/daybrite/actions#overnight-ci-slots)
+records the allocation. This reduces contention for the limited macOS runner pool during
+active development; GitHub delays and long jobs can still overlap. Push, PR, and manual
+triggers retain their existing behavior.
+
 > [!IMPORTANT]
 > **Status: shipped, consolidated.** Instead of the designed four workflows, one `ci.yml`
 > carries the whole build pipeline, plus `doctor-verify.yml` (scheduled end-user install checks — one
@@ -6440,7 +6448,7 @@ The `daybrite/actions` companion repository provides reusable workflows for exte
    The lane runs on every push and pull request with the rest of `ci.yml`, and alone on the
    website-only triggers: a `gallery-published` `repository_dispatch` an app's CI
    can send, and a `workflow_dispatch` with `website-only` checked (each root framework job carries
-   the gate; Actions has no workflow-level `if`). The daily schedule (06:00 UTC) was a
+   the gate; Actions has no workflow-level `if`). The daily schedule (now 22:00 Eastern) was a
    website-only trigger until 2026-10; it now runs the complete workflow on `main`, so a
    runner-image, toolchain, emulator or dependency change surfaces on a day with no push. The site publishes no API
    reference (changed 2026-10-27; it hosted a rustdoc bundle at `/api/` until then): every API

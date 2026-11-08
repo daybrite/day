@@ -5,49 +5,86 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 # Contributing to Day
 
-Day™ is a young project. Its architecture is still moving, and the most useful contribution
-right now is a conversation, not a patch.
+Contributions are currently invitation-only. Open pull requests are not accepted at this time.
 
-## Start with a conversation
+You are welcome to start a discussion or file an issue in any
+[Daybrite repository](https://github.com/daybrite). For Day itself:
 
-- For an idea, a question, or a design concern, open a thread in
-  [GitHub Discussions](https://github.com/daybrite/day/discussions).
-- For a bug, file a [GitHub Issue](https://github.com/daybrite/day/issues) with the target
-  platform, the Day version, and steps to reproduce — a failing `dayscript` file is the best
-  reproduction there is.
+- Use [Discussions](https://github.com/daybrite/day/discussions) for questions, ideas, and
+  design concerns.
+- Report bugs in [Issues](https://github.com/daybrite/day/issues). Include the platform,
+  Day version, and steps to reproduce. A small example or failing DayScript walkthrough helps.
 
-**Please do not open a pull request without a discussion or issue that concluded a patch is
-wanted.** A change that looks small on the surface often crosses nine backends, the docs, and
-the design record, and reviewing an unexpected patch costs more than talking the change through
-first. PRs without a linked conversation are likely to be closed with a pointer to this file.
+## Show, don't tell
+
+If you'd like to be invited to contribute, publish a novel, interesting app built with Day.
+Share something people can try, and keep improving it as you learn from their feedback.
+
+We look for people who intend to maintain their apps over time and help maintain the parts of
+Day those apps depend on. That includes reproducing bugs, testing fixes on the platforms they
+use, and taking responsibility for ongoing framework work. Share your app and what you're
+prepared to maintain in a discussion.
+
+## For invited contributors
+
+Agree on the scope and submission process with a maintainer before starting. Read the
+[contribution terms](#contribution-terms) below.
+
+### Preparing the patch
+
+1. Link the agreed discussion or issue when submitting your work.
+2. Install the repository hooks once per clone with `bash scripts/install-hooks.sh`.
+3. Build and launch apps through `day build` and `day launch`. Use `day patch --local` to
+   test against your checkout; see [local development](/contributing/local-development).
+   Include a Day-Showcase example for a new framework feature, submitted after the framework change.
+4. Run `cargo fmt --all` and `bash scripts/ci/check-ready.sh` against all outstanding changes
+   before reporting work ready to commit or push. The gate checks formatting, generated
+   matrices, and host Clippy with test targets and warnings denied. Regenerate stale tables
+   with their `scripts/ci/*-matrix.sh` generators and rerun the gate.
+5. Run `bash scripts/ci/lint.sh` for the available platform Clippy checks and `cargo test` for
+   the crates you touched. Report any checks you could not run. The hooks and build tests do
+   not replace these checks.
+6. Update the affected documentation and `DESIGN.md` in the same PR as a framework change.
+
+For documentation changes, follow the [writing style guide](STYLE_GUIDE.md) and the
+[authoring workflow](website/authoring/authoring.md), which links to the page conventions,
+templates, and validation commands.
+
+### Dependency policy before Day 1.0
+
+Daybrite-owned crates and apps use `"0.*"` for dependencies on Day and other Daybrite-owned
+0.x crates, including external parts and pieces. Preserve path sources and workspace
+inheritance. Package release versions remain concrete; third-party requirements are unchanged.
+Test-only path dependencies stripped during publication omit the version field to avoid
+publishing reverse dependencies and creating cycles.
+
+Source and behavior changes between 0.x releases are expected. Apps commit `Cargo.lock`, build
+with `--locked`, and test dependency updates before shipping. A library's lockfile does not pin
+its consumers' dependencies. Preserve the wildcard policy through 0.x releases; revisit it at 1.0.
 
 ## Creating extensions and crates
 
-You can publish an extension as an independent Cargo crate. Start with the
-[extension model](/contributing/extending) to choose how it integrates with Day:
+You can publish independent extensions without an invitation. A
+[part](/docs/reference/glossary#part) adds a capability without UI; a
+[piece](/docs/reference/glossary#piece) adds reusable UI. The
+[extension model](/contributing/extending) explains the implementation choices.
 
-- A [part](/docs/reference/glossary#part) provides a capability without UI, such as device
-  status or a system service. Its native implementations are platform-specific and do not
-  depend on a UI toolkit.
-- A [piece](/docs/reference/glossary#piece) provides reusable UI. A native piece supplies
-  toolkit-specific renderers; a composite piece arranges existing pieces in Rust.
-
-Use `day new part <name>` or `day new piece <name>` to scaffold the crate. Select the platforms
-or toolkits you implement, then follow the [part tutorial](/contributing/tutorials/part),
-[native-piece tutorial](/contributing/tutorials/native-piece), or
-[composite-piece tutorial](/contributing/tutorials/composite-piece). Build and run the generated
-examples or demo on each supported target, and document unsupported targets and required
-permissions. Keep user-facing strings localized and access bundled resources through generated
-resource constants.
+Scaffold with `day new part <name>` or `day new piece <name>`, then follow the
+[part](/contributing/tutorials/part), [native-piece](/contributing/tutorials/native-piece), or
+[composite-piece](/contributing/tutorials/composite-piece) tutorial. Test each supported target
+and document platform limits and permissions. Localize user-facing text and use generated
+resource constants for bundled assets.
 
 ### Naming
 
-Only crates whose source is hosted under the [daybrite organization](https://github.com/daybrite)
-(or forks of those repositories) should use the `day-` prefix. Other external projects should
-use `dayext-`. This convention distinguishes project-hosted crates from independently maintained
-extensions, including extensions hosted elsewhere on GitHub.
+The `day-` prefix is reserved for crates hosted under the
+[daybrite organization](https://github.com/daybrite) and forks of those repositories.
+Independent extensions use `dayext-`.
 
-Use lowercase, hyphen-separated names that describe the feature:
+Please respect the Day™ name and this naming convention. We may ask maintainers to rename
+crates that imply an affiliation with the Daybrite project.
+
+Use lowercase, hyphen-separated names:
 
 | Extension | Naming pattern | Example |
 | --- | --- | --- |
@@ -56,94 +93,21 @@ Use lowercase, hyphen-separated names that describe the feature:
 | Part supporting multiple platforms | `dayext-part-feature` | `dayext-part-power-profile` |
 | Piece supporting multiple toolkits, or a composite piece | `dayext-piece-feature` | `dayext-piece-rating` |
 
-Replace `platform` with an OS name such as `linux` or `android`, and `toolkit` with a UI toolkit
-such as `gtk` or `appkit`. Include that segment when the crate is specific to it; a shared API
-with several native implementations can omit it. Other extension crates use `dayext-feature`.
-These are naming examples, not a list of published crates.
-
-For example, scaffold independent platform and toolkit extensions with:
-
-```sh
-day new part dayext-part-linux-power-profile --platforms linux
-day new piece dayext-piece-gtk-source-editor --toolkits gtk
-```
-
-## When a patch is agreed on
-
-### Dependency policy before Day 1.0
-
-Daybrite-owned crates and apps use `"0.*"` for dependencies on Day and other Daybrite-owned
-0.x crates. This includes internal framework dependencies and dependencies between external
-parts and pieces. Keep path sources and workspace inheritance where needed; their version
-requirement is still `"0.*"`. Third-party dependencies keep their existing requirements.
-Test-only path dependencies that must be stripped during publication omit the version field;
-adding a version would publish their reverse edges and create dependency cycles.
-
-We accept source and behavior changes between 0.x releases. A wildcard allows those releases
-to resolve; it does not promise compatibility. Apps that need a fixed dependency set commit
-`Cargo.lock` and build with `--locked`. Review and test lockfile updates before shipping.
-Libraries cannot use their own lockfile to constrain a consuming app's dependency graph.
-
-Package versions remain concrete release numbers. A 0.x release bump must preserve the
-wildcard requirements. Revisit this policy when Day reaches 1.0.
-
-### Preparing the patch
-
-Once a discussion lands on "yes, send a patch":
-
-1. Reference the discussion or issue in the PR description.
-2. Build and run through the `day` CLI (`day build`, `day launch`), not bare `cargo`.
-3. To exercise your change in a real app (the showcase, or your own), build that app against
-   your checkout with `day patch --local` —
-   [Developing Day and an app together](/contributing/local-development) covers the
-   workflow. A framework feature usually lands with a Day-Showcase screen that demonstrates it,
-   as a second PR that follows the framework change.
-4. Before reporting work ready to commit or push, run `cargo fmt --all` and
-   `bash scripts/ci/check-ready.sh` against all outstanding changes. This checks generated
-   matrices, formatting, and host Clippy with test targets and warnings denied. Regenerate
-   stale tables using their `scripts/ci/*-matrix.sh` generators, then rerun the gate. The
-   checks accept correct uncommitted tables and never rewrite them. Run `scripts/ci/lint.sh`
-   for the full available platform Clippy matrix and `cargo test` for the crates you touched;
-   report skipped platform checks when handing off work. Install the tracked hooks once per
-   clone with `bash scripts/install-hooks.sh`: the `pre-commit` hook formats, checks the
-   generated matrices, and separately checks staged matrix inputs, so an unstaged correction
-   cannot hide stale generated content in the commit. The hook skips host Clippy to keep
-   commits fast, so it does not replace `check-ready.sh`. Builds and tests do not replace lint
-   validation.
-5. Update the documentation the change affects in the same PR: the relevant `docs/*.md` page,
-   and the `DESIGN.md` section that describes what you changed.
-
-## Documentation authoring
-
-Follow the [writing style guide](STYLE_GUIDE.md),
-[documentation conventions](website/authoring/style-guide.md),
-[authoring workflow and checks](website/authoring/authoring.md), and
-[page templates](website/authoring/templates/README.md). Use the existing
-[shared glossary](website/src/lib/glossary.mjs) as the terminology source.
-Use the [documentation maintenance checklist](website/authoring/maintenance.md) for review,
-freshness, platform-claim changes, and publication checks. Named documentation ownership remains
-deferred; record the reviewer and evidence for each change without assigning a permanent owner.
+Use an OS name such as `linux` for `platform`, or a toolkit such as `gtk` for `toolkit`.
+Omit that segment for shared implementations. Other extension crates use `dayext-feature`.
+The examples above illustrate names, not published crates.
 
 ## Platform support tiers
 
-Every `(OS, toolkit)` target sits in a support tier, from Tier 1 (supported: thoroughly tested,
-highest attention to quality) down to Tier 4 (development: compatibility combinations no app
-ships on). The [Platform support](/docs/reference/platforms#support-tiers) page defines
-all four and says where each target stands today.
+[Platform support](/docs/reference/platforms#support-tiers) describes the maintenance each
+target receives. To help maintain a platform, open a discussion describing what you can cover:
 
-A tier records the maintenance a target has, not a verdict on the platform, so a target moves up
-when people show up to keep it there. Taking a platform up a tier means taking on the work that
-tier promises:
+- Review changes to its toolkit implementation.
+- Run showcase walkthroughs on real hardware before releases.
+- Reproduce and triage platform bugs.
+- Keep its CI builds working as SDKs, signing, and packaging requirements change.
 
-- an owner for the backend who reviews the patches that touch it;
-- the showcase walkthrough run on real hardware before a release, not only in CI;
-- triage for that platform's bug reports, with reproductions the rest of us can run;
-- its toolchain kept green in CI as SDKs, signing, and packaging move.
-
-If you or your team can commit to that, open a
-[Discussion](https://github.com/daybrite/day/discussions) naming the target and what you can
-cover. Tiers move down the same way: a target whose maintainer moves on, or whose CI leg stays
-red, drops until someone picks it up.
+A target's tier can rise or fall as its maintenance and testing coverage changes.
 
 ## Contribution terms
 
