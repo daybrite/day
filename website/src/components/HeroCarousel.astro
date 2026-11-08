@@ -5,7 +5,7 @@
 // cross-fading, with the platform name + toolkit animating in below each image. The pool is built
 // (and every image verified non-blank) at build time by scripts/hero-shots.mjs. Each slide carries
 // its light capture plus, where CI produced one, the matching dark capture; the site theme picks
-// which shows (platforms without a dark set keep their light shot — never a missing file).
+// which shows. Slides without a verified dark capture appear only in the light rotation.
 import { url } from '../lib/site';
 import DeviceShell from './DeviceShell.astro';
 import PlatformIcon from './PlatformIcon.astro';
@@ -21,6 +21,8 @@ const shots: {
   framed: boolean;
   width?: number;
   height?: number;
+  widthDark?: number;
+  heightDark?: number;
   os: string;
   toolkit: string;
   accent: string;
@@ -45,6 +47,8 @@ const accents = [...new Set(shots.map((s) => s.accent))];
               <img class="hc-img" src={url(s.src)} alt={s.alt} width={s.width} height={s.height}
                 decoding="async" loading={i < 3 ? 'eager' : 'lazy'}
                 data-src-light={url(s.src)} data-src-dark={s.srcDark ? url(s.srcDark) : undefined}
+                data-width-light={s.width} data-height-light={s.height}
+                data-width-dark={s.widthDark} data-height-dark={s.heightDark}
                 data-shot={s.shot} data-gallery={url(s.gallery)} data-app={s.label}
                 data-os={s.os} data-toolkit={s.toolkit} data-accent={s.accent} />
             </div> : <DeviceShell platform={s.accent} title={s.label} w={s.width} h={s.height}>
@@ -58,6 +62,8 @@ const accents = [...new Set(shots.map((s) => s.accent))];
                 loading={i < 3 ? 'eager' : 'lazy'}
                 data-src-light={url(s.src)}
                 data-src-dark={s.srcDark ? url(s.srcDark) : undefined}
+                data-width-light={s.width} data-height-light={s.height}
+                data-width-dark={s.widthDark} data-height-dark={s.heightDark}
                 data-shot={s.shot}
                 data-gallery={url(s.gallery)}
                 data-app={s.label}
@@ -94,6 +100,8 @@ const accents = [...new Set(shots.map((s) => s.accent))];
 )}
 
 <style>
+  .hero-carousel[hidden], .hc-seg[hidden] { display: none; }
+  :global(html[data-theme=dark]) .hero-carousel:not([data-hero-ready]) .hc-slide { opacity: 0; transition: none; }
   .hero-carousel { margin: 0; display: flex; flex-direction: column; gap: 16px; }
 
   .hc-link { display: block; border-radius: var(--radius-lg); }
@@ -210,32 +218,14 @@ const accents = [...new Set(shots.map((s) => s.accent))];
 </style>
 
 <script>
-  // Show each slide's capture for the current site theme (html[data-theme], set before paint by
-  // BaseLayout). Dark visitors get the dark screenshots; a slide with no dark capture keeps its
-  // light one — data-src-dark is only emitted for files verified to exist.
-  function applyHeroTheme() {
-    const dark = document.documentElement.dataset.theme === 'dark';
-    for (const img of document.querySelectorAll<HTMLImageElement>('[data-hero-carousel] .hc-img')) {
-      const useDark = dark && !!img.dataset.srcDark;
-      const src = (useDark && img.dataset.srcDark) || img.dataset.srcLight;
-      if (src && img.getAttribute('src') !== src) img.setAttribute('src', src);
-      // Window chrome follows the capture, not the site: a platform with no dark screenshot
-      // keeps its light one, and a dark title bar around it would look like a rendering bug.
-      img.closest<HTMLElement>('.sh-win')?.toggleAttribute('data-dark', useDark);
-    }
-  }
-  // Re-resolve when the theme toggle (or the OS, under "system") flips the site theme.
-  new MutationObserver(applyHeroTheme).observe(document.documentElement, {
-    attributes: true,
-    attributeFilter: ['data-theme'],
-  });
+  import { heroCapture } from '../lib/hero-theme.mjs';
 
   // Carousel controller: shuffle the verified pool (so each visit differs), cross-fade the images,
   // and animate the platform caption in sync. Pauses on hover / when the tab is hidden.
   function initHeroCarousel() {
-    applyHeroTheme();
     const root = document.querySelector<HTMLElement>('[data-hero-carousel]');
-    if (!root) return;
+    if (!root || root.hasAttribute('data-hero-initialized')) return;
+    root.setAttribute('data-hero-initialized', '');
 
     const imgs = Array.from(root.querySelectorAll<HTMLImageElement>('.hc-img'));
     // The image carries the data; the slide (image + its shell) is what cross-fades.
@@ -254,7 +244,7 @@ const accents = [...new Set(shots.map((s) => s.accent))];
     const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
     // Fisher–Yates shuffle of the display order.
-    const order = imgs.map((_, i) => i);
+    let order = imgs.map((_, i) => i);
     for (let i = order.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
       [order[i], order[j]] = [order[j], order[i]];
@@ -294,6 +284,23 @@ const accents = [...new Set(shots.map((s) => s.accent))];
           break;
         }
       }
+    }
+
+    const fullOrder = [...order];
+    const captures = imgs.map(img => ({
+      src: img.dataset.srcLight, srcDark: img.dataset.srcDark,
+      width: Number(img.dataset.widthLight), height: Number(img.dataset.heightLight),
+      widthDark: Number(img.dataset.widthDark), heightDark: Number(img.dataset.heightDark),
+    }));
+    let themeRevision = 0;
+    const decoded = new Map<string, Promise<boolean>>();
+    function preload(src: string) {
+      if (!decoded.has(src)) {
+        const image = new Image();
+        image.src = src;
+        decoded.set(src, image.decode().then(() => true, () => { decoded.delete(src); return false; }));
+      }
+      return decoded.get(src)!;
     }
 
     let pos = 0;
@@ -344,7 +351,7 @@ const accents = [...new Set(shots.map((s) => s.accent))];
       render(pos);
     }
     function start() {
-      if (reduce || timer) return;
+      if (reduce || timer || order.length < 2 || document.hidden || root!.matches(':hover')) return;
       timer = setInterval(advance, INTERVAL);
     }
     function stop() {
@@ -357,17 +364,20 @@ const accents = [...new Set(shots.map((s) => s.accent))];
     root.addEventListener('mouseleave', start);
     document.addEventListener('visibilitychange', () => (document.hidden ? stop() : start()));
 
-    // Wire the progress dashes to the order this visit shuffled into: dash i is the slide at
-    // position i, so hovering it jumps there (the root's hover already halts the timer, so it
-    // simply stays), and following it opens that slide's gallery row rather than the current
-    // one. Advancing later resumes from wherever the pointer left off.
+    // The visible dashes follow the current theme's rotation. Their event handlers read
+    // the current order so switching themes cannot leave a link attached to the wrong app.
+    function updateSegments() {
+      segs.forEach((seg, i) => {
+        seg.hidden = i >= order.length;
+        if (seg.hidden) return;
+        const img = imgs[order[i]];
+        if (seg instanceof HTMLAnchorElement && img.dataset.gallery) seg.href = img.dataset.gallery;
+        seg.setAttribute('aria-label', `Show ${img.dataset.app} · ${img.dataset.os} ${img.dataset.toolkit}`);
+      });
+    }
     segs.forEach((seg, i) => {
-      const img = imgs[order[i]];
-      if (seg instanceof HTMLAnchorElement && img.dataset.gallery) seg.href = img.dataset.gallery;
-      const label = `${img.dataset.app ?? ''} · ${img.dataset.os ?? ''} ${img.dataset.toolkit ?? ''}`.trim();
-      seg.setAttribute('aria-label', label ? `Show the ${label} screenshot` : 'Show this screenshot');
       const jump = () => {
-        if (pos === i) return;
+        if (pos === i || i >= order.length) return;
         pos = i;
         render(i);
       };
@@ -385,8 +395,41 @@ const accents = [...new Set(shots.map((s) => s.accent))];
       seg.addEventListener('focus', jump);
     });
 
-    render(0);
-    start();
+    async function applyTheme() {
+      const request = ++themeRevision;
+      const theme = document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light';
+      const previous = order[pos];
+      stop();
+      root!.setAttribute('aria-busy', 'true');
+      const eligible = fullOrder.filter(i => heroCapture(captures[i], theme));
+      const loaded = await Promise.all(eligible.map(i => preload(heroCapture(captures[i], theme)!.src!)));
+      if (request !== themeRevision) return;
+      order = eligible.filter((_, i) => loaded[i]);
+      root!.hidden = order.length === 0;
+      for (const i of order) {
+        const capture = heroCapture(captures[i], theme)!;
+        imgs[i].src = capture.src!;
+        imgs[i].width = capture.width!;
+        imgs[i].height = capture.height!;
+        const shell = imgs[i].closest<HTMLElement>('.sh-win');
+        shell?.toggleAttribute('data-dark', theme === 'dark');
+        shell?.style.setProperty('--ar', String(capture.width! / capture.height!));
+      }
+      updateSegments();
+      // Keep the current app when it has a capture for the new theme.
+      pos = Math.max(0, order.indexOf(previous));
+      root!.dataset.heroTheme = theme;
+      root!.setAttribute('data-hero-ready', '');
+      root!.setAttribute('aria-busy', 'false');
+      if (order.length) render(pos);
+      start();
+    }
+    const observer = new MutationObserver(() => {
+      if (root!.isConnected) applyTheme();
+      else observer.disconnect();
+    });
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+    applyTheme();
   }
 
   // Run now and on Astro client-side view transitions.

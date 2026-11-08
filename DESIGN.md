@@ -6424,7 +6424,9 @@ The `daybrite/actions` companion repository provides reusable workflows for exte
    from that same gallery manifest, including locally materialized release images. Generated WebP
    files carry the app label and gallery-row URL; each image and selection dash links to its app.
    Captures containing window chrome bypass the decorative desktop shell. The cache key covers
-   the selection and source URLs, and matching verified dark images follow the site theme.
+   the selection and source URLs. Dark mode rotates only verified dark captures, with no light
+   fallback. Theme variants retain their own dimensions; the client decodes the new images before
+   switching and preserves the current app when available in both themes.
    Adding an app is one entry in `website/gallery.config.mjs`; its rows, columns, themes and
    languages come from its index, so a newly captured screen appears with no change here. An
    unreachable app site falls back to the cached copy of its last index and says so on the page.

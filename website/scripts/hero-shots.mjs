@@ -77,7 +77,7 @@ export async function assembleHeroShots(opts = {}) {
     return { ...pick, label: app?.label, light, dark };
   });
   // Changes to the reviewed selection or its published URLs invalidate the generated pool.
-  const key = createHash('sha256').update(JSON.stringify(['curated-v1', candidates])).digest('hex');
+  const key = createHash('sha256').update(JSON.stringify(['curated-v2-theme-dimensions', candidates])).digest('hex');
   if (!opts.refresh && existsSync(manifestPath)) {
     try {
       const cached = JSON.parse(readFileSync(manifestPath, 'utf8'));
@@ -119,12 +119,13 @@ export async function assembleHeroShots(opts = {}) {
     const darkBytes = await obtain(pick.dark);
     if (darkBytes && await isContentful(darkBytes) && await isDark(darkBytes)) {
       const dark = await normalize(darkBytes);
-      // The frame must stay the same size when the site changes appearance.
-      if (dark.width === light.width && dark.height === light.height) {
-        const filename = `${stem}-dark.webp`;
-        files.set(filename, dark.data);
-        entry.srcDark = `hero/${filename}`;
-      }
+      // Captured window decorations can differ slightly in size across appearances.
+      // Keep each image's actual dimensions; the carousel stage stays fixed in CSS.
+      const filename = `${stem}-dark.webp`;
+      files.set(filename, dark.data);
+      entry.srcDark = `hero/${filename}`;
+      entry.widthDark = dark.width;
+      entry.heightDark = dark.height;
     }
     shots.push(entry);
   }
@@ -134,7 +135,7 @@ export async function assembleHeroShots(opts = {}) {
   for (const [file, bytes] of files) writeFileSync(join(outDir, file), bytes);
   mkdirSync(dirname(manifestPath), { recursive: true });
   writeFileSync(manifestPath, JSON.stringify({ key, shots }, null, 2) + '\n');
-  log(`verified ${shots.length} reviewed screenshots from ${new Set(shots.map(s => s.app)).size} apps`);
+  log(`verified ${shots.length} light/default screenshots, ${shots.filter(s => s.srcDark).length} dark screenshots from ${new Set(shots.map(s => s.app)).size} apps`);
   return { count: shots.length, manifestPath };
 }
 

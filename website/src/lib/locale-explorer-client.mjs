@@ -34,10 +34,10 @@ export function initializeLocaleExplorer(root) {
     images.className = 'explorer-images' + (capture.mobile ? ' is-mobile' : '');
     const pending = [];
     for (const shot of capture.images) {
-      const figure = document.createElement('figure'), link = document.createElement('a');
+      const figure = document.createElement('figure'), frame = document.createElement('div');
       const img = new Image(shot.width, shot.height);
       figure.style.setProperty('--shot-ratio', shot.width / shot.height);
-      link.href = shot.src; link.target = '_blank'; link.rel = 'noopener';
+      frame.className = 'explorer-frame';
       img.alt = `Day Travel · ${capture.platform} · ${capture.language} · ${capture.appearance} · ${shot.label}`;
       img.src = shot.src; pending.push(img.decode());
       const template = root.querySelector(`template[data-explorer-shell="${capture.target}"]`);
@@ -50,9 +50,9 @@ export function initializeLocaleExplorer(root) {
           window.style.setProperty('--ar', shot.width / shot.height);
           window.toggleAttribute('data-dark', capture.theme === 'dark');
         }
-        link.append(shell);
-      } else link.append(img);
-      figure.append(link); images.append(figure);
+        frame.append(shell);
+      } else frame.append(img);
+      figure.append(frame); images.append(figure);
     }
     const loaded = await Promise.allSettled(pending);
     if (request !== revision) return; // A slower image must not override a later selection.

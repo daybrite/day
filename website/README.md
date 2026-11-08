@@ -218,7 +218,11 @@ Each slide links to its own gallery row and names its app. Set `framed: true` fo
 that already contain desktop window chrome. Review the actual images before changing a pick;
 missing selections are logged, with no automatic substitution of another screen. The build
 accepts light or unthemed captures and verified matching dark captures, creates compact WebP
-images, and invalidates the cache when selections or published URLs change.
+images, and invalidates the cache when selections or published URLs change. Dark mode rotates
+only through verified dark captures; apps with no dark capture remain in the light rotation.
+Each variant retains its own dimensions, including small differences in native window chrome.
+The client decodes the requested images before switching and keeps the current app when it is
+available in the new theme. Run `node --test scripts/hero-theme.test.mjs` for selection checks.
 Run `node scripts/hero-shots.mjs --refresh` to rebuild the hero pool. A cold build needs access to
 the app sites; a warm checkout can build from its cached indexes and hero images.
 

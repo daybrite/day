@@ -21,10 +21,8 @@ const code = source.slice(start).trim();
     <p class="example-note">The label follows <code>count</code>; the button updates it. <code>res::str</code> provides the translated messages.</p>
   </div>
   <figure class="rust-example-result">
-    <a href={url('images/tutorial/counter-two.png')} target="_blank" rel="noopener" aria-label="Open the full-size counter screenshot">
-      <img src={url('images/tutorial/counter-two.png')} width="800" height="640" loading="lazy" decoding="async"
-        alt="The Session counter on macOS, showing Count: 2 and a native Add one button." />
-    </a>
+    <img src={url('images/tutorial/counter-two.png')} width="800" height="640" loading="lazy" decoding="async"
+      alt="The Session counter on macOS, showing Count: 2 and a native Add one button." />
     <figcaption>After two clicks · macOS / AppKit</figcaption>
   </figure>
 </div>
@@ -34,8 +32,6 @@ const code = source.slice(start).trim();
   .rust-example-source { min-width: 0; }
   .rust-example-source :global(pre) { font-size: .75rem; }
   .rust-example-result { margin: 0; min-width: 0; }
-  .rust-example-result a { display: block; border-radius: var(--radius); }
-  .rust-example-result a:focus-visible { outline: 2px solid var(--brand); outline-offset: 4px; }
   .rust-example-result img { display: block; width: 100%; height: auto; border: 1px solid var(--border); border-radius: var(--radius); }
   .example-note, figcaption { color: var(--muted); font-size: .85rem; line-height: 1.6; margin: 14px 0 0; }
   .example-links { display: flex; flex-wrap: wrap; gap: 12px 24px; margin: 24px 0 0; }
