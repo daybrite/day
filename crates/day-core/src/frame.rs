@@ -69,6 +69,37 @@ pub fn uptime_secs() -> Option<u64> {
     })
 }
 
+/// Seconds on a monotonic clock from an arbitrary origin, for timing work on any target. Native
+/// builds read `Instant`; the web, where `Instant` is unavailable, reads the clock the facade
+/// installed with [`install_monotonic_clock`] (`performance.now()`), and `0.0` before one is
+/// installed.
+pub fn now_secs() -> f64 {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        day_spec::frame_timestamp()
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        MONOTONIC_CLOCK.get().map_or(0.0, |f| f())
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+static MONOTONIC_CLOCK: std::sync::OnceLock<fn() -> f64> = std::sync::OnceLock::new();
+
+/// Install the host's monotonic clock for [`now_secs`] on a target without `Instant`. The first
+/// registration wins; native targets ignore it.
+pub fn install_monotonic_clock(f: fn() -> f64) {
+    #[cfg(target_arch = "wasm32")]
+    {
+        let _ = MONOTONIC_CLOCK.set(f);
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let _ = f;
+    }
+}
+
 /// Install the native scheduler at launch. The requester MUST deliver asynchronously; tests may
 /// retain the callback and deliver chosen timestamps manually. Replaces no live registrations.
 pub fn install_frame_requester(f: impl Fn(RNode, FrameCallback) -> CancelFrame + 'static) {

@@ -27,7 +27,7 @@ block2 = { workspace = true }
 dispatch2 = { workspace = true }
 objc2-foundation = { workspace = true, features = ["NSCalendar", "NSNotification", "NSObject", "NSTimeZone", "NSLocale", "NSString", "NSUndoManager", "NSArray", "NSBundle", "NSDictionary", "NSPathUtilities", "NSURL", "NSIndexPath", "NSRunLoop", "NSDate", "NSObjCRuntime", "NSUserActivity", "NSSet", "NSEnumerator"] }
 objc2-core-foundation = { workspace = true, default-features = true, features = ["CFCGTypes"] }
-objc2-core-graphics = { workspace = true, features = ["CGContext", "CGGradient", "CGColorSpace", "CGPDFContext"] }
+objc2-core-graphics = { workspace = true, features = ["CGContext", "CGGradient", "CGColorSpace", "CGImage", "CGPDFContext"] }
 objc2-quartz-core = { workspace = true, features = ["CADisplayLink"] }
 objc2-ui-kit = { workspace = true, features = ["UIColorWell", "UIDatePicker", "UIPageViewController", "UISearchTextField",
     "UIApplication", "UIResponder", "UIView", "UIWindow", "UIScreen", "UIViewController",

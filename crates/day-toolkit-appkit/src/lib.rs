@@ -393,8 +393,223 @@ fn encode_bitmap(
 /// `DayCanvas` (its `drawRect:`) and the canvas exports run, so the two cannot drift apart
 /// (docs/canvas.md "Exporting").
 fn paint_ops(ops: &[DrawOp]) {
+    // SAFETY: reading the current graphics context on the thread that set it.
+    let cg = unsafe { NSGraphicsContext::currentContext().map(|c| c.CGContext()) };
+    let Some(cg) = cg else {
+        for op in ops {
+            draw_op(op);
+        }
+        return;
+    };
+    cg_begin_replay(&cg);
     for op in ops {
-        draw_op(op);
+        if !cg_fast_op(&cg, op) {
+            draw_op(op);
+        }
+    }
+}
+
+/// Paint one op straight into the Core Graphics context when it is a solid fill, a solid
+/// stroke or a clip of a shape the context can take as path calls, and say whether it did.
+/// This is the hot path of a dense drawing (a map tile is a few thousand of these), and the
+/// path object route below it costs an order of magnitude more: every `NSBezierPath` is an
+/// allocation and a message per segment, and its fill or stroke re-derives the graphics state
+/// the context already holds. Everything else (text, images, gradients, stamps, rounded rects
+/// and arcs) keeps the full painter. The fill and stroke color spaces are set to sRGB once per
+/// replay by `cg_begin_replay`, so the components here read as the ones `nscolor` would make.
+fn cg_fast_op(cg: &objc2_core_graphics::CGContext, op: &DrawOp) -> bool {
+    use objc2_core_graphics::{CGContext, CGImage};
+    match op {
+        DrawOp::Fill(shape, day_spec::Paint::Solid(color)) => {
+            let Some(even_odd) = cg_add_shape(cg, shape) else {
+                return false;
+            };
+            let c = [color.r, color.g, color.b, color.a];
+            // SAFETY: four components for the sRGB fill space set at the start of the replay.
+            unsafe { CGContext::set_fill_color(Some(cg), c.as_ptr()) };
+            if even_odd {
+                CGContext::eo_fill_path(Some(cg));
+            } else {
+                CGContext::fill_path(Some(cg));
+            }
+            true
+        }
+        DrawOp::Stroke(shape, day_spec::Paint::Solid(color), style) => {
+            if cg_add_shape(cg, shape).is_none() {
+                return false;
+            }
+            let c = [color.r, color.g, color.b, color.a];
+            // SAFETY: four components for the sRGB stroke space set at the start of the replay.
+            unsafe { CGContext::set_stroke_color(Some(cg), c.as_ptr()) };
+            cg_stroke_style(cg, style);
+            CGContext::stroke_path(Some(cg));
+            true
+        }
+        DrawOp::Clip(shape) => {
+            let Some(even_odd) = cg_add_shape(cg, shape) else {
+                return false;
+            };
+            if even_odd {
+                CGContext::eo_clip(Some(cg));
+            } else {
+                CGContext::clip(Some(cg));
+            }
+            true
+        }
+        DrawOp::Image {
+            image,
+            rect,
+            opacity,
+            source,
+        } => {
+            // The bitmap's pixels straight to the context (`drawInRect:` on the image object
+            // costs tens of microseconds per call, and a pattern fill is hundreds of copies).
+            let Some((cg_image, pixels)) = BITMAPS.with(|m| {
+                m.borrow().get(&image.0).and_then(|b| {
+                    // SAFETY: reading the rep's immutable CGImage on the thread holding it.
+                    let cg = unsafe { b.rep.as_ref()?.CGImage() }?;
+                    Some((cg, b.info.pixels))
+                })
+            }) else {
+                return false;
+            };
+            // A region is in the bitmap's pixels with a top-left origin, which is also how
+            // `CGImageCreateWithImageInRect` counts; the shared clamp keeps its mapping into
+            // `rect` when it overhangs the bitmap.
+            let (cropped, dest) = match source {
+                None => (None, *rect),
+                Some(src) => {
+                    let Some((src, dest)) = day_spec::clamp_image_source(*src, *rect, pixels)
+                    else {
+                        return true;
+                    };
+                    let crop = CGImage::with_image_in_rect(
+                        Some(&cg_image),
+                        NSRect::new(
+                            NSPoint::new(src.origin.x, src.origin.y),
+                            NSSize::new(src.size.width, src.size.height),
+                        ),
+                    );
+                    let Some(crop) = crop else {
+                        return true;
+                    };
+                    (Some(crop), dest)
+                }
+            };
+            if dest.size.width <= 0.0 || dest.size.height <= 0.0 {
+                return true;
+            }
+            // The canvas is y-down and `CGContextDrawImage` puts the image's first row at the
+            // TOP of `rect` only in a y-up space, so the image is drawn through a local flip.
+            CGContext::save_g_state(Some(cg));
+            CGContext::set_alpha(Some(cg), opacity.clamp(0.0, 1.0));
+            CGContext::translate_ctm(Some(cg), dest.origin.x, dest.origin.y + dest.size.height);
+            CGContext::scale_ctm(Some(cg), 1.0, -1.0);
+            CGContext::draw_image(
+                Some(cg),
+                NSRect::new(
+                    NSPoint::new(0.0, 0.0),
+                    NSSize::new(dest.size.width, dest.size.height),
+                ),
+                Some(cropped.as_deref().unwrap_or(&cg_image)),
+            );
+            CGContext::restore_g_state(Some(cg));
+            true
+        }
+        _ => false,
+    }
+}
+
+/// Begin a replay on `cg`: fill and stroke colors are given as sRGB components from here on.
+fn cg_begin_replay(cg: &objc2_core_graphics::CGContext) {
+    use objc2_core_graphics::{CGColorSpace, CGContext};
+    // SAFETY: `kCGColorSpaceSRGB` is an immutable CFString constant.
+    let srgb = CGColorSpace::with_name(Some(unsafe { objc2_core_graphics::kCGColorSpaceSRGB }));
+    CGContext::set_fill_color_space(Some(cg), srgb.as_deref());
+    CGContext::set_stroke_color_space(Some(cg), srgb.as_deref());
+}
+
+/// Add `shape` as the context's current path and say whether it fills even-odd, or `None` for
+/// a shape that takes the path object route (a rounded rect or an arc).
+fn cg_add_shape(cg: &objc2_core_graphics::CGContext, shape: &day_spec::Shape) -> Option<bool> {
+    use day_spec::{PathSeg, Shape};
+    use objc2_core_graphics::CGContext;
+    CGContext::begin_path(Some(cg));
+    match shape {
+        Shape::Rect(r) => CGContext::add_rect(Some(cg), ns_rect(*r)),
+        Shape::Ellipse(r) => CGContext::add_ellipse_in_rect(Some(cg), ns_rect(*r)),
+        Shape::Line(a, b) => {
+            CGContext::move_to_point(Some(cg), a.x, a.y);
+            CGContext::add_line_to_point(Some(cg), b.x, b.y);
+        }
+        Shape::Polygon(pts) => {
+            let (first, rest) = pts.split_first()?;
+            if rest.is_empty() {
+                return None;
+            }
+            CGContext::move_to_point(Some(cg), first.x, first.y);
+            for p in rest {
+                CGContext::add_line_to_point(Some(cg), p.x, p.y);
+            }
+            CGContext::close_path(Some(cg));
+        }
+        Shape::Path(path) => {
+            if path.segs.is_empty() {
+                return None;
+            }
+            for seg in &path.segs {
+                match seg {
+                    PathSeg::Move(a) => CGContext::move_to_point(Some(cg), a.x, a.y),
+                    PathSeg::Line(a) => CGContext::add_line_to_point(Some(cg), a.x, a.y),
+                    PathSeg::Quad(c, a) => {
+                        CGContext::add_quad_curve_to_point(Some(cg), c.x, c.y, a.x, a.y)
+                    }
+                    PathSeg::Cubic(c1, c2, a) => {
+                        CGContext::add_curve_to_point(Some(cg), c1.x, c1.y, c2.x, c2.y, a.x, a.y)
+                    }
+                    PathSeg::Close => CGContext::close_path(Some(cg)),
+                }
+            }
+            return Some(path.rule == day_spec::FillRule::EvenOdd);
+        }
+        Shape::RoundedRect(..) | Shape::Arc { .. } => return None,
+    }
+    Some(false)
+}
+
+/// Put a [`day_spec::StrokeStyle`] on the context. Every field is set, because the graphics
+/// state keeps the previous stroke's cap, join and dash and a plain stroke must not inherit
+/// them.
+fn cg_stroke_style(cg: &objc2_core_graphics::CGContext, style: &day_spec::StrokeStyle) {
+    use day_spec::{LineCap, LineJoin};
+    use objc2_core_graphics::{CGContext, CGLineCap, CGLineJoin};
+    CGContext::set_line_width(Some(cg), style.width);
+    CGContext::set_line_cap(
+        Some(cg),
+        match style.cap {
+            LineCap::Butt => CGLineCap::Butt,
+            LineCap::Round => CGLineCap::Round,
+            LineCap::Square => CGLineCap::Square,
+        },
+    );
+    CGContext::set_line_join(
+        Some(cg),
+        match style.join {
+            LineJoin::Miter => CGLineJoin::Miter,
+            LineJoin::Round => CGLineJoin::Round,
+            LineJoin::Bevel => CGLineJoin::Bevel,
+        },
+    );
+    CGContext::set_miter_limit(Some(cg), style.miter_limit);
+    if style.dash.is_empty() {
+        // SAFETY: a null pattern with a zero count clears the dash, per the CGContext docs.
+        unsafe { CGContext::set_line_dash(Some(cg), 0.0, core::ptr::null(), 0) };
+    } else {
+        let pattern: Vec<objc2_core_foundation::CGFloat> = style.dash.clone();
+        // SAFETY: `pattern` outlives the call, and `count` is its length.
+        unsafe {
+            CGContext::set_line_dash(Some(cg), style.dash_phase, pattern.as_ptr(), pattern.len())
+        };
     }
 }
 
@@ -11304,9 +11519,19 @@ impl Toolkit for AppKit {
                     "the offscreen painter panicked".into(),
                 )),
                 || {
-                    resources
+                    let started = std::time::Instant::now();
+                    let painted = resources
                         .0
-                        .with_installed(|| render_bitmap_cgimage(&ops, size, scale))
+                        .with_installed(|| render_bitmap_cgimage(&ops, size, scale));
+                    // The painter's own cost, apart from the queueing a caller's clock sees.
+                    log::debug!(
+                        "day-toolkit-appkit: bitmap {}x{} painted in {:.1} ms ({} ops)",
+                        size.width * scale,
+                        size.height * scale,
+                        started.elapsed().as_secs_f64() * 1000.0,
+                        ops.len()
+                    );
+                    painted
                 },
             );
             let painted = Sendable(painted);

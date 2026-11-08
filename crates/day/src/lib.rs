@@ -1215,6 +1215,8 @@ pub mod web {
         if let Some(level) = day_toolkit_dom::launch_log_level() {
             day_core::set_log_level(level);
         }
+        // `Instant` is unavailable on wasm; timing code reads the page's clock instead.
+        day_core::frame::install_monotonic_clock(day_toolkit_dom::monotonic_secs);
         if let Some(locale) = day_toolkit_dom::launch_locale() {
             day_localization_ui::set_launch_locale(&locale);
         }

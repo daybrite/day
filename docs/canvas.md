@@ -171,7 +171,7 @@ Everything above works on every toolkit except where noted.
 | --- | --- |
 | **Web** | A gradient stroke paints the gradient across the path's interior rather than only the stroked band. Canvas2D has no "convert stroke to path", so there is no region to clip to. It looks correct for thin lines and diverges as the width grows. |
 | **windows-winui** | Win2D supports geometric clips, including paths and ellipses, with the same painter for screen and bitmap export. |
-| **appkit** | Quadratic segments are elevated to cubics, exactly ([`NSBezierPath`](https://developer.apple.com/documentation/appkit/nsbezierpath)'s own quadratic API is macOS 14+). No visual difference. |
+| **appkit**, **uikit** | Solid fills, solid strokes and clips of plain shapes go straight to the Core Graphics context as path calls, the rest through [`NSBezierPath`](https://developer.apple.com/documentation/appkit/nsbezierpath) or `UIBezierPath`. No visual difference; a dense drawing paints several times faster. Where a path object is still used on AppKit, quadratic segments are elevated to cubics, exactly (`NSBezierPath`'s own quadratic API is macOS 14+). |
 | **gtk**, **arkui** | Same quadratic elevation, for the same reason: cairo and [`OH_Drawing`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-arkgraphics2d/capi-drawing.md) have cubics. |
 | **Web** | [`font_families()`](https://docs.rs/day-core/latest/day_core/fn.font_families.html) is the CSS generic families plus the bundled fonts, not the machine's: a browser lists local fonts only through `queryLocalFonts()`, which is Chromium-only, asynchronous, and behind a permission prompt. `Cap::FontList` answers `Emulated`. |
 | **android** | [`font_families()`](https://docs.rs/day-core/latest/day_core/fn.font_families.html) is read from `/system/etc/fonts.xml`, the configuration `Typeface.create` resolves names from, so the system's alias families (`sans-serif-condensed`, `sans-serif-medium`, …) appear as families of their own. |
@@ -350,7 +350,9 @@ scale manipulation on WinUI, and a two-finger pinch recognizer on ArkUI; one-fin
 go to [`.on_drag`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.on_drag), so selection and panning coexist, and a second finger ends the drag
 rather than doubling it. In a browser, two fingers pinch, and a trackpad pinch arrives as the
 ctrl+wheel the browser reports it as. Each tick is a lone `Changed` whose `scale` is the tick's
-own factor, and the page's own zoom is suppressed. A ctrl+wheel on WinUI and a touchpad pinch
+own factor, and the page's own zoom is suppressed. Safari reports a trackpad pinch through its
+`gesturestart`/`gesturechange`/`gestureend` events instead, and those arrive as a bracketed
+pinch with a cumulative scale, like two fingers. A ctrl+wheel on WinUI and a touchpad pinch
 on ArkUI arrive the same way. Wheel pans are lone `Changed` events too. DOM reports them with
 negative browser wheel deltas, to express content displacement; WinUI reports each wheel tick
 (shift, or a tilt wheel, for sideways); ArkUI reports a two-finger pan and wheel ticks; Android
@@ -464,7 +466,7 @@ A call the target cannot run answers `Err(ExportError::Unsupported)` without rea
 | **macos-qt**, **linux-qt** | yes | yes | [`QImage`](https://doc.qt.io/qt-6/qimage.html), and [`QPdfWriter`](https://doc.qt.io/qt-6/qpdfwriter.html) at 72 dpi so one unit is one point |
 | **android-material** | yes | yes | A [`Bitmap`](https://developer.android.com/reference/android/graphics/Bitmap)-backed [`Canvas`](https://developer.android.com/reference/android/graphics/Canvas), and [`android.graphics.pdf.PdfDocument`](https://developer.android.com/reference/android/graphics/pdf/PdfDocument). It has no metadata API, so title and author are dropped, and page sizes round to whole points |
 | **harmony-arkui** | yes | no | An `OH_Drawing_Bitmap`; HarmonyOS has no PDF drawing context |
-| **web-dom** | yes | no | A detached `<canvas>` and `createImageBitmap`, the one toolkit that answers on a later turn; browsers have no PDF writer |
+| **web-dom** | yes | no | A detached `<canvas>` kept as the bitmap, the one toolkit that answers on a later turn; browsers have no PDF writer |
 | **windows-winui** | yes | no | Win2D drawing sessions on a `CanvasControl` or `CanvasRenderTarget`; WIC encodes PNG. Vector PDF is not implemented |
 | **mock** | synthetic | no | A bitmap of the right size and scale with no pixels, so app logic around export runs headless |
 

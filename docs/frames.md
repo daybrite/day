@@ -46,6 +46,9 @@ Cancelling another client during dispatch prevents its callback in that dispatch
 carry monotonically allocated integer tickets, so a late callback cannot touch a freed closure.
 Callbacks and handles stay on the UI thread; callback panics are contained and stop that client.
 
+For timing work between frames, `day_core::frame::now_secs()` reads a monotonic clock on every
+target: `Instant` natively, `performance.now()` on the web, where `Instant` is unavailable.
+
 `Frame` contains monotonic `timestamp`, subscription-local `delta`, and an optional
 `target_timestamp` when the toolkit supplies a predicted presentation time. The epoch is native
 and may differ across windows or platforms. Delivery is a **frame opportunity**, not proof of

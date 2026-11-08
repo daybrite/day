@@ -3258,7 +3258,11 @@ pub fn with_tree<R>(f: impl FnOnce(&mut dyn TreeOps) -> R) -> R {
 /// on the borrowed tree and panic ("RefCell already borrowed"). Held closures run at the end
 /// of the outermost `with_tree`, in arrival order, each contained like any posted task.
 pub(crate) fn run_posted_or_defer(f: Box<dyn FnOnce() + Send>) {
-    let borrowed = TREE.with(|t| t.try_borrow_mut().is_err());
+    // A post that arrives while the thread's locals are being torn down (a future cancelled by
+    // a dropping tree, at process or test-thread exit) has nothing left to run against.
+    let Ok(borrowed) = TREE.try_with(|t| t.try_borrow_mut().is_err()) else {
+        return;
+    };
     if borrowed {
         DEFERRED.with(|d| d.borrow_mut().push(f));
     } else {

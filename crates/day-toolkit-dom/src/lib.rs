@@ -263,6 +263,8 @@ unsafe extern "C" {
     /// The page's wall clock (`Date.now()`), in milliseconds since the Unix epoch. This is the
     /// only wall clock on `wasm32-unknown-unknown` — `std::time::SystemTime::now()` aborts there.
     fn day_dom_now_ms() -> f64;
+    /// `performance.now()`: milliseconds on the page's monotonic clock.
+    fn day_dom_perf_now() -> f64;
     /// Fill `len` bytes at `ptr` with browser entropy (`crypto.getRandomValues`) — the
     /// getrandom bridge below answers the crate's custom-backend hook with it.
     fn day_dom_entropy(ptr: *mut u8, len: usize);
@@ -462,6 +464,12 @@ fn warn(msg: &str) {
 pub fn host_env(key: &str) -> Option<String> {
     let v = env(key);
     if v.is_empty() { None } else { Some(v) }
+}
+
+/// Seconds on the page's monotonic clock (`performance.now()`), for `day_core::frame::now_secs`
+/// on a target without `Instant`.
+pub fn monotonic_secs() -> f64 {
+    unsafe { day_dom_perf_now() / 1000.0 }
 }
 
 /// Milliseconds since the Unix epoch, from the page's `Date.now()`. The wasm target has no

@@ -1300,9 +1300,12 @@ const env = {
   // A drawing exported to a bitmap (docs/canvas.md "Exporting"): painted into a detached canvas
   // of `pw` × `ph` pixels scaled to `scale` pixels per point, transparent where nothing is drawn.
   // The paint is synchronous, so the op views over wasm memory are read before anything awaits.
-  // The result joins `bitmaps` like a decode: the `ImageBitmap` canvases draw, plus an object
-  // URL an `<img>` loads. The answer comes back through `day_dom_bitmap_rendered`, with the
-  // engine's error text when it refuses (a canvas past its size limit has no 2D context).
+  // The result joins `bitmaps` like a decode, as the painted canvas itself: a canvas is an image
+  // source `drawImage` takes directly, where an `ImageBitmap` made from it would read the pixels
+  // back (tens of milliseconds for a tile-sized bitmap in Chromium), and a PNG for the object
+  // URL an `<img>` loads is encoded only when one asks. The answer comes back through
+  // `day_dom_bitmap_rendered` on a later turn, as a decode's does, with the engine's error text
+  // when it refuses (a canvas past its size limit has no 2D context).
   day_dom_canvas_render_bitmap: (req, id, ops, opsLen, strs, strsLen, pw, ph, scale) => {
     const fail = (e) => {
       const msg = utf8enc.encode(String((e && e.message) || e || 'the canvas could not render'));
@@ -1316,16 +1319,14 @@ const env = {
       const ctx = c.getContext('2d');
       if (!ctx) throw new Error(`no 2D context for a ${pw}x${ph} canvas`);
       ctx.scale(scale, scale);
+      const t0 = performance.now();
       paint(ctx, f64(ops, opsLen), new Uint8Array(wasm.memory.buffer, strs, strsLen));
+      if (debugLog) console.debug(`DEBUG day_dom: bitmap ${pw}x${ph} painted in ${(performance.now() - t0).toFixed(1)} ms (${opsLen} words)`);
     } catch (e) { fail(e); return; }
-    const blob = new Promise((res, rej) =>
-      c.toBlob((out) => (out ? res(out) : rej(new Error('the canvas could not be encoded'))), 'image/png'));
-    Promise.all([createImageBitmap(c), blob])
-      .then(([bitmap, png]) => {
-        bitmaps.set(id, { bitmap, url: URL.createObjectURL(png) });
-        wasm.day_dom_bitmap_rendered(req, id, 1, 0, 0);
-      })
-      .catch(fail);
+    bitmaps.set(id, { bitmap: c, canvas: c });
+    Promise.resolve().then(() => {
+      if (bitmaps.get(id)?.canvas === c) wasm.day_dom_bitmap_rendered(req, id, 1, 0, 0);
+    });
   },
 
   // Raster images from bytes (docs/images.md). A browser decodes asynchronously, so the answer
@@ -1399,10 +1400,19 @@ const env = {
     if (b.bitmap && b.bitmap.close) b.bitmap.close();
     bitmaps.delete(id);
   },
-  // An `<img>` showing a decoded bitmap: the object URL the decode already made.
+  // An `<img>` showing a decoded bitmap: the object URL the decode already made, or, for a
+  // rendered drawing, one encoded now from the canvas it was painted into.
   day_dom_image_set_bitmap: (el, id) => {
     const b = bitmaps.get(id);
-    if (b && b.url) E(el).src = b.url;
+    if (!b) return;
+    if (b.url) { E(el).src = b.url; return; }
+    if (!b.canvas) return;
+    b.canvas.toBlob((png) => {
+      if (!png || bitmaps.get(id) !== b) return;
+      b.url = URL.createObjectURL(png);
+      const node = E(el);
+      if (node) node.src = b.url;
+    }, 'image/png');
   },
   // An `<img>` showing raw encoded bytes the app holds, with no staged resource behind them;
   // or, for a tinted/template glyph (a masked div, docs/vectors.md), the mask those bytes cut.
@@ -2164,6 +2174,8 @@ const env = {
   },
   // Wall clock for the wasm side (SystemTime::now() aborts on wasm32-unknown-unknown).
   day_dom_now_ms: () => Date.now(),
+  // Monotonic clock for the wasm side (Instant::now() aborts there too).
+  day_dom_perf_now: () => performance.now(),
 
   // Appearance override (Toolkit::set_appearance): 0 light, 1 dark, 2 follow the browser.
   // Returns the effective mode so the wasm side's dark_mode cache stays truthful.
@@ -2765,9 +2777,35 @@ function listen(id, mask) {
     };
     host.addEventListener('pointerup', lift);
     host.addEventListener('pointercancel', lift);
+    // Safari reports a trackpad pinch through its gesture events, with a cumulative `scale`
+    // and a began/ended bracket, and does not always also send the ctrl+wheel the other
+    // browsers do. While a gesture is in progress it carries the pinch and the wheel below
+    // stands down, so a browser that sends both never applies a tick twice.
+    let gesturing = false;
+    host.addEventListener('gesturestart', (e) => {
+      e.preventDefault();
+      if (pinching) return; // two real fingers are already reporting
+      gesturing = true;
+      const r = host.getBoundingClientRect();
+      wasm.day_dom_event(id, 21, e.clientX - r.left, e.clientY - r.top, 1, 0);
+    });
+    host.addEventListener('gesturechange', (e) => {
+      e.preventDefault();
+      if (!gesturing) return;
+      const r = host.getBoundingClientRect();
+      wasm.day_dom_event(id, 22, e.clientX - r.left, e.clientY - r.top, e.scale || 1, 0);
+    });
+    host.addEventListener('gestureend', (e) => {
+      e.preventDefault();
+      if (!gesturing) return;
+      gesturing = false;
+      const r = host.getBoundingClientRect();
+      wasm.day_dom_event(id, 23, e.clientX - r.left, e.clientY - r.top, e.scale || 1, 0);
+    });
     host.addEventListener('wheel', (e) => {
       if (!e.ctrlKey) return;
       e.preventDefault(); e.stopPropagation();
+      if (gesturing) return;
       const r = host.getBoundingClientRect();
       // A trackpad tick is a few pixels; a mouse notch with ctrl held is a hundred, and
       // clamping keeps that to about a quarter step instead of a nearly threefold jump.
@@ -2775,11 +2813,6 @@ function listen(id, mask) {
       const factor = Math.exp(Math.max(-25, Math.min(25, -dy)) * 0.01);
       wasm.day_dom_event(id, 22, e.clientX - r.left, e.clientY - r.top, factor, 0);
     }, {passive: false});
-    // Safari reports a trackpad pinch through these as well; preventing them keeps the page
-    // from zooming, while the wheel above still carries the scale.
-    for (const name of ['gesturestart', 'gesturechange', 'gestureend']) {
-      host.addEventListener(name, (e) => e.preventDefault());
-    }
   }
   if (mask & 512) {
     // Hover: pointer entry, motion and exit. `pointerType` gates it to a real pointer: a touch
@@ -2966,6 +2999,10 @@ function replay(canvas, ops, strs, w, h) {
   ctx.clearRect(0, 0, w, h);
   paint(ctx, ops, strs);
 }
+
+// Whether the page asked for debug logging (`?DAY_LOG=debug`, docs/logging.md): the shim's own
+// timing lines follow the same switch as the wasm side's.
+const debugLog = new URLSearchParams(location.search).get('DAY_LOG') === 'debug';
 
 // The one painter: the op stream drawn into `ctx` in canvas points, under whatever transform
 // the caller set. The on-screen canvas (`replay`) and an exported bitmap

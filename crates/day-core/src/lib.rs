@@ -462,23 +462,33 @@ impl log::Log for DayLogger {
 /// variable is a native-only affordance; on the web there is no process environment, so the
 /// launch path sets the level explicitly from the page's query string instead.
 pub fn init_logging() {
-    let level = std::env::var("DAY_LOG")
+    let from_env = std::env::var("DAY_LOG")
         .ok()
-        .and_then(|v| v.parse::<log::LevelFilter>().ok())
-        .unwrap_or(if cfg!(debug_assertions) {
+        .and_then(|v| v.parse::<log::LevelFilter>().ok());
+    match from_env {
+        Some(level) => set_log_level(level),
+        // A level the launch path chose before this ran (the web's `?DAY_LOG=`) stands; only an
+        // unset level takes the build's default.
+        None if LOG_LEVEL_SET.load(std::sync::atomic::Ordering::Relaxed) => {}
+        None => set_log_level(if cfg!(debug_assertions) {
             log::LevelFilter::Debug
         } else {
             log::LevelFilter::Info
-        });
-    set_log_level(level);
+        }),
+    }
     // Err = the app got there first, which is exactly the intended escape hatch.
     let _ = log::set_logger(&DayLogger);
 }
+
+/// Whether [`set_log_level`] has run, so [`init_logging`] does not undo a level chosen before
+/// launch.
+static LOG_LEVEL_SET: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 /// Set the maximum level that will be emitted. Separate from [`init_logging`] because the web
 /// launch path has to supply the level from the page URL rather than the environment, and because
 /// an app may want to raise or lower it at runtime.
 pub fn set_log_level(level: log::LevelFilter) {
+    LOG_LEVEL_SET.store(true, std::sync::atomic::Ordering::Relaxed);
     log::set_max_level(level);
 }
 
