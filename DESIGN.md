@@ -6480,8 +6480,17 @@ The `daybrite/actions` companion repository provides reusable workflows for exte
    Documentation authoring standards and unpublished templates live in `website/authoring/`;
    the published guides retain their canonical-source symlinks and route-catalog entries.
    `scripts/docs/` holds repeatable sample and rendered-output validators, which create fresh
-   `.cache/docs/` sessions with copied lockfiles. The tutorial image/source check gates publication builds via `DAY_REQUIRE_SHOWCASE`; local
-   previews can render while a changed example awaits recapture. Neither CI nor the website depends on the
+   `.cache/docs/` sessions with copied lockfiles. The tutorial image/source check runs on every
+   site build and dev-server startup for the captures retained on `/examples`.
+   The landing page's live Rust example comes from `apps/website-controls`: a slider, editable
+   stepper, progress bar, and Reset button share a signal. The Astro live-demo integration
+   builds this checkout's CLI with Cargo, compiles the app for web-dom, and extracts its actual
+   root function for display beside an iframe. Source and output hashes permit cached builds
+   for page-only edits. The iframe uses native `loading="lazy"` with browser-controlled fetch
+   timing, applies same-origin appearance
+   messages without resetting its state, and registers no service worker. Website CI installs
+   the wasm target and runs browser input checks against the built site before publication.
+   Neither CI nor the website depends on the
    archived overhaul workspace. The [documentation migration record](docs/history/documentation-overhaul.md)
    preserves the accepted content structure and review limits.
 

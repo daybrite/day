@@ -16,6 +16,10 @@ new platform implementations. The amount of native code depends on the approach.
 reuses existing backends; a [tweak](/docs/how-to/tweaks) configures a widget; a native piece adds a control.
 Day’s build tools include the extension’s declared sources and dependencies.
 
+Before creating a crate, follow the [extension naming convention](/contributing/setup#naming):
+`day-` is for crates hosted under `daybrite/` and their forks; independent extensions use
+`dayext-`, with `part` for platform capabilities and `piece` for UI extensions.
+
 The code blocks here are conceptual excerpts, not compilable files. Ellipses and missing
 application types are intentional; use the linked crate source as the contract. These extension
 tiers describe implementation approaches and are separate from platform maintenance tiers.

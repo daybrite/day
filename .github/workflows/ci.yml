@@ -1476,10 +1476,16 @@ jobs:
         run: scripts/ci/docs-symlinks.sh
 
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@v2
         with:
-          # Keep documentation examples and Rustdoc artifacts separate from native matrix builds.
+          # The site compiles its embedded demo using this checkout's day-cli; it does not
+          # depend on a CLI artifact from another job or a published framework release.
           shared-key: website-rustdoc
+          workspaces: |
+            . -> target
+            apps/website-controls -> build/day/cargo/web-dom/release
 
       - uses: actions/setup-node@v6
         with:
@@ -1519,6 +1525,12 @@ jobs:
 
       - name: Check rendered pages and sitemap
         run: python3 -B scripts/docs/check-site.py
+
+      - name: Verify the live shared-signal demo
+        working-directory: website
+        run: |
+          npx playwright install --with-deps chromium
+          npm run demo:test
 
       - name: Build rustdoc as docs.rs does (for the link checks; not published)
         run: scripts/build-api-docs.sh

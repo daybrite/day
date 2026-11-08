@@ -2354,6 +2354,72 @@ mod gate_tests {
     }
 
     #[test]
+    fn catalog_reconnects_when_the_connection_closes_inside_its_reply() {
+        use std::io::{BufRead, Write};
+        use std::time::Duration;
+
+        let root = std::env::temp_dir().join(format!("day-cut-catalog-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let script = root.join("flow.yaml");
+        std::fs::write(&script, "flow:\n- wait_idle: {}\n").unwrap();
+        let project = crate::meta::Project {
+            root: root.clone(),
+            manifest: toml::from_str("schema = 1\n[app]\nid = 'test.fixture'").unwrap(),
+        };
+        let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let server = std::thread::spawn(move || {
+            // The first engine sends the start of a large registry and goes away: CI saw one
+            // cut at exactly 32 KiB, which the runner then failed to parse as JSON.
+            let (mut first, _) = listener.accept().unwrap();
+            first
+                .set_read_timeout(Some(Duration::from_secs(5)))
+                .unwrap();
+            let mut line = String::new();
+            std::io::BufReader::new(first.try_clone().unwrap())
+                .read_line(&mut line)
+                .unwrap();
+            assert!(line.contains("id_catalog"));
+            let mut cut = String::from("{\"ok\":true,\"data\":{\"declarations\":[\"");
+            cut.extend(std::iter::repeat_n('x', 32 * 1024 - cut.len()));
+            first.write_all(cut.as_bytes()).unwrap();
+            drop(first);
+
+            let (mut ready, _) = listener.accept().unwrap();
+            ready
+                .set_read_timeout(Some(Duration::from_secs(5)))
+                .unwrap();
+            let mut reader = std::io::BufReader::new(ready.try_clone().unwrap());
+            let mut actions = 0;
+            while fixture_line(&mut reader, &mut ready, &mut line).unwrap() > 0 {
+                assert!(line.contains("wait_idle"));
+                actions += 1;
+                writeln!(ready, "{{\"ok\":true}}").unwrap();
+            }
+            actions
+        });
+        let result = super::run_scripts(
+            &project,
+            crate::targets::find("linux-gtk").unwrap(),
+            port,
+            "fixture-token",
+            &[script],
+            None,
+            None,
+            None,
+            true,
+            false,
+            super::Tempo::Fast,
+            false,
+            false,
+        )
+        .unwrap();
+        assert_eq!(result.steps_failed, 0);
+        assert_eq!(server.join().unwrap(), 1, "the action runs exactly once");
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn established_engine_loss_does_not_replay_a_long_running_step() {
         use std::io::{BufRead, Write};
         use std::time::{Duration, Instant};

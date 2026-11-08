@@ -1,0 +1,11 @@
+schema = 1
+
+[app]
+id = "dev.daybrite.website.controls"
+title = "Shared signal"
+targets = ["web-dom", "macos-appkit"]
+
+[window]
+width = 400
+height = 310
+

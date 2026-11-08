@@ -3,37 +3,74 @@
 // SPDX-License-Identifier: CC-BY-SA-4.0
 import CodeSample from './CodeSample.astro';
 import { url } from '../lib/site';
-import { tutorialRecipe } from '../lib/tutorial-data';
-import { lessonFiles } from '../lib/tutorials.mjs';
+import demo from '../data/live-demo.json';
 
-// Display the tutorial's exact UI function. The build integration checks its AppKit capture
-// against the recipe and image hashes on local and publication builds. Change the recipe
-// and recapture the app together; do not maintain a second version of this Rust example.
-const lessonCount = tutorialRecipe.lessons.findIndex(lesson => lesson.id === 'state') + 1;
-const source = lessonFiles(tutorialRecipe, 'macos', lessonCount).get('src/lib.rs');
-const start = source?.indexOf('pub fn root()');
-if (!source || start === undefined || start < 0) throw new Error('Missing tutorial counter UI function.');
-const code = source.slice(start).trim();
+// The build integration compiles this app before Astro reads the component. Display its
+// actual root function, including its shared signal and generated localization accessors.
+const code = demo.code;
 ---
 <div class="rust-example">
   <div class="rust-example-source">
-    <CodeSample code={code} title="src/lib.rs · UI function" />
-    <p class="example-note">The label follows <code>count</code>; the button updates it. <code>res::str</code> provides the translated messages.</p>
+    <CodeSample code={code} chrome={false} />
   </div>
   <figure class="rust-example-result">
-    <img src={url('images/tutorial/counter-two.png')} width="800" height="640" loading="lazy" decoding="async"
-      alt="The Session counter on macOS, showing Count: 2 and a native Add one button." />
-    <figcaption>After two clicks · macOS / AppKit</figcaption>
+    <div class="demo-frame" data-live-demo>
+      <p class="demo-status" role="status">Loading live demo…</p>
+      <iframe src={url(demo.src)} loading="lazy" title="Live Day app: controls sharing one signal"></iframe>
+    </div>
+    <noscript><p>Enable JavaScript to try the live demo.</p></noscript>
   </figure>
 </div>
-<p class="example-links"><a href={url('docs/tutorials/state')}>Build this counter →</a><a href={url('docs/reference/api-tour')}>Explore the Rust API →</a></p>
+<p class="example-links"><a href="https://github.com/daybrite/day/tree/main/apps/website-controls">View the app’s source →</a><a href={url('docs/tutorials/state')}>Learn about signals →</a><a href={url('docs/reference/api-tour')}>Explore the Rust API →</a></p>
+<script>
+  // The browser handles lazy loading. These messages only synchronize appearance;
+  // changing theme must not reload the iframe or discard the visitor's edits.
+  for (const host of document.querySelectorAll<HTMLElement>('[data-live-demo]')) {
+    const frame = host.querySelector<HTMLIFrameElement>('iframe')!;
+    const status = host.querySelector<HTMLElement>('.demo-status')!;
+    const theme = () => document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light';
+    const sendTheme = () => {
+      if (!frame?.contentWindow) return;
+      // Use the parent's function realm: WebKit otherwise reports the iframe itself as
+      // event.source when a MutationObserver calls the cross-window method.
+      window.postMessage.call(frame.contentWindow, { type: 'day-demo-theme', theme: theme() }, location.origin);
+    };
+    let timeout: ReturnType<typeof setTimeout>;
+    window.addEventListener('message', event => {
+      if (!frame || event.source !== frame.contentWindow || event.origin !== location.origin) return;
+      if (event.data?.type !== 'day-demo-ready') return;
+      clearTimeout(timeout);
+      host.dataset.ready = 'true';
+      status.hidden = true;
+      sendTheme();
+    });
+    new MutationObserver(sendTheme).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+    // Do not time out while the browser is still deferring an offscreen iframe.
+    frame.addEventListener('load', () => {
+      if (host.dataset.ready === 'true') return;
+      timeout = setTimeout(() => {
+        status.textContent = 'The demo could not load. Reload the page to try again.';
+      }, 30000);
+    }, { once: true });
+  }
+</script>
 <style>
-  .rust-example { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); gap: 28px; align-items: start; }
+  /* Keep the source width until the demo reaches its usable minimum. */
+  .rust-example { display: grid; grid-template-columns: minmax(0, 42rem) minmax(280px, 1fr); gap: 24px; align-items: center; }
   .rust-example-source { min-width: 0; }
-  .rust-example-source :global(pre) { font-size: .75rem; }
+  /* Eleven lines plus compact padding match the demo's 240px frame at desktop widths. */
+  .rust-example-source :global(pre) { font-size: .8125rem; line-height: 20px; padding: 9px 20px; }
+  /* Narrow spaces visually while preserving the source's indentation when copied. */
+  .rust-example-source :global(code) { word-spacing: -.15em; }
   .rust-example-result { margin: 0; min-width: 0; }
-  .rust-example-result img { display: block; width: 100%; height: auto; border: 1px solid var(--border); border-radius: var(--radius); }
-  .example-note, figcaption { color: var(--muted); font-size: .85rem; line-height: 1.6; margin: 14px 0 0; }
+  .demo-frame { position: relative; height: 240px; overflow: hidden; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
+  .demo-frame :global(iframe) { display: block; width: 100%; height: 100%; border: 0; opacity: 0; }
+  .demo-frame[data-ready=true] :global(iframe) { opacity: 1; }
+  .demo-status { position: absolute; inset: 0; display: grid; place-content: center; margin: 0; padding: 24px; color: var(--muted); font-size: .85rem; }
+  .demo-status[hidden] { display: none; }
   .example-links { display: flex; flex-wrap: wrap; gap: 12px 24px; margin: 24px 0 0; }
-  @media (max-width: 880px) { .rust-example { grid-template-columns: minmax(0, 1fr); } .rust-example-result { width: 100%; max-width: 420px; } }
+  @media (max-width: 700px) {
+    .rust-example { grid-template-columns: minmax(0, 1fr); }
+    .rust-example-result { width: 100%; max-width: 420px; }
+  }
 </style>

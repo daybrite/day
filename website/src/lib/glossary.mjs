@@ -47,14 +47,14 @@ export const glossary = [
     id: 'piece',
     term: 'Piece',
     definition:
-      "A UI description implementing `Piece`, consumed by `build` to produce a realized node. Constructors such as `label`, `button`, and `column` return pieces; a function returning `impl Piece` is a piece builder, and composition need not correspond to one native widget. The word also names a UI extension crate (`day-piece-*`).",
+      "A UI description implementing `Piece`, consumed by `build` to produce a realized node. Constructors such as `label`, `button`, and `column` return pieces; a function returning `impl Piece` is a piece builder, and composition need not correspond to one native widget. The word also names a UI extension crate (`day-piece-*` or independently maintained `dayext-piece-*`), with toolkit-specific renderers for native UI or composition of existing pieces.",
     see: { title: 'Pieces', href: '/docs/explanation/pieces' },
   },
   {
     id: 'part',
     term: 'Part',
     definition:
-      "A headless capability shipped as an ordinary crate (`day-part-*`), such as battery status or location. Part names an ecosystem category, not a shared UI trait or a synonym for Piece; implementations and availability vary by platform.",
+      "A headless capability shipped as an ordinary crate (`day-part-*` or independently maintained `dayext-part-*`), such as battery status or location. Native implementations are platform-specific and independent of UI toolkits; a crate may support one or several platforms. Part names an ecosystem category, not a shared UI trait or a synonym for Piece.",
     see: { title: 'Device capabilities (parts)', href: '/docs/reference/parts' },
   },
   {

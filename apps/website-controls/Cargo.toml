@@ -1,0 +1,32 @@
+[package]
+name = "website-controls"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[lib]
+name = "dayapp"
+
+[features]
+default = ["mock"]
+mock = ["day/mock"]
+dom = ["day/dom"]
+appkit = ["day/appkit"]
+
+[dependencies]
+day = { package = "day-app", version = "0.*", path = "../../crates/day" }
+
+[build-dependencies]
+day-build = { version = "0.*", path = "../../crates/day-build" }
+
+[package.metadata.day.web]
+modules = ["web/embed.js"]
+
+[workspace]
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+strip = true
+

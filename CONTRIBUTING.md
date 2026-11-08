@@ -5,7 +5,7 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 # Contributing to Day
 
-Day is a young project. Its architecture is still moving, and the most useful contribution
+Day™ is a young project. Its architecture is still moving, and the most useful contribution
 right now is a conversation, not a patch.
 
 ## Start with a conversation
@@ -20,6 +20,53 @@ right now is a conversation, not a patch.
 wanted.** A change that looks small on the surface often crosses nine backends, the docs, and
 the design record, and reviewing an unexpected patch costs more than talking the change through
 first. PRs without a linked conversation are likely to be closed with a pointer to this file.
+
+## Creating extensions and crates
+
+You can publish an extension as an independent Cargo crate. Start with the
+[extension model](/contributing/extending) to choose how it integrates with Day:
+
+- A [part](/docs/reference/glossary#part) provides a capability without UI, such as device
+  status or a system service. Its native implementations are platform-specific and do not
+  depend on a UI toolkit.
+- A [piece](/docs/reference/glossary#piece) provides reusable UI. A native piece supplies
+  toolkit-specific renderers; a composite piece arranges existing pieces in Rust.
+
+Use `day new part <name>` or `day new piece <name>` to scaffold the crate. Select the platforms
+or toolkits you implement, then follow the [part tutorial](/contributing/tutorials/part),
+[native-piece tutorial](/contributing/tutorials/native-piece), or
+[composite-piece tutorial](/contributing/tutorials/composite-piece). Build and run the generated
+examples or demo on each supported target, and document unsupported targets and required
+permissions. Keep user-facing strings localized and access bundled resources through generated
+resource constants.
+
+### Naming
+
+Only crates whose source is hosted under the [daybrite organization](https://github.com/daybrite)
+(or forks of those repositories) should use the `day-` prefix. Other external projects should
+use `dayext-`. This convention distinguishes project-hosted crates from independently maintained
+extensions, including extensions hosted elsewhere on GitHub.
+
+Use lowercase, hyphen-separated names that describe the feature:
+
+| Extension | Naming pattern | Example |
+| --- | --- | --- |
+| Platform-specific part | `dayext-part-platform-feature` | `dayext-part-linux-power-profile` |
+| Toolkit-specific piece | `dayext-piece-toolkit-feature` | `dayext-piece-gtk-source-editor` |
+| Part supporting multiple platforms | `dayext-part-feature` | `dayext-part-power-profile` |
+| Piece supporting multiple toolkits, or a composite piece | `dayext-piece-feature` | `dayext-piece-rating` |
+
+Replace `platform` with an OS name such as `linux` or `android`, and `toolkit` with a UI toolkit
+such as `gtk` or `appkit`. Include that segment when the crate is specific to it; a shared API
+with several native implementations can omit it. Other extension crates use `dayext-feature`.
+These are naming examples, not a list of published crates.
+
+For example, scaffold independent platform and toolkit extensions with:
+
+```sh
+day new part dayext-part-linux-power-profile --platforms linux
+day new piece dayext-piece-gtk-source-editor --toolkits gtk
+```
 
 ## When a patch is agreed on
 

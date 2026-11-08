@@ -1,0 +1,2 @@
+# Keep this small, displayed example's calls on one line when they fit within 100 columns.
+use_small_heuristics = "Max"

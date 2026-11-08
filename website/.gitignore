@@ -43,3 +43,7 @@ pnpm-debug.log*
 
 # Verified, generated screenshot renditions from pinned release bundles.
 /public/gallery-media/
+
+# Compiled landing-page app, generated from apps/website-controls on build/dev startup.
+/public/demos/shared-signal/
+/src/data/live-demo.json

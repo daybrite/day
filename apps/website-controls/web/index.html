@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <link rel="stylesheet" href="day.css">
+</head>
+<body>
+  <div id="day-root"></div>
+  <script>window.__DAY_MODULES = ['./modules/website-controls/embed.js'];</script>
+  <script type="module">
+    import { start } from './shim.js';
+    await start('app.wasm');
+    if (!document.querySelector('.day-boot-error')) {
+      window.dispatchEvent(new Event('day-demo-ready'));
+    }
+  </script>
+  <!-- An embedded demo does not register the standalone app's offline service worker. -->
+</body>
+</html>

@@ -19,7 +19,7 @@ export default function gallery() {
     name: 'day-gallery',
     hooks: {
       'astro:config:setup': async ({ logger }) => {
-        // The landing page displays the tutorial source beside its recorded native output.
+        // /examples retains the tutorial's recorded native output.
         await verifyMarketingEvidence();
         const { apps, captures, dropped, reasons, stale } = await assembleGallery({ quiet: true });
         logger.info(

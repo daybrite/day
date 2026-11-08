@@ -68,6 +68,7 @@ export function initializeLocaleExplorer(root) {
     slide.append(caption, images);
     const old = [...stage.children];
     for (const node of old) { node.inert = true; node.setAttribute('aria-hidden', 'true'); }
+    stage.dataset.mobile = String(capture.mobile);
     stage.append(slide);
     // Fade an opaque composition OVER the old one. Fading both layers out/in exposes
     // the empty stage and flashes. Keep interrupted fades intact beneath their successor.

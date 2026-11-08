@@ -297,9 +297,31 @@ and check hover/tap selection, both phone positions, and narrow-screen layout.
 
 ## Landing-page Rust example
 
-`RustExample.astro` displays the UI function directly from the `state` lesson in
-`tutorials/session-counter.yaml`, alongside the recorded AppKit screenshot in
-`public/images/tutorial/counter-two.png`. The build integration runs `verifyMarketingEvidence()`
-on every build and dev-server startup, so a change to the tutorial source or image requires updated capture evidence before the
-page can build. The project setup and generated Fluent accessors remain in the linked tutorial.
-Run `npm run tutorials:check` and build the website when changing this presentation.
+`RustExample.astro` displays the `root()` function from `apps/website-controls/src/lib.rs`
+beside that app running as WebAssembly in an iframe. Its slider, editable stepper, progress bar,
+and Reset button share one signal. App text comes from generated Fluent accessors.
+
+`integrations/live-demo.mjs` builds the app before Astro reads the component, on both `npm run
+build` and dev-server startup. On a fresh checkout it runs `cargo run --locked -p day-cli --
+build ... -t web-dom --profile release`: Cargo builds the CLI from this checkout first. No
+installed CLI, published Day release, or artifact from another CI job is required. Rust and
+the `wasm32-unknown-unknown` target are required; the website CI job installs the target explicitly.
+
+The source fingerprint covers the app, framework crates, workspace lockfile, and builder. A
+matching cached output avoids compiling Rust when editing page copy or CSS. After changing
+the Rust app, restart the dev server to rebuild it. Generated assets go under ignored
+`public/demos/shared-signal/<fingerprint>/`; the displayed source is extracted during the same
+build. The iframe uses native `loading="lazy"`; the browser chooses when to fetch it, without a
+custom intersection observer. It receives site-theme changes through a same-origin
+message without reloading its state. Its host does not register a service worker.
+
+After building the site, run `npm run demo:test`. This uses Chromium to test the actual Wasm
+through keyboard and button input at desktop and mobile sizes, including numeric bounds,
+the displayed source, lazy loading, and state preservation across theme changes. Install the
+browser once with `npx playwright install chromium`. Set `DAY_DEMO_BROWSER=webkit` to run the
+same checks in WebKit (install it with `npx playwright install webkit`). CI runs the Chromium
+checks before uploading the site. For Rust edits, also run `cargo fmt` and `cargo clippy` with
+`--manifest-path ../apps/website-controls/Cargo.toml`; the app is a standalone workspace.
+
+The tutorial screenshots remain on `/examples`. `verifyMarketingEvidence()` continues to
+check their source and image hashes on every site build and dev-server startup.

@@ -492,6 +492,17 @@ fn read_replies(
                 let _ = tx.send(Ok(String::new()));
                 break;
             }
+            // `read_until` hands back an unterminated tail only when the stream ended inside a
+            // reply. That is a dropped connection, not a reply: passed on as one, it fails as a
+            // JSON error that nothing retries, where a disconnect reconnects during startup and
+            // counts as engine loss afterwards.
+            Ok(_) if line.last() != Some(&b'\n') => {
+                let _ = tx.send(Err(std::io::Error::new(
+                    std::io::ErrorKind::UnexpectedEof,
+                    format!("the connection closed {} bytes into a reply", line.len()),
+                )));
+                break;
+            }
             Ok(_) => {
                 let line = match String::from_utf8(std::mem::take(&mut line)) {
                     Ok(line) => line,
@@ -984,6 +995,25 @@ mod tests {
             }
             assert!(rx.recv().is_err(), "one reply or error, with no replay");
         }
+    }
+
+    #[test]
+    fn a_reply_cut_off_by_a_closed_connection_is_a_disconnect() {
+        let (tx, rx) = mpsc::channel();
+        read_replies(
+            BufReader::new(&b"{\"ok\":true}\n{\"ok\":true,\"data\":{\"ids\":[\"na"[..]),
+            &AtomicBool::new(false),
+            Active::default(),
+            tx,
+        );
+        assert_eq!(rx.recv().unwrap().unwrap(), "{\"ok\":true}\n");
+        let error = rx.recv().unwrap().unwrap_err();
+        assert_eq!(error.kind(), std::io::ErrorKind::UnexpectedEof);
+        assert!(
+            error.to_string().contains("29 bytes into a reply"),
+            "{error}"
+        );
+        assert!(rx.recv().is_err(), "nothing after the disconnect");
     }
 
     #[test]

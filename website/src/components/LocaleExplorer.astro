@@ -15,7 +15,7 @@ const payload = JSON.stringify(captures).replace(/</g, '\\u003c');
 ---
 {initial && <div class="locale-explorer" data-locale-explorer>
   <div class="explorer-grid">
-    <div class="explorer-stage" id="locale-explorer-stage" aria-label="Day Travel screenshots" aria-busy="false">
+    <div class="explorer-stage" id="locale-explorer-stage" data-mobile={String(initial.mobile)} aria-label="Day Travel screenshots" aria-busy="false">
       <div class="explorer-slide" data-theme={initial.theme} data-capture={`${initial.target}/${initial.theme}/${initial.locale}`}>
         <p class="explorer-caption">{initial.platform} · {initial.language} · {initial.appearance}</p>
         <div class:list={['explorer-images', { 'is-mobile': initial.mobile }]}>
@@ -54,7 +54,8 @@ const payload = JSON.stringify(captures).replace(/</g, '\\u003c');
   .locale-explorer { width: 100%; max-width: 1080px; margin: 0; }
   .locale-explorer [hidden] { display: none !important; }
   .explorer-grid { display: grid; grid-template-columns: minmax(0,1fr) 48px; grid-template-rows: auto 64px; gap: 4px; }
-  .explorer-stage { grid-area: 1 / 1; height: clamp(380px, 52vh, 560px); position: relative; overflow: hidden; isolation: isolate; border: 1px solid var(--border); border-radius: 18px; background: var(--surface); }
+  .explorer-stage { grid-area: 1 / 1; height: 380px; position: relative; overflow: hidden; isolation: isolate; border: 1px solid var(--border); border-radius: 18px; background: var(--surface); transition: height 220ms ease; }
+  .explorer-stage[data-mobile=true] { height: clamp(380px, 52vh, 560px); }
   .explorer-stage[aria-busy=true] { cursor: progress; }
   .explorer-slide { position: absolute; inset: 0; padding: 18px; display: flex; flex-direction: column; gap: 12px; background: radial-gradient(ellipse at 15% 0%, #176c6510, transparent 70%), #f7faf8; }
   .explorer-slide[data-theme=dark] { background: radial-gradient(ellipse at 15% 0%, #244d49, transparent 75%), #172629; }
@@ -66,14 +67,14 @@ const payload = JSON.stringify(captures).replace(/</g, '\\u003c');
   .explorer-frame > img { border-radius: 8px; filter: drop-shadow(0 5px 9px #10282818); }
   .explorer-controls { display: flex; align-items: center; justify-content: center; }
   .explorer-platforms { grid-area: 1 / 2; flex-direction: column; align-self: center; }
-  .explorer-locales { grid-area: 2 / 1; width: min(100%, 560px); justify-self: center; justify-content: flex-start; overflow-x: auto; scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
+  .explorer-locales { grid-area: 2 / 1 / 3 / -1; width: min(100%, 560px); justify-self: center; justify-content: flex-start; overflow-x: auto; scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
   .explorer-choice { position: relative; display: flex; align-items: center; justify-content: center; gap: 8px; width: 48px; min-width: 0; height: 58px; padding: 6px; border: 0; border-radius: 6px; background: transparent; color: var(--muted); font: inherit; cursor: pointer; touch-action: manipulation; }
   .explorer-choice:focus-visible { outline: 2px solid var(--brand); outline-offset: -2px; }
   .explorer-choice:disabled { opacity: .3; cursor: default; }
   .explorer-choice svg { display: block; width: 21px; height: 21px; flex: none; }
   .explorer-dash { display: block; height: 3px; width: 100%; background: var(--border); border-radius: 4px; transition: background 160ms; flex: none; }
   .explorer-locales .explorer-choice { flex-direction: column; }
-  .explorer-locales .explorer-choice { flex: 1 0 64px; font-size: 12px; white-space: nowrap; }
+  .explorer-locales .explorer-choice { flex: 1 0 64px; font-size: 13px; white-space: nowrap; }
   .explorer-platforms .explorer-choice { height: 44px; justify-content: flex-start; gap: 9px; }
   .explorer-platforms svg { color: var(--pf); }
   .explorer-platforms .explorer-dash { height: 25px; width: 3px; }
@@ -83,9 +84,9 @@ const payload = JSON.stringify(captures).replace(/</g, '\\u003c');
   .explorer-platforms .explorer-tip { right: 100%; }
   .explorer-choice:focus-visible .explorer-tip { opacity: 1; }
   @media(hover:hover) { .explorer-choice:not(:disabled):hover .explorer-tip { opacity: 1; } .explorer-choice:not(:disabled):hover .explorer-dash { background: var(--pf, var(--brand)); } }
-  .explorer-caption { flex: none; margin: 0; color: #526d71; font-size: 11px; line-height: 18px; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .explorer-caption { flex: none; margin: 0; color: #526d71; font-size: 13px; line-height: 20px; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .explorer-slide[data-theme=dark] .explorer-caption { color: #b1c3c0; }
   .explorer-error { color: var(--muted); text-align: center; }
-  @media(max-width:600px) { .explorer-grid { grid-template-columns: minmax(0,1fr) 44px; gap: 2px; } .explorer-stage { height: 430px; border-radius: 12px; } .explorer-slide { padding: 8px; } .explorer-locales { grid-column: 1 / -1; } .explorer-platforms .explorer-choice { width: 44px; } .explorer-tip { font-size: 11px; } }
-  @media(prefers-reduced-motion:reduce) { .explorer-dash { transition: none; } }
+  @media(max-width:600px) { .explorer-grid { grid-template-columns: minmax(0,1fr) 44px; gap: 2px; } .explorer-stage { border-radius: 12px; } .explorer-stage[data-mobile=true] { height: 430px; } .explorer-slide { padding: 8px; } .explorer-locales { grid-column: 1 / -1; } .explorer-platforms .explorer-choice { width: 44px; } .explorer-tip { font-size: 13px; } }
+  @media(prefers-reduced-motion:reduce) { .explorer-dash, .explorer-stage { transition: none; } }
 </style>

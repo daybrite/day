@@ -198,6 +198,7 @@ const accents = [...new Set(shots.map((s) => s.accent))];
     font-size: 1.35rem; font-weight: 800; line-height: 1.1;
     color: var(--hc-accent, var(--text));
   }
+  :global(html[data-theme=light]) .hc-os { color: color-mix(in srgb, var(--hc-accent, var(--text)) 70%, var(--text)); }
   .hc-toolkit { color: var(--muted); font-size: 0.95rem; font-variant-numeric: tabular-nums; }
 
   /* Caption re-animates on each change (JS toggles .hc-rise). */

@@ -2,14 +2,14 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: CC-BY-SA-4.0
 import { Code } from 'astro:components';
-interface Props { code: string; lang?: string; title?: string }
-const { code, lang = 'rust', title } = Astro.props;
+interface Props { code: string; lang?: string; title?: string; chrome?: boolean }
+const { code, lang = 'rust', title, chrome = true } = Astro.props;
 ---
 <figure class="codewin">
-  <figcaption class="codewin-bar">
+  {chrome && <figcaption class="codewin-bar">
     <span class="dots" aria-hidden="true"><i></i><i></i><i></i></span>
     {title && <span class="fname">{title}</span>}
-  </figcaption>
+  </figcaption>}
   <div class="codewin-body">
     <Code code={code.trim()} lang={lang} theme="night-owl" />
   </div>

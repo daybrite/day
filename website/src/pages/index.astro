@@ -41,13 +41,13 @@ const stages = [
 ];
 ---
 <BaseLayout>
-  <section class="hero">
+  <section class="hero" id="overview">
     <div class="hero-glow" aria-hidden="true"></div>
     <div class="container hero-grid">
       <div>
         <p class="eyebrow">The universal app development framework</p>
         <h1>One app.<br />Every platform.<br /><span class="hero-day">All Day.</span></h1>
-        <p class="lead">Create apps for iOS, Android, macOS, Windows, and Linux from a single Rust codebase. Day adds a declarative interface and reactive model atop each platform’s native first-party UI toolkit. It is the ultimate batteries-included app development framework, with tools for testing, translation, packaging, and deployment.</p>
+        <p class="lead">Build native apps for iOS, Android, macOS, Windows, and Linux from one Rust codebase. Day includes tools for testing, translation, and packaging.</p>
         <div class="actions">
           <a class="btn btn-primary" href={url('docs/tutorials/first-app')}>Build your first app</a>
           <a class="btn btn-ghost" href={url('gallery')}>See the apps →</a>
@@ -61,7 +61,7 @@ const stages = [
     <p class="container support-note"><a href={url('docs/reference/platforms')}>See current platform support →</a></p>
   </section>
 
-  <section class="section">
+  <section class="section" id="shared-ui">
     <div class="container">
       <p class="eyebrow">Desktop and mobile</p>
       <h2>Share more than just the business logic</h2>
@@ -72,19 +72,19 @@ const stages = [
     </div>
   </section>
 
-  <section class="section performance" id="let-your-app-shine">
+  <section class="section performance" id="rust-interface">
     <div class="container">
-      <p class="eyebrow">For A Rust-First World</p>
-      <h2>Give your Rust code<br />a native interface.</h2>
-      <p class="section-lead">Compose controls with Rust functions and bind them to reactive signals. This counter updates its label when you press the button.</p>
+      <p class="eyebrow">Intuitive, declarative, and reactive</p>
+      <h2>A high-level interface for your low-level Rust</h2>
+      <p class="section-lead">Compose controls with Rust functions and bind them to reactive signals. Try the browser version below; the same Rust UI uses each platform’s native toolkit when built for desktop or mobile.</p>
       <RustExample />
     </div>
   </section>
 
-  <section class="section">
+  <section class="section" id="localization">
     <div class="container split localization-layout">
       <div>
-        <p class="eyebrow" id="localization">Living in a polyglot world</p>
+        <p class="eyebrow">Living in a polyglot world</p>
         <h2>First-class localization support</h2>
         <p class="section-lead">Translation are implemented through Mozilla Fluent catalogs, and Day generates typed Rust accessors so the UI and its message arguments are checked together at build time. Use the same UI walkthrough in several languages to verify translated screens.</p>
         <a href={url('docs/how-to/localization')}>See how localization works →</a>
@@ -117,7 +117,7 @@ const stages = [
     </div>
   </section>
 
-  <section class="section lifecycle">
+  <section class="section lifecycle" id="automation">
     <div class="container">
       <p class="eyebrow">Continuous verification across all platforms</p>
       <h2>Automation done right</h2>
@@ -128,7 +128,7 @@ const stages = [
     </div>
   </section>
 
-  <section class="section">
+  <section class="section" id="extensions">
     <div class="container">
       <p class="eyebrow">For native developers and library authors</p>
       <h2>Package your platform expertise<br />as a reusable Day extension.</h2>
@@ -139,7 +139,7 @@ const stages = [
     </div>
   </section>
 
-  <section class="section">
+  <section class="section" id="get-started">
     <div class="container cta-inner">
       <Logo size={40} />
       <h2>Rise and Shine</h2>
@@ -154,7 +154,8 @@ const stages = [
   .hero-glow { position: absolute; top: -280px; left: 50%; width: 1100px; height: 700px; transform: translateX(-50%); background: radial-gradient(closest-side, rgba(255,150,90,.22), rgba(106,164,255,.14) 55%, transparent 72%); pointer-events: none; }
   h1 { font-size: clamp(2.7rem, 5.5vw, 4.3rem); line-height: 1.05; letter-spacing: -.015em; margin: 0 0 26px; }
   .hero-day { color: var(--hero-accent, var(--brand)); transition: color 2.6s ease-in-out; }
-  h2 { font-size: clamp(1.9rem, 3.8vw, 2.8rem); line-height: 1.15; letter-spacing: -.025em; margin: 0 0 22px; }
+  :global(html[data-theme=light]) .hero-day { color: color-mix(in srgb, var(--hero-accent, var(--brand)) 70%, var(--text)); }
+  h2 { font-size: clamp(1.9rem, 3.8vw, 2.5rem); line-height: 1.15; letter-spacing: -.025em; margin: 0 0 22px; }
   h3 { font-size: 1.25rem; line-height: 1.35; margin: 0 0 14px; }
   .lead { margin-bottom: 28px; }
   .section-lead { font-size: 1.12rem; line-height: 1.75; max-width: 65ch; color: var(--muted); margin: 0 0 28px; }
@@ -198,7 +199,14 @@ const stages = [
   .ecosystem-card h3 span { color: var(--brand); }
   .ecosystem-card p { color: var(--muted); line-height: 1.65; margin: 0; }
   @media (max-width: 880px) { .ecosystem-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-  @media (max-width: 560px) { .ecosystem-grid { grid-template-columns: minmax(0, 1fr); } }
+  @media (max-width: 560px) {
+    .ecosystem-grid { grid-template-columns: minmax(0, 1fr); gap: 0; }
+    .ecosystem-card { display: grid; grid-template-columns: 32px minmax(0, 1fr); gap: 6px 12px; padding: 16px 0; border: 0; border-bottom: 1px solid var(--border); border-radius: 0; background: transparent; }
+    .ecosystem-icon { grid-column: 1; grid-row: 1 / 3; align-self: start; padding: 6px; margin: 0; border-radius: 8px; }
+    .ecosystem-icon :global(.doc-nav-icon) { width: 20px; height: 20px; flex-basis: 20px; }
+    .ecosystem-card h3 { grid-column: 2; margin: 0; font-size: 1rem; line-height: 1.4; }
+    .ecosystem-card p { grid-column: 2; font-size: 1rem; line-height: 1.55; }
+  }
   .ownership-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 22px; margin-top: 36px; }
   .cta-inner { text-align: center; display: flex; flex-direction: column; align-items: center; gap: 20px; padding: 64px 28px; border-radius: var(--radius-lg); background: var(--surface); border: 1px solid var(--border-soft); }
   .cta-inner h2, .cta-inner p { margin: 0; }
