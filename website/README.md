@@ -290,3 +290,12 @@ Keep the old release pinned until its replacement has a complete, reviewed captu
 Run `node --test scripts/travel-explorer.test.mjs` and
 `python3 -B -m unittest discover -s scripts -p 'test_release_gallery.py'`, then build the site
 and check hover/tap selection, both phone positions, and narrow-screen layout.
+
+## Landing-page Rust example
+
+`RustExample.astro` displays the UI function directly from the `state` lesson in
+`tutorials/session-counter.yaml`, alongside the recorded AppKit screenshot in
+`public/images/tutorial/counter-two.png`. The build integration runs `verifyMarketingEvidence()`
+on every build and dev-server startup, so a change to the tutorial source or image requires updated capture evidence before the
+page can build. The project setup and generated Fluent accessors remain in the linked tutorial.
+Run `npm run tutorials:check` and build the website when changing this presentation.

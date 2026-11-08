@@ -19,7 +19,8 @@ export default function gallery() {
     name: 'day-gallery',
     hooks: {
       'astro:config:setup': async ({ logger }) => {
-        if (process.env.DAY_REQUIRE_SHOWCASE) await verifyMarketingEvidence();
+        // The landing page displays the tutorial source beside its recorded native output.
+        await verifyMarketingEvidence();
         const { apps, captures, dropped, reasons, stale } = await assembleGallery({ quiet: true });
         logger.info(
           apps > 0

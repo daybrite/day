@@ -7,6 +7,7 @@
 import BaseLayout from '../layouts/BaseLayout.astro';
 import HeroCarousel from '../components/HeroCarousel.astro';
 import LocaleExplorer from '../components/LocaleExplorer.astro';
+import RustExample from '../components/RustExample.astro';
 import Logo from '../components/Logo.astro';
 import PlatformIcon from '../components/PlatformIcon.astro';
 import SidebarIcon from '../components/SidebarIcon.astro';
@@ -72,19 +73,11 @@ const stages = [
   </section>
 
   <section class="section performance" id="let-your-app-shine">
-    <div class="container split">
-      <div>
-        <p class="eyebrow">For A Rust-First World</p>
-        <h2>Give your Rust code<br />a native interface.</h2>
-        <p class="section-lead">Connect your data models and libraries directly to UI code without crossing language barriers. Compose controls with ordinary functions and attach them to reactive signals that update the interface when data changes.</p>
-        <p class="section-lead">Day uses AppKit on macOS, UIKit on iOS, Material Components on Android, and desktop toolkits on Windows and Linux. Standard controls use toolkit widgets; composed controls and custom drawing have their own implementations. Appearance and capabilities beyond the core components vary by target.</p>
-        <a href={url('docs/reference/api-tour')}>Explore the Rust API →</a>
-      </div>
-      <div class="performance-facts">
-        <article><h3>Reuse your libraries</h3><p>Keep parsing, storage, and other app logic in conventional Cargo crates. Use the same code from your UI wherever those crates support the target.</p></article>
-        <article><h3>Update individual controls</h3><p>Bindings update existing controls when their signals change. Adding or replacing a screen can create new controls; ordinary value updates do not require rebuilding the whole interface.</p></article>
-        <article><h3>Compile to native machine code</h3><p>Your Rust code compiles to machine code for each desktop and mobile target, alongside Day’s native toolkit integrations.</p></article>
-      </div>
+    <div class="container">
+      <p class="eyebrow">For A Rust-First World</p>
+      <h2>Give your Rust code<br />a native interface.</h2>
+      <p class="section-lead">Compose controls with Rust functions and bind them to reactive signals. This counter updates its label when you press the button.</p>
+      <RustExample />
     </div>
   </section>
 
@@ -183,12 +176,9 @@ const stages = [
   }
   .benefit-grid .capability:nth-child(2) { --card-start: var(--sun-2); --card-end: var(--sun); }
   .benefit-grid .capability:nth-child(3) { --card-start: var(--pf-macos-appkit); --card-end: var(--brand); }
-  .capability p, .performance-facts p, .stages p { color: var(--muted); line-height: 1.7; margin: 0 0 22px; }
+  .capability p, .stages p { color: var(--muted); line-height: 1.7; margin: 0 0 22px; }
   .capability > a { margin-top: auto; font-weight: 600; font-size: .94rem; }
   .performance { background: var(--surface); border-block: 1px solid var(--border-soft); }
-  .performance-facts { border-left: 2px solid var(--brand); padding-left: 30px; }
-  .performance-facts article + article { margin-top: 28px; }
-  .performance-facts p { margin-bottom: 0; }
   .stages { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); list-style: none; padding: 0; margin: 40px 0 24px; gap: 24px; }
   .stages li { border-top: 2px solid var(--brand); padding-top: 20px; }
   .stages h3 { font-size: 1.1rem; }
@@ -216,6 +206,6 @@ const stages = [
   @media (max-width: 1000px) { .stages { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
   /* .hero-grid/.split and .hero-media stack in styles/global.css, which owns that layout. */
   @media (max-width: 880px) { .benefit-grid { grid-template-columns: minmax(0, 1fr); gap: 32px; } .hero { padding-top: 40px; } }
-  @media (max-width: 560px) { .ownership-grid, .stages { grid-template-columns: minmax(0, 1fr); } .capability { padding: 24px; } .platform-strip { gap: 18px; } .performance-facts { padding-left: 22px; } }
+  @media (max-width: 560px) { .ownership-grid, .stages { grid-template-columns: minmax(0, 1fr); } .capability { padding: 24px; } .platform-strip { gap: 18px; } }
   @media (prefers-reduced-motion: reduce) { .hero-day { transition: none; } }
 </style>
