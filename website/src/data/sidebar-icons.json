@@ -195,5 +195,8 @@
   "/docs/reference/camera": "photo_camera",
   "/docs/reference/charts": "bar_chart",
   "/docs/reference/lottie": "motion_play",
-  "/docs/reference/webview": "iframe"
+  "/docs/reference/webview": "iframe",
+  "/docs/reference/bluetooth": "bluetooth",
+  "/docs/reference/push": "notifications_unread",
+  "/docs/reference/background": "pending_actions"
 }

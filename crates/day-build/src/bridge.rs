@@ -196,8 +196,39 @@ pub fn generate() -> Result<(), String> {
 /// half. The CLI reads crate sources rather than build-script output, so staging never depends on
 /// cargo having run first (docs/bridge.md "What the build does").
 pub fn parse_crate(root: &Path) -> Result<Bridge, String> {
-    let bridge = scan(root)?;
+    let mut bridge = scan(root)?;
     validate(&bridge)?;
+    for arm in &mut bridge.arms {
+        if let Some(source) = &arm.src {
+            let path = root.join(source);
+            let mut body =
+                std::fs::read_to_string(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+            if arm.lang == Lang::Java {
+                let mut imports = String::new();
+                let mut methods = String::new();
+                for line in body.lines() {
+                    if line.trim_start().starts_with("import ") {
+                        imports.push_str(line);
+                        imports.push('\n');
+                        methods.push('\n');
+                    } else if line.trim_start().starts_with("package ") {
+                        return Err(format!(
+                            "{}: the bridge generator supplies the Java package",
+                            path.display()
+                        ));
+                    } else {
+                        methods.push_str(line);
+                        methods.push('\n');
+                    }
+                }
+                arm.prelude = Some(imports);
+                body = methods;
+            }
+            arm.body = Some(body);
+            arm.source = Some(source.replace('\\', "/"));
+            arm.body_line = 1;
+        }
+    }
     Ok(bridge)
 }
 
@@ -291,6 +322,11 @@ pub fn generate_in(root: &Path, out_dir: &Path, crate_name: &str) -> Result<(), 
     }
 
     let bridge = parse_crate(root)?;
+    for arm in &bridge.arms {
+        if let Some(source) = &arm.src {
+            println!("cargo:rerun-if-changed={}", root.join(source).display());
+        }
+    }
 
     let dir = out_dir.join("day-bridge");
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
@@ -3097,6 +3133,63 @@ fn write_if_changed(path: &Path, content: &str) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn file_arms_are_loaded_and_java_imports_stay_outside_the_generated_class() {
+        let root = std::env::temp_dir().join(format!(
+            "day-bridge-file-fixture-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(root.join("src")).unwrap();
+        std::fs::write(
+            root.join("src/lib.rs"),
+            r#"
+            day_bridge::bridge! {
+                #[day_bridge::declare]
+                extern "day" { fn probe() -> Result<(), day_bridge::Error>; }
+                #[day_bridge::impl(java, platforms = [android], src = "Probe.java")]
+                #[day_bridge::impl(swift, platforms = [ios], src = "Probe.swift")]
+                #[day_bridge::impl(rust, platforms = [other])]
+                fn probe() -> Result<(), day_bridge::Error> { Ok(()) }
+            }
+        "#,
+        )
+        .unwrap();
+        assert!(parse_crate(&root).is_err());
+        std::fs::write(
+            root.join("Probe.java"),
+            "import java.util.List;\npublic static void probe() {}\n",
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("Probe.swift"),
+            "import Foundation\nfunc probe() throws {}\n",
+        )
+        .unwrap();
+        let bridge = parse_crate(&root).unwrap();
+        let java = bridge
+            .arms
+            .iter()
+            .find(|arm| arm.lang == Lang::Java)
+            .unwrap();
+        let output = render_java(&bridge, java, "fixture");
+        assert!(
+            output.find("import java.util.List;").unwrap()
+                < output.find("public final class").unwrap()
+        );
+        assert!(output.contains("public static void probe() {}"));
+        let swift = bridge
+            .arms
+            .iter()
+            .find(|arm| arm.lang == Lang::Swift)
+            .unwrap();
+        assert!(render_swift(&bridge, swift, "fixture").contains("func probe() throws {}"));
+        std::fs::remove_dir_all(root).unwrap();
+    }
 
     const SPEECH: &str = r###"
 day_bridge::bridge! {

@@ -93,9 +93,10 @@ define_class!(
         fn will_present(
             &self,
             _center: &UNUserNotificationCenter,
-            _notification: &UNNotification,
+            notification: &UNNotification,
             handler: &block2::DynBlock<dyn Fn(UNNotificationPresentationOptions)>,
         ) {
+            forward_remote(&notification.request().content().userInfo(), false);
             // Show it like any other notification even though we are frontmost: banner (or the
             // older Alert on pre-14 systems), the notification list, and the sound the channel asked
             // for. `List` alone would file it silently into Notification Center.
@@ -115,6 +116,7 @@ define_class!(
             // The route rides in userInfo, put there at post time. `request_route` handles both a
             // warm tap and one that cold-started the process (docs/notify.md).
             let content = response.notification().request().content();
+            forward_remote(&content.userInfo(), true);
             let route = content
                 .userInfo()
                 .objectForKey(&*NSString::from_str(ROUTE_KEY));
@@ -129,6 +131,31 @@ define_class!(
 
 /// The key the Day route travels under inside `UNNotificationContent.userInfo`.
 const ROUTE_KEY: &str = "day.route";
+
+fn forward_remote(info: &objc2_foundation::NSDictionary, opened: bool) {
+    if info.objectForKey(&*NSString::from_str("aps")).is_none() {
+        return;
+    }
+    // SAFETY: Notification user info contains the APNs JSON dictionary.
+    if let Ok(data) = unsafe {
+        objc2_foundation::NSJSONSerialization::dataWithJSONObject_options_error(
+            info,
+            objc2_foundation::NSJSONWritingOptions::empty(),
+        )
+    } && let Ok(payload) = String::from_utf8(data.to_vec())
+    {
+        day_core::services::notification(day_core::services::NotificationEvent::Received {
+            payload,
+            opened,
+        });
+    }
+}
+
+pub(crate) fn prepare() {
+    if let Some(center) = center() {
+        install_delegate(&center);
+    }
+}
 
 /// Install the delegate once. It must be set before a tap can be delivered, and `UNUserNotification`
 /// keeps only a weak reference, so the instance is leaked; it lives for the process.

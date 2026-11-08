@@ -35,5 +35,8 @@ anstream = { workspace = true }
 inventory = { workspace = true }
 day-macros = { workspace = true }
 
+[target.'cfg(target_os = "android")'.dependencies]
+day-platform-android = { workspace = true }
+
 [dev-dependencies]
 day-mock = { path = "../day-mock" }

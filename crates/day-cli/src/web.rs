@@ -132,7 +132,8 @@ pub fn build_web(
     // Web modules (docs/web.md): the ES modules the shim imports and merges into the wasm imports
     // before instantiation. daybridge generates one per bridged crate (docs/bridge.md); a crate
     // with a hand-written browser half declares its own in `[package.metadata.day.web]`.
-    let mut modules = crate::bridge::write_js(&dist, &crate::bridge::stage(project, "web"))?;
+    let mut modules =
+        crate::bridge::write_js(&dist, &crate::bridge::stage(project, "web", &["dom"]))?;
     modules.extend(stage_web_modules(project, &dist)?);
     std::fs::write(dist.join("day.css"), HOST_CSS).map_err(|e| format!("css: {e}"))?;
     std::fs::copy(&wasm, dist.join("app.wasm")).map_err(|e| format!("{}: {e}", wasm.display()))?;

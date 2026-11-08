@@ -2529,14 +2529,20 @@ pub(crate) mod conformance {
         Case::new()
             .proves_modifier("aligned")
             .page(|| {
-                rectangle()
+                // A native container gives both layout and toolkit probes the same origin,
+                // independent of window chrome and mobile safe-area insets.
+                zstack((rectangle()
                     .fill(Color::rgb(0.2, 0.5, 0.8))
                     .frame(40.0, 20.0)
                     .id(day_core::id!(aligned_child))
                     .aligned(day_core::Alignment::BottomTrailing)
-                    .frame(200.0, 100.0)
+                    .frame(200.0, 100.0),))
+                .id(day_core::id!(aligned_container))
+                .frame(200.0, 100.0)
             })
             .drive(|d: Drive| async move {
+                d.assert_frame("aligned_container", size(200.0, 100.0))
+                    .await?;
                 d.assert_frame(
                     "aligned_child",
                     FrameExpect {
@@ -2544,6 +2550,7 @@ pub(crate) mod conformance {
                         y: Some(80.0),
                         width: Some(40.0),
                         height: Some(20.0),
+                        relative_to: Some("aligned_container".into()),
                         ..Default::default()
                     },
                 )

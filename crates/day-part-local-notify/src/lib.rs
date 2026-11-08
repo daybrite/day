@@ -407,6 +407,13 @@ pub fn deliver_tap(route: &str) {
     }
 }
 
+/// Install notification delivery before the UI starts. Apple shares one notification-center
+/// delegate between local notifications and optional remote-notification parts.
+pub fn prepare_delivery() {
+    #[cfg(any(target_os = "ios", target_os = "macos"))]
+    imp::prepare();
+}
+
 /// The registered channels, shared by every platform arm.
 ///
 /// Android has a real `NotificationChannel` registry and reads this only to build it; the other

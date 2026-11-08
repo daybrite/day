@@ -1118,7 +1118,10 @@ pub fn write_android_manifest(project: &Project) -> Result<(), String> {
     if !kotlin_arms.is_empty() && !crate::bridge::android_compiles_kotlin(project) {
         return Err(crate::bridge::kotlin_plugin_help(&kotlin_arms));
     }
-    match crate::bridge::write_jvm(project, &crate::bridge::stage(project, "android")) {
+    match crate::bridge::write_jvm(
+        project,
+        &crate::bridge::stage(project, "android", &["material"]),
+    ) {
         Ok(Some(dir)) => pieces.java_src_dirs.push(dir.display().to_string()),
         Ok(None) => {}
         Err(e) => eprintln!("day: bridge staging failed ({e}); building without bridged Kotlin"),
@@ -1717,7 +1720,7 @@ pub fn write_ios_pieces(project: &Project) -> Result<Option<String>, String> {
     }
 
     // daybridge adapters (docs/bridge.md), staged per crate exactly as on the macOS leg.
-    stage_bridge_swift(project, "ios", &sources, &mut expected)?;
+    stage_bridge_swift(project, "ios", &["uikit"], &sources, &mut expected)?;
 
     // Exported SwiftUI views (docs/swiftui.md): scan local packages, generate provider glue.
     if let Some(glue) = render_view_glue(&pieces) {
@@ -1990,7 +1993,7 @@ pub fn write_ohos_pieces(project: &Project, harmony: &Path) -> Result<(), String
 
     // daybridge ArkTS arms (docs/bridge.md) live in their own tree beside the pieces, with their
     // own aggregator, so the two generators never contend over one directory.
-    crate::bridge::write_arkts(harmony, &crate::bridge::stage(project, "ohos"))?;
+    crate::bridge::write_arkts(harmony, &crate::bridge::stage(project, "ohos", &["arkui"]))?;
 
     write_ohos_host(harmony, pieces.host_dir.as_deref())
 }
@@ -2324,7 +2327,7 @@ pub fn write_macos_pieces(project: &Project) -> Result<(), String> {
 
     // daybridge adapters (docs/bridge.md): generated per crate into its OUT_DIR, staged here under
     // the crate's own namespace so two bridged crates cannot collide in the one Swift module.
-    stage_bridge_swift(project, "macos", &sources, &mut expected)?;
+    stage_bridge_swift(project, "macos", &["appkit"], &sources, &mut expected)?;
 
     if let Some(glue) = render_view_glue(&pieces) {
         let path = sources.join("_DayViews.swift");
@@ -2354,16 +2357,25 @@ pub fn write_macos_pieces(project: &Project) -> Result<(), String> {
 
 /// Packages depending on day-bridge, as `(name, crate root)`, which the bridge
 /// stager walks to find crates declaring a `bridge!` block (docs/bridge.md).
-pub(crate) fn bridge_dependency_roots(project: &Project) -> Vec<(String, std::path::PathBuf)> {
-    let Ok(meta) = cargo_metadata_all_features(project) else {
+pub(crate) fn bridge_dependency_roots(
+    project: &Project,
+    features: Option<&[&str]>,
+) -> Vec<(String, std::path::PathBuf)> {
+    let metadata = match features {
+        Some(features) => cargo_metadata_for_contributions(project, features),
+        None => cargo_metadata_all_features(project),
+    };
+    let Ok(meta) = metadata else {
         return Vec::new();
     };
     bridge_roots_from_metadata(&meta)
 }
 
 fn bridge_roots_from_metadata(meta: &Metadata) -> Vec<(String, std::path::PathBuf)> {
+    let active = closure(meta);
     meta.packages
         .iter()
+        .filter(|pkg| active.contains(&pkg.id))
         .filter(|pkg| pkg.dependencies.iter().any(|dep| dep.name == "day-bridge"))
         .filter_map(|pkg| {
             Path::new(&pkg.manifest_path)
@@ -2373,18 +2385,47 @@ fn bridge_roots_from_metadata(meta: &Metadata) -> Vec<(String, std::path::PathBu
         .collect()
 }
 
+#[cfg(test)]
+mod optional_bridge_tests {
+    #[test]
+    fn disabled_provider_and_unrelated_workspace_bridges_are_not_staged() {
+        let mut fixture = serde_json::json!({
+            "packages": [
+                {"id":"app", "name":"app", "manifest_path":"/fixture/app/Cargo.toml"},
+                {"id":"provider", "name":"provider", "manifest_path":"/fixture/provider/Cargo.toml",
+                 "dependencies":[{"name":"day-bridge"}]},
+                {"id":"other", "name":"other", "manifest_path":"/fixture/other/Cargo.toml",
+                 "dependencies":[{"name":"day-bridge"}]}
+            ],
+            "resolve":{"root":"app", "nodes":[
+                {"id":"app", "deps":[]}, {"id":"provider", "deps":[]}, {"id":"other", "deps":[]}
+            ]}
+        });
+        let collect = |value: &serde_json::Value| {
+            super::bridge_roots_from_metadata(&serde_json::from_value(value.clone()).unwrap())
+        };
+        assert!(collect(&fixture).is_empty());
+        fixture["resolve"]["nodes"][0]["deps"] = serde_json::json!([{"pkg":"provider"}]);
+        assert_eq!(
+            collect(&fixture),
+            vec![("provider".into(), "/fixture/provider".into())]
+        );
+    }
+}
+
 /// Stage every bridged crate's generated Swift for `platform` into the DayPieces sources, one
 /// namespace directory per crate. Returns quietly when no crate in the build declares a bridge.
 ///
-/// The adapters are found by scanning the build's own target directory (see `crate::bridge`),
-/// which is where day-build wrote them during the cargo run that preceded this staging.
+/// Adapters come from source declarations in the selected feature graph (see `crate::bridge`).
+/// Disabled optional dependencies must not contribute native source files.
 fn stage_bridge_swift(
     project: &Project,
     platform: &str,
+    features: &[&str],
     sources: &Path,
     expected: &mut Vec<std::path::PathBuf>,
 ) -> Result<(), String> {
-    crate::bridge::stage(project, platform).write_swift(sources, expected)
+    crate::bridge::stage(project, platform, features).write_swift(sources, expected)
 }
 
 /// Write `content` only when the file's bytes differ: generated trees must not churn mtimes, or

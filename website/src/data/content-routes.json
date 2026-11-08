@@ -1211,5 +1211,23 @@
     "source": "docs/webview.md",
     "type": "reference",
     "audience": "app developer"
+  },
+  "internal/bluetooth": {
+    "route": "/docs/reference/bluetooth",
+    "source": "docs/bluetooth.md",
+    "type": "reference",
+    "audience": "app developer"
+  },
+  "internal/push": {
+    "route": "/docs/reference/push",
+    "source": "docs/push.md",
+    "type": "reference",
+    "audience": "app developer"
+  },
+  "internal/background": {
+    "route": "/docs/reference/background",
+    "source": "docs/background.md",
+    "type": "reference",
+    "audience": "app developer"
   }
 }

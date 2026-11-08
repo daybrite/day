@@ -61,12 +61,12 @@ export function expandTutorial(body, lesson, recipe) {
     const common = variants.length === platformIds.length && variants.every((s) => s.body === variants[0].body) &&
       (!['run', 'launch'].includes(step.kind) || variants.every((s) => s.shell === variants[0].shell));
     return (common ? [variants[0]] : variants).map((s) => {
-      const label = common ? 'All desktop platforms' : recipe.platforms[s.platform].label;
+      const label = common ? 'All platforms' : recipe.platforms[s.platform].label;
       if (s.kind === 'note') return `**${label}:** ${s.body.trim()}\n`;
       const caption = s.kind === 'file' ? `${s.mode === 'append' ? 'Append to' : 'Write'} \`${s.path}\`` : `Run in \`${s.cwd}\``;
       const language = s.kind === 'file' ? s.language : s.shell === 'powershell' ? 'powershell' : 'sh';
       const fence = '`'.repeat(Math.max(3, ...[...s.body.matchAll(/`+/g)].map((m) => m[0].length + 1)));
-      return `**${label} — ${caption}:**\n\n${fence}${language}\n${s.body.replace(/\n$/, '')}\n${fence}\n`;
+      return `**${label}: ${caption}**\n\n${fence}${language}\n${s.body.replace(/\n$/, '')}\n${fence}\n`;
     }).join('\n');
   });
 }
@@ -100,19 +100,19 @@ export function generateLlmDocs(origin = 'https://daybrite.dev') {
     });
     // Raw HTML/MDX needs an explicit export strategy rather than silently dropping content.
     visit(tree, 'html', () => { throw new Error(`Unsupported HTML in LLM guide: ${entry.key}`); });
-    const scope = entry.sections ? 'Selected agent conventions. The complete reference is linked above.\n\n' : '';
+    const scope = entry.sections ? 'Scope: selected conventions. See source for the complete reference.\n\n' : '';
     return { ...guide, markdown: `# ${guide.title}\n\nSource: ${absolute(guide.route)}\n\n${scope}${markdown.stringify(tree)}` };
   });
   for (const lesson of recipe.lessons) {
     if (!guides.some((guide) => guide.route === lesson.route)) throw new Error(`LLM bundle omits tutorial lesson: ${lesson.id}`);
   }
   const description = readGuide(selection.introduction).description;
-  const scope = 'This bundle contains selected agent conventions and the complete six-lesson desktop app tutorial. Choose one host platform and follow its commands in order. Additional linked references are outside this bundle.';
-  const validation = 'Website builds compile every tutorial stage against the checked-out Day sources and replay its interaction assertions with the mock toolkit. These checks do not prove native rendering, SDK installation, packaging, or the latest published crates work. Native macOS, Windows, and Linux walkthroughs run separately in doctor-verify CI.';
-  const index = `# Day\n\n> ${description}\n\n${scope}\n\n${validation}\n\n## Start here\n\n` +
+  const scope = 'Scope: agent conventions and six desktop app lessons. Choose macOS, Windows, or Linux; execute its steps in order. Linked references are separate.';
+  const validation = 'Validation: website builds compile each tutorial stage against the source checkout and test interactions with the mock toolkit. Native walkthroughs run in separate CI. Mock checks do not validate SDK installation, native rendering, packaging, or published crate compatibility.';
+  const index = `# Day\n\n> ${description}\n\n${scope}\n\n${validation}\n\n## Guides\n\n` +
     guides.map((guide) => `- [${guide.title}](${absolute(markdownRoute(guide.route))}): ${guide.description}`).join('\n') +
-    `\n\n## Combined guide\n\n- [Complete app-building bundle](${absolute('/llms-full.txt')}): The same selected guidance and all tutorial steps in one document.\n`;
-  const full = `# Day app-building guidance\n\n> ${description}\n\n${scope}\n\n${validation}\n\n` + guides.map((guide) => `---\n\n${guide.markdown}`).join('\n');
+    `\n\n## Full text\n\n- [llms-full.txt](${absolute('/llms-full.txt')}): All listed guides in one document.\n`;
+  const full = `# Day app development\n\n> ${description}\n\n${scope}\n\n${validation}\n\n` + guides.map((guide) => `---\n\n${guide.markdown}`).join('\n');
   return { index, full, guides };
 }
 

@@ -61,9 +61,9 @@ impl Staged {
 /// A crate declaring no bridge costs one directory scan. A parse error in one crate warns and is
 /// skipped rather than failing the build here: day-build reports it properly, with the line, when
 /// that crate compiles.
-pub fn stage(project: &Project, platform: &str) -> Staged {
+pub fn stage(project: &Project, platform: &str, features: &[&str]) -> Staged {
     let mut staged = Staged::default();
-    for (name, root) in bridged_crates(project) {
+    for (name, root) in bridged_crates(project, Some(features)) {
         let bridge = match day_build::bridge::parse_crate(&root) {
             Ok(b) => b,
             Err(e) => {
@@ -308,7 +308,8 @@ pub fn apply_staged(cmd: &mut std::process::Command, project: &Project, target_n
     let Some(platform) = platform_of(target_name) else {
         return;
     };
-    if !stage(project, platform).is_empty() {
+    let feature = target_name.rsplit('-').next().unwrap_or(target_name);
+    if !stage(project, platform, &[feature]).is_empty() {
         cmd.env("DAY_BRIDGE_STAGED", "1");
     }
 }
@@ -341,7 +342,7 @@ fn gradle_compiles_kotlin(gradle: &str) -> bool {
 /// The crates staging a Kotlin (not Java) arm for Android: the ones that need the plugin.
 pub fn kotlin_arm_crates(project: &Project) -> Vec<String> {
     let mut out = Vec::new();
-    for (name, root) in bridged_crates(project) {
+    for (name, root) in bridged_crates(project, Some(&["material"])) {
         let Ok(bridge) = day_build::bridge::parse_crate(&root) else {
             continue;
         };
@@ -376,7 +377,7 @@ pub fn unresolved_link_libs(project: &Project) -> Vec<(String, String)> {
         return Vec::new();
     };
     let mut out = Vec::new();
-    for (name, root) in bridged_crates(project) {
+    for (name, root) in bridged_crates(project, None) {
         let Ok(bridge) = day_build::bridge::parse_crate(&root) else {
             continue;
         };
@@ -486,8 +487,8 @@ pub fn kotlin_plugin_help(crates: &[String]) -> String {
 }
 
 /// Every crate in the app's dependency graph that declares a bridge, as `(name, crate root)`.
-fn bridged_crates(project: &Project) -> Vec<(String, PathBuf)> {
-    let mut out: Vec<(String, PathBuf)> = crate::pieces::bridge_dependency_roots(project)
+fn bridged_crates(project: &Project, features: Option<&[&str]>) -> Vec<(String, PathBuf)> {
+    let mut out: Vec<(String, PathBuf)> = crate::pieces::bridge_dependency_roots(project, features)
         .into_iter()
         // A crate that declares a bridge depends on day-bridge, by construction. Requiring that
         // skips the two crates that merely contain the text `bridge!`: day-bridge itself, whose

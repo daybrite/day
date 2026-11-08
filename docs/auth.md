@@ -24,8 +24,7 @@ biometric prompt alone does not sign the person in to that service.
 
 > [!WARNING]
 > **Experimental account integration.**
-> The current client has unresolved endpoint and callback validation, refresh, and browser
-> limitations described below. Use it for local evaluation; it is not ready to protect production
+> The current client has refresh identity-context and browser limitations described below. Use it for local evaluation; it is not ready to protect production
 > accounts. Native credential requests also need server verification before granting access.
 
 ## Add to your app
@@ -84,7 +83,7 @@ flow. Leave it enabled for public clients such as installed apps.
 | --- | --- |
 | [`Provider::google()`](https://docs.rs/day-part-auth/latest/day_part_auth/provider/struct.Provider.html#method.google) | Built-in Google endpoint configuration; register a client appropriate to the app and redirect. |
 | [`Provider::apple()`](https://docs.rs/day-part-auth/latest/day_part_auth/provider/struct.Provider.html#method.apple) | Apple endpoint configuration, not a complete Apple web integration; see [Apple requirements](#sign-in-with-apple). |
-| [`Provider::discover(issuer).await`](https://docs.rs/day-part-auth/latest/day_part_auth/provider/struct.Provider.html#method.discover) | Fetches the issuer's discovery document and compares its issuer after trimming trailing slashes. |
+| [`Provider::discover(issuer).await`](https://docs.rs/day-part-auth/latest/day_part_auth/provider/struct.Provider.html#method.discover) | Fetches the issuer's discovery document and requires an exact issuer match. |
 | [`Provider::new(authorization_endpoint, token_endpoint)`](https://docs.rs/day-part-auth/latest/day_part_auth/provider/struct.Provider.html#method.new) | Plain OAuth endpoint configuration. For OAuth without identity, replace the default `openid` scope. OIDC also needs an issuer and `jwks_uri`. |
 | [`.scopes([...])`](https://docs.rs/day-part-auth/latest/day_part_auth/authorize/struct.Client.html#method.scopes) | Replaces the scope list. The provider decides which scopes and refresh-token grants are available. |
 | [`.redirect(Redirect)`](https://docs.rs/day-part-auth/latest/day_part_auth/authorize/struct.Client.html#method.redirect) | Selects a callback registered with the provider and configured for the app. |
@@ -92,17 +91,18 @@ flow. Leave it enabled for public clients such as installed apps.
 | [`.session(SessionOptions)`](https://docs.rs/day-part-auth/latest/day_part_auth/authorize/struct.Client.html#method.session) | Configures the browser request and loopback response. |
 | [`.client_secret(secret)`](https://docs.rs/day-part-auth/latest/day_part_auth/authorize/struct.Client.html#method.client_secret) | Sends HTTP Basic client authentication. A distributed native app cannot keep a client secret confidential. |
 
-> [!WARNING]
-> **Provider and callback validation.**
-> URL checks currently use string prefixes, discovered endpoints are not all checked for HTTPS,
-> and token requests can follow redirects that forward their request body to another origin.
-> Callback matching also uses a prefix and does not check the authorization response's issuer.
-> These gaps must be fixed before accepting untrusted provider configuration or production
-> credentials. A configured issuer, PKCE, and matching `state` do not remove these limitations.
+Provider endpoints are parsed as URLs. HTTPS is required except for HTTP on a loopback
+address or `localhost`; user information and fragments are rejected. Discovery validates every
+endpoint before returning a provider. Authentication HTTP requests do not follow redirects,
+have a 30-second deadline, and accept at most 1 MiB of response data.
+
+Callbacks must match the registered endpoint and preserve its fixed query parameters. Duplicate
+response parameters, conflicting code/error responses, and a supplied `iss` that differs from
+the configured issuer are rejected. Extra authorization parameters cannot replace protocol fields.
 
 An authorization request contains a fresh `state`, a nonce when `openid` is requested, and a
 PKCE verifier. [`Client::complete`](https://docs.rs/day-part-auth/latest/day_part_auth/authorize/struct.Client.html#method.complete) consumes the request. It must be completed with the client that
-created it; the request does not currently enforce that association itself. The callback parser
+created it; completion rejects a different client configuration before making a token request. The callback parser
 reports missing or different state as [`AuthError::StateMismatch`](https://docs.rs/day-part-auth/latest/day_part_auth/enum.AuthError.html#variant.StateMismatch) and provider refusal as
 [`AuthError::Provider`](https://docs.rs/day-part-auth/latest/day_part_auth/enum.AuthError.html#variant.Provider).
 
@@ -194,8 +194,7 @@ will still be accepted by its service.
 > The current OIDC client rejects refresh responses that omit `id_token`, although
 > [OpenID Connect permits them](https://openid.net/specs/openid-connect-core-1_0.html#RefreshTokenResponse).
 > It also lacks the original identity context needed to compare a refreshed ID token with the
-> original sign-in. A rejected response can contain a rotated refresh token that the caller never
-> receives. Do not rely on this refresh path for production sessions until these issues are fixed.
+> original sign-in. Retain that context and compare any refreshed identity before updating an account session.
 
 The crate does not persist tokens. Store retained refresh tokens through
 [`day-part-keychain`](/docs/reference/keychain), accounting for that store's platform limits.

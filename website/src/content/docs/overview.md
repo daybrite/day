@@ -1,6 +1,6 @@
 ---
 title: Overview
-description: "Meet pieces, signals, and the native controls behind a Day app."
+description: "Day is a Rust framework for cross-platform apps with native UI controls."
 order: 1
 section: Explanation
 ---

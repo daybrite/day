@@ -3,12 +3,7 @@
   "guides": [
     {
       "key": "docs/for-agents",
-      "sections": [
-        "Naming (disambiguate before writing)",
-        "What Day is (facts)",
-        "Invariants (MUST; violating these is a bug)",
-        "Failure modes (do not do these)"
-      ],
+      "sections": ["Terminology", "Architecture", "Required conventions"],
       "validation": "guidance"
     },
     { "key": "docs/getting-started", "validation": "tutorial" },

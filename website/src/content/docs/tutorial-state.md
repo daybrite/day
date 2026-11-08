@@ -1,6 +1,6 @@
 ---
 title: "3. Update state"
-description: Store a count in a signal and bind a localized label to it.
+description: Bind a localized label to a reactive counter.
 order: 3
 section: Tutorials
 ---
@@ -10,8 +10,7 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-Turn the button into a counter. Complete [2. Handle a button click](/docs/tutorials/events)
-first. Work in the same app directory and keep the project files and catalog from earlier lessons.
+Add a counter to the app from [lesson 2](/docs/tutorials/events). Keep the project files and catalog.
 
 ## 1. Add the counter messages
 
@@ -19,24 +18,23 @@ Append to `resource/locales/en/app.ftl`:
 
 <!-- tutorial-step: state/messages -->
 
-`$count` is a Fluent argument. The generated `counter_value` accessor accepts that argument
-and checks its name at compile time.
+`$count` defines the argument accepted by the generated `counter_value` accessor.
 
 ## 2. Store and display the count
 
-Replace all of `src/lib.rs`:
+Replace `src/lib.rs`:
 
 <!-- tutorial-step: state/ui -->
 
-A **signal** is a reactive value: reading it through a binding connects the UI to future changes.
-[`Signal::new(0i64)`](https://docs.rs/day-reactive/latest/day_reactive/struct.Signal.html#method.new) starts the count at zero in the root's current scope. Pass `count` to the
-localized accessor so the label follows changes. Passing [`count.get()`](https://docs.rs/day-reactive/latest/day_reactive/struct.Signal.html#method.get) would take a snapshot
-instead.
+[`Signal::new(0i64)`](https://docs.rs/day-reactive/latest/day_reactive/struct.Signal.html#method.new)
+creates reactive state in the root's scope. Pass `count` to the localized accessor to track changes;
+[`count.get()`](https://docs.rs/day-reactive/latest/day_reactive/struct.Signal.html#method.get)
+would pass a snapshot.
 
-The `move` closure captures the signal handle. Handles are copyable; both the label and button
-refer to the same value. [`update`](https://docs.rs/day-reactive/latest/day_reactive/struct.Signal.html#method.update) changes it and notifies its dependents. `saturating_add`
-keeps this counter from overflowing at the integer limit. The callback runs on the UI
-thread; do not send a `Signal` to a worker thread.
+The `move` closure copies the signal handle. The label and button share its value.
+[`update`](https://docs.rs/day-reactive/latest/day_reactive/struct.Signal.html#method.update)
+changes the value and notifies dependents; `saturating_add` prevents integer overflow.
+The callback runs on the UI thread. Do not send a Signal to a worker thread.
 
 ## 3. Observe the state
 
@@ -44,14 +42,15 @@ thread; do not send a `Signal` to a worker thread.
 
 <!-- tutorial-step: state/quit -->
 
-The label starts at **Count: 0**. Press **Add one** twice; it should read **Count: 2**.
-Quit and relaunch: the count returns to zero. This app stores the count in memory only.
+Expect **Count: 0** initially and **Count: 2** after pressing **Add one** twice.
+Relaunching resets the count to zero; state is stored only in memory.
 
 ## Troubleshooting
 
-If the count never changes, check that the label receives `count`, not [`count.get()`](https://docs.rs/day-reactive/latest/day_reactive/struct.Signal.html#method.get), and that
-the callback calls [`count.update(...)`](https://docs.rs/day-reactive/latest/day_reactive/struct.Signal.html#method.update). If the generated function has the wrong arguments,
-check that `counter_value` includes `{ $count }` in the catalog, then rebuild.
+If the count does not change, pass `count` to the label and call
+[`count.update(...)`](https://docs.rs/day-reactive/latest/day_reactive/struct.Signal.html#method.update)
+in the callback. If the accessor signature is incorrect, check for `{ $count }` in
+`counter_value` and rebuild.
 
 ## Next step
 

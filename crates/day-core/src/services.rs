@@ -30,3 +30,56 @@ pub fn initialize() {
         }
     });
 }
+
+/// Native notification delivery before or after a window exists. Handlers must return promptly
+/// and use a main-thread setter to update UI state. Payloads are JSON from the platform.
+#[derive(Clone)]
+pub enum NotificationEvent {
+    Registered(Vec<u8>),
+    RegistrationFailed(String),
+    Received { payload: String, opened: bool },
+}
+
+impl std::fmt::Debug for NotificationEvent {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Registered(_) => f.debug_tuple("Registered").finish_non_exhaustive(),
+            Self::RegistrationFailed(error) => {
+                f.debug_tuple("RegistrationFailed").field(error).finish()
+            }
+            Self::Received { opened, .. } => f
+                .debug_struct("Received")
+                .field("opened", opened)
+                .finish_non_exhaustive(),
+        }
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[linkme::distributed_slice]
+pub static NOTIFICATION_HANDLERS: [fn(&NotificationEvent)];
+
+/// Forward a native delegate callback to linked optional parts.
+pub fn notification(event: NotificationEvent) {
+    #[cfg(not(target_arch = "wasm32"))]
+    for handler in NOTIFICATION_HANDLERS {
+        handler(&event);
+    }
+    #[cfg(target_arch = "wasm32")]
+    let _ = event;
+}
+
+/// Android's headless host has a JVM and application Context but no widget tree.
+#[cfg(target_os = "android")]
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_daybrite_day_bridge_DayRuntime_initializeServices(
+    mut env: day_platform_android::jni::EnvUnowned,
+    class: day_platform_android::jni::objects::JClass,
+) {
+    env.with_env(|env| -> day_platform_android::jni::errors::Result<()> {
+        day_platform_android::init(env, &class)?;
+        initialize();
+        Ok(())
+    })
+    .resolve::<day_platform_android::jni::errors::ThrowRuntimeExAndDefault>();
+}

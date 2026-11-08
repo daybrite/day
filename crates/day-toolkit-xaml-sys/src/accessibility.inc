@@ -263,11 +263,15 @@ void day_xaml_read_native(void* h, DayXamlNative* out) {
         out->visible = 1;
         auto fe = el.try_as<FrameworkElement>();
         if (!fe) return;
+        // TextBlock overrides ActualWidth/ActualHeight with its text extent, which can be
+        // smaller than the arranged control (for example, a label with reserved space).
+        // ActualSize reports the native layout box without borrowing Day's proposed frame.
+        // https://github.com/microsoft/microsoft-ui-xaml/issues/8804
+        auto size = el.ActualSize();
         // The bounds, not the transformed origin: an element under a mirrored (RTL)
         // NavigationView maps its own top left to the top RIGHT of its box.
         auto r = el.TransformToVisual(host).TransformBounds(
-            WF::Rect{ 0.0f, 0.0f, static_cast<float>(fe.ActualWidth()),
-                      static_cast<float>(fe.ActualHeight()) });
+            WF::Rect{ 0.0f, 0.0f, size.x, size.y });
         out->x = r.X;
         out->y = r.Y;
         out->w = r.Width;

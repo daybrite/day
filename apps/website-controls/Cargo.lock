@@ -186,6 +186,7 @@ dependencies = [
  "day-geometry",
  "day-localization",
  "day-macros",
+ "day-platform-android",
  "day-reactive",
  "day-spec",
  "inventory",

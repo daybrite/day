@@ -21,7 +21,7 @@ const benefits = [
   { title: 'Packages for each target', body: 'Use the same project to prepare installers and mobile packages, then manage store listings and submissions.', link: 'See the release tools', path: 'docs/how-to/app-store-submissions' },
   { title: 'Native features when you need them', body: 'Extend the app with platform controls and services. Provide a fallback where the feature isn’t supported.', link: 'Add platform features', path: 'docs/extending' },
 ];
-// Published extensions with substantive releases; omit unpublished crates and 0.0.1 placeholders.
+// Optional Daybrite packages with guides for setup and platform support.
 const ecosystem = [
   { title: 'Embedded web views', page: 'webview', accent: '#4973b9', body: 'Embed a website or bundled HTML, control navigation, and call JavaScript from Rust.' },
   { title: 'Lottie animations', page: 'lottie', accent: '#8262ad', body: 'Play Lottie motion graphics in your layouts, with playback and looping controls.' },
@@ -30,7 +30,10 @@ const ecosystem = [
   { title: 'Camera', page: 'camera', accent: '#3e82a1', body: 'Show a live camera preview and capture photos on supported mobile targets.' },
   { title: 'Audio and video', page: 'media', accent: '#b45f87', body: 'Play media through platform players, with observable playback state and a timeline.' },
   { title: 'Sign-in and passkeys', page: 'auth', accent: '#65834a', body: 'Connect accounts through OAuth, OpenID Connect, and native credential dialogs.' },
+  { title: 'Bluetooth LE', page: 'bluetooth', accent: '#4973b9', body: 'Connect to sensors and accessories, read and write values, and simulate peripherals in tests.' },
   { title: 'Local network discovery', page: 'zeroconf', accent: '#607ea4', body: 'Find nearby services and advertise your app’s services using mDNS and DNS-SD.' },
+  { title: 'Push notifications', page: 'push', accent: '#8262ad', body: 'Receive remote notifications through APNs and FCM, track device tokens, and handle notification taps.' },
+  { title: 'Background work', page: 'background', accent: '#398477', body: 'Schedule mobile syncs and retries through the OS, or run delayed tasks while your app stays open.' },
   { title: 'Crash reporting', page: 'break', accent: '#ac6c58', body: 'Record crashes locally and let people review a report before sharing it.' },
 ];
 const stages = [

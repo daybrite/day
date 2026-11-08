@@ -344,6 +344,10 @@ jobs:
     runs-on: xcode-27
     env:
       HOMEBREW_NO_AUTO_UPDATE: "1"
+      # Archive verification may fetch dependencies missing from the workspace cache.
+      # Give transient crates.io stalls a bounded retry budget inside Cargo.
+      CARGO_NET_RETRY: "5"
+      CARGO_HTTP_TIMEOUT: "60"
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable

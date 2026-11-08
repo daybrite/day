@@ -111,7 +111,9 @@
       "badge",
       "status-item",
       "break",
-      "zeroconf"
+      "zeroconf",
+      "push",
+      "background"
     ]
   },
   {
@@ -122,6 +124,7 @@
       "battery",
       "deviceinfo",
       "network",
+      "bluetooth",
       "permissions",
       "biometrics",
       "haptics",

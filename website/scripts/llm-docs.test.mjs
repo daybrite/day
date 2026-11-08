@@ -14,7 +14,7 @@ test('bundle contains only selected published guidance, with deterministic outpu
   assert.equal(docs.guides.length, 7);
   assert.deepEqual(generateLlmDocs(), docs);
   assert.doesNotMatch(docs.full, /tutorial-step:|technical-example:|^---\ntitle:|<script|\/blog\/|\/contributing\/history\//m);
-  assert(docs.full.includes('Selected agent conventions'));
+  assert(docs.full.includes('Scope: selected conventions'));
   assert(!docs.guides[0].markdown.includes('```'));
   assert(hasLlmGuide('/docs/tutorials/first-app'));
   assert(!hasLlmGuide('/blog/coming-soon'));

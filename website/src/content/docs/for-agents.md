@@ -1,7 +1,7 @@
 ---
 navTitle: "Agent instructions"
-title: For AI Agents
-description: Build and verify native Day apps using generated resources, reactive bindings, and platform tooling.
+title: Agent instructions
+description: Required conventions for UI, state, resources, and target verification.
 order: 60
 section: Reference
 ---
@@ -20,44 +20,44 @@ The examples are intended for direct reuse. A machine-readable site index is ava
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
 [example messages](/docs/reference/localization#reference-example-messages) and [catalog setup](/docs/how-to/localization).
 
-## Naming (disambiguate before writing)
+## Terminology
 
-- **Day**: the framework (proper noun; always capitalized in prose).
-- `day`: the CLI binary. You type `day build`, `day launch`, etc. Always lowercase.
-- `day`: the Rust crate. `use day::prelude::*;` imports common UI APIs. Always lowercase.
-- `Day.toml`: the project manifest. **Piece**: a UI node (SwiftUI View / Flutter Widget). **Signal**:
-  a reactive state cell. **target**: an `(OS, toolkit)` pair, e.g. `macos-appkit`, `ios-uikit`.
+- **Day** is the framework; `day` is its CLI and Rust library. The Cargo package is `day-app`.
+- `Day.toml` is the app manifest.
+- A **Piece** describes a UI control or container.
+- A **Signal** stores reactive state.
+- A **target** pairs an OS and toolkit, such as `macos-appkit` or `ios-uikit`.
 
-## What Day is (facts)
+## Architecture
 
-Day builds cross-platform desktop + mobile apps in Rust. You write one declarative UI as a tree of
-**Pieces**; each Piece is realized by a native widget ([`NSTextField`](https://developer.apple.com/documentation/appkit/nstextfield), [`UILabel`](https://developer.apple.com/documentation/uikit/uilabel), [`GtkEntry`](https://docs.gtk.org/gtk4/class.Entry.html),
-[`QSlider`](https://doc.qt.io/qt-6/qslider.html), WinUI [`TextBox`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.textbox), `android.widget.*`) through a per-platform toolkit. Day owns layout,
-reactivity, localization, accessibility policy, and scripting; the OS owns pixels, text input, scrolling,
-and assistive tech. The root UI is built once and signals bind to native attributes. Conditional
-and collection pieces manage their own child subtrees as their inputs change.
+Day implements desktop and mobile UIs in Rust using native platform controls. Day manages
+layout, reactivity, localization, accessibility policy, and scripting. Platform toolkits provide
+rendering, text input, scrolling, and assistive technology integration.
 
-## Invariants (MUST; violating these is a bug)
+Day builds the root UI once. Bindings update control properties when signals change.
+Conditional and collection pieces create and dispose child subtrees as their inputs change.
 
-1. **One toolkit per binary.** A binary compiles exactly one toolkit (selected by a Cargo
-   feature via the target). Never enable two. The build enforces this with a `compile_error!`.
-2. **Views are built once, then kept live by bindings, never rebuilt.** Never rebuild the view on state change. To make UI reactive, pass a
-   closure that reads a Signal ([`label`](https://docs.rs/day-pieces/latest/day_pieces/fn.label.html)`(move || …count`[`.get`](https://docs.rs/day-reactive/latest/day_reactive/struct.Signal.html#method.get)`()…)`), or pass a Signal to a control
-   ([`slider(volume)`](https://docs.rs/day-pieces/latest/day_pieces/fn.slider.html)). Do not diff, re-run, or recreate Piece trees yourself.
-3. **`Signal<T>` is `Copy`.** Clone/move it into as many closures as you need; do not wrap it in `Rc`.
-4. **Give every interactive/asserted Piece a stable [`.id(id!(name))`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.id).** Tests and dayscript
-   use its canonical spelling (`name` in YAML). Recycled rows need
-   [`.id_of`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.id_of)`(move || id!(row, slot`[`.key`](https://docs.rs/day-pieces/latest/day_pieces/struct.ItemSlot.html#method.key)`()))`. Route and model keys remain separate from element IDs.
-5. **Localize user-facing text** with Fluent files. Scaffolded apps generate a typed function
-   per key (`res::str::my_key()`, parameters become typed arguments), so a missing key or
-   wrong arity is a compile error. Always call those, never [`tr("key")`](https://docs.rs/day-app/latest/day/fn.tr.html) with a literal (`day lint`
-   reports it as `string-key`); Day's own strings are there too ([`res::str::day_cancel()`](https://docs.rs/day-localization-ui/latest/day_localization_ui/res/str/fn.day_cancel.html)). Messages
-   with multiple variables take generated named-field structs. Include accessibility labels,
-   hints, errors, and units in the catalog. Provider data and synthetic test inputs stay verbatim.
-6. **Edit `Day.toml` + Rust; never hand-edit the generated Xcode/Gradle scaffolds.** `day` regenerates
-   them.
-7. **Verify on a real target.** `cargo build` does not prove a target works. Use `day launch -t <target>`
-   and, for assertions, `day launch -t <target> --script <dayscript.yaml>`.
+## Required conventions
+
+1. Select exactly one toolkit per binary through the target's Cargo feature.
+2. Bind dynamic content to a Signal or a closure that reads it. A value read outside a binding
+   is a snapshot. Do not manually rebuild or diff Piece trees on state changes.
+3. Copy `Signal<T>` handles into closures; do not wrap them in `Rc` or `Arc`.
+4. Give interactive and tested pieces stable [`.id(id!(name))`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.id) identifiers.
+   Use `name` in dayscript YAML. For recycled rows, use
+   [`.id_of`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.id_of) with
+   [`id!(row, slot.key())`](https://docs.rs/day-pieces/latest/day_pieces/struct.ItemSlot.html#method.key)
+   to identify the current item.
+   Keep route and model keys separate from element IDs.
+5. Put app-owned UI text in Fluent catalogs and use generated `res::str` accessors, including
+   errors, units, and accessibility text. Generated signatures check keys and arguments;
+   messages with multiple variables use named-field structs. Do not use literal keys with
+   [`tr`](https://docs.rs/day-app/latest/day/fn.tr.html). Keep provider data and test inputs verbatim.
+6. Edit `Day.toml` and Rust sources. Do not edit generated Xcode, Gradle, or HarmonyOS projects.
+7. Verify each target with `day launch -t <target>` and
+   `day launch -t <target> --script <dayscript.yaml>`. Compilation alone does not verify native behavior.
+   Inspect screenshots after UI changes using `day drive` or `day_drive`.
+8. Use semantic `Font` styles for text that must scale with accessibility settings.
 
 ## Setup (canonical)
 
@@ -319,18 +319,6 @@ extension), use the `day_*` tools instead: `day_metadata`, `day_build`, `day_lau
 `day_lint`. `day_drive`/`day_screenshot` return screenshots as images. Look at them to
 verify UI changes on every target you touched. The canonical loop: edit → `day_relaunch`
 (compile errors come back in the result) → `day_drive` (navigate + assert + screenshot).
-
-## Failure modes (do not do these)
-
-- ❌ Enabling two toolkit features in one binary → `compile_error!`. Enable exactly one via the target.
-- ❌ Rebuilding the view tree to reflect state. ✅ Bind a Signal (closure read or pass the Signal).
-- ❌ Passing a `String`/value where dynamic content is wanted. ✅ Pass [`move || …sig.get()…`](https://docs.rs/day-reactive/latest/day_reactive/struct.Signal.html#method.get).
-- ❌ Wrapping `Signal` in `Rc`/`Arc`. ✅ It is `Copy`; move it directly.
-- ❌ Omitting [`.id(...)`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.id) on Pieces you need to test/script/deep-link.
-- ❌ Hand-editing generated projects under `build/day/xcode/`, `build/android/`, or `build/day/harmony/project/`. ✅ Edit `Day.toml`/Rust.
-- ❌ Concluding a target works from `cargo build`. ✅ `day launch -t <target>` (and `--script` to assert).
-- ❌ Declaring a UI change done without looking at it. ✅ `day_drive`/`day drive` → `screenshot` → inspect.
-- ❌ Hard-coded pixel font sizes for shipping text. ✅ Semantic `Font` styles (accessibility-scaled).
 
 ## Deeper references
 

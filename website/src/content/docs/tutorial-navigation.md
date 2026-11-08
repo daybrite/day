@@ -1,6 +1,6 @@
 ---
 title: "5. Navigate between pages"
-description: Add counter and summary sections while keeping shared state above both pages.
+description: Configure sidebar navigation and share state across pages.
 order: 5
 section: Tutorials
 ---
@@ -10,8 +10,8 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-Add a summary page that displays the same count. Complete
-[4. Arrange the controls](/docs/tutorials/layout) first; keep the existing project files and catalog.
+Add a summary page to the app from [lesson 4](/docs/tutorials/layout).
+Retain the project files and catalog.
 
 ## 1. Name the sections
 
@@ -21,18 +21,17 @@ Append to `resource/locales/en/app.ftl`:
 
 ## 2. Share state across pages
 
-Replace all of `src/lib.rs`:
+Replace `src/lib.rs`:
 
 <!-- tutorial-step: navigation/ui -->
 
-[`nav(section)`](https://docs.rs/day-pieces/latest/day_pieces/fn.nav.html) binds navigation to the selected route key. The strings `counter` and `summary`
-are protocol identifiers, not visible labels; the Fluent accessors supply the labels.
-[`.item`](https://docs.rs/day-pieces/latest/day_pieces/trait.NavBuilder.html#tymethod.item) associates each key with a page-building closure. `NavStyle::Sidebar` selects a sidebar
-presentation on this desktop target.
+[`nav(section)`](https://docs.rs/day-pieces/latest/day_pieces/fn.nav.html) binds navigation to a
+selected route key. `counter` and `summary` are identifiers; Fluent accessors supply visible labels.
+[`.item`](https://docs.rs/day-pieces/latest/day_pieces/trait.NavBuilder.html#tymethod.item)
+associates each key with a page builder. `NavStyle::Sidebar` selects the desktop sidebar.
 
-Create `count` in `root`, above the page builders. Sidebar pages can be disposed when you switch
-sections; state created inside a page would belong to that page's lifetime. Passing the root's
-signal to both pages keeps the count alive across switches. This does not save it across app launches.
+Create `count` in `root` and pass it to both page builders. Switching sections can dispose pages
+and their local state. Root-scoped state survives page switches but not app restarts.
 
 ## 3. Follow the count
 
@@ -40,15 +39,15 @@ signal to both pages keeps the count alive across switches. This does not save i
 
 <!-- tutorial-step: navigation/quit -->
 
-In **Counter**, press **Add one** three times. Select **Summary** and expect **Sessions completed: 3**.
-Return to **Counter** and expect **Count: 3**. Press **Reset**, then revisit **Summary**; it
-should show zero. Quit the app.
+Press **Add one** three times in **Counter**. Open **Summary**; expect **Sessions completed: 3**.
+Return to **Counter**; expect **Count: 3**. Press **Reset** and reopen **Summary**; expect zero.
+Quit the app.
 
 ## Troubleshooting
 
-If switching pages resets the count, ensure [`Signal::new(0i64)`](https://docs.rs/day-reactive/latest/day_reactive/struct.Signal.html#method.new) appears only in `root`, not in a
-page function. If a section is blank, compare the initial selection with the [`.item`](https://docs.rs/day-pieces/latest/day_pieces/trait.NavBuilder.html#tymethod.item) keys.
-Both keys and the selection must use the same spelling.
+If page switches reset the count, create the Signal only in `root`.
+If a page is blank, match the selection value to its
+[`.item`](https://docs.rs/day-pieces/latest/day_pieces/trait.NavBuilder.html#tymethod.item) key.
 
 ## Next step
 

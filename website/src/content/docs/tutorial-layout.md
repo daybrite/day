@@ -1,6 +1,6 @@
 ---
 title: "4. Arrange the controls"
-description: Combine rows and columns, add spacing, and reset the session counter.
+description: Arrange controls with rows, columns, spacing, and padding.
 order: 4
 section: Tutorials
 ---
@@ -10,8 +10,7 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-Put two actions in a row beneath the count and make the content use the available space.
-Start from [3. Update state](/docs/tutorials/state), in the same app directory.
+Add a reset button and a horizontal button row to the app from [lesson 3](/docs/tutorials/state).
 
 ## 1. Add the layout messages
 
@@ -21,17 +20,19 @@ Append to `resource/locales/en/app.ftl`:
 
 ## 2. Compose the layout
 
-Replace all of `src/lib.rs`:
+Replace `src/lib.rs`:
 
 <!-- tutorial-step: layout/ui -->
 
-[`row`](https://docs.rs/day-pieces/latest/day_pieces/fn.row.html) arranges its children horizontally; [`column`](https://docs.rs/day-pieces/latest/day_pieces/fn.column.html) arranges them vertically. Both take a tuple
-of Pieces. [`.spacing`](https://docs.rs/day-pieces/latest/day_pieces/trait.ColumnBuilder.html#tymethod.spacing) separates siblings; [`.padding`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.padding) leaves room around the container's content.
-[`.grow(Dimension::Both)`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.grow) asks the outer container to take available space. Labels wrap by default, so the hint
-can use multiple lines when space is narrow. `Space::M` and `Space::L` are spacing tokens, not pixel literals.
+[`row`](https://docs.rs/day-pieces/latest/day_pieces/fn.row.html) arranges children horizontally;
+[`column`](https://docs.rs/day-pieces/latest/day_pieces/fn.column.html) arranges them vertically.
+Both accept tuples of Pieces. [`.spacing`](https://docs.rs/day-pieces/latest/day_pieces/trait.ColumnBuilder.html#tymethod.spacing)
+separates siblings; [`.padding`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.padding)
+adds space around content. [`.grow(Dimension::Both)`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.grow)
+uses available width and height. Labels wrap by default. `Space::M` and `Space::L` are spacing tokens.
 
-The reset callback uses [`set(0)`](https://docs.rs/day-reactive/latest/day_reactive/struct.Signal.html#method.set) to replace the value. Both actions share the signal you created
-above the layout.
+[`set(0)`](https://docs.rs/day-reactive/latest/day_reactive/struct.Signal.html#method.set) resets
+the shared count.
 
 ## 3. Resize and reset
 
@@ -39,14 +40,14 @@ above the layout.
 
 <!-- tutorial-step: layout/quit -->
 
-Press **Add one** twice and then **Reset**. The label returns to **Count: 0**. Resize the window
-toward its minimum width: the buttons stay in a row and the hint can wrap beneath them. Test the
-window's minimum size as well as its initial size. Quit before the next edit.
+Press **Add one** twice, then **Reset**; expect **Count: 0**. Check initial and minimum window
+sizes: buttons remain in one row, and the hint wraps as needed. Quit before editing.
 
 ## Troubleshooting
 
-If the buttons stack vertically, check that they are inside [`row((...))`](https://docs.rs/day-pieces/latest/day_pieces/fn.row.html). If the hint is clipped,
-check the available space and the manifest's minimum dimensions. Check longer translations at the minimum window size, too.
+If buttons stack, place them in [`row((...))`](https://docs.rs/day-pieces/latest/day_pieces/fn.row.html).
+If the hint is clipped, check available space and manifest minimum dimensions. Test longer
+translations at minimum size.
 
 ## Next step
 

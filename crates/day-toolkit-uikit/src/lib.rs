@@ -16246,6 +16246,42 @@ mod imp {
         }
 
         unsafe impl UIApplicationDelegate for AppDelegate {
+            #[unsafe(method(application:didRegisterForRemoteNotificationsWithDeviceToken:))]
+            fn push_registered(&self, _app: &UIApplication, token: &objc2_foundation::NSData) {
+                day_core::services::notification(
+                    day_core::services::NotificationEvent::Registered(token.to_vec()),
+                );
+            }
+
+            #[unsafe(method(application:didFailToRegisterForRemoteNotificationsWithError:))]
+            fn push_registration_failed(&self, _app: &UIApplication, error: &objc2_foundation::NSError) {
+                day_core::services::notification(
+                    day_core::services::NotificationEvent::RegistrationFailed(error.localizedDescription().to_string()),
+                );
+            }
+
+            #[unsafe(method(application:didReceiveRemoteNotification:fetchCompletionHandler:))]
+            fn push_received(
+                &self,
+                _app: &UIApplication,
+                info: &objc2_foundation::NSDictionary,
+                completion: &block2::DynBlock<dyn Fn(objc2_ui_kit::UIBackgroundFetchResult)>,
+            ) {
+                // SAFETY: UIKit supplies the JSON-compatible APNs user-info dictionary.
+                if let Ok(data) = unsafe {
+                    objc2_foundation::NSJSONSerialization::dataWithJSONObject_options_error(
+                        info, objc2_foundation::NSJSONWritingOptions::empty(),
+                    )
+                } && let Ok(payload) = String::from_utf8(data.to_vec()) {
+                    day_core::services::notification(
+                        day_core::services::NotificationEvent::Received { payload, opened: false },
+                    );
+                }
+                // Delivery is handed off synchronously. This callback does not promise a
+                // background network fetch; apps schedule durable work through a background part.
+                completion.call((objc2_ui_kit::UIBackgroundFetchResult::NoData,));
+            }
+
             // The no-scene-manifest compat path reads `delegate.window` (pane's hard-won lesson).
             #[unsafe(method(window))]
             fn window(&self) -> *mut UIWindow {

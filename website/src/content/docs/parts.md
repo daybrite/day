@@ -41,7 +41,10 @@ The UI snippets use generated `res::str` accessors from an app's Fluent catalog;
 | [`day-part-sound`](/docs/reference/sound) | sound effects | [sound](/docs/reference/sound) |
 | [`day-part-wakelock`](/docs/reference/wakelock) | keeping the screen on | [wakelock](/docs/reference/wakelock) |
 | [`day-part-speech`](/docs/reference/speech) | text to speech through the system voice | [speech](/docs/reference/speech) |
+| [`day-part-bluetooth`](/docs/reference/bluetooth) | Bluetooth LE discovery, GATT reads and writes, notifications, and test simulations; available from source | [Bluetooth](/docs/reference/bluetooth) |
 | [`day-part-zeroconf`](/docs/reference/zeroconf) | discover and advertise local network services | [service discovery](/docs/reference/zeroconf) |
+| [`day-part-push`](/docs/reference/push) | APNs and FCM registration, messages, and notification taps | [push notifications](/docs/reference/push) |
+| [`day-part-background`](/docs/reference/background) | persistent mobile tasks and in-process scheduling | [background work](/docs/reference/background) |
 | [`day-part-auth`](/docs/reference/auth) | experimental account sign-in and native credential requests | [sign-in and passkeys](/docs/reference/auth) |
 
 ## Select an API by its completion model

@@ -1108,6 +1108,11 @@ updates invalidate measurement without rebuilding content. Regression tests in
 `day-pieces/tests/api_refinements.rs` check font parity, hidden samples, identity and live updates;
 the `text-reservation` conformance case checks native measured sizes.
 
+WinUI's native frame probe reads `UIElement.ActualSize` before transforming its bounds into the
+content canvas. `TextBlock.ActualWidth` and `ActualHeight` report the text extent rather than
+the arranged control's size, so they cannot verify a label's reserved or explicitly framed space.
+The probe still reads native layout geometry; it does not substitute Day's expected frame.
+
 `min_height` mirrors `min_width`: it floors the offered and measured height, preserves the
 width, and permits overflow rather than silently violating its minimum. Its baseline uses
 the size assigned to the child. A conflicting outer maximum caps the proposal but does not
@@ -1152,6 +1157,9 @@ an already expanded child. Fixed frames, padding, and backgrounds retain the sam
 Repeated alignment modifiers nest rather than replacing one another. Container `.align` and
 text alignment retain their existing meanings. See the alignment regressions in
 [tests/mock_e2e.rs](crates/day-pieces/tests/mock_e2e.rs).
+The `aligned-intrinsic-frame` conformance case checks the child's position relative to an
+explicitly sized native container. Both Day and native geometry remain checked, without
+assuming that mobile safe-area content begins at the window's origin.
 
 The **`Decorate`** extension trait carries the universal modifiers: `.id(id!(name))` / `.id(id!(family, key))`,
 `.padding()`, `.frame()` / `.width()` / `.height()`, `.max_width()` / `.max_height()` /
@@ -6479,7 +6487,10 @@ triggers retain their existing behavior.
    workspace member ([§1](#1-glossary-and-naming)). The `release` job runs
    `cargo publish --workspace --dry-run --no-verify` on Linux, and the `publishable` job runs
    `cargo package --workspace` on macOS, the one host where every member compiles, so each crate
-   is built from the archive crates.io would serve; both run on every push. The `publish` job
+   is built from the archive crates.io would serve; both run on every push. Archive verification
+   uses Cargo's network retry budget of five retries and a 60-second HTTP timeout to tolerate
+   transient registry download stalls. Compilation and verification failures still fail the job.
+   The `publish` job
    uploads through daybrite/actions' `publish-crates` action (the one external pieces and parts
    publish through too), one crate at a time in dependency order, because crates.io takes 30 new
    versions at once and then one a minute; it runs in batches of at most 25 uploads, each with a
@@ -8900,3 +8911,41 @@ headings from public menu group IDs rather than private adapter positions, so se
 and starred destinations can regroup without stale heading indices. Existing native search
 scroll behavior remains on the list. `collapsed_sections` remains a separate, opt-in tree
 presentation; Day-Showcase no longer opts into it or restores disclosure preferences.
+
+## Process services and optional mobile integrations
+
+`day-core::services` holds link-time initializers for optional process services. UIKit calls the
+registry during application launch, before scene construction. Material calls it after attaching
+the JVM and class loader. Initializers run once per process, return promptly, and cannot access a
+reactive tree. [Background scheduling](docs/background.md), [Bluetooth](docs/bluetooth.md), and
+[push notifications](docs/push.md) remain optional packages; core supplies startup hooks rather
+than depending on their platform SDKs.
+
+The [Bluetooth part](docs/bluetooth.md) routes native and simulated operations through the same
+API. Scoped simulations intercept global calls; independent sessions isolate parallel tests.
+Unmatched simulated requests fail without falling through to a native adapter.
+
+Bridge arms can keep foreign source in crate-relative files. Both Cargo code generation and CLI
+staging load these files; Cargo watches them for changes. Java source files contain imports and
+class members; the generator supplies the package and enclosing class. Swift files contain their
+imports and declarations. Missing files fail parsing rather than generating an empty adapter.
+
+Authentication endpoint validation belongs to `day-part-auth`: parsed endpoints, exact callback
+identity, duplicate response rejection, client-configuration binding, and bounded HTTP requests
+without redirects. Native browser callbacks still pass through Rust validation. See
+[authentication](docs/auth.md) for remaining session and platform limits.
+
+Optional push transports live in `day-part-push-android-fcm` and `day-part-push-ios-apns`.
+The facade selects them with Cargo features and target-specific optional dependencies. Disabling
+`android-fcm` removes the Firebase Gradle dependency, service manifest, and generated Java bridge.
+Bridge staging uses the same resolved feature closure as native package contributions; scanning
+all Cargo features would silently add code from disabled providers. The regression test
+`disabled_provider_and_unrelated_workspace_bridges_are_not_staged` checks that boundary.
+
+UIKit forwards APNs registration and notification payloads through the process-service notification
+handlers. Local and remote notifications share the existing UserNotifications delegate, installed
+before UI creation so notification taps can reach optional parts during a cold launch.
+Native event debug output omits device tokens and notification payloads. The optional push facade
+serializes each subscriber's callbacks, including replay, so a concurrently rotated token cannot
+overtake an older token queued during subscription. Server enrollment and sending remain outside
+the core service registry.

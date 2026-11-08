@@ -1,6 +1,6 @@
 ---
 title: "6. Finish and test the app"
-description: Complete the session counter and verify counting, reset, navigation, and shared state with a dayscript.
+description: Implement navigation buttons and verify the app with dayscript.
 order: 6
 section: Tutorials
 ---
@@ -10,43 +10,40 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-Finish the app with buttons that navigate between its two sections, then run an automated
-walkthrough. Start from [5. Navigate between pages](/docs/tutorials/navigation). Keep
-`Cargo.toml`, `Day.toml`, `build.rs`, and `src/main.rs` from lesson 1. The complete UI and catalog
-below replace their earlier versions.
+Add navigation buttons and automated tests to the app from
+[lesson 5](/docs/tutorials/navigation). Retain `Cargo.toml`, `Day.toml`, `build.rs`, and `src/main.rs`.
+Replace the UI and catalog with the versions below.
 
 ## 1. Complete the catalog
 
-Replace `resource/locales/en/app.ftl` with this catalog. The earlier alert exercise's unused
-messages are no longer needed:
+Replace `resource/locales/en/app.ftl`. The unused alert messages are removed:
 
 <!-- tutorial-step: complete-app/messages -->
 
 ## 2. Complete the UI
 
-Replace all of `src/lib.rs`:
+Replace `src/lib.rs`:
 
 <!-- tutorial-step: complete-app/ui -->
 
-[`nav_link`](https://docs.rs/day-pieces/latest/day_pieces/fn.nav_link.html) makes a button that navigates to a route key. These links and the sidebar update the
-same navigation state. This app selects peer sections; it does not push a detail page onto a
-back stack. Every visible message comes from the generated catalog accessors.
+[`nav_link`](https://docs.rs/day-pieces/latest/day_pieces/fn.nav_link.html) creates a button that
+selects a route key. These buttons and the sidebar update the same navigation state.
+This app switches peer sections; it does not push pages onto a back stack.
+All UI text uses generated Fluent accessors.
 
 ## 3. Run the finished app
 
 <!-- tutorial-step: complete-app/launch -->
 
-Add two sessions and press **Show summary**. Expect **Sessions completed: 2**. Press **Back to
-counter**, reset, and open the summary again; expect zero.
+Add two sessions and press **Show summary**; expect **Sessions completed: 2**.
+Press **Back to counter**, reset, and reopen the summary; expect zero.
+The in-memory count resets when the app exits.
 
 <!-- tutorial-step: complete-app/quit -->
 
-The app now combines event callbacks, reactive state, layout, and navigation. Press **Add one**
-after completing a session. The count stays in memory and resets when you quit.
-
 ## 4. Automate the walkthrough
 
-Create a script directory:
+Create the script directory:
 
 <!-- tutorial-step: complete-app/script-directory -->
 
@@ -54,30 +51,28 @@ Create `dayscript/session-counter.yaml`:
 
 <!-- tutorial-step: complete-app/walkthrough -->
 
-A **dayscript** is a YAML walkthrough executed by Day's automation engine. IDs locate controls;
-message keys and arguments express expected localized text. `assert_route` checks the selected
-route. `on_failure: stop` stops this walkthrough at its first failure.
+Dayscript is Day's YAML UI automation format. IDs locate controls; message keys and arguments
+specify expected localized text. `assert_route` checks navigation; `on_failure: stop` stops at
+the first failed assertion.
 
 Run from the app directory:
 
 <!-- tutorial-step: complete-app/test -->
 
-Expect all 15 steps to pass and the command to exit with status zero. Script assertion failures
-exit with status 5. Scripted taps exercise Day's event dispatch inside the native app; also try
-the controls by hand because this is not a physical mouse or keyboard test.
+Expect 15 passing steps and exit status zero. Assertion failures return status 5.
+Scripted taps test Day's event dispatch; test physical mouse and keyboard input separately.
 
 ## Troubleshooting
 
 | Symptom | Check and recovery |
 | --- | --- |
-| A script cannot find an ID | Match the YAML identifier to `id!(...)`, save both files, and rerun without `--skip-build`. |
-| The first count is not zero | Start a fresh app run; the script assumes a new in-memory count. |
-| Navigation does nothing | Match [`nav_link`](https://docs.rs/day-pieces/latest/day_pieces/fn.nav_link.html) keys to the [`.item`](https://docs.rs/day-pieces/latest/day_pieces/trait.NavBuilder.html#tymethod.item) keys; a visible translated label is not a route key. |
-| A text assertion fails | Compare the expected argument with the actual count and keep the final Fluent catalog and Rust file together. |
+| Script cannot find an ID | Match YAML IDs to `id!(...)`, save both files, and rerun without `--skip-build`. |
+| Initial count is not zero | Launch a new app instance. |
+| Navigation fails | Match [`nav_link`](https://docs.rs/day-pieces/latest/day_pieces/fn.nav_link.html) keys to [`.item`](https://docs.rs/day-pieces/latest/day_pieces/trait.NavBuilder.html#tymethod.item) keys, not translated labels. |
+| Text assertion fails | Check arguments against the count; use matching final catalog and Rust files. |
 
 ## Next steps
 
-You have completed the desktop learning path. Try the
-[other-platform branch](/docs/tutorials/other-platforms) if you need another target.
-For a larger app, continue with [localization](/docs/how-to/localization),
-[state](/docs/explanation/state), or [navigation](/docs/how-to/navigation).
+See [other platforms](/docs/tutorials/other-platforms),
+[localization](/docs/how-to/localization), [state](/docs/explanation/state), and
+[navigation](/docs/how-to/navigation).
