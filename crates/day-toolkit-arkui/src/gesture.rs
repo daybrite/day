@@ -1,10 +1,10 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-//! Native pan, pinch and long-press recognizers (docs/shapes.md, docs/canvas.md "Zoom and
-//! pan") through ArkUI's gesture API, plus the axis events a mouse wheel or a touchpad sends.
-//! Drag, pinch and viewport-pan phases use the shared gesture wire; a long press delivers Day's
-//! typed event directly.
+//! Native pan, pinch, rotation and long-press recognizers (docs/shapes.md, docs/canvas.md "Zoom
+//! and pan") through ArkUI's gesture API, plus the axis events a mouse wheel or a touchpad
+//! sends. Drag, pinch, rotation and viewport-pan phases use the shared gesture wire; a long
+//! press delivers Day's typed event directly.
 
 // Node handles are opaque runtime tokens (see node.rs), never dereferenced here.
 #![allow(clippy::not_unsafe_ptr_arg_deref)]
@@ -16,11 +16,12 @@ use std::ptr::NonNull;
 
 use ohos_sys::arkui::native_gesture::{
     ArkUI_GestureDirection, ArkUI_GestureEvent, ArkUI_GestureEventActionType, ArkUI_GestureMask,
-    ArkUI_GesturePriority, ArkUI_GestureRecognizer, ArkUI_NativeGestureAPI_1,
-    OH_ArkUI_GestureEvent_GetActionType, OH_ArkUI_GestureEvent_GetRawInputEvent,
-    OH_ArkUI_PanGesture_GetOffsetX, OH_ArkUI_PanGesture_GetOffsetY,
-    OH_ArkUI_PinchGesture_GetCenterX, OH_ArkUI_PinchGesture_GetCenterY,
-    OH_ArkUI_PinchGesture_GetScale,
+    ArkUI_GesturePriority, ArkUI_GestureRecognizer, ArkUI_GroupGestureMode,
+    ArkUI_NativeGestureAPI_1, OH_ArkUI_GestureEvent_GetActionType,
+    OH_ArkUI_GestureEvent_GetRawInputEvent, OH_ArkUI_PanGesture_GetOffsetX,
+    OH_ArkUI_PanGesture_GetOffsetY, OH_ArkUI_PinchGesture_GetCenterX,
+    OH_ArkUI_PinchGesture_GetCenterY, OH_ArkUI_PinchGesture_GetScale,
+    OH_ArkUI_RotationGesture_GetAngle,
 };
 use ohos_sys::arkui::native_interface::{
     ArkUI_NativeAPIVariantKind, OH_ArkUI_QueryModuleInterfaceByName,
@@ -28,7 +29,9 @@ use ohos_sys::arkui::native_interface::{
 use ohos_sys::arkui::ui_input_event::{
     ArkUI_UIInputEvent, OH_ArkUI_AxisEvent_GetHorizontalAxisValue,
     OH_ArkUI_AxisEvent_GetPinchAxisScaleValue, OH_ArkUI_AxisEvent_GetVerticalAxisValue,
-    OH_ArkUI_PointerEvent_GetX, OH_ArkUI_PointerEvent_GetY,
+    OH_ArkUI_PointerEvent_GetPointerCount, OH_ArkUI_PointerEvent_GetX,
+    OH_ArkUI_PointerEvent_GetXByIndex, OH_ArkUI_PointerEvent_GetY,
+    OH_ArkUI_PointerEvent_GetYByIndex,
 };
 
 use crate::node::Handle;
@@ -53,6 +56,14 @@ day_reactive::tls_slots! {
     // The two-finger pan's last reported offset per node: ArkUI's offsets are cumulative
     // since the gesture began, Day's `Event::Pan` deltas incremental.
     static PAN_OFFSETS: RefCell<HashMap<u64, (f32, f32)>> = RefCell::new(HashMap::new());
+    // Each node's parallel group holding its pinch and rotation recognizers, so the two run
+    // at once as one hand movement instead of competing for the fingers.
+    static TWO_FINGER: RefCell<HashMap<usize, NonNull<ArkUI_GestureRecognizer>>> =
+        RefCell::new(HashMap::new());
+    // The rotation's last raw angle and the unwrapped total since it began, in degrees, per
+    // node: ArkUI reports the angle within a half turn either way, Day's rotation keeps
+    // counting past it.
+    static ROTATIONS: RefCell<HashMap<u64, (f32, f64)>> = RefCell::new(HashMap::new());
 }
 
 unsafe extern "C" fn long_press_receiver(ev: *mut ArkUI_GestureEvent, extra: *mut c_void) {
@@ -142,6 +153,9 @@ pub fn enable_long_press(node: Handle, id: u64) {
 
 /// Detach before the native node is disposed, so callbacks and recognizers cannot outlive it.
 pub(crate) fn forget(node: Handle) {
+    // The group goes with the node's recognizers; a node later born at the same address
+    // starts a group of its own.
+    TWO_FINGER.with(|m| m.borrow_mut().remove(&(node as usize)));
     let gestures = LONG_PRESSES.with(|m| m.borrow_mut().remove(&(node as usize)));
     if let (Some(gestures), Some(api)) = (gestures, api()) {
         for LongPress {
@@ -281,6 +295,83 @@ unsafe fn attach(
     }
 }
 
+/// Attach a pinch or rotation `gesture` to `node` through the node's parallel group (created
+/// on first use), reporting every phase to `receiver` against `id`. A group already on the
+/// node is detached, given the new child, and attached again, so the node's recognizers are
+/// rebuilt with it. Without a group API the gesture goes on alone, as `attach` would put it.
+unsafe fn attach_two_finger(
+    api: &ArkUI_NativeGestureAPI_1,
+    node: Handle,
+    gesture: *mut ArkUI_GestureRecognizer,
+    id: u64,
+    receiver: unsafe extern "C" fn(*mut ArkUI_GestureEvent, *mut c_void),
+) {
+    let (Some(create_group), Some(add_child), Some(target), Some(add)) = (
+        api.createGroupGesture,
+        api.addChildGesture,
+        api.setGestureEventTarget,
+        api.addGestureToNode,
+    ) else {
+        // SAFETY: forwarded under this function's own contract.
+        unsafe { attach(api, node, gesture, id, receiver) };
+        return;
+    };
+    let mask = ArkUI_GestureEventActionType::GESTURE_EVENT_ACTION_ACCEPT.0
+        | ArkUI_GestureEventActionType::GESTURE_EVENT_ACTION_UPDATE.0
+        | ArkUI_GestureEventActionType::GESTURE_EVENT_ACTION_END.0
+        | ArkUI_GestureEventActionType::GESTURE_EVENT_ACTION_CANCEL.0;
+    let existing = TWO_FINGER.with(|m| m.borrow().get(&(node as usize)).copied());
+    // SAFETY: the table's own functions with the argument types the header declares; the
+    // group and its children stay with the node for its life, like the other recognizers.
+    unsafe {
+        let dispose = |g: *mut ArkUI_GestureRecognizer| {
+            if let Some(dispose) = api.dispose {
+                dispose(g);
+            }
+        };
+        if target(gesture, mask, id as usize as *mut c_void, Some(receiver)) != 0 {
+            dispose(gesture);
+            return;
+        }
+        let group = match existing {
+            Some(group) => {
+                if let Some(remove) = api.removeGestureFromNode {
+                    remove(node, group.as_ptr());
+                }
+                group
+            }
+            None => {
+                let Some(group) =
+                    NonNull::new(create_group(ArkUI_GroupGestureMode::PARALLEL_GROUP))
+                else {
+                    // No group: the gesture alone, its target already set.
+                    if add(
+                        node,
+                        gesture,
+                        ArkUI_GesturePriority::NORMAL,
+                        ArkUI_GestureMask::NORMAL_GESTURE_MASK,
+                    ) != 0
+                    {
+                        dispose(gesture);
+                    }
+                    return;
+                };
+                TWO_FINGER.with(|m| m.borrow_mut().insert(node as usize, group));
+                group
+            }
+        };
+        if add_child(group.as_ptr(), gesture) != 0 {
+            dispose(gesture);
+        }
+        add(
+            node,
+            group.as_ptr(),
+            ArkUI_GesturePriority::NORMAL,
+            ArkUI_GestureMask::NORMAL_GESTURE_MASK,
+        );
+    }
+}
+
 unsafe extern "C" fn pinch_receiver(ev: *mut ArkUI_GestureEvent, extra: *mut c_void) {
     let id = extra as usize as u64;
     day_spec::ffi_guard::contain((), || {
@@ -328,7 +419,81 @@ pub fn enable_pinch(node: Handle, id: u64) {
         if pinch.is_null() {
             return;
         }
-        attach(api, node, pinch, id, pinch_receiver);
+        attach_two_finger(api, node, pinch, id, pinch_receiver);
+    }
+}
+
+unsafe extern "C" fn rotation_receiver(ev: *mut ArkUI_GestureEvent, extra: *mut c_void) {
+    let id = extra as usize as u64;
+    day_spec::ffi_guard::contain((), || {
+        // SAFETY: a live gesture event, and its raw input, for the callback's duration.
+        let (phase, angle, x, y) = unsafe {
+            let phase = match OH_ArkUI_GestureEvent_GetActionType(ev) {
+                ArkUI_GestureEventActionType::GESTURE_EVENT_ACTION_ACCEPT => 13.0,
+                ArkUI_GestureEventActionType::GESTURE_EVENT_ACTION_UPDATE => 14.0,
+                _ => 15.0, // END or CANCEL
+            };
+            // The rotation event carries no center, so the location is the fingers' centroid
+            // from the raw input, in px like the wire wants; ZERO when there is none.
+            let input = OH_ArkUI_GestureEvent_GetRawInputEvent(ev);
+            let count = if input.is_null() {
+                0
+            } else {
+                OH_ArkUI_PointerEvent_GetPointerCount(input)
+            };
+            let (mut x, mut y) = (0.0f32, 0.0f32);
+            for i in 0..count {
+                x += OH_ArkUI_PointerEvent_GetXByIndex(input, i);
+                y += OH_ArkUI_PointerEvent_GetYByIndex(input, i);
+            }
+            if count > 0 {
+                x /= count as f32;
+                y /= count as f32;
+            }
+            (phase, OH_ArkUI_RotationGesture_GetAngle(ev), x, y)
+        };
+        let total = ROTATIONS.with(|m| {
+            let mut m = m.borrow_mut();
+            let total = match (phase as i32, m.get(&id).copied()) {
+                (13, _) | (_, None) => f64::from(angle),
+                (_, Some((last, total))) => {
+                    let step = f64::from(angle - last);
+                    total + step - (step / 360.0).round() * 360.0
+                }
+            };
+            if phase as i32 == 15 {
+                m.remove(&id);
+            } else {
+                m.insert(id, (angle, total));
+            }
+            total
+        });
+        crate::events::rotate(id, phase, x, y, total.to_radians());
+    });
+}
+
+/// Attach a native rotation recognizer to `node` (docs/canvas.md "Zoom and pan"): two
+/// fingers, ArkUI's default 1° before it engages, in the same parallel group as the node's
+/// pinch so a twist and a zoom run together. Phases 13/14/15 reach Rust against `id` with the
+/// fingers' centroid in px and the angle in radians, clockwise positive and cumulative since
+/// the fingers went down, as ArkUI reports it.
+pub fn enable_rotation(node: Handle, id: u64) {
+    let Some(api) = api() else {
+        return;
+    };
+    if node.is_null() {
+        return;
+    }
+    // SAFETY: as in `enable_pinch`.
+    unsafe {
+        let Some(create) = api.createRotationGesture else {
+            return;
+        };
+        let rotation = create(2, 1.0);
+        if rotation.is_null() {
+            return;
+        }
+        attach_two_finger(api, node, rotation, id, rotation_receiver);
     }
 }
 

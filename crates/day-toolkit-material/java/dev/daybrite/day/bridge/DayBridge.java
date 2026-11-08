@@ -1597,6 +1597,94 @@ public final class DayBridge extends DayRuntime {
         updateTouchListener(v);
     }
 
+    private static final java.util.WeakHashMap<View, RotateTracker> rotateTrackers =
+            new java.util.WeakHashMap<>();
+
+    /** A pinch or a rotation is wired to this view: a second finger belongs to them. */
+    private static boolean twoFinger(View v) {
+        return pinchDetectors.containsKey(v) || rotateTrackers.containsKey(v);
+    }
+
+    /**
+     * Rotation (docs/canvas.md "Zoom and pan"). Android has no rotation detector, so this
+     * follows the first two fingers itself, fed from the shared touch listener beside the
+     * pinch's ScaleGestureDetector. Phases 13/14/15 are day_spec::Event::Rotate's
+     * Began/Changed/Ended; the payload is the midpoint in px and the angle, in radians, that
+     * the line between the two fingers has turned since the second went down: cumulative, and
+     * clockwise positive because the screen's y axis points down. A move that leaves the angle
+     * where it was (a pure pinch, a two-finger pan) reports nothing.
+     */
+    public static void enableRotate(View v, final long id) {
+        if (rotateTrackers.containsKey(v)) return; // idempotent, as enablePinch is
+        rotateTrackers.put(v, new RotateTracker(id));
+        v.setClickable(true);
+        updateTouchListener(v);
+    }
+
+    private static final class RotateTracker {
+        final long id;
+        boolean active;
+        int p0, p1; // the two pointer ids being followed
+        double raw, total; // last atan2 of the line between them, and the turn since Began
+        float fx, fy;
+
+        RotateTracker(long id) { this.id = id; }
+
+        /** The current angle of the line between the two fingers, or NaN if either lifted. */
+        private double angle(MotionEvent ev) {
+            int i0 = ev.findPointerIndex(p0), i1 = ev.findPointerIndex(p1);
+            if (i0 < 0 || i1 < 0) return Double.NaN;
+            float x0 = ev.getX(i0), y0 = ev.getY(i0), x1 = ev.getX(i1), y1 = ev.getY(i1);
+            fx = (x0 + x1) / 2f; fy = (y0 + y1) / 2f;
+            return Math.atan2(y1 - y0, x1 - x0);
+        }
+
+        private void send(int phase) {
+            nativeOnEvent(id, K_GESTURE, phase, fx + "," + fy + "," + total + ",0");
+        }
+
+        void onTouchEvent(MotionEvent ev) {
+            switch (ev.getActionMasked()) {
+                case MotionEvent.ACTION_POINTER_DOWN:
+                    if (active || ev.getPointerCount() < 2) return;
+                    p0 = ev.getPointerId(0); p1 = ev.getPointerId(1);
+                    raw = angle(ev);
+                    if (Double.isNaN(raw)) return;
+                    total = 0; active = true;
+                    send(13);
+                    return;
+                case MotionEvent.ACTION_MOVE: {
+                    if (!active) return;
+                    double a = angle(ev);
+                    if (Double.isNaN(a)) return;
+                    // Unwrapped, so a turn past half a circle keeps counting rather than
+                    // jumping a full turn where atan2 wraps.
+                    double turn = a - raw;
+                    turn -= Math.rint(turn / (2 * Math.PI)) * 2 * Math.PI;
+                    raw = a;
+                    if (turn == 0) return;
+                    total += turn;
+                    send(14);
+                    return;
+                }
+                case MotionEvent.ACTION_POINTER_UP: {
+                    if (!active) return;
+                    int lifted = ev.getPointerId(ev.getActionIndex());
+                    if (lifted != p0 && lifted != p1) return;
+                    active = false;
+                    send(15); // at the angle it last reported, as the pinch ends at its scale
+                    return;
+                }
+                case MotionEvent.ACTION_UP:
+                case MotionEvent.ACTION_CANCEL:
+                    if (!active) return;
+                    active = false;
+                    send(15);
+                    return;
+            }
+        }
+    }
+
     private static void setGestureTouchListener(View v, View.OnTouchListener listener) {
         gestureTouches.put(v, listener);
         updateTouchListener(v);
@@ -1604,8 +1692,7 @@ public final class DayBridge extends DayRuntime {
 
     // Observe menu coordinates without consuming touches or replacing a declared gesture.
     private static void updateTouchListener(View v) {
-        if (!contextMenus.containsKey(v) && !gestureTouches.containsKey(v)
-                && !pinchDetectors.containsKey(v)) {
+        if (!contextMenus.containsKey(v) && !gestureTouches.containsKey(v) && !twoFinger(v)) {
             v.setOnTouchListener(null);
             return;
         }
@@ -1626,7 +1713,9 @@ public final class DayBridge extends DayRuntime {
             // the drag before the pinch it starts reports its Began.
             ScaleGestureDetector pinch = pinchDetectors.get(view);
             if (pinch != null) pinch.onTouchEvent(event);
-            if (pinch == null || !multi[0]) return consumed;
+            RotateTracker rotate = rotateTrackers.get(view);
+            if (rotate != null) rotate.onTouchEvent(event);
+            if ((pinch == null && rotate == null) || !multi[0]) return consumed;
             // Two fingers: ours, not View's. Its own onTouchEvent never saw the second finger,
             // so the release would still count as the click the press armed; cancel that
             // instead, and a pinch never ends in a tap.
@@ -1674,10 +1763,10 @@ public final class DayBridge extends DayRuntime {
                         if (f[1]) nativeOnEvent(id, K_GESTURE, 1, x + "," + y + ",0,0");
                         return true;
                     case MotionEvent.ACTION_POINTER_DOWN:
-                        // On a pinch target the second finger hands the stream to the
-                        // detector: the one-finger drag ends here, and the two fingers never
-                        // come out as drags (docs/canvas.md "Zoom and pan").
-                        if (!pinchDetectors.containsKey(view)) return false;
+                        // On a pinch or rotate target the second finger hands the stream to
+                        // those trackers: the one-finger drag ends here, and the two fingers
+                        // never come out as drags (docs/canvas.md "Zoom and pan").
+                        if (!twoFinger(view)) return false;
                         if (!pinched) {
                             pinched = true;
                             if (f[1]) nativeOnEvent(id, K_GESTURE, 3, x + "," + y + "," + (x - sx) + "," + (y - sy));

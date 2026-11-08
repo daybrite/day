@@ -164,7 +164,7 @@ particular executor:
    thread, so after an `.await` they read and write signals directly, without a `Setter` or
    marshaling. Futures that never touch signals may run anywhere.
    **Blocking work inside such a future goes through [`day::spawn_blocking`](https://docs.rs/day-app/latest/day/fn.spawn_blocking.html)**, never a
-   `std::thread::spawn` plus a oneshot of your own, and never inline: a parse or a file read in
+   [`std::thread::spawn`](https://doc.rust-lang.org/std/thread/fn.spawn.html) plus a oneshot of your own, and never inline: a parse or a file read in
    a [`day::task`](https://docs.rs/day-app/latest/day/fn.task.html) body stalls the interface for its whole duration.
 3. **Parts expose a callback and a future, never a runtime-bound API.** [`fetch_async(req, cb)`](https://docs.rs/day-part-http/latest/day_part_http/fn.fetch_async.html)
    plus [`fetch_future(req)`](https://docs.rs/day-part-http/latest/day_part_http/fn.fetch_future.html); both must work in a plain-`main` binary and under `cargo test`

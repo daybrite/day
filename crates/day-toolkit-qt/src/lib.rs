@@ -1168,7 +1168,8 @@ extern "C" fn on_focus(id: u64, kind: c_int) {
 }
 
 /// Gesture callback from the C++ event filter. phase: 0 tap; 1..=3 drag began/changed/ended;
-/// 4..=6 pinch began/changed/ended (tx = cumulative scale); 7..=9 pan (tx/ty = delta).
+/// 4..=6 pinch began/changed/ended (tx = cumulative scale); 7..=9 pan (tx/ty = delta);
+/// 10..=12 hover; 13..=15 rotate began/changed/ended (tx = cumulative radians, clockwise).
 extern "C" fn on_gesture(id: u64, phase: c_int, x: f64, y: f64, tx: f64, ty: f64) {
     use day_spec::{DragPhase, Point};
     ffi_guard::contain((), || {
@@ -1202,6 +1203,11 @@ extern "C" fn on_gesture(id: u64, phase: c_int, x: f64, y: f64, tx: f64, ty: f64
             },
             10..=12 => Event::Hover {
                 phase: seq_phase(phase - 10),
+                location: at,
+            },
+            13..=15 => Event::Rotate {
+                phase: seq_phase(phase - 13),
+                rotation: tx,
                 location: at,
             },
             _ => Event::Drag {
@@ -4166,6 +4172,7 @@ impl Toolkit for Qt {
             K::Pinch => 2,
             K::Pan => 3,
             K::Hover => 4,
+            K::Rotate => 5,
         };
         unsafe { ffi::day_qt_enable_gesture(h.0, node.0, code, on_gesture) };
     }

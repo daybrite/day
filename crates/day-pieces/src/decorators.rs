@@ -847,6 +847,30 @@ fn op_on_pinch(f: impl Fn(Pinch) + 'static) -> impl FnOnce(Build) -> Build {
     }
 }
 
+fn op_on_rotate(f: impl Fn(Rotate) + 'static) -> impl FnOnce(Build) -> Build {
+    move |inner| {
+        Box::new(move |cx| {
+            let n = inner(cx);
+            with_tree(|t| t.enable_gesture(n, GestureKind::Rotate));
+            cx.on(n, move |ev| {
+                if let Event::Rotate {
+                    phase,
+                    rotation,
+                    location,
+                } = ev
+                {
+                    f(Rotate {
+                        phase: *phase,
+                        rotation: *rotation,
+                        location: *location,
+                    });
+                }
+            });
+            n
+        })
+    }
+}
+
 fn op_on_hover(f: impl Fn(Option<day_spec::Point>) + 'static) -> impl FnOnce(Build) -> Build {
     move |inner| {
         Box::new(move |cx| {
@@ -1276,6 +1300,9 @@ impl<P: Piece> Decorated<P> {
     }
     pub fn on_pinch(self, f: impl Fn(Pinch) + 'static) -> Self {
         self.push(op_on_pinch(f))
+    }
+    pub fn on_rotate(self, f: impl Fn(Rotate) + 'static) -> Self {
+        self.push(op_on_rotate(f))
     }
     pub fn on_pan(self, f: impl Fn(Pan) + 'static) -> Self {
         self.push(op_on_pan(f))
@@ -1745,6 +1772,13 @@ pub trait Decorate: Piece + Sized {
     /// visible controls.
     fn on_pinch(self, f: impl Fn(Pinch) + 'static) -> Decorated<Self> {
         Decorated::new(self).on_pinch(f)
+    }
+
+    /// Fire on each phase of a two-finger rotation over this piece (docs/canvas.md "Zoom and
+    /// pan"). `rotation` is in radians, cumulative within a gesture, positive clockwise; a
+    /// trackpad tick arrives as a lone `Changed`. Pair it with a visible way back to north.
+    fn on_rotate(self, f: impl Fn(Rotate) + 'static) -> Decorated<Self> {
+        Decorated::new(self).on_rotate(f)
     }
 
     /// Fire on each viewport-pan event over this piece (docs/canvas.md "Zoom and pan"):
@@ -2564,6 +2598,29 @@ pub(crate) mod conformance {
             .drive(|d: Drive| async move {
                 d.pinch("target", 2.5).await?;
                 d.assert_text("scale", "scale 2.5").await
+            })
+    }
+
+    /// A rotation is cumulative from where it began, in radians; its end carries the final
+    /// angle.
+    #[day_macros::test(day_core)]
+    fn on_rotate_reports_rotation() -> Case {
+        Case::new()
+            .proves_modifier("on_rotate")
+            .page(|| {
+                let angle = Signal::new(String::from("none"));
+                column((
+                    label(move || format!("rotation {}", angle.get())).id(day_core::id!(angle)),
+                    pad(day_core::id!(target)).on_rotate(move |r: Rotate| {
+                        if r.phase == DragPhase::Ended {
+                            angle.set(format!("{:.2}", r.rotation));
+                        }
+                    }),
+                ))
+            })
+            .drive(|d: Drive| async move {
+                d.rotate("target", 0.75).await?;
+                d.assert_text("angle", "rotation 0.75").await
             })
     }
 

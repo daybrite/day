@@ -1321,7 +1321,7 @@ const env = {
       ctx.scale(scale, scale);
       const t0 = performance.now();
       paint(ctx, f64(ops, opsLen), new Uint8Array(wasm.memory.buffer, strs, strsLen));
-      if (debugLog) console.debug(`DEBUG day_dom: bitmap ${pw}x${ph} painted in ${(performance.now() - t0).toFixed(1)} ms (${opsLen} words)`);
+      if (debugLog) console.debug(`DEBUG day_toolkit_dom: bitmap ${pw}x${ph} painted in ${(performance.now() - t0).toFixed(1)} ms (${opsLen} words)`);
     } catch (e) { fail(e); return; }
     bitmaps.set(id, { bitmap: c, canvas: c });
     Promise.resolve().then(() => {
@@ -2605,6 +2605,108 @@ document.addEventListener('keydown', (e) => {
   } else el.click();
 });
 
+// Pinch (mask 4096, events 21-23) and rotate (mask 8192, events 24-26) over one element
+// (docs/canvas.md "Zoom and pan"). They are one hand movement, so a single two-finger tracker
+// serves both, installed the first time either is enabled; each `listen` call only switches
+// its report on. A gesture reports each quantity only when it changed: a twist that keeps
+// its span sends no stream of scale-1 pinches, and a pinch that keeps its angle no rotation.
+//
+// Two fingers: the scale is the distance between them over the distance at Began, the rotation
+// the angle the line between them has turned since Began (radians, clockwise positive, as the
+// y-down page measures it), both cumulative, the location their midpoint. A trackpad pinch is
+// what the browser reports as a wheel with ctrlKey set: each tick is a lone Changed whose
+// scale is the tick's own factor, and the default is prevented so the page does not zoom with
+// it. touch-action none keeps the browser from taking the two fingers for its own zoom (and
+// cancelling the pointers) on the one element that handles them.
+function twoFingerListen(id, host, mask) {
+  const first = !host.__dayTwoFinger;
+  const want = host.__dayTwoFinger || (host.__dayTwoFinger = { pinch: false, rotate: false });
+  if (mask & 4096) want.pinch = true;
+  if (mask & 8192) want.rotate = true;
+  if (!first) return;
+  host.style.touchAction = 'none';
+  const fingers = new Map();
+  let span0 = 0, angle0 = 0, pinching = false, lastScale = 1, lastAngle = 0;
+  const local = (x, y) => { const r = host.getBoundingClientRect(); return [x - r.left, y - r.top]; };
+  const geometry = () => {
+    const [a, b] = [...fingers.values()];
+    const [cx, cy] = local((a[0] + b[0]) / 2, (a[1] + b[1]) / 2);
+    return [Math.hypot(a[0] - b[0], a[1] - b[1]), Math.atan2(b[1] - a[1], b[0] - a[0]), cx, cy];
+  };
+  // Phase 0 began, 1 changed, 2 ended: the event is 21+phase for a pinch, 24+phase for a turn.
+  const report = (phase, cx, cy, scale, angle) => {
+    if (want.pinch && (phase !== 1 || scale !== lastScale)) wasm.day_dom_event(id, 21 + phase, cx, cy, scale, 0);
+    if (want.rotate && (phase !== 1 || angle !== lastAngle)) wasm.day_dom_event(id, 24 + phase, cx, cy, angle, 0);
+    lastScale = scale; lastAngle = angle;
+  };
+  host.addEventListener('pointerdown', (e) => {
+    if (e.pointerType !== 'touch' || fingers.size >= 2) return;
+    fingers.set(e.pointerId, [e.clientX, e.clientY]);
+    if (fingers.size < 2) return;
+    const [d, a, cx, cy] = geometry();
+    span0 = d; angle0 = a; pinching = true;
+    report(0, cx, cy, 1, 0);
+  });
+  host.addEventListener('pointermove', (e) => {
+    if (!fingers.has(e.pointerId)) return;
+    fingers.set(e.pointerId, [e.clientX, e.clientY]);
+    if (!pinching || fingers.size < 2) return;
+    const [d, a, cx, cy] = geometry();
+    // Unwrapped against the last angle, so turning past half a circle keeps counting rather
+    // than jumping by a full turn where atan2 wraps.
+    let turn = a - angle0 - lastAngle;
+    turn -= Math.round(turn / (2 * Math.PI)) * 2 * Math.PI;
+    report(1, cx, cy, span0 > 0 ? d / span0 : 1, lastAngle + turn);
+  });
+  const lift = (e) => {
+    if (!fingers.has(e.pointerId)) return;
+    if (pinching) {
+      const [, , cx, cy] = geometry();
+      report(2, cx, cy, lastScale, lastAngle);
+      pinching = false;
+    }
+    fingers.clear(); // both fingers must lift before another gesture begins
+  };
+  host.addEventListener('pointerup', lift);
+  host.addEventListener('pointercancel', lift);
+  // Safari reports a trackpad pinch through its gesture events, with a cumulative `scale`, a
+  // cumulative `rotation` in degrees (clockwise positive) and a began/ended bracket, and does
+  // not always also send the ctrl+wheel the other browsers do. While a gesture is in progress
+  // it carries the pinch and the wheel below stands down, so a browser that sends both never
+  // applies a tick twice.
+  let gesturing = false;
+  const at = (e) => local(e.clientX, e.clientY);
+  const radians = (e) => (e.rotation || 0) * Math.PI / 180;
+  host.addEventListener('gesturestart', (e) => {
+    e.preventDefault();
+    if (pinching) return; // two real fingers are already reporting
+    gesturing = true;
+    report(0, ...at(e), 1, 0);
+  });
+  host.addEventListener('gesturechange', (e) => {
+    e.preventDefault();
+    if (!gesturing) return;
+    report(1, ...at(e), e.scale || 1, radians(e));
+  });
+  host.addEventListener('gestureend', (e) => {
+    e.preventDefault();
+    if (!gesturing) return;
+    gesturing = false;
+    report(2, ...at(e), e.scale || lastScale, e.rotation === undefined ? lastAngle : radians(e));
+  });
+  host.addEventListener('wheel', (e) => {
+    if (!e.ctrlKey || !want.pinch) return;
+    e.preventDefault(); e.stopPropagation();
+    if (gesturing) return;
+    const r = host.getBoundingClientRect();
+    // A trackpad tick is a few pixels; a mouse notch with ctrl held is a hundred, and
+    // clamping keeps that to about a quarter step instead of a nearly threefold jump.
+    const dy = e.deltaMode === 0 ? e.deltaY : e.deltaY * 40;
+    const factor = Math.exp(Math.max(-25, Math.min(25, -dy)) * 0.01);
+    wasm.day_dom_event(id, 22, e.clientX - r.left, e.clientY - r.top, factor, 0);
+  }, {passive: false});
+}
+
 function listen(id, mask) {
   const host = E(id); const el = V(id);
   if (mask & 1) {
@@ -2734,86 +2836,7 @@ function listen(id, mask) {
     host.addEventListener('pointerup', lift);
     host.addEventListener('pointercancel', lift);
   }
-  if (mask & 4096) {
-    // Pinch (docs/canvas.md "Zoom and pan"). Two fingers: the scale is the distance between
-    // them over the distance at Began (cumulative), the location their midpoint. A trackpad
-    // pinch is what the browser reports as a wheel with ctrlKey set: each tick is a lone
-    // Changed whose scale is the tick's own factor, and the default is prevented so the page
-    // does not zoom with it. touch-action none keeps the browser from taking the two fingers
-    // for its own zoom (and cancelling the pointers) on the one element that handles them.
-    host.style.touchAction = 'none';
-    const fingers = new Map();
-    let span0 = 0, pinching = false, lastScale = 1;
-    const local = (x, y) => { const r = host.getBoundingClientRect(); return [x - r.left, y - r.top]; };
-    const geometry = () => {
-      const [a, b] = [...fingers.values()];
-      const [cx, cy] = local((a[0] + b[0]) / 2, (a[1] + b[1]) / 2);
-      return [Math.hypot(a[0] - b[0], a[1] - b[1]), cx, cy];
-    };
-    host.addEventListener('pointerdown', (e) => {
-      if (e.pointerType !== 'touch' || fingers.size >= 2) return;
-      fingers.set(e.pointerId, [e.clientX, e.clientY]);
-      if (fingers.size < 2) return;
-      const [d, cx, cy] = geometry();
-      span0 = d; pinching = true; lastScale = 1;
-      wasm.day_dom_event(id, 21, cx, cy, 1, 0);
-    });
-    host.addEventListener('pointermove', (e) => {
-      if (!fingers.has(e.pointerId)) return;
-      fingers.set(e.pointerId, [e.clientX, e.clientY]);
-      if (!pinching || fingers.size < 2) return;
-      const [d, cx, cy] = geometry();
-      lastScale = span0 > 0 ? d / span0 : 1;
-      wasm.day_dom_event(id, 22, cx, cy, lastScale, 0);
-    });
-    const lift = (e) => {
-      if (!fingers.has(e.pointerId)) return;
-      if (pinching) {
-        const [, cx, cy] = geometry();
-        wasm.day_dom_event(id, 23, cx, cy, lastScale, 0);
-        pinching = false;
-      }
-      fingers.clear(); // both fingers must lift before another pinch begins
-    };
-    host.addEventListener('pointerup', lift);
-    host.addEventListener('pointercancel', lift);
-    // Safari reports a trackpad pinch through its gesture events, with a cumulative `scale`
-    // and a began/ended bracket, and does not always also send the ctrl+wheel the other
-    // browsers do. While a gesture is in progress it carries the pinch and the wheel below
-    // stands down, so a browser that sends both never applies a tick twice.
-    let gesturing = false;
-    host.addEventListener('gesturestart', (e) => {
-      e.preventDefault();
-      if (pinching) return; // two real fingers are already reporting
-      gesturing = true;
-      const r = host.getBoundingClientRect();
-      wasm.day_dom_event(id, 21, e.clientX - r.left, e.clientY - r.top, 1, 0);
-    });
-    host.addEventListener('gesturechange', (e) => {
-      e.preventDefault();
-      if (!gesturing) return;
-      const r = host.getBoundingClientRect();
-      wasm.day_dom_event(id, 22, e.clientX - r.left, e.clientY - r.top, e.scale || 1, 0);
-    });
-    host.addEventListener('gestureend', (e) => {
-      e.preventDefault();
-      if (!gesturing) return;
-      gesturing = false;
-      const r = host.getBoundingClientRect();
-      wasm.day_dom_event(id, 23, e.clientX - r.left, e.clientY - r.top, e.scale || 1, 0);
-    });
-    host.addEventListener('wheel', (e) => {
-      if (!e.ctrlKey) return;
-      e.preventDefault(); e.stopPropagation();
-      if (gesturing) return;
-      const r = host.getBoundingClientRect();
-      // A trackpad tick is a few pixels; a mouse notch with ctrl held is a hundred, and
-      // clamping keeps that to about a quarter step instead of a nearly threefold jump.
-      const dy = e.deltaMode === 0 ? e.deltaY : e.deltaY * 40;
-      const factor = Math.exp(Math.max(-25, Math.min(25, -dy)) * 0.01);
-      wasm.day_dom_event(id, 22, e.clientX - r.left, e.clientY - r.top, factor, 0);
-    }, {passive: false});
-  }
+  if (mask & (4096 | 8192)) twoFingerListen(id, host, mask);
   if (mask & 512) {
     // Hover: pointer entry, motion and exit. `pointerType` gates it to a real pointer: a touch
     // produces a pointerdown/up pair with an enter and a leave around it, and reporting those as

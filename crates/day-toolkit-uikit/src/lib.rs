@@ -98,7 +98,7 @@ mod imp {
     };
     use objc2_ui_kit::{
         UIGestureRecognizer, UIGestureRecognizerState, UIPanGestureRecognizer,
-        UIPinchGestureRecognizer, UITapGestureRecognizer,
+        UIPinchGestureRecognizer, UIRotationGestureRecognizer, UITapGestureRecognizer,
     };
     use objc2_ui_kit::{
         UIKeyInput as _, UIKeyboardType, UIReturnKeyType, UITextAutocapitalizationType,
@@ -3310,6 +3310,30 @@ mod imp {
 
         unsafe impl NSObjectProtocol for DayGesture {}
 
+        // The delegate of a rotation recognizer only: a twist and a pinch (or a two-finger
+        // pan) are one hand movement, so the rotation runs alongside Day's pinch and
+        // two-finger pan recognizers on the same view instead of excluding them. A one-finger
+        // drag is left alone; a second finger still ends it as it did.
+        unsafe impl UIGestureRecognizerDelegate for DayGesture {
+            #[unsafe(method(gestureRecognizer:shouldRecognizeSimultaneouslyWithGestureRecognizer:))]
+            fn simultaneous(&self, a: &UIGestureRecognizer, b: &UIGestureRecognizer) -> bool {
+                day_spec::ffi_guard::contain(false, || {
+                    let same_view = match (unsafe { a.view() }, unsafe { b.view() }) {
+                        (Some(x), Some(y)) => std::ptr::eq(&*x, &*y),
+                        _ => false,
+                    };
+                    if !same_view {
+                        return false;
+                    }
+                    let other: &AnyObject = b.as_ref();
+                    other.downcast_ref::<UIPinchGestureRecognizer>().is_some()
+                        || other
+                            .downcast_ref::<UIPanGestureRecognizer>()
+                            .is_some_and(|p| unsafe { p.minimumNumberOfTouches() } >= 2)
+                })
+            }
+        }
+
         impl DayGesture {
             #[unsafe(method(fire:))]
             fn fire(&self, g: &UIGestureRecognizer) {
@@ -3357,6 +3381,23 @@ mod imp {
                                 Event::Pinch {
                                     phase,
                                     scale,
+                                    location: at,
+                                },
+                            );
+                        }
+                        day_spec::GestureKind::Rotate => {
+                            // UIRotationGestureRecognizer's rotation is radians, cumulative
+                            // since Began and clockwise positive in UIKit's y-down space:
+                            // exactly Event::Rotate's contract.
+                            let rotation = obj
+                                .downcast_ref::<UIRotationGestureRecognizer>()
+                                .map(|r| unsafe { r.rotation() })
+                                .unwrap_or(0.0);
+                            emit(
+                                node,
+                                Event::Rotate {
+                                    phase,
+                                    rotation,
                                     location: at,
                                 },
                             );
@@ -14300,6 +14341,16 @@ mod imp {
                         );
                         Retained::into_super(pinch)
                     }
+                    day_spec::GestureKind::Rotate => {
+                        let rotate = UIRotationGestureRecognizer::initWithTarget_action(
+                            UIRotationGestureRecognizer::alloc(mtm),
+                            Some(&target),
+                            Some(sel!(fire:)),
+                        );
+                        // Weak; `target` is kept alive in GESTURES below.
+                        rotate.setDelegate(Some(ProtocolObject::from_ref(&*target)));
+                        Retained::into_super(rotate)
+                    }
                     day_spec::GestureKind::Pan => {
                         // Two fingers, so single-finger drags still reach a Drag gesture on
                         // the same view.
@@ -14703,7 +14754,7 @@ mod imp {
                         let painted = resources
                             .0
                             .with_installed(|| render_bitmap_image(&renderer.0, ops, size, scale));
-                        // The painter's own cost, apart from the queueing a caller's clock sees.
+                        // The painter's own cost, apart from the queuing a caller's clock sees.
                         log::debug!(
                             "day-toolkit-uikit: bitmap {}x{} painted in {:.1} ms ({} ops)",
                             size.width * scale,

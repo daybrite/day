@@ -709,6 +709,7 @@ mod imp {
         static fn enableKeys(v: android.view.View, id: jlong),
         static fn enablePan(v: android.view.View, id: jlong),
         static fn enablePinch(v: android.view.View, id: jlong),
+        static fn enableRotate(v: android.view.View, id: jlong),
         static fn focusNavSearch(nav_host: android.view.View),
         static fn focusView(v: android.view.View, focused: jboolean),
         static fn focusWindow(node: jlong),
@@ -1864,9 +1865,10 @@ mod imp {
                 }
             }
             // Gestures (docs/shapes.md): num = phase (0=tap 1=began 2=changed 3=ended,
-            // 4/5/6 = pinch began/changed/ended, 8 = pan), string = "x,y,tx,ty" in px (for a
-            // pinch, "fx,fy,scale,0": the focus in px and the cumulative scale). Convert to dp
-            // like FrameChanged does.
+            // 4/5/6 = pinch began/changed/ended, 8 = pan, 13/14/15 = rotate began/changed/
+            // ended), string = "x,y,tx,ty" in px (for a pinch, "fx,fy,scale,0": the focus in px
+            // and the cumulative scale; for a rotation, "fx,fy,radians,0"). Convert to dp like
+            // FrameChanged does.
             K_GESTURE => {
                 let text: String = string_of(env, jstr).ok().unwrap_or_default();
                 let p: Vec<f64> = text.split(',').filter_map(|s| s.parse().ok()).collect();
@@ -1887,6 +1889,18 @@ mod imp {
                             _ => day_spec::DragPhase::Changed,
                         },
                         scale: p[2],
+                        location: at,
+                    },
+                    // Rotation (docs/canvas.md "Zoom and pan"): the angle the line between the
+                    // first two fingers turned since the second went down, cumulative radians,
+                    // clockwise positive on the y-down screen.
+                    13..=15 => Event::Rotate {
+                        phase: match num as i32 {
+                            13 => day_spec::DragPhase::Began,
+                            15 => day_spec::DragPhase::Ended,
+                            _ => day_spec::DragPhase::Changed,
+                        },
+                        rotation: p[2],
                         location: at,
                     },
                     8 => Event::Pan {
@@ -4482,6 +4496,12 @@ mod imp {
             }
             if kind == day_spec::GestureKind::Pinch {
                 bridge(|env| DayBridge::enablePinch(env, h.0.as_obj(), node.0 as i64));
+                return;
+            }
+            // Rotation is a two-pointer tracker in the bridge, on the same touch listener
+            // (ScaleGestureDetector reports no angle), so it runs alongside the pinch.
+            if kind == day_spec::GestureKind::Rotate {
+                bridge(|env| DayBridge::enableRotate(env, h.0.as_obj(), node.0 as i64));
                 return;
             }
             // Hover is a separate listener (`setOnHoverListener`), not a touch one: MotionEvent's

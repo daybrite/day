@@ -2840,6 +2840,8 @@ impl Toolkit for Xaml {
             // A scale manipulation plus ctrl+wheel, and wheel ticks: every tick over a canvas,
             // sideways ones over any other container (docs/canvas.md "Zoom and pan").
             day_spec::GestureKind::Pinch => 4,
+            // The same manipulation's rotation, so it runs alongside the pinch and the drag.
+            day_spec::GestureKind::Rotate => 7,
             day_spec::GestureKind::Pan => {
                 if CANVASES.with(|c| c.borrow().contains(&(h.0 as usize))) {
                     5
@@ -4035,10 +4037,11 @@ extern "C" fn present_cb(req: u64, tag: c_int, index: i64, text: *const c_char) 
 
 // A native pointer recognizer fired (docs/shapes.md). Phase codes match the shim's
 // day_xaml_enable_gesture: 0 Tap, 1/2/3 Drag Began/Changed/Ended, 4 LongPress, 5/6/7 Pinch
-// Began/Changed/Ended, 8 Pan, 10/11/12 Hover. `x,y` are the node-local location; `tx,ty` the
-// cumulative drag translation, or for a pinch `tx` the scale (cumulative since Began for a
-// manipulation, the tick's own factor for a lone ctrl+wheel Changed), for a pan the tick's
-// delta (docs/canvas.md "Zoom and pan").
+// Began/Changed/Ended, 8 Pan, 10/11/12 Hover, 13/14/15 Rotate Began/Changed/Ended. `x,y` are the
+// node-local location; `tx,ty` the cumulative drag translation, or for a pinch `tx` the scale
+// (cumulative since Began for a manipulation, the tick's own factor for a lone ctrl+wheel
+// Changed), for a rotation `tx` the cumulative radians, for a pan the tick's delta
+// (docs/canvas.md "Zoom and pan").
 extern "C" fn on_gesture(
     id: u64,
     phase: c_int,
@@ -4060,6 +4063,15 @@ extern "C" fn on_gesture(
                     _ => DragPhase::Changed,
                 },
                 scale: tx,
+                location: at,
+            },
+            13..=15 => Event::Rotate {
+                phase: match phase {
+                    13 => DragPhase::Began,
+                    15 => DragPhase::Ended,
+                    _ => DragPhase::Changed,
+                },
+                rotation: tx,
                 location: at,
             },
             8 => Event::Pan {

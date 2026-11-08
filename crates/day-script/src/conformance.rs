@@ -524,6 +524,7 @@ fn op_name(op: &DriveOp) -> String {
         DriveOp::Hover(id, _) | DriveOp::HoverLeave(id) => format!("hover {id}"),
         DriveOp::Pan(id, ..) => format!("pan {id}"),
         DriveOp::Pinch(id, _) => format!("pinch {id}"),
+        DriveOp::Rotate(id, _) => format!("rotate {id}"),
         DriveOp::Drag(id, ..) => format!("drag {id}"),
         DriveOp::TapAt(id, ..) => format!("tap {id}"),
         DriveOp::Key(_, key) => format!("key {key}"),
@@ -578,6 +579,9 @@ fn step_for(op: &DriveOp) -> Result<Step, Fail> {
         DriveOp::HoverLeave(id) => json!({"op": "hover", "id": id, "leave": true}),
         DriveOp::Pan(id, dx, dy) => json!({"op": "pan", "id": id, "by": [dx, dy]}),
         DriveOp::Pinch(id, scale) => json!({"op": "pinch", "id": id, "scale": scale}),
+        DriveOp::Rotate(id, rotation) => {
+            json!({"op": "rotate", "id": id, "rotation": rotation})
+        }
         DriveOp::Drag(id, (fx, fy), (tx, ty)) => {
             json!({"op": "drag", "id": id, "from": [fx, fy], "to": [tx, ty]})
         }

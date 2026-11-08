@@ -15,7 +15,8 @@ function fixture() {
   const results = new Map();
   let reads = 0;
   const context = vm.createContext({
-    TextEncoder, TextDecoder, Blob, queueMicrotask,
+    TextEncoder, TextDecoder, Blob, queueMicrotask, URLSearchParams,
+    location: new URL('https://fixture.invalid/'),
     document: { addEventListener() {} },
     ResizeObserver: class { constructor() {} },
     ClipboardItem: class { static supports() { return true; } },

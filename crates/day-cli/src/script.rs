@@ -57,6 +57,7 @@ fn changes_screen(op: &str) -> bool {
             | "hover"
             | "pan"
             | "pinch"
+            | "rotate"
             | "key"
             | "input"
             | "submit"

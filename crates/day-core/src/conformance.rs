@@ -74,6 +74,8 @@ pub enum DriveOp {
     Pan(String, f64, f64),
     /// A pinch over an element, to this cumulative scale.
     Pinch(String, f64),
+    /// A two-finger rotation over an element, to this cumulative angle in radians.
+    Rotate(String, f64),
     /// A drag over an element, from one point to another in its coordinates.
     Drag(String, (f64, f64), (f64, f64)),
     /// A tap at a point in an element's coordinates.
@@ -248,6 +250,10 @@ impl Drive {
     /// A pinch over `id` to `scale` (cumulative; 1 = unchanged).
     pub fn pinch(&self, id: &str, scale: f64) -> OpFuture {
         self.op(DriveOp::Pinch(id.into(), scale))
+    }
+    /// A two-finger rotation over `id` to `rotation` radians (cumulative; positive clockwise).
+    pub fn rotate(&self, id: &str, rotation: f64) -> OpFuture {
+        self.op(DriveOp::Rotate(id.into(), rotation))
     }
     /// A pointer drag over `id` from `from` to `to`, in its coordinates.
     pub fn drag(&self, id: &str, from: (f64, f64), to: (f64, f64)) -> OpFuture {

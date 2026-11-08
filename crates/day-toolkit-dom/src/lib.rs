@@ -730,6 +730,12 @@ mod ev {
     pub const PINCH_BEGAN: u32 = 21;
     pub const PINCH_MOVED: u32 = 22;
     pub const PINCH_ENDED: u32 = 23;
+    /// a,b = local centroid; c = rotation in radians, clockwise positive, cumulative since
+    /// `ROTATE_BEGAN` (two fingers, or Safari's trackpad gesture events; docs/canvas.md "Zoom
+    /// and pan").
+    pub const ROTATE_BEGAN: u32 = 24;
+    pub const ROTATE_MOVED: u32 = 25;
+    pub const ROTATE_ENDED: u32 = 26;
 }
 
 // ---------------------------------------------------------------------------
@@ -3177,6 +3183,7 @@ impl Toolkit for Dom {
             GestureKind::LongPress => 0,
             GestureKind::Pan => 2048,
             GestureKind::Pinch => 4096,
+            GestureKind::Rotate => 8192,
         };
         if mask != 0 {
             unsafe { day_dom_listen(h.0, mask) };
@@ -5311,6 +5318,15 @@ fn day_dom_event_inner(el: u32, kind: u32, a: f64, b: f64, c: f64, d: f64) {
                 _ => day_spec::DragPhase::Changed,
             },
             scale: c,
+            location: Point::new(a, b),
+        },
+        ev::ROTATE_BEGAN | ev::ROTATE_MOVED | ev::ROTATE_ENDED => Event::Rotate {
+            phase: match kind {
+                ev::ROTATE_BEGAN => day_spec::DragPhase::Began,
+                ev::ROTATE_ENDED => day_spec::DragPhase::Ended,
+                _ => day_spec::DragPhase::Changed,
+            },
+            rotation: c,
             location: Point::new(a, b),
         },
         ev::SCROLL => Event::ScrollChanged(Point::new(a, b)),

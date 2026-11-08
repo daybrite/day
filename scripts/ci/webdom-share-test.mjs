@@ -7,7 +7,7 @@ import vm from 'node:vm';
 import test from 'node:test';
 const source = fs.readFileSync(new URL('../../crates/day-cli/resources/web/shim.js', import.meta.url), 'utf8');
 function setup(navigator) {
-  const context = vm.createContext({TextEncoder,TextDecoder,Blob,navigator,document:{addEventListener(){}},ResizeObserver:class{}});
+  const context = vm.createContext({TextEncoder,TextDecoder,Blob,URLSearchParams,location:new URL('https://fixture.invalid/'),navigator,document:{addEventListener(){}},ResizeObserver:class{}});
   vm.runInContext(source.replace('export async function start','async function start') + `
     wasm = {memory: {buffer:new ArrayBuffer(65536)}};
     globalThis.available = () => env.day_dom_share_support();

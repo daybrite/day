@@ -881,6 +881,17 @@ pub enum Event {
         scale: f64,
         location: Point,
     },
+    /// A two-finger rotation over the node (docs/canvas.md "Zoom and pan"): `rotation` is in
+    /// radians, cumulative since `Began`, positive clockwise on screen; `location` the
+    /// gesture's centroid in local coordinates ([`Point::ZERO`] where the platform gives
+    /// none). A trackpad's rotate tick has no gesture session and arrives as a lone `Changed`
+    /// carrying that tick's own angle. Only nodes that enabled [`GestureKind::Rotate`]
+    /// receive it; a backend with no recognizer emits nothing.
+    Rotate {
+        phase: DragPhase,
+        rotation: f64,
+        location: Point,
+    },
     /// A viewport pan over the node (docs/shapes.md): `delta` is the movement since the
     /// previous event; incremental, not cumulative, because desktop wheels have no gesture
     /// session to accumulate over (a discrete wheel tick arrives as a lone `Changed`).
@@ -1224,6 +1235,8 @@ pub enum GestureKind {
     Hover,
     /// Pinch/magnify (docs/shapes.md): trackpad magnification, two-finger touch pinch.
     Pinch,
+    /// Rotation (docs/canvas.md "Zoom and pan"): trackpad rotate, two-finger touch twist.
+    Rotate,
     /// Viewport pan (docs/shapes.md): trackpad two-finger scroll, two-finger touch pan.
     /// Distinct from [`GestureKind::Drag`], the primary pointer's press-drag.
     Pan,
@@ -9333,7 +9346,8 @@ fn encode_points(pts: &[Point]) -> String {
 }
 
 /// Path segments for the texts channel: `"M x y L x y Q cx cy x y C … Z"`, one token per
-/// command or number, numbers as [`push_wire_num`] writes them.
+/// command or number. Coordinates use up to six decimal places, without trailing zeros;
+/// non-finite values and magnitudes outside the fixed-point range use their display form.
 pub fn encode_path(path: &Path) -> String {
     let mut out = String::with_capacity(path.segs.len() * 16);
     let points = |out: &mut String, cmd: char, pts: &[Point]| {

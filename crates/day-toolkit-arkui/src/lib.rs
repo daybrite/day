@@ -1713,8 +1713,9 @@ mod imp {
             // typed, with the modifier mask in `num`.
             k if k == K::Text as i32 => Event::Key(day_spec::KeyEvent::typed_text(text, num as u8)),
             // Gestures (docs/shapes.md, docs/canvas.md "Zoom and pan"): `num` = phase (1/2/3
-            // drag began/changed/ended, 4/5/6 pinch, 7/8/9 viewport pan), `text` = "x,y,tx,ty"
-            // in px, converted to vp like the Android bridge; a pinch's `tx` is its scale.
+            // drag began/changed/ended, 4/5/6 pinch, 7/8/9 viewport pan, 13/14/15 rotation),
+            // `text` = "x,y,tx,ty" in px, converted to vp like the Android bridge; a pinch's
+            // `tx` is its scale, a rotation's its cumulative radians.
             k if k == K::Gesture as i32 => {
                 let p: Vec<f64> = text.split(',').filter_map(|s| s.parse().ok()).collect();
                 if p.len() < 4 {
@@ -1731,6 +1732,15 @@ mod imp {
                             _ => day_spec::DragPhase::Changed,
                         },
                         scale: p[2],
+                        location: at,
+                    },
+                    13..=15 => Event::Rotate {
+                        phase: match num as i32 {
+                            13 => day_spec::DragPhase::Began,
+                            15 => day_spec::DragPhase::Ended,
+                            _ => day_spec::DragPhase::Changed,
+                        },
+                        rotation: p[2],
                         location: at,
                     },
                     7..=9 => Event::Pan {
@@ -4136,6 +4146,7 @@ mod imp {
                 // Two-finger recognizers plus the axis events of a wheel or a touchpad
                 // (docs/canvas.md "Zoom and pan").
                 GestureKind::Pinch => crate::gesture::enable_pinch(h.0, node_id.0),
+                GestureKind::Rotate => crate::gesture::enable_rotation(h.0, node_id.0),
                 GestureKind::Pan => crate::gesture::enable_viewport_pan(h.0, node_id.0),
                 // Hover is deliberately unwired here (docs/canvas.md "Interaction"): the C node
                 // API's `NODE_ON_HOVER` reports only entered/exited with no coordinates, and the

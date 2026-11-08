@@ -147,6 +147,7 @@ impl crate::Step {
             | Self::Hover { .. }
             | Self::Pan { .. }
             | Self::Pinch { .. }
+            | Self::Rotate { .. }
             | Self::Submit { .. }
             | Self::Input { .. }
             | Self::SetValue { .. }

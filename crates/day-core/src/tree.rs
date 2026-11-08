@@ -3701,6 +3701,7 @@ fn dispatch_to_node(id: NodeId, ev: &Event) {
         Event::Drag { .. } => Some(day_spec::GestureKind::Drag),
         Event::Pan { .. } => Some(day_spec::GestureKind::Pan),
         Event::Pinch { .. } => Some(day_spec::GestureKind::Pinch),
+        Event::Rotate { .. } => Some(day_spec::GestureKind::Rotate),
         Event::Hover { .. } => Some(day_spec::GestureKind::Hover),
         _ => None,
     };

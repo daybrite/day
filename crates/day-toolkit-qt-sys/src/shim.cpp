@@ -3664,10 +3664,11 @@ int day_qt_resource_exists(const char *respath) {
     return r.isValid() ? 1 : 0;
 }
 
-// --- gestures (tap / drag / pinch / pan) ---
-// kind: 0 = tap, 1 = drag, 2 = pinch, 3 = pan.
+// --- gestures (tap / drag / pinch / pan / rotate) ---
+// kind: 0 = tap, 1 = drag, 2 = pinch, 3 = pan, 4 = hover, 5 = rotate.
 // phase: 0 = tap; 1/2/3 = drag began/changed/ended; 4/5/6 = pinch began/changed/ended
-// (tx = cumulative scale); 7/8/9 = pan began/changed/ended (tx/ty = incremental delta).
+// (tx = cumulative scale); 7/8/9 = pan began/changed/ended (tx/ty = incremental delta);
+// 10/11/12 = hover; 13/14/15 = rotate began/changed/ended (tx = cumulative radians, clockwise).
 typedef void (*DayGestureCb)(uint64_t node, int phase, double x, double y, double tx, double ty);
 
 /// How far a press may wander and still count as a tap rather than a drag.
@@ -3678,6 +3679,11 @@ public:
     uint64_t node; int kind; DayGestureCb cb;
     bool pressed = false; bool engaged = false; QPointF start; QPointF last;
     double pinch_scale = 1.0;
+    // Pinch and rotate share one filter per widget (kind 2), because one trackpad gesture
+    // brackets both with a single Begin/End pair and a filter that consumed it would hide it
+    // from a second one. These say which of the two the widget asked for.
+    bool want_pinch = false, want_rotate = false;
+    double rotation = 0.0;
     QWidget *pan_host = nullptr;
     DayGestureFilter(uint64_t n, int k, DayGestureCb c) : node(n), kind(k), cb(c) {}
 protected:
@@ -3772,24 +3778,35 @@ protected:
                 break;
             }
             case QEvent::NativeGesture: {
-                // Trackpad pinch (macOS always; Linux where the platform plugin synthesizes
-                // native gestures). Zoom values are per-event percentage deltas; the callback
-                // contract wants the cumulative scale since Begin.
+                // Trackpad pinch and rotate (macOS always; Linux where the platform plugin
+                // synthesizes native gestures). Zoom values are per-event percentage deltas and
+                // rotate values per-event degrees, clockwise positive; the callback contract
+                // wants the cumulative scale, and the cumulative radians, since Begin.
                 if (kind != 2) break;
                 QNativeGestureEvent *ge = static_cast<QNativeGestureEvent *>(ev);
                 QPointF p = ge->position();
                 switch (ge->gestureType()) {
                     case Qt::BeginNativeGesture:
                         pinch_scale = 1.0;
-                        cb(node, 4, p.x(), p.y(), 1.0, 0.0);
+                        rotation = 0.0;
+                        if (want_pinch) cb(node, 4, p.x(), p.y(), 1.0, 0.0);
+                        if (want_rotate) cb(node, 13, p.x(), p.y(), 0.0, 0.0);
                         return true;
                     case Qt::ZoomNativeGesture:
+                        if (!want_pinch) break;
                         pinch_scale *= 1.0 + ge->value();
                         cb(node, 5, p.x(), p.y(), pinch_scale, 0.0);
                         return true;
+                    case Qt::RotateNativeGesture:
+                        if (!want_rotate) break;
+                        rotation += ge->value() * 3.14159265358979323846 / 180.0;
+                        cb(node, 14, p.x(), p.y(), rotation, 0.0);
+                        return true;
                     case Qt::EndNativeGesture:
-                        cb(node, 6, p.x(), p.y(), pinch_scale, 0.0);
+                        if (want_pinch) cb(node, 6, p.x(), p.y(), pinch_scale, 0.0);
+                        if (want_rotate) cb(node, 15, p.x(), p.y(), rotation, 0.0);
                         pinch_scale = 1.0;
+                        rotation = 0.0;
                         return true;
                     default: break;
                 }
@@ -3827,6 +3844,22 @@ void day_qt_enable_gesture(void *w, uint64_t node, int kind, DayGestureCb cb) {
     // Hover (kind 4) needs tracking on: without it Qt delivers MouseMove only while a button is
     // down, which is precisely the case hover is NOT.
     if (kind == 4) widget->setMouseTracking(true);
+    // Pinch (2) and rotate (5) are one filter, found again through a widget property: the
+    // filter is the widget's child, so the pointer lives exactly as long as the widget.
+    if (kind == 2 || kind == 5) {
+        QVariant held = widget->property("dayTwoFinger");
+        DayGestureFilter *f = held.isValid()
+            ? reinterpret_cast<DayGestureFilter *>(held.value<quintptr>())
+            : nullptr;
+        if (!f) {
+            f = new DayGestureFilter(node, 2, cb);
+            f->setParent(widget);
+            widget->installEventFilter(f);
+            widget->setProperty("dayTwoFinger", QVariant::fromValue(reinterpret_cast<quintptr>(f)));
+        }
+        if (kind == 2) f->want_pinch = true; else f->want_rotate = true;
+        return;
+    }
     DayGestureFilter *f = new DayGestureFilter(node, kind, cb);
     f->setParent(widget); // freed with the widget
     widget->setProperty("dayPanHost", kind == 3 || widget->property("dayPanHost").toBool());

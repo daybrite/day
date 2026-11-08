@@ -600,9 +600,10 @@ unsafe extern "C" {
 
     // gestures (docs/shapes.md): attach a native recognizer. kind 0 Tap / 1 LongPress / 2 Drag /
     // 3 Hover / 4 Pinch / 5 Pan (every wheel tick, a canvas) / 6 Pan (sideways ticks only, a
-    // container); cb(id, phase, x, y, tx, ty) with phase 0 Tap, 1/2/3 Drag
+    // container) / 7 Rotate; cb(id, phase, x, y, tx, ty) with phase 0 Tap, 1/2/3 Drag
     // Began/Changed/Ended, 4 LongPress, 5/6/7 Pinch Began/Changed/Ended (tx = scale), 8 Pan
-    // (tx,ty = delta), 10/11/12 Hover Began/Changed/Ended.
+    // (tx,ty = delta), 10/11/12 Hover Began/Changed/Ended, 13/14/15 Rotate Began/Changed/Ended
+    // (tx = cumulative radians, clockwise positive).
     pub fn day_xaml_enable_gesture(
         elem: *mut c_void,
         id: u64,

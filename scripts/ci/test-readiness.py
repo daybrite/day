@@ -179,8 +179,10 @@ class ReadinessTests(unittest.TestCase):
         # A failing regression suite must stop the local gate before invoking Cargo.
         self.env["DAY_TEST_SUITE_EXIT"] = "1"
         log.write_text("")
-        self.run_cmd("bash", "scripts/ci/check-ready.sh", ok=False)
-        self.assertTrue((self.root / "readiness-tests-called").exists())
+        result = self.run_cmd("bash", "scripts/ci/check-ready.sh", ok=False)
+        self.assertTrue(
+            (self.root / "readiness-tests-called").exists(), result.stdout + result.stderr
+        )
         self.assertEqual(log.read_text(), "")
         self.env["DAY_TEST_SUITE_EXIT"] = "0"
         expected = ["fmt --all -- --check", *host_calls]

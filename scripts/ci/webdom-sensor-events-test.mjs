@@ -8,7 +8,9 @@ const source = fs.readFileSync(new URL('../../crates/day-cli/resources/web/shim.
 function fixture() {
   const listeners = new Set(), readings = [];
   const context = vm.createContext({
-    TextEncoder, TextDecoder, Blob, isSecureContext: true, DeviceMotionEvent: class {},
+    TextEncoder, TextDecoder, Blob, URLSearchParams,
+    location: new URL('https://fixture.invalid/'),
+    isSecureContext: true, DeviceMotionEvent: class {},
     document: { addEventListener() {} }, ResizeObserver: class {},
     addEventListener: (name, fn) => { if (name === 'devicemotion') listeners.add(fn); },
     removeEventListener: (name, fn) => { if (name === 'devicemotion') listeners.delete(fn); },

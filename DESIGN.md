@@ -1098,7 +1098,7 @@ The **`Decorate`** extension trait carries the universal modifiers: `.id(id!(nam
 `.grow()` variants, `.background()`,
 `.corner_radius()`, `.overlay()` / `.overlay_aligned()`, `.grid_span()` / `.grid_align()`
 ([docs/grid.md](docs/grid.md); inert outside a grid), `.a11y()`, `.on_tap()` / `.on_drag()` /
-`.on_pinch()` / `.on_pan()` (the continuous zoom/scroll pair, [docs/canvas.md](docs/canvas.md)), `.focused()`,
+`.on_pinch()` / `.on_pan()` / `.on_rotate()` (the continuous zoom/scroll/turn gestures, [docs/canvas.md](docs/canvas.md)), `.focused()`,
 `.on_key()` (the non-text keys, delivered only while THIS piece has focus — [docs/menus.md](docs/menus.md)),
 `.keyboard()` (a canvas takes the whole keyboard while focused: every key, the text a press
 typed kept apart from the key's name, and the soft keyboard on a phone — "The full route" in
@@ -2331,6 +2331,7 @@ pub enum Event {
                                               // presents at `window` (docs/menus.md)
     Drag { phase, location, translation },    // docs/shapes.md gestures
     Pinch { phase, scale, location },         // trackpad/touch zoom (docs/canvas.md)
+    Rotate { phase, rotation, location },     // trackpad/touch turn, radians (docs/canvas.md)
     Pan { phase, delta, location },           // two-finger scroll/pan (docs/canvas.md)
     ScrollChanged(Point),                     // §7.6
     FrameChanged(Size),                       // canvas re-record; nav pane size reports
@@ -2363,6 +2364,13 @@ pub enum Event {
 
 (`Custom` shipped with a primitive `num`/`text` payload rather than the designed
 `DayValue` tree — [§15](#15-extensibility-pieces-parts-and-tweaks) explains; `tag` is empty for events crossing a native boundary.)
+
+> [!NOTE]
+> `Rotate { phase, rotation, location }` (2026-11) is the pinch's twin, for a canvas that turns
+> what it shows (a map's bearing): radians, cumulative within a gesture, clockwise positive on
+> screen, with a trackpad's lone rotate tick as a `Changed` carrying its own angle. It comes with
+> `GestureKind::Rotate`, `Decorate::on_rotate` and the dayscript `rotate` step; every backend
+> runs it alongside the pinch rather than competing with it ([docs/canvas.md](docs/canvas.md) "Zoom and pan").
 
 The single sink keeps the backend ignorant of closures/lifetimes (day-core owns the `NodeId →
 handlers` table) — this is the shape that made pane's six backends small. The sink contract is
@@ -6331,6 +6339,11 @@ The `daybrite/actions` companion repository provides reusable workflows for exte
    with its glyphs after a `day prepare` and without them from a fresh copy). Three of them (`toolkit`, `harmony-arkui`, `web-dom`) also check
    out daybrite/Day-Showcase, but only to lint a backend crate as the APP's dependency graph
    resolves it — a framework check that happens to need an app on disk, not an app test.
+   The web job also runs the shipped JavaScript shim in Node VM fixtures for clipboard,
+   routing, sharing, and sensor regressions. Each fixture supplies the browser globals used
+   during module initialization, including `URLSearchParams` and `location` for debug logging.
+   The readiness regression reports the gate's output when an earlier check prevents its test
+   hook from running, so a naming failure is visible rather than hidden by a missing-file assertion.
 
    > [!IMPORTANT]
    > **Changed 2026-09.** These jobs used to build, drive, capture and pack the showcase
@@ -7916,6 +7929,7 @@ The Showcase walkthrough samples after groups of screens and ends with a `1G` bu
 | `hover` | `id`, `at?` \| `leave?` | the pointer entering the element at `at` (its center when omitted), or leaving it (`.on_hover`) |
 | `pan` | `id`, `by`, `steps?` | a two-finger pan: `Began`, `steps` (default 4) `Changed` samples whose incremental deltas add up to `by`, `Ended` (`.on_pan`) |
 | `pinch` | `id`, `scale`, `steps?` | a pinch centered on the element: `Began` at 1, `Changed` samples toward `scale`, `Ended` at `scale`, cumulative as the platforms report it (`.on_pinch`) |
+| `rotate` | `id`, `rotation`, `steps?` | a two-finger turn centered on the element: `Began` at 0, `Changed` samples toward `rotation` (radians, clockwise positive), `Ended` at `rotation`, cumulative as the platforms report it (`.on_rotate`) |
 | `key` | `key`, `id?`, `modifiers?` | a non-text key (`Event::Key`, web `KeyboardEvent.key` names — `ArrowRight`, …) delivered the way the platform delivers one: to the named piece, or to whatever holds FOCUS. Pair it with `focus:` to drive the whole route; with nothing focused and no `id` the step fails rather than dropping the key — [docs/menus.md](docs/menus.md) |
 | `input` | `id`, `text?` \| `key?` + `args?` | `key:` resolves a Fluent key in the run's locale — locale-portable typing |
 | `submit` | `id` | delivers `Event::Submitted` — the scripted stand-in for Enter in a `text_area` `.on_submit` (or a field's return key) |

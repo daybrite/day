@@ -358,6 +358,38 @@ negative browser wheel deltas, to express content displacement; WinUI reports ea
 (shift, or a tilt wheel, for sideways); ArkUI reports a two-finger pan and wheel ticks; Android
 reports horizontal pointer-wheel pans.
 
+A third gesture turns the view, for a canvas whose content has a heading (a map's bearing, a
+photo being straightened):
+
+```rust
+canvas(draw)
+    .on_rotate(move |g| turn_about(g.location, g.rotation, g.phase))
+```
+
+`Rotate.rotation` is in radians, positive clockwise on screen, and cumulative like the pinch's
+scale: the total turn since the gesture began, applied to the bearing captured at
+`DragPhase::Began`. Where a platform reports a trackpad rotation without a gesture session,
+each rotate tick arrives as a lone `Changed` carrying that tick's own angle, the way a ctrl+wheel
+arrives as a pinch. A handler that saw no `Began` adds the tick to the current bearing. `location` is the
+centroid of the fingers, or `Point::ZERO` where the platform reports none.
+
+A twist and a pinch are one hand movement, so every backend delivers both from the same two
+fingers rather than choosing one, and a gesture reports each quantity only when it changes.
+Where it comes from: the trackpad's rotate events on macOS (bracketed by the event phases, with
+the magnify recognizer still reading the same gesture), a `UIRotationGestureRecognizer` on iOS
+that recognizes alongside the pinch and two-finger pan, the angle between the first two pointers
+in the same touch handling that feeds Android's `ScaleGestureDetector`,
+[`GtkGestureRotate`](https://docs.gtk.org/gtk4/class.GestureRotate.html) on GTK, native rotate
+gestures on Qt (sharing the pinch's event filter), the same manipulation's rotation on WinUI,
+and a rotation recognizer grouped in parallel with the pinch on ArkUI. In a browser, two fingers
+turn through the same pointer tracking as the pinch, and Safari's
+`gesturestart`/`gesturechange`/`gestureend` events carry a trackpad rotation as a bracketed,
+cumulative angle alongside their scale. A one-finger drag still goes to
+[`.on_drag`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.on_drag), and a
+second finger ends it as it does for a pinch. Fingers turn a little in every pinch, so a handler
+that should not rotate on a zoom ignores turns below a few degrees until the gesture commits to
+one. Keep a visible way back to the default heading (a compass button), as with zoom.
+
 On AppKit, GTK, Qt, DOM, WinUI and ArkUI, a non-canvas container with [`.on_pan`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.on_pan) receives horizontal wheel
 movement over its descendants, while vertical scrolling keeps its native behavior. Android
 containers likewise intercept horizontal pointer-wheel input. Accumulate deltas and suppress

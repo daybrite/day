@@ -170,6 +170,17 @@ pub fn pinch(id: u64, phase: f64, x: f32, y: f32, scale: f32) {
     );
 }
 
+/// A rotation on the gesture wire (phases 13/14/15): the centroid in px and the cumulative
+/// angle in radians, clockwise positive.
+pub fn rotate(id: u64, phase: f64, x: f32, y: f32, radians: f64) {
+    crate::on_event(
+        id,
+        K::Gesture as i32,
+        phase,
+        &format!("{x:.2},{y:.2},{radians:.6},0"),
+    );
+}
+
 unsafe extern "C" fn receiver(ev: *mut ArkUI_NodeEvent) {
     if ev.is_null() {
         return;

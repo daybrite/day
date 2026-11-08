@@ -854,6 +854,34 @@ fn exec(step: Step, revision: u32) -> Reply {
                 emit_pinch(day_spec::DragPhase::Ended, scale);
                 Ok(Reply::ok())
             }
+            Step::Rotate {
+                id,
+                rotation,
+                steps,
+            } => {
+                let node = find(&id)?;
+                let f = with_tree(|t| t.node_frame(node)).unwrap_or_default();
+                let location = day_spec::Point::new(f.size.width / 2.0, f.size.height / 2.0);
+                let n = steps.unwrap_or(4).max(1);
+                let emit_rotate = |phase, r: f64| {
+                    day_core::enqueue_event(
+                        rnode_to_id(node),
+                        Event::Rotate {
+                            phase,
+                            rotation: r,
+                            location,
+                        },
+                    );
+                    day_reactive::flush_sync();
+                };
+                emit_rotate(day_spec::DragPhase::Began, 0.0);
+                // Cumulative since `Began`, as the platforms report it.
+                for i in 1..=n {
+                    emit_rotate(day_spec::DragPhase::Changed, rotation * i as f64 / n as f64);
+                }
+                emit_rotate(day_spec::DragPhase::Ended, rotation);
+                Ok(Reply::ok())
+            }
             Step::Submit { id } => emit(&id, Event::Submitted).map(|()| Reply::ok()),
             Step::Input {
                 id,

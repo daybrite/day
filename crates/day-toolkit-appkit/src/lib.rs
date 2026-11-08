@@ -154,6 +154,14 @@ day_core::tls_group! {
     /// recognizer on macOS either: it is an `NSTrackingArea` plus the three mouse methods, so
     /// like [`PAN_NODES`] this holds the canvases that asked and `DayCanvas` reports for them.
     static HOVER_NODES: SideTable<NodeId> = SideTable::new();
+    /// View ptr → node for `GestureKind::Rotate` (docs/canvas.md "Zoom and pan"). A trackpad
+    /// rotation arrives as `NSEventTypeRotate` events at the view under it, alongside the
+    /// magnify events the pinch recognizer reads, so `DayCanvas::rotateWithEvent:` reports
+    /// it and the two gestures run at once rather than competing as two recognizers would.
+    static ROTATE_NODES: SideTable<NodeId> = SideTable::new();
+    /// Canvas view ptr → the rotation accumulated since the trackpad gesture's `Began`, in
+    /// radians: the events carry per-event degrees, and Day's contract is cumulative.
+    static ROTATE_ANGLE: SideTable<f64> = SideTable::new();
     /// Canvas view ptr → its node, so the view's own `keyDown:` knows who to report to. Every
     /// canvas is registered at realize (unlike [`PAN_NODES`], which only holds the ones that
     /// asked for a pan) because focus, not a gesture, is what decides who hears a key.
@@ -2236,6 +2244,54 @@ define_class!(
         #[unsafe(method(mouseExited:))]
         fn mouse_exited(&self, event: &objc2_app_kit::NSEvent) {
             self.report_hover(event, day_spec::DragPhase::Ended);
+        }
+
+        /// A trackpad rotation (docs/canvas.md "Zoom and pan"). Each event's `rotation` is that
+        /// event's own angle in degrees, counterclockwise positive; Day wants radians, clockwise
+        /// positive, cumulative since `Began`. A gesture is bracketed by the event phases; an
+        /// event with no phase is a lone `Changed` carrying its own angle.
+        #[unsafe(method(rotateWithEvent:))]
+        fn rotate_with_event(&self, event: &objc2_app_kit::NSEvent) {
+            let ptr = (self as *const DayCanvas).cast::<NSView>() as usize;
+            let Some(node) = ROTATE_NODES.with(|t| t.get(ptr)) else {
+                let _: () = unsafe { msg_send![super(self), rotateWithEvent: event] };
+                return;
+            };
+            ffi_guard::contain((), || {
+                let tick = -f64::from(event.rotation()).to_radians();
+                let raw = event.phase();
+                let (phase, rotation) = if raw.contains(objc2_app_kit::NSEventPhase::Began) {
+                    ROTATE_ANGLE.with(|t| t.insert(ptr, tick));
+                    (day_spec::DragPhase::Began, tick)
+                } else if raw.intersects(
+                    objc2_app_kit::NSEventPhase::Ended | objc2_app_kit::NSEventPhase::Cancelled,
+                ) {
+                    let total = ROTATE_ANGLE.with(|t| t.remove(ptr)).unwrap_or(0.0) + tick;
+                    (day_spec::DragPhase::Ended, total)
+                } else if raw.contains(objc2_app_kit::NSEventPhase::Changed) {
+                    let total = ROTATE_ANGLE
+                        .with(|t| {
+                            t.with(ptr, |a| {
+                                *a += tick;
+                                *a
+                            })
+                        })
+                        .unwrap_or(tick);
+                    (day_spec::DragPhase::Changed, total)
+                } else {
+                    (day_spec::DragPhase::Changed, tick)
+                };
+                let win = event.locationInWindow();
+                let loc = self.convertPoint_fromView(win, None);
+                emit(
+                    node,
+                    Event::Rotate {
+                        phase,
+                        rotation,
+                        location: Point::new(loc.x, loc.y),
+                    },
+                );
+            })
         }
 
         #[unsafe(method(scrollWheel:))]
@@ -7430,6 +7486,8 @@ impl AppKit {
         }
         PAN_NODES.with(|t| rekey(t, old_key, new_key));
         HOVER_NODES.with(|t| rekey(t, old_key, new_key));
+        ROTATE_NODES.with(|t| rekey(t, old_key, new_key));
+        ROTATE_ANGLE.with(|t| rekey(t, old_key, new_key));
         KEY_NODES.with(|t| rekey(t, old_key, new_key));
         FOCUSABLE_NODES.with(|t| rekey(t, old_key, new_key));
         CTX_MENU_FNS.with(|t| rekey(t, old_key, new_key));
@@ -11144,6 +11202,13 @@ impl Toolkit for AppKit {
             install_container_pan_monitor();
             return;
         }
+        // Nor is rotation: `DayCanvas::rotateWithEvent:` reads the trackpad's rotate events, so
+        // it runs alongside the magnification recognizer a pinch attaches. Like Pan and Hover,
+        // a rotation enabled on another view emits nothing.
+        if kind == day_spec::GestureKind::Rotate {
+            ROTATE_NODES.with(|t| t.insert(key, node));
+            return;
+        }
         // Nor is hover: it is a tracking area plus `mouseEntered:`/`mouseMoved:`/`mouseExited:`,
         // which only `DayCanvas` overrides — a hover enabled on another view emits nothing, the
         // same limitation Pan has.
@@ -11523,7 +11588,7 @@ impl Toolkit for AppKit {
                     let painted = resources
                         .0
                         .with_installed(|| render_bitmap_cgimage(&ops, size, scale));
-                    // The painter's own cost, apart from the queueing a caller's clock sees.
+                    // The painter's own cost, apart from the queuing a caller's clock sees.
                     log::debug!(
                         "day-toolkit-appkit: bitmap {}x{} painted in {:.1} ms ({} ops)",
                         size.width * scale,

@@ -168,6 +168,18 @@ pub struct Pinch {
     pub location: Point,
 }
 
+/// One rotation-gesture event, delivered to a `.on_rotate(…)` handler (docs/canvas.md "Zoom
+/// and pan").
+#[derive(Clone, Copy, Debug)]
+pub struct Rotate {
+    pub phase: DragPhase,
+    /// Radians, cumulative since `Began` for a two-finger gesture; a trackpad tick is a lone
+    /// `Changed` carrying that tick's own angle. Positive is clockwise on screen.
+    pub rotation: f64,
+    /// The gesture's centroid in canvas coordinates (`Point::ZERO` where unknown, as Pinch does).
+    pub location: Point,
+}
+
 /// One pan-gesture event, delivered to a `.on_pan(…)` handler (docs/shapes.md). `delta` is
 /// the movement since the previous event, so apply it incrementally; a discrete wheel tick
 /// arrives as a lone `Changed`.

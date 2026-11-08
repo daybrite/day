@@ -8615,6 +8615,72 @@ impl Toolkit for Gtk {
                 });
                 h.add_controller(zoom);
             }
+            GestureKind::Rotate => {
+                // GtkGestureRotate (two touches, or a touchpad's pinch-rotate) measures in
+                // y-down widget space, so its angle grows clockwise as Event::Rotate's does.
+                // Its `angle_delta` is taken modulo a full turn, though, so a small turn the
+                // other way reads as nearly 2π: the total is unwrapped here step by step,
+                // which also keeps counting past half a circle.
+                let rotate = gtk4::GestureRotate::new();
+                // (last raw delta, total since Began)
+                let turn = Rc::new(std::cell::Cell::new((0.0f64, 0.0f64)));
+                let center = |g: &gtk4::GestureRotate| {
+                    g.bounding_box_center()
+                        .map(|(x, y)| Point::new(x, y))
+                        .unwrap_or(Point::ZERO)
+                };
+                rotate.connect_begin({
+                    let turn = turn.clone();
+                    move |g, _| {
+                        turn.set((0.0, 0.0));
+                        ffi_guard::contain((), || {
+                            emit(
+                                node,
+                                Event::Rotate {
+                                    phase: DragPhase::Began,
+                                    rotation: 0.0,
+                                    location: center(g),
+                                },
+                            )
+                        });
+                    }
+                });
+                rotate.connect_angle_changed({
+                    let turn = turn.clone();
+                    move |g, _angle, delta| {
+                        let (last, total) = turn.get();
+                        let tau = std::f64::consts::TAU;
+                        let mut step = delta - last;
+                        step -= (step / tau).round() * tau;
+                        let total = total + step;
+                        turn.set((delta, total));
+                        ffi_guard::contain((), || {
+                            emit(
+                                node,
+                                Event::Rotate {
+                                    phase: DragPhase::Changed,
+                                    rotation: total,
+                                    location: center(g),
+                                },
+                            )
+                        });
+                    }
+                });
+                rotate.connect_end(move |g, _| {
+                    let (_, total) = turn.get();
+                    ffi_guard::contain((), || {
+                        emit(
+                            node,
+                            Event::Rotate {
+                                phase: DragPhase::Ended,
+                                rotation: total,
+                                location: center(g),
+                            },
+                        )
+                    });
+                });
+                h.add_controller(rotate);
+            }
             GestureKind::Pan => {
                 // Trackpad two-finger scroll / wheel. Deltas arrive per event; wheel notches
                 // are scaled to a usable pane step. Sign: Event::Pan's delta is the CONTENT

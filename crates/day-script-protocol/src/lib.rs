@@ -168,6 +168,17 @@ pub enum Step {
         #[serde(default)]
         steps: Option<u32>,
     },
+    /// A synthetic two-finger rotation over one element (`.on_rotate`, docs/canvas.md):
+    /// `Began` at 0, `Changed` samples toward `rotation` (radians, positive clockwise),
+    /// `Ended` at `rotation` (cumulative, as the platforms report it), centered on the
+    /// element. Injected, like [`Step::Drag`].
+    Rotate {
+        id: String,
+        rotation: f64,
+        /// `Changed` samples (default 4).
+        #[serde(default)]
+        steps: Option<u32>,
+    },
     /// Deliver `Event::Submitted` to the element: the scripted stand-in for the platform's
     /// submit gesture (Enter in a `text_area` with `.on_submit`, a field's return key).
     Submit {
@@ -701,6 +712,7 @@ impl Step {
             Self::Hover { .. } => "hover",
             Self::Pan { .. } => "pan",
             Self::Pinch { .. } => "pinch",
+            Self::Rotate { .. } => "rotate",
             Self::Submit { .. } => "submit",
             Self::Input { .. } => "input",
             Self::SetValue { .. } => "set_value",

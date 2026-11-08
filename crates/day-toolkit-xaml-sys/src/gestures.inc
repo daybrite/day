@@ -6,9 +6,10 @@
 // Attach a native pointer recognizer to `h`, reporting to cb(id, phase, x, y, tx, ty) with `x,y` in
 // the element's local space (docs/shapes.md). kind 0 = Tap, 1 = LongPress, 2 = Drag, 3 = Hover,
 // 4 = Pinch, 5 = Pan on a canvas (every wheel tick), 6 = Pan on any other container (sideways
-// ticks only; vertical ones keep scrolling natively). Phase codes: 0 Tap, 1 Drag-Began, 2
-// Drag-Changed, 3 Drag-Ended, 4 LongPress,
-// 5/6/7 Pinch Began/Changed/Ended (tx = the scale), 8 Pan (tx,ty = the delta), 10/11/12 Hover
+// ticks only; vertical ones keep scrolling natively), 7 = Rotate. Phase codes: 0 Tap, 1
+// Drag-Began, 2 Drag-Changed, 3 Drag-Ended, 4 LongPress,
+// 5/6/7 Pinch Began/Changed/Ended (tx = the scale), 8 Pan (tx,ty = the delta), 10/11/12 Hover,
+// 13/14/15 Rotate Began/Changed/Ended (tx = cumulative radians, clockwise positive)
 // (matching day-toolkit-winui's on_gesture).
 // Routed events bubble from the shape's Path children up to the Canvas handle, so only the drawn
 // shape is hit (a transparent Canvas isn't hit-testable) — the "hit-test the path" semantic.
@@ -26,6 +27,11 @@ static bool day_manipulation_scaled(float scale) {
     return std::fabs(scale - 1.0f) > 1e-4f;
 }
 
+// A manipulation's rotation (degrees) has left zero: two fingers are turning.
+static bool day_manipulation_rotated(float degrees) {
+    return std::fabs(degrees) > 1e-3f;
+}
+
 void day_xaml_enable_gesture(void* h, unsigned long long id, int kind,
                               void (*cb)(unsigned long long, int, double, double, double,
                                          double)) try {
@@ -33,9 +39,9 @@ void day_xaml_enable_gesture(void* h, unsigned long long id, int kind,
     if (kind == 2) { // Drag → manipulation (translate)
         day_add_manipulation_mode(el, WUXIn::ManipulationModes::TranslateX |
                                           WUXIn::ManipulationModes::TranslateY);
-        // Once the same manipulation scales (a second finger on a pinch target), the drag ends
-        // where it was and the rest of the manipulation is the pinch's: the two fingers never
-        // come out as drags (docs/canvas.md "Zoom and pan").
+        // Once the same manipulation scales or turns (a second finger on a pinch or rotate
+        // target), the drag ends where it was and the rest of the manipulation is theirs: the
+        // two fingers never come out as drags (docs/canvas.md "Zoom and pan").
         auto ended = std::make_shared<bool>(false);
         el.ManipulationStarted(
             [id, cb, ended](WF::IInspectable const&, WUXIn::ManipulationStartedRoutedEventArgs const& a) {
@@ -48,7 +54,8 @@ void day_xaml_enable_gesture(void* h, unsigned long long id, int kind,
                 if (*ended) return;
                 auto p = a.Position();
                 auto t = a.Cumulative().Translation;
-                if (day_manipulation_scaled(a.Cumulative().Scale)) {
+                if (day_manipulation_scaled(a.Cumulative().Scale) ||
+                    day_manipulation_rotated(a.Cumulative().Rotation)) {
                     *ended = true;
                     cb(id, 3, p.X, p.Y, t.X, t.Y);
                     return;
@@ -105,6 +112,37 @@ void day_xaml_enable_gesture(void* h, unsigned long long id, int kind,
                 double factor = std::exp(pt.Properties().MouseWheelDelta() / 1200.0);
                 cb(id, 6, p.X, p.Y, factor, 0);
                 a.Handled(true);
+            });
+    } else if (kind == 7) {
+        // Rotate → the same manipulation's rotation (two fingers, or a precision touchpad),
+        // in degrees clockwise and cumulative since the manipulation started, reported in
+        // radians from a Began that waits for the angle to leave zero, as the pinch waits for
+        // its scale: a one-finger drag or a pure pinch through the same manipulation must not
+        // come out as a rotation (docs/canvas.md "Zoom and pan").
+        day_add_manipulation_mode(el, WUXIn::ManipulationModes::Rotate);
+        constexpr double kRadians = 3.14159265358979323846 / 180.0;
+        auto active = std::make_shared<bool>(false);
+        el.ManipulationStarted(
+            [active](WF::IInspectable const&, WUXIn::ManipulationStartedRoutedEventArgs const&) {
+                *active = false;
+            });
+        el.ManipulationDelta(
+            [id, cb, active](WF::IInspectable const&, WUXIn::ManipulationDeltaRoutedEventArgs const& a) {
+                auto p = a.Position();
+                auto r = a.Cumulative().Rotation;
+                if (!*active) {
+                    if (!day_manipulation_rotated(r)) return;
+                    *active = true;
+                    cb(id, 13, p.X, p.Y, 0.0, 0);
+                }
+                cb(id, 14, p.X, p.Y, r * kRadians, 0);
+            });
+        el.ManipulationCompleted(
+            [id, cb, active](WF::IInspectable const&, WUXIn::ManipulationCompletedRoutedEventArgs const& a) {
+                if (!*active) return;
+                *active = false;
+                auto p = a.Position();
+                cb(id, 15, p.X, p.Y, a.Cumulative().Rotation * kRadians, 0);
             });
     } else if (kind == 5 || kind == 6) {
         // Pan → wheel ticks (a mouse's notches, a precision touchpad's two-finger scroll), each

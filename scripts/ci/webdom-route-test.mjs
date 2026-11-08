@@ -10,7 +10,7 @@ const source = fs.readFileSync(new URL('../../crates/day-cli/resources/web/shim.
 test('app route echoes compare against the browser-normalized hash', () => {
   const location = new URL('https://fixture.invalid/app?test=1');
   const context = vm.createContext({
-    TextEncoder, TextDecoder, Blob, location,
+    TextEncoder, TextDecoder, Blob, location, URLSearchParams,
     document: {addEventListener() {}}, ResizeObserver: class {},
     history: {
       replaceState(_state, _title, url) { location.href = new URL(url, location).href; },

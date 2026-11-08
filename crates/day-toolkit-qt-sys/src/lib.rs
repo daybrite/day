@@ -445,8 +445,9 @@ unsafe extern "C" {
     pub fn day_qt_register_resource(path: *const c_char);
     pub fn day_qt_resource_data(respath: *const c_char, out_len: *mut usize) -> *const c_void;
     pub fn day_qt_resource_exists(respath: *const c_char) -> c_int;
-    // kind: 0 tap, 1 drag, 2 pinch, 3 pan. Callback phase codes: 0 tap; 1..=3 drag
-    // began/changed/ended; 4..=6 pinch (tx = cumulative scale); 7..=9 pan (tx/ty = delta).
+    // kind: 0 tap, 1 drag, 2 pinch, 3 pan, 4 hover, 5 rotate. Callback phase codes: 0 tap;
+    // 1..=3 drag began/changed/ended; 4..=6 pinch (tx = cumulative scale); 7..=9 pan (tx/ty =
+    // delta); 10..=12 hover; 13..=15 rotate (tx = cumulative radians, clockwise positive).
     pub fn day_qt_enable_gesture(
         w: *mut c_void,
         node: u64,
