@@ -1457,6 +1457,9 @@ WASM records and the sentinel also emit unique inert export anchors through a sm
 `#[used]` alone does not guarantee that. The `id!` call surface remains a declarative macro,
 with no build scanner or separate declaration list. Native registration already uses linkme's
 procedural attribute. Debug and stripped-LTO retention are regression-tested in CI.
+The element-ID and conformance retention fixtures are standalone Cargo workspaces with separate
+lockfiles. The shared host lint gate validates both with Cargo's locked resolver, including
+target-specific dependencies, before running Clippy.
 A compiled but wholly unlinked dependency contributes nothing; ordinary unused helpers in
 linked crates still declare IDs. Registry normalization sorts and deduplicates matching
 records and rejects conflicting shape or package ownership. Debug native records include

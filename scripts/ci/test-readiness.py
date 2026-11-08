@@ -173,7 +173,19 @@ class ReadinessTests(unittest.TestCase):
         host_calls = log.read_text().splitlines()
         self.assertTrue(host_calls, "host-clippy.sh must run Clippy")
         self.assertTrue(any(call.startswith("clippy ") for call in host_calls), host_calls)
-        self.assertTrue(all(call.startswith(("clippy ", "run --locked ")) for call in host_calls), host_calls)
+        self.assertTrue(
+            all(call.startswith(("metadata --locked ", "clippy ", "run --locked "))
+                for call in host_calls),
+            host_calls,
+        )
+        for fixture in ("element-ids", "conformance"):
+            manifest = f"--manifest-path crates/day-core/tests/fixtures/{fixture}/Cargo.toml"
+            self.assertEqual(
+                sum(call.startswith("metadata --locked ") and manifest in call
+                    for call in host_calls),
+                1,
+                host_calls,
+            )
         self.assertEqual(sum(call.startswith("run ") for call in host_calls), 1)
         self.assertIn("--manifest-path apps/conformance/Cargo.toml", host_calls[-1])
         # A failing regression suite must stop the local gate before invoking Cargo.
@@ -186,8 +198,8 @@ class ReadinessTests(unittest.TestCase):
         self.assertEqual(log.read_text(), "")
         self.env["DAY_TEST_SUITE_EXIT"] = "0"
         expected = ["fmt --all -- --check", *host_calls]
-        # Fail each individual invocation, including later Clippy combinations, and require the
-        # gate to stop there. A command-name failure only tested the first Clippy invocation.
+        # Fail each invocation, including fixture resolution and later Clippy combinations, and
+        # require the gate to stop there. A command-name failure only tested the first Clippy call.
         for fail_at in range(len(expected) + 1):
             with self.subTest(fail_at=fail_at):
                 self.env["DAY_TEST_FAIL_AT"] = str(fail_at)

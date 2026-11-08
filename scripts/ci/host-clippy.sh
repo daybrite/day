@@ -7,6 +7,11 @@ cd "$(dirname "$0")/../.."
 
 # Match CI even when invoked from a shell without its warning policy.
 export RUSTFLAGS="${RUSTFLAGS:+$RUSTFLAGS }-D warnings"
+# These standalone retention fixtures have separate locks, including target-specific dependencies.
+for fixture in element-ids conformance; do
+    cargo metadata --locked --format-version 1 \
+        --manifest-path "crates/day-core/tests/fixtures/$fixture/Cargo.toml" > /dev/null
+done
 cargo clippy --locked --all-targets "$@"
 # No workspace member enables dyn-registry; its consumer (day-lite) is a separate repo.
 cargo clippy --locked -p day-cli -p day-script -p day-pieces \
