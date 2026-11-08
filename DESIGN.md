@@ -1092,6 +1092,29 @@ that group. The `absolute_route_replaces_remembered_path_in_newly_mounted_stack`
 in [mock_e2e.rs](crates/day-pieces/tests/mock_e2e.rs) covers replacement, preservation on a
 bare reopen, and returning to the root with one Back action on every toolkit.
 
+`min_height` mirrors `min_width`: it floors the offered and measured height, preserves the
+width, and permits overflow rather than silently violating its minimum. Its baseline uses
+the size assigned to the child. A conflicting outer maximum caps the proposal but does not
+cancel an inner minimum.
+
+`width`, `height`, and `frame` accept `IntoReactive<f64>` sources. `ReactiveFrameLayout` holds
+sanitized values in a `Cell`; scoped seeded bindings update those values and invalidate
+measurement without remounting native children. Negative/non-finite extents become zero.
+A constant two-axis frame remains a boundary; reactive frames are not boundaries, so size
+changes invalidate ancestors and reposition siblings. Layout never reads signals while the
+tree is borrowed. Bindings are disposed with the wrapper's scope. Regression coverage lives
+in `reactive_frame_*`, `reactive_size_bindings_*`, and `minimum_height_*` mock tests.
+
+`system_color(SystemColor)` reads a cached reactive app-wide palette. The toolkit supplies
+colors through `Toolkit::system_color`; its default is a fixed light/dark fallback. Tree
+installation seeds the palette outside draw callbacks and refreshes it on remount. Appearance
+notifications refresh colors even when dark mode is unchanged. AppKit resolves NSColors in
+the app's effective appearance and watches system-color changes; UIKit resolves its semantic
+colors against the app's light/dark style; DOM resolves Day CSS variables to sRGB. Other
+backends use the documented fallback. Per-window appearance, control-specific tints, and
+UIKit contrast traits are not included. The existing semantic native text/surface APIs remain
+unchanged. See [styling](website/src/content/docs/styling.md#platform-colors-for-custom-artwork).
+
 Sizing and placement have separate modifiers. `Dimension::{Width, Height, Both}` selects
 expansion through `.grow(dimension)`; `Axis` still describes one direction. The previous
 zero-argument `.grow()` becomes `.grow(Dimension::Both)`. `.grow_w()` and `.grow_h()` are
@@ -1157,7 +1180,7 @@ The stepper's `.id()` names its interactive field in both idioms, wherever it si
 Both idioms are tested using the public `.id()` API, including range clamping and the
 preview/commit boundary.
 
-`Stepper::format(display, parse)` adds application-defined display text and committed-input
+`Stepper::format_with(display, parse)` adds application-defined display text and committed-input
 parsing. The formatter accepts `Into<String>` results, including generated Fluent messages,
 and runs inside the text field's tracked read so locale dependencies refresh the display.
 The parser returns `Option<f64>`; rejected or non-finite results do not write the binding,
@@ -1167,7 +1190,14 @@ Custom formatting always uses the composed control, overriding idiom and decimal
 native numeric stepper renderers have no application formatter/parser callback contract.
 Numeric events and arrow increments retain the binding's units. The `formatted_*` stepper
 tests cover rejected edits, commit counts, range clamping, reactive formatter dependencies,
-and numeric events. The website demo additionally tests Fluent percentages in real browsers.
+and numeric events. `Stepper::format(NumberFormat)` uses day-localization's shared decimal/
+percent format. `number_field` uses the same committed-input binding without step buttons.
+Both preserve drafts until commit, reject malformed/non-finite input and clamp valid values.
+Locale/value changes refresh the display even during editing. `NumberFormat` derives digits,
+separators and grouping from the existing ICU formatter, validates grouped input against that
+locale, accepts ASCII digits and percent notation, and exposes tracked and explicit-locale
+format/parse methods. Fraction precision affects display only; currency and exponent parsing
+are outside this API. See [docs/localization.md](docs/localization.md#editable-numbers).
 
 Example — the shipped composition idiom (from the showcase's Controls page; the live app is the
 complete reference, [Appendix A](#appendix-a--the-showcase-app-end-to-end)):
@@ -6437,7 +6467,11 @@ triggers retain their existing behavior.
    last two jobs of `ci.yml` gated on nine platform legs so it could download their
    `screenshots-<combo>` artifacts (a docs typo cost an hour behind an Android emulator), then its
    own `website.yml` (2026-09), then folded back as ungated jobs so one workflow carries every
-   check. The gallery is now assembled from the machine-readable index each Day app's
+   check. Before building the site, CI compiles the authored documentation recipes and priority
+   excerpts against the checkout. Recipes must match rustfmt; excerpt fixtures supply the
+   surrounding variables and generated message catalog, and must follow changes to the guide's
+   code blocks. API-reference coverage then checks callable mentions outside fenced examples.
+   The gallery is now assembled from the machine-readable index each Day app's
    OWN site publishes (`day screenshot index`, [§14.7](#147-screenshot-metadata-and-the-gallery-index)),
    which carries every capture's absolute URL, shot id, localized title and caption, source path,
    platform-toolkit, device, theme, locale and pixel size. A site publishes two, one per build
@@ -6525,12 +6559,12 @@ triggers retain their existing behavior.
    `.cache/docs/` sessions with copied lockfiles. The tutorial image/source check runs on every
    site build and dev-server startup for the captures retained on `/examples`.
    The landing page's live Rust example comes from `apps/website-controls`: a slider, editable
-   stepper, progress bar, rounded rectangle's opacity, and Reset button share a 0–1 signal.
-   The heading and editable stepper use Fluent percentage messages; the demo's
-   English-input parser converts percentage points back to fractions. An
-   app-local `primary_tint()` helper receives the web control's computed accent color through
-   the existing appearance bridge; native builds use the app's blue. This helper is not a
-   framework API for querying native accent colors. The Astro live-demo integration
+   stepper, progress bar, rectangle's hue, and Reset button share a 0–1 signal.
+   The heading uses a Fluent percentage message; the editable stepper uses `NumberFormat::percent()`.
+   The rectangle maps the signal to an HSL hue. A spacer separates the value label
+   from the progress bar. The browser bridge forwards only appearance changes; numeric parsing
+   lives in Day.
+   The Astro live-demo integration
    builds this checkout's CLI with Cargo, compiles the app for web-dom, and extracts its actual
    root function for display beside an iframe. Source and output hashes permit cached builds
    for page-only edits. The iframe uses native `loading="lazy"` with browser-controlled fetch

@@ -440,3 +440,26 @@ Use the same element IDs across locales and pass message arguments through the a
 script per locale. A reusable `dayapp.yml` job takes the locale list in its `locales` input, or
 `all`, which is every locale the app ships — `day localize add` then reaches CI too, since both
 lists are read from `resource/locales/`.
+
+## Editable numbers
+
+[`NumberFormat`](https://docs.rs/day-localization/latest/day_localization/struct.NumberFormat.html)
+pairs locale-aware display with input parsing. It is available from `day::prelude::*` and is
+shared by [steppers](/docs/reference/stepper#formatted-values) and
+[numeric text fields](/docs/reference/textfield#numeric-input).
+
+- [`NumberFormat::decimal()`](https://docs.rs/day-localization/latest/day_localization/struct.NumberFormat.html#method.decimal) displays two fraction digits.
+- [`NumberFormat::percent()`](https://docs.rs/day-localization/latest/day_localization/struct.NumberFormat.html#method.percent) displays a fraction as a percentage with no fraction digits.
+- [`.fraction_digits(n)`](https://docs.rs/day-localization/latest/day_localization/struct.NumberFormat.html#method.fraction_digits) sets display precision, capped at 20. Parsing keeps entered precision.
+- [`.format(value)`](https://docs.rs/day-localization/latest/day_localization/struct.NumberFormat.html#method.format) and [`.parse(text)`](https://docs.rs/day-localization/latest/day_localization/struct.NumberFormat.html#method.parse) use the current locale; the formatter tracks locale changes.
+- [`.format_in(locale, value)`](https://docs.rs/day-localization/latest/day_localization/struct.NumberFormat.html#method.format_in) and [`.parse_in(locale, text)`](https://docs.rs/day-localization/latest/day_localization/struct.NumberFormat.html#method.parse_in) use an explicit locale.
+
+Parsing accepts the locale's digits and ASCII digits, its decimal separator, optional grouping,
+and a leading sign. Grouping must match the locale: `1.234,5` is valid German input, but `1.5`
+is rejected rather than interpreted as either `1.5` or `15`. Whitespace grouping accepts ordinary
+spaces as well as the locale's nonbreaking space. Percent input accepts an optional ASCII or
+Arabic percent sign at either end; `40` still means `0.4` with a percentage format.
+
+Empty input, unfinished numbers, scientific notation, currency, units, and non-finite values
+return `None`. Fluent remains the place for application-owned messages and units; `NumberFormat`
+handles numeric notation without requiring a message for each editable value.

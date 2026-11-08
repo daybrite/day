@@ -152,3 +152,25 @@ Details that differ by platform:
 - **web** keeps `type="text"` for every purpose and picks the keyboard with `inputmode`. The typed
   inputs (`email`, `url`, `number`) trim or coerce what the user types, and a controlled input
   has to hold exactly the text it reports.
+
+## Numeric input
+
+[`number_field(value)`](https://docs.rs/day-pieces/latest/day_pieces/fn.number_field.html) binds a native
+text field to a numeric signal or other `Binding<f64>`. It uses decimal formatting with two
+fraction digits by default:
+
+```rust
+let value = Signal::new(0.4);
+number_field(value)
+    .range(0.0..=1.0)
+    .format(NumberFormat::percent())
+```
+
+Typing preserves incomplete input until Return or focus loss. Committing a valid number writes
+the binding once and clamps to the range; rejected input restores the previous formatted value.
+Locale and bound-value changes refresh the displayed text. The control supports generic
+modifiers such as [`.focused(...)`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.focused), [`.a11y(...)`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.a11y), and [`.min_width(...)`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.min_width); text-field-specific
+builders are not forwarded by this numeric wrapper.
+
+See [editable numbers](/docs/reference/localization#editable-numbers) for parsing rules and
+[steppers](/docs/reference/stepper#formatted-values) to add increment/decrement buttons.

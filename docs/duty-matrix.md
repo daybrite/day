@@ -83,6 +83,7 @@ implement them, and this table proves it.
 | [`open_url_with_application`](https://docs.rs/day-spec/latest/day_spec/trait.Toolkit.html#method.open_url_with_application) | · | ✓ | · | · | · | · | · | · | · | · |
 | [`defer_system_gestures`](https://docs.rs/day-spec/latest/day_spec/trait.Toolkit.html#method.defer_system_gestures) | · | · | ✓ | · | · | · | ✓ | · | · | ✓ |
 | [`set_status_bar_hidden`](https://docs.rs/day-spec/latest/day_spec/trait.Toolkit.html#method.set_status_bar_hidden) | · | · | ✓ | · | · | · | ✓ | ✓ | · | ✓ |
+| [`system_color`](https://docs.rs/day-spec/latest/day_spec/trait.Toolkit.html#method.system_color) | · | ✓ | ✓ | · | · | · | · | · | ✓ | ✓ |
 | [`dark_mode`](https://docs.rs/day-spec/latest/day_spec/trait.Toolkit.html#method.dark_mode) | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · |
 | [`reduce_motion`](https://docs.rs/day-spec/latest/day_spec/trait.Toolkit.html#method.reduce_motion) | · | ✓ | ✓ | ✓ | · | ✓ | ✓ | ✓ | ✓ | ✓ |
 | [`set_appearance`](https://docs.rs/day-spec/latest/day_spec/trait.Toolkit.html#method.set_appearance) | · | ✓ | ✓ | ✓ | · | ✓ | ✓ | ✓ | ✓ | · |

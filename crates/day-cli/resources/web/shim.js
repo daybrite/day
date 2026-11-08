@@ -2041,6 +2041,26 @@ const env = {
       case 'tz': v = q.get('tz') ?? (Intl.DateTimeFormat().resolvedOptions().timeZone || ''); break;
       // The offset that zone is running at, in minutes east of UTC, for the current instant.
       case 'tzoffset': v = String(tzOffsetMinutes(Date.now())); break;
+      case 'system_color_0': case 'system_color_1': case 'system_color_2':
+      case 'system_color_3': case 'system_color_4': {
+        const variable = ['--day-accent', '--day-fg', '--day-fg-dim', '--day-bg', '--day-card-bg'][Number(key.at(-1))];
+        // Resolve any CSS color syntax to sRGB through the browser's own color parser.
+        const probe = document.createElement('span');
+        probe.style.color = `var(${variable})`;
+        probe.hidden = true;
+        document.documentElement.append(probe);
+        const color = getComputedStyle(probe).color;
+        probe.remove();
+        const canvas = document.createElement('canvas');
+        canvas.width = canvas.height = 1;
+        const context = canvas.getContext('2d', { willReadFrequently: true });
+        if (context) {
+          context.fillStyle = color;
+          context.fillRect(0, 0, 1, 1);
+          v = Array.from(context.getImageData(0, 0, 1, 1).data, n => n / 255).join(',');
+        }
+        break;
+      }
       default:
         // Reserved `vector:` keys answer "is `<name>` a bundled vector glyph?" from the list
         // the assemble step injects into the page (docs/vectors.md): '1' or empty.

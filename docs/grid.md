@@ -41,7 +41,10 @@ pub fn details(name: Signal<String>, location: Signal<String>) -> impl Piece {
     grid((
         label(res::str::grid_details()),
         grid_row((label(res::str::grid_name()), label(name))),
-        grid_row((label(res::str::grid_location()), label(location).grow(Dimension::Width))),
+        grid_row((
+            label(res::str::grid_location()),
+            label(location).grow(Dimension::Width),
+        )),
         grid_row((label(res::str::grid_note()).grid_span(2).padding(4.0),)),
     ))
     .column_spacing(16.0)

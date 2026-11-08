@@ -216,6 +216,9 @@ day_reactive::tls_slots! {
     static EDIT_ACTION_IDS: std::cell::Cell<(u64, u64, u64, u64)> =
         const { std::cell::Cell::new((0, 0, 0, 0)) };
 
+    static PALETTE_SIGNAL: std::cell::OnceCell<day_reactive::Signal<[day_spec::Color; 5]>> =
+        const { std::cell::OnceCell::new() };
+
     static DARK_SIGNAL: std::cell::OnceCell<day_reactive::Signal<bool>> =
         const { std::cell::OnceCell::new() };
 
@@ -1026,6 +1029,25 @@ pub fn dark_mode() -> bool {
     dark_signal().get()
 }
 
+/// Resolve an app-wide semantic color, tracking appearance changes. Pass a closure to a
+/// reactive modifier: `.fill(|| day::system_color(SystemColor::Accent))`.
+/// A direct call returns a snapshot. Per-window overrides and local control tints are not
+/// represented. See the styling guide for native mappings and fallback toolkits.
+pub fn system_color(role: day_spec::SystemColor) -> day_spec::Color {
+    PALETTE_SIGNAL.with(|cell| {
+        let signal = cell.get_or_init(|| {
+            let colors = read_system_palette();
+            day_reactive::Scope::detached().enter(|| day_reactive::Signal::new(colors))
+        });
+        signal.get()[role as usize]
+    })
+}
+
+fn read_system_palette() -> [day_spec::Color; 5] {
+    tree::try_with_tree(|t| day_spec::SystemColor::ALL.map(|role| t.system_color(role)))
+        .unwrap_or_else(|| day_spec::SystemColor::ALL.map(|role| role.fallback(false)))
+}
+
 /// The platform's font families with their faces (docs/fonts.md), enumerated once per
 /// process through `Toolkit::font_families` and cached: the answer is stable for the process
 /// (bundled fonts register before the tree exists, and nothing tracks a system font install
@@ -1288,6 +1310,12 @@ pub fn note_appearance_changed() {
     // use; skip rather than panic inside a native callback.
     if let Some(d) = tree::try_with_tree(|t| t.dark_mode()) {
         dark_signal().set(d);
+        // A system accent can change without a light/dark transition.
+        PALETTE_SIGNAL.with(|cell| {
+            if let Some(signal) = cell.get() {
+                signal.set(read_system_palette());
+            }
+        });
     }
 }
 

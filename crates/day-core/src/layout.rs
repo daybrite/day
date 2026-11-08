@@ -1756,6 +1756,38 @@ impl Layout for MinWidthLayout {
     }
 }
 
+/// A minimum height that allows taller content and preserves the child's width.
+/// If the parent offers less than the minimum, the child overflows instead of shrinking.
+pub struct MinHeightLayout {
+    pub min: f64,
+}
+
+impl Layout for MinHeightLayout {
+    fn measure(&self, cx: &mut dyn LayoutOps, children: &[RNode], p: Proposal) -> Size {
+        let floored = Proposal::new(p.width, p.height.map(|h| h.max(self.min)));
+        match children.first() {
+            Some(&c) => {
+                let s = cx.measure_child(c, floored);
+                Size::new(s.width, s.height.max(self.min))
+            }
+            None => Size::new(0.0, self.min),
+        }
+    }
+    fn place(&self, cx: &mut dyn LayoutOps, children: &[RNode], bounds: Rect) {
+        if let Some(&c) = children.first() {
+            let height = bounds.size.height.max(self.min);
+            let size = cx.measure_child(c, Proposal::exact(Size::new(bounds.size.width, height)));
+            cx.place_child(c, Rect::from_size(Size::new(size.width, height)));
+        }
+    }
+    fn baseline(&self, cx: &mut dyn LayoutOps, children: &[RNode], size: Size) -> Option<f64> {
+        let &child = children.first()?;
+        let height = size.height.max(self.min);
+        let measured = cx.measure_child(child, Proposal::exact(Size::new(size.width, height)));
+        cx.baseline_of(child, Size::new(measured.width, height))
+    }
+}
+
 /// Reserve at least the size of a sample child, then lay the content out inside it.
 ///
 /// The problem it solves: a numeric readout beside a slider changes width as the value changes

@@ -812,6 +812,7 @@ pub trait TreeOps {
     fn node_exists(&self, node: RNode) -> bool;
     /// Whether the platform renders in dark appearance (see `Toolkit::dark_mode`).
     fn dark_mode(&mut self) -> bool;
+    fn system_color(&mut self, role: day_spec::SystemColor) -> day_spec::Color;
     /// Whether the user asked for less motion (see `Toolkit::reduce_motion`).
     fn reduce_motion(&mut self) -> bool;
     /// Apply an app-level appearance override (see `Toolkit::set_appearance`).
@@ -1584,6 +1585,10 @@ impl<B: Toolkit> TreeOps for Tree<B> {
     fn node_exists(&self, node: RNode) -> bool {
         self.nodes.contains_key(node)
     }
+    fn system_color(&mut self, role: day_spec::SystemColor) -> day_spec::Color {
+        self.toolkit.system_color(role)
+    }
+
     fn dark_mode(&mut self) -> bool {
         self.toolkit.dark_mode()
     }
@@ -3172,6 +3177,9 @@ pub fn install_tree(tree: Box<dyn TreeOps>) {
     // A fresh mount starts with no route hosts; nav()/tabs() re-register during build.
     crate::nav::clear_controllers();
     TREE.with(|t| *t.borrow_mut() = Some(tree));
+    // Seed colors outside layout/draw callbacks, and refresh across activity recreation.
+    crate::note_appearance_changed();
+    let _ = crate::system_color(day_spec::SystemColor::Accent);
     // Read the export answers now, while the tree is free, so a context menu built inside a
     // later borrow finds them (`image::canvas_exports`).
     let _ = crate::image::canvas_exports();

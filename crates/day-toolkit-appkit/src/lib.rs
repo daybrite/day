@@ -8164,6 +8164,34 @@ impl Toolkit for AppKit {
 
     type Handle = Handle;
 
+    fn system_color(&mut self, role: day_spec::SystemColor) -> day_spec::Color {
+        use day_spec::SystemColor;
+        let result = std::cell::Cell::new(role.fallback(self.dark_mode()));
+        let block = block2::StackBlock::new(|| {
+            let color = match role {
+                SystemColor::Accent => NSColor::controlAccentColor(),
+                SystemColor::Text => NSColor::labelColor(),
+                SystemColor::SecondaryText => NSColor::secondaryLabelColor(),
+                SystemColor::Background => NSColor::windowBackgroundColor(),
+                SystemColor::Surface => NSColor::controlBackgroundColor(),
+            };
+            if let Some(rgb) =
+                color.colorUsingColorSpace(&objc2_app_kit::NSColorSpace::sRGBColorSpace())
+            {
+                result.set(day_spec::Color::rgba(
+                    rgb.redComponent(),
+                    rgb.greenComponent(),
+                    rgb.blueComponent(),
+                    rgb.alphaComponent(),
+                ));
+            }
+        });
+        NSApplication::sharedApplication(self.mtm())
+            .effectiveAppearance()
+            .performAsCurrentDrawingAppearance(&block);
+        result.get()
+    }
+
     fn dark_mode(&mut self) -> bool {
         // The app's EFFECTIVE appearance — one source for the system setting, the DAY_THEME
         // launch force (applied as an NSApp override at startup), and a set_appearance call.
@@ -12817,6 +12845,13 @@ fn install_appearance_observer() {
             .exec_async(|| ffi_guard::contain((), day_core::note_appearance_changed));
     });
     let name = NSString::from_str("AppleInterfaceThemeChangedNotification");
+    let token = unsafe {
+        center.addObserverForName_object_queue_usingBlock(Some(&name), None, None, &block)
+    };
+    std::mem::forget(token);
+    // Accent and contrast changes can leave the appearance name unchanged.
+    let center = objc2_foundation::NSNotificationCenter::defaultCenter();
+    let name = NSString::from_str("NSSystemColorsDidChangeNotification");
     let token = unsafe {
         center.addObserverForName_object_queue_usingBlock(Some(&name), None, None, &block)
     };

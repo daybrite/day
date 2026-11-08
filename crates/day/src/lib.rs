@@ -26,7 +26,7 @@ pub use day_core::frame;
 pub use day_core::{
     AnyPiece, Blocking, BlockingError, BuildCx, Piece, PieceSeq, TaskHandle, blocking_limit,
     blocking_threads, dark_mode, reduce_motion, safe_area, set_app_badge, set_appearance,
-    size_class, sleep, spawn_blocking, task,
+    size_class, sleep, spawn_blocking, system_color, task,
 };
 pub use day_core::{AssetDir, AssetName, FontFamily, ImageName, Resource, VectorName, resource};
 /// Raster images from bytes (docs/images.md): decode an encoded PNG or JPEG the app already
@@ -113,7 +113,7 @@ pub use day_spec::{AppProgress, StatusImage};
 // Displays (docs/windows.md "Monitors") and launcher shortcuts set while the app runs
 // (docs/deep-links.md).
 pub use day_core::{monitors, set_launcher_shortcuts};
-pub use day_spec::{LauncherShortcut, Monitor};
+pub use day_spec::{LauncherShortcut, Monitor, SystemColor};
 // Window properties (docs/windows.md) and chrome (docs/window-chrome.md): what a window's
 // `state()` signal holds, how it stacks, how it joins macOS window tabs, and the frame and
 // background it opens with.

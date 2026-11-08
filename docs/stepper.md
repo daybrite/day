@@ -57,53 +57,45 @@ labeled(
 - **[`.native()`](https://docs.rs/day-pieces/latest/day_pieces/stepper/struct.Stepper.html#method.native) / [`.composed()`](https://docs.rs/day-pieces/latest/day_pieces/stepper/struct.Stepper.html#method.composed) / [`.idiom(…)`](https://docs.rs/day-pieces/latest/day_pieces/stepper/struct.Stepper.html#method.idiom)** pin one idiom; the default is `Automatic`:
   native where an arm exists ([`support()`](https://docs.rs/day-pieces/latest/day_pieces/stepper/fn.support.html) answers `Native` on appkit, gtk, qt), composed
   everywhere else. `Native` is literal: pinned on a toolkit with no renderer it draws Day's
-  visible placeholder. A custom `.format()` uses the composed control regardless of this setting.
+  visible placeholder. A custom [`.format()`](https://docs.rs/day-pieces/latest/day_pieces/stepper/struct.Stepper.html#method.format) uses the composed control regardless of this setting.
 - **[`.id(…)`](https://docs.rs/day-pieces/latest/day_pieces/stepper/struct.Stepper.html#method.id)** names the interactive field for dayscript on both idioms, wherever it sits in the
   chain.
 
 ## Formatted values
 
-Use `.format(display, parse)` when the field's text differs from its stored number. The display
-function can return a generated Fluent message. The parser returns `Some(number)` for a valid
-edit or `None` to reject it. Percentages can store `0.4` while displaying `40%`:
-
-```ftl
-percentage = { NUMBER($value, style: "percent", maximumFractionDigits: 0) }
-```
+Use [`.format(NumberFormat::percent())`](https://docs.rs/day-pieces/latest/day_pieces/stepper/struct.Stepper.html#method.format)
+to display and edit percentages while storing a fraction:
 
 ```rust
 let value = Signal::new(0.4);
 stepper(value)
     .range(0.0..=1.0)
     .step(0.01)
-    .format(res::str::percentage, parse_percentage)
+    .format(NumberFormat::percent())
 ```
 
-Here `parse_percentage` is an app function. For an English catalog, it can accept `40` or `40%`
-as `0.4`:
+[`NumberFormat::decimal()`](https://docs.rs/day-localization/latest/day_localization/struct.NumberFormat.html#method.decimal) defaults to two fraction digits; [`NumberFormat::percent()`](https://docs.rs/day-localization/latest/day_localization/struct.NumberFormat.html#method.percent) defaults
+to none. Set a different precision with [`.fraction_digits(1)`](https://docs.rs/day-localization/latest/day_localization/struct.NumberFormat.html#method.fraction_digits). Formatting and parsing use the
+current locale's separators and digits. ASCII digits are accepted too. For percentages, `40`
+and `40%` both represent `0.4`; in German, `40,5 %` represents `0.405`.
 
-```rust
-fn parse_percentage(text: &str) -> Option<f64> {
-    let text = text.trim_matches(|c: char| c.is_whitespace() || matches!(c, '\u{2068}' | '\u{2069}'));
-    text.strip_suffix('%')
-        .unwrap_or(text)
-        .trim()
-        .parse::<f64>()
-        .ok()
-        .map(|value| value / 100.0)
-}
-```
+Return or focus loss commits the edit and restores formatted text. While typing, unfinished
+input leaves the number unchanged. Invalid input, non-finite numbers, and malformed grouping
+are rejected; valid numbers clamp to the configured range. A locale or bound-value change
+refreshes the displayed text, including during editing. Arrow clicks and DayScript `set_value`
+use the stored units (`0.01` is one percentage point here).
 
-Apps with other locales need a parser that accepts their digits, decimal separators, and
-percent notation; Fluent formats messages but does not parse user input.
+Formatted steppers use Day's composed −/field/+ control on every toolkit, overriding
+[`.native()`](https://docs.rs/day-pieces/latest/day_pieces/stepper/struct.Stepper.html#method.native), [`.idiom()`](https://docs.rs/day-pieces/latest/day_pieces/stepper/struct.Stepper.html#method.idiom), and [`.decimals()`](https://docs.rs/day-pieces/latest/day_pieces/stepper/struct.Stepper.html#method.decimals). The field and buttons remain native controls.
 
-Return or focus loss commits the edit and restores formatted text. Invalid and non-finite
-results leave the value unchanged; valid numbers clamp to the configured range. The formatter
-tracks reactive reads, so a locale change refreshes the field. Arrow clicks and DayScript
-`set_value` use the stored units (`0.01` is one percentage point here).
+For application-specific notation, [`.format_with(display, parse)`](https://docs.rs/day-pieces/latest/day_pieces/stepper/struct.Stepper.html#method.format_with)
+accepts a display function returning a string or generated Fluent message and a parser returning
+`Option<f64>`. Earlier code passed these callbacks to the format method; rename those calls to format_with.
+Keep units and other application-owned text in the Fluent catalog.
 
-Custom formatting uses Day's composed −/field/+ control on every toolkit, overriding
-`.native()`, `.idiom()`, and `.decimals()`. The field and buttons still use native controls.
+Use [`number_field(value)`](/docs/reference/textfield#numeric-input) for the same locale-aware
+editing without step buttons. See [numeric formats](/docs/reference/localization#editable-numbers)
+for the accepted notation and explicit-locale methods.
 
 ## Platform guidance
 

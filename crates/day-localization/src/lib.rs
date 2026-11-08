@@ -33,6 +33,8 @@ use unic_langid::LanguageIdentifier;
 mod collate;
 mod datetime;
 mod decimal;
+mod number;
+pub use number::NumberFormat;
 mod intl;
 mod search;
 

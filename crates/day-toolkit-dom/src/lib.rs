@@ -3781,6 +3781,19 @@ impl Toolkit for Dom {
         unsafe { day_dom_open_url(url.as_ptr(), url.len()) };
     }
 
+    fn system_color(&mut self, role: day_spec::SystemColor) -> day_spec::Color {
+        let key = format!("system_color_{}", role as u8);
+        let rgba: Vec<f64> = env(&key)
+            .split(',')
+            .filter_map(|s| s.parse().ok())
+            .collect();
+        if let [r, g, b, a] = rgba.as_slice() {
+            day_spec::Color::rgba(*r, *g, *b, *a)
+        } else {
+            role.fallback(self.dark_mode())
+        }
+    }
+
     fn dark_mode(&mut self) -> bool {
         DARK.with(|d| d.get())
     }

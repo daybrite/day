@@ -119,7 +119,7 @@ impl<V: Binding<f64>> Stepper<V> {
     /// Custom formatting uses the composed − / field / + control on every toolkit,
     /// overriding the idiom and `.decimals()` settings. Numeric stepping and scripted
     /// `set_value` still use the bound number, not the displayed units.
-    pub fn format<T: Into<String>>(
+    pub fn format_with<T: Into<String>>(
         mut self,
         display: impl Fn(f64) -> T + 'static,
         parse: impl Fn(&str) -> Option<f64> + 'static,
@@ -130,12 +130,17 @@ impl<V: Binding<f64>> Stepper<V> {
         });
         self
     }
+    /// Use one locale-aware format for display and editing. Uses the composed idiom.
+    pub fn format(self, format: day_localization::NumberFormat) -> Self {
+        self.format_with(move |v| format.format(v), move |s| format.parse(s))
+    }
+
     /// Which control this renders as (see [`StepperIdiom`]).
     pub fn idiom(mut self, idiom: StepperIdiom) -> Self {
         self.idiom = idiom;
         self
     }
-    /// Pin the platform's own widget, [`StepperIdiom::Native`], unless `.format()` is set.
+    /// Pin the platform's own widget, [`StepperIdiom::Native`], unless `.format()` or `.format_with()` is set.
     pub fn native(self) -> Self {
         self.idiom(StepperIdiom::Native)
     }
@@ -237,6 +242,53 @@ fn build_native<V: Binding<f64>>(stepper: Stepper<V>, cx: &mut BuildCx) -> RNode
     node
 }
 
+/// The field's binding: reads format the bound value, keystrokes are previews the value
+/// must not follow (half-typed numbers are not values), and the committed text (Return,
+/// focus loss, dayscript `submit:`) parses, clamps, and writes through.
+struct FieldBinding<V: Binding<f64>> {
+    value: V,
+    min: f64,
+    max: f64,
+    decimals: u32,
+    format: Option<ValueFormat>,
+}
+impl<V: Binding<f64>> Clone for FieldBinding<V> {
+    fn clone(&self) -> Self {
+        FieldBinding {
+            value: self.value.clone(),
+            min: self.min,
+            max: self.max,
+            decimals: self.decimals,
+            format: self.format.clone(),
+        }
+    }
+}
+impl<V: Binding<f64>> Binding<String> for FieldBinding<V> {
+    fn read(&self) -> String {
+        let value = self.value.read().clamp(self.min, self.max);
+        match &self.format {
+            Some(format) => (format.display)(value),
+            None => fmt_value(value, self.decimals),
+        }
+    }
+    fn peek(&self) -> String {
+        day_reactive::untrack(|| self.read())
+    }
+    fn write(&self, s: String) {
+        self.write_commit(s);
+    }
+    fn write_preview(&self, _s: String) {}
+    fn write_commit(&self, s: String) {
+        let parsed = match &self.format {
+            Some(format) => (format.parse)(&s).filter(|v| v.is_finite()),
+            None => s.trim().parse::<f64>().ok().filter(|v| v.is_finite()),
+        };
+        if let Some(v) = parsed {
+            self.value.write_commit(v.clamp(self.min, self.max));
+        }
+    }
+}
+
 /// The composed idiom: a − button, a text field and a + button, ordinary pieces on every target.
 fn build_composed<V: Binding<f64>>(stepper: Stepper<V>, cx: &mut BuildCx) -> RNode {
     let Stepper {
@@ -262,53 +314,6 @@ fn build_composed<V: Binding<f64>>(stepper: Stepper<V>, cx: &mut BuildCx) -> RNo
         move || stepped(-1.0)
     };
     let inc = move || stepped(1.0);
-
-    /// The field's binding: reads format the bound value, keystrokes are previews the value
-    /// must not follow (half-typed numbers are not values), and the committed text (Return,
-    /// focus loss, dayscript `submit:`) parses, clamps, and writes through.
-    struct FieldBinding<V: Binding<f64>> {
-        value: V,
-        min: f64,
-        max: f64,
-        decimals: u32,
-        format: Option<ValueFormat>,
-    }
-    impl<V: Binding<f64>> Clone for FieldBinding<V> {
-        fn clone(&self) -> Self {
-            FieldBinding {
-                value: self.value.clone(),
-                min: self.min,
-                max: self.max,
-                decimals: self.decimals,
-                format: self.format.clone(),
-            }
-        }
-    }
-    impl<V: Binding<f64>> Binding<String> for FieldBinding<V> {
-        fn read(&self) -> String {
-            let value = self.value.read().clamp(self.min, self.max);
-            match &self.format {
-                Some(format) => (format.display)(value),
-                None => fmt_value(value, self.decimals),
-            }
-        }
-        fn peek(&self) -> String {
-            day_reactive::untrack(|| self.read())
-        }
-        fn write(&self, s: String) {
-            self.write_commit(s);
-        }
-        fn write_preview(&self, _s: String) {}
-        fn write_commit(&self, s: String) {
-            let parsed = match &self.format {
-                Some(format) => (format.parse)(&s).filter(|v| v.is_finite()),
-                None => s.trim().parse::<f64>().ok(),
-            };
-            if let Some(v) = parsed {
-                self.value.write_commit(v.clamp(self.min, self.max));
-            }
-        }
-    }
 
     // Glyph-sized buttons: a stock Material button is 88 dp wide, and two of them beside the
     // field made the composed stepper a 240 dp control that clipped in a 280 dp inspector.
@@ -350,6 +355,76 @@ fn build_composed<V: Binding<f64>>(stepper: Stepper<V>, cx: &mut BuildCx) -> RNo
     .spacing(4.0)
     .align(VAlign::Center)
     .build(cx)
+}
+
+/// An editable number without step buttons. Edits commit on Return or focus loss.
+/// Incomplete or invalid input leaves the bound value unchanged and restores its display.
+pub struct NumberField<V: Binding<f64>> {
+    value: V,
+    min: f64,
+    max: f64,
+    format: day_localization::NumberFormat,
+    key: day_core::ElementId,
+}
+
+/// A locale-aware numeric text field, initially using [`NumberFormat::decimal`].
+pub fn number_field<V: Binding<f64>>(value: V) -> NumberField<V> {
+    NumberField {
+        value,
+        min: -f64::MAX,
+        max: f64::MAX,
+        format: NumberFormat::decimal(),
+        key: day_core::id!(number_field),
+    }
+}
+
+impl<V: Binding<f64>> NumberField<V> {
+    /// Clamp committed input to this inclusive range.
+    pub fn range(mut self, range: std::ops::RangeInclusive<f64>) -> Self {
+        self.min = *range.start();
+        self.max = *range.end();
+        self
+    }
+    /// Set the format shared by display and input parsing.
+    pub fn format(mut self, format: day_localization::NumberFormat) -> Self {
+        self.format = format;
+        self
+    }
+    /// Identify the editable native text field for UI automation.
+    pub fn id(mut self, key: day_core::ElementId) -> Self {
+        self.key = key;
+        self
+    }
+}
+
+impl<V: Binding<f64>> Piece for NumberField<V> {
+    fn build(self, cx: &mut BuildCx) -> RNode {
+        let Self {
+            value,
+            min,
+            max,
+            format,
+            key,
+        } = self;
+        let binding = FieldBinding {
+            value: value.clone(),
+            min,
+            max,
+            decimals: 0,
+            format: Some(ValueFormat {
+                display: Rc::new(move |v| format.format(v)),
+                parse: Rc::new(move |s| format.parse(s)),
+            }),
+        };
+        let restore = binding.clone();
+        Valued {
+            inner: text_field(binding).id(key),
+            value,
+            clamp: move |v: f64| v.clamp(min, max),
+            restore: Some(Rc::new(move || restore.peek())),
+        }
+        .build(cx)
+    }
 }
 
 /// The composed field with the numeric value events the native leaf answers (`set_value:`).
@@ -458,6 +533,67 @@ mod tests {
     }
 
     #[test]
+    fn localized_numeric_controls_preserve_drafts_commit_once_and_refresh_locale() {
+        for field_only in [false, true] {
+            day_core::uninstall_tree();
+            let writes = Writes {
+                value: Signal::new(0.4),
+                events: Rc::default(),
+            };
+            let binding = writes.clone();
+            let (mock, probe) = MockToolkit::new();
+            day_core::launch_with(mock, WindowOptions::default(), move || {
+                if field_only {
+                    number_field(binding)
+                        .format(NumberFormat::percent().fraction_digits(1))
+                        .range(0.0..=1.0)
+                        .id(day_core::id!(numeric_fixture))
+                        .any()
+                } else {
+                    stepper(binding)
+                        .format(NumberFormat::percent().fraction_digits(1))
+                        .range(0.0..=1.0)
+                        .id(day_core::id!(numeric_fixture))
+                        .any()
+                }
+            });
+            day_localization::locale().set("de".to_owned());
+            flush_sync();
+            let node = with_tree(|t| t.find_by_id("numeric_fixture")).unwrap();
+            let display = || probe.find_by_kind("day.text_field")[0].1.text.clone();
+            assert_eq!(
+                display(),
+                NumberFormat::percent()
+                    .fraction_digits(1)
+                    .format_in("de", 0.4)
+            );
+            emit(node, Event::TextChanged("-".into()));
+            assert_eq!(writes.peek(), 0.4);
+            assert!(writes.events.borrow().is_empty());
+            emit(node, Event::TextChanged("72,5 %".into()));
+            emit(node, Event::Submitted);
+            emit(node, Event::FocusChanged(false));
+            assert_eq!(*writes.events.borrow(), [("commit", 0.725)]);
+            emit(node, Event::TextChanged("1.5".into())); // Invalid German grouping.
+            emit(node, Event::Submitted);
+            assert_eq!(writes.peek(), 0.725);
+            assert_eq!(writes.events.borrow().len(), 1);
+            day_localization::locale().set("ar-EG".to_owned());
+            flush_sync();
+            assert_eq!(
+                display(),
+                NumberFormat::percent()
+                    .fraction_digits(1)
+                    .format_in("ar-EG", 0.725)
+            );
+            emit(node, Event::TextChanged("١٥٠٪".into()));
+            emit(node, Event::FocusChanged(false));
+            assert_eq!(writes.peek(), 1.0);
+        }
+        day_localization::locale().set("en".to_owned());
+    }
+
+    #[test]
     fn formatted_edits_commit_once_clamp_and_restore_rejected_text() {
         for idiom in [
             StepperIdiom::Automatic,
@@ -476,7 +612,7 @@ mod tests {
                 stepper(binding)
                     .range(0.0..=1.0)
                     .step(0.01)
-                    .format(
+                    .format_with(
                         |v| format!("{:.0}%", v * 100.0),
                         |text| {
                             text.trim()
@@ -539,7 +675,7 @@ mod tests {
             stepper(value)
                 .range(0.0..=1.0)
                 .step(0.01)
-                .format(
+                .format_with(
                     move |v| format!("{:.0}{}", v * 100.0, suffix.get()),
                     |_| None,
                 )
@@ -617,6 +753,39 @@ mod tests {
 /// The stepper's conformance cases (docs/testing.md), in both idioms.
 #[cfg(feature = "conformance")]
 pub mod conformance {
+    #[day_macros::test(day_core)]
+    fn localized_numeric_input() -> day_core::conformance::Case {
+        use crate::prelude::*;
+        let value = Signal::new(0.4);
+        Case::new()
+            .proves(day_spec::kinds::TEXT_FIELD)
+            .page(move || {
+                column((
+                    stepper(value)
+                        .range(0.0..=1.0)
+                        .format(NumberFormat::percent())
+                        .id(day_core::id!(percent_stepper)),
+                    number_field(value)
+                        .range(0.0..=1.0)
+                        .format(NumberFormat::percent())
+                        .id(day_core::id!(percent_field)),
+                ))
+            })
+            .drive(|d: Drive| async move {
+                d.input("percent_field", "73%").await?;
+                d.submit("percent_field").await?;
+                d.assert_text("percent_stepper", &NumberFormat::percent().format(0.73))
+                    .await?;
+                d.input("percent_stepper", "invalid").await?;
+                d.submit("percent_stepper").await?;
+                d.assert_text("percent_stepper", &NumberFormat::percent().format(0.73))
+                    .await?;
+                d.set_value("percent_stepper", 0.4).await?;
+                d.assert_text("percent_field", &NumberFormat::percent().format(0.4))
+                    .await
+            })
+    }
+
     use crate::*;
     use day_core::AnyPiece;
     use day_core::conformance::{Case, Drive};

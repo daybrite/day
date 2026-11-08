@@ -457,6 +457,22 @@ fn op_min_width(min: f64) -> impl FnOnce(Build) -> Build {
     }
 }
 
+fn op_min_height(min: f64) -> impl FnOnce(Build) -> Build {
+    move |inner| {
+        Box::new(move |cx| {
+            let node = cx.layout_only(
+                Rc::new(MinHeightLayout { min: min.max(0.0) }),
+                Flex::default(),
+                Boundary::No,
+            );
+            cx.under(node, |cx| {
+                let _ = inner(cx);
+            });
+            node
+        })
+    }
+}
+
 fn op_reserving(sample: String) -> impl FnOnce(Build) -> Build {
     move |inner| {
         Box::new(move |cx| {
@@ -476,24 +492,83 @@ fn op_reserving(sample: String) -> impl FnOnce(Build) -> Build {
     }
 }
 
-/// `frame`/`width`/`height`: a fixed size on one or both axes. Two fixed axes make a layout
-/// boundary (§7.4); one does not.
+// The layout reads stored sizes, never signals. Bindings update those sizes outside the
+// tree borrow and invalidate measurement; native children and their scopes remain mounted.
+struct ReactiveFrameLayout {
+    size: Cell<(Option<f64>, Option<f64>)>,
+}
+impl ReactiveFrameLayout {
+    fn frame(&self) -> FrameLayout {
+        let (width, height) = self.size.get();
+        FrameLayout { width, height }
+    }
+}
+impl Layout for ReactiveFrameLayout {
+    fn measure(
+        &self,
+        cx: &mut dyn LayoutOps,
+        children: &[RNode],
+        p: day_spec::Proposal,
+    ) -> day_spec::Size {
+        self.frame().measure(cx, children, p)
+    }
+    fn place(&self, cx: &mut dyn LayoutOps, children: &[RNode], bounds: day_spec::Rect) {
+        self.frame().place(cx, children, bounds);
+    }
+    fn baseline(
+        &self,
+        cx: &mut dyn LayoutOps,
+        children: &[RNode],
+        size: day_spec::Size,
+    ) -> Option<f64> {
+        self.frame().baseline(cx, children, size)
+    }
+}
+
+fn frame_extent(value: f64) -> f64 {
+    if value.is_finite() {
+        value.max(0.0)
+    } else {
+        0.0
+    }
+}
+
 fn op_frame(
-    width: Option<f64>,
-    height: Option<f64>,
-    boundary: Boundary,
+    width: Option<Reactive<f64>>,
+    height: Option<Reactive<f64>>,
 ) -> impl FnOnce(Build) -> Build {
     move |inner| {
         Box::new(move |cx| {
-            let w = cx.layout_only(
-                Rc::new(FrameLayout { width, height }),
-                Flex::default(),
-                boundary,
-            );
-            cx.under(w, |cx| {
+            let dynamic =
+                matches!(width, Some(Reactive::Dyn(_))) || matches!(height, Some(Reactive::Dyn(_)));
+            let read = move || {
+                (
+                    width.as_ref().map(|v| frame_extent(v.get())),
+                    height.as_ref().map(|v| frame_extent(v.get())),
+                )
+            };
+            let seed = day_reactive::untrack(&read);
+            let layout = Rc::new(ReactiveFrameLayout {
+                size: Cell::new(seed),
+            });
+            // Only a constant two-axis frame stops measurement propagation. A changing
+            // frame must invalidate ancestors too, so siblings move to their new positions.
+            let boundary = if !dynamic && seed.0.is_some() && seed.1.is_some() {
+                Boundary::Yes
+            } else {
+                Boundary::No
+            };
+            let node = cx.layout_only(layout.clone(), Flex::default(), boundary);
+            cx.under(node, |cx| {
                 let _ = inner(cx);
             });
-            w
+            if dynamic {
+                day_reactive::bind_seeded(seed, read, move |size| {
+                    layout.size.set(*size);
+                    with_tree(|t| t.mark_needs_measure(node));
+                });
+            }
+            node
         })
     }
 }
@@ -1223,14 +1298,29 @@ impl<P: Piece> Decorated<P> {
     pub fn reserving(self, sample: impl Into<String>) -> Self {
         self.push(op_reserving(sample.into()))
     }
-    pub fn frame(self, width: f64, height: f64) -> Self {
-        self.push(op_frame(Some(width), Some(height), Boundary::Yes))
+    /// Set both dimensions from constants, signals, or reactive closures.
+    /// Negative and non-finite sizes become zero. Updates preserve mounted content.
+    pub fn frame<Mw, Mh>(
+        self,
+        width: impl IntoReactive<f64, Mw>,
+        height: impl IntoReactive<f64, Mh>,
+    ) -> Self {
+        self.push(op_frame(
+            Some(width.into_reactive()),
+            Some(height.into_reactive()),
+        ))
     }
-    pub fn width(self, width: f64) -> Self {
-        self.push(op_frame(Some(width), None, Boundary::No))
+    /// Set a constant or reactive width, leaving height flexible.
+    pub fn width<M>(self, width: impl IntoReactive<f64, M>) -> Self {
+        self.push(op_frame(Some(width.into_reactive()), None))
     }
-    pub fn height(self, height: f64) -> Self {
-        self.push(op_frame(None, Some(height), Boundary::No))
+    /// Set a constant or reactive height, leaving width flexible.
+    pub fn height<M>(self, height: impl IntoReactive<f64, M>) -> Self {
+        self.push(op_frame(None, Some(height.into_reactive())))
+    }
+    /// Keep at least `min` points of height, expanding for taller content.
+    pub fn min_height(self, min: f64) -> Self {
+        self.push(op_min_height(min))
     }
     pub fn a11y(self, f: impl FnOnce(A11yBuilder) -> A11yBuilder + 'static) -> Self {
         self.push(op_a11y(f))
@@ -1607,6 +1697,11 @@ pub trait Decorate: Piece + Sized {
         Decorated::new(self).min_width(min)
     }
 
+    /// Keep at least `min` points of height, expanding for taller content.
+    fn min_height(self, min: f64) -> Decorated<Self> {
+        Decorated::new(self).min_height(min)
+    }
+
     /// Reserve at least the space `sample` needs, so this piece's size stops changing with its
     /// content.
     ///
@@ -1622,20 +1717,24 @@ pub trait Decorate: Piece + Sized {
         Decorated::new(self).reserving(sample)
     }
 
-    fn frame(self, width: f64, height: f64) -> Decorated<Self> {
+    fn frame<Mw, Mh>(
+        self,
+        width: impl IntoReactive<f64, Mw>,
+        height: impl IntoReactive<f64, Mh>,
+    ) -> Decorated<Self> {
         Decorated::new(self).frame(width, height)
     }
 
     /// Fix this piece's width to `width` points while its height stays flexible (hugging its
     /// content or filling on the cross axis). The single-axis complement to [`Self::frame`], e.g.
     /// a fixed-width sidebar pane in a `row` whose height fills the window.
-    fn width(self, width: f64) -> Decorated<Self> {
+    fn width<M>(self, width: impl IntoReactive<f64, M>) -> Decorated<Self> {
         Decorated::new(self).width(width)
     }
 
     /// Fix this piece's height to `height` points while its width stays flexible. The single-axis
     /// complement to [`Self::frame`], e.g. a fixed-height header/toolbar bar that fills its width.
-    fn height(self, height: f64) -> Decorated<Self> {
+    fn height<M>(self, height: impl IntoReactive<f64, M>) -> Decorated<Self> {
         Decorated::new(self).height(height)
     }
 
@@ -2148,6 +2247,45 @@ pub(crate) mod conformance {
             height: Some(height),
             ..Default::default()
         }
+    }
+
+    #[day_macros::test(day_core)]
+    fn reactive_frame_and_minimum_height() -> Case {
+        let width = Signal::new(80.0);
+        let height = Signal::new(44.0);
+        Case::new()
+            .proves_modifier("width")
+            .proves_modifier("height")
+            .proves_modifier("frame")
+            .proves_modifier("min_height")
+            .page(move || {
+                column((
+                    rectangle()
+                        .fill(day_spec::Color::hex(0x336699))
+                        .frame(width, height)
+                        .id(day_core::id!(resizing)),
+                    rectangle()
+                        .fill(day_spec::Color::hex(0x663399))
+                        .width(width)
+                        .height(20.0)
+                        .min_height(44.0)
+                        .id(day_core::id!(minimum)),
+                    button("Resize fixture")
+                        .action(move || {
+                            width.set(120.0);
+                            height.set(64.0);
+                        })
+                        .id(day_core::id!(resize)),
+                ))
+                .spacing(0.0)
+            })
+            .drive(|d: Drive| async move {
+                d.assert_frame("resizing", size(80.0, 44.0)).await?;
+                d.assert_frame("minimum", size(80.0, 44.0)).await?;
+                d.tap("resize").await?;
+                d.assert_frame("resizing", size(120.0, 64.0)).await?;
+                d.assert_frame("minimum", size(120.0, 44.0)).await
+            })
     }
 
     /// Padding grows the frame by its insets and moves the content in by them.

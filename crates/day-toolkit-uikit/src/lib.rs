@@ -15502,6 +15502,32 @@ mod imp {
             objc2_ui_kit::UIAccessibilityIsReduceMotionEnabled()
         }
 
+        fn system_color(&mut self, role: day_spec::SystemColor) -> day_spec::Color {
+            use day_spec::SystemColor;
+            use objc2_ui_kit::{UITraitCollection, UIUserInterfaceStyle};
+            let dark = self.dark_mode();
+            let traits = UITraitCollection::traitCollectionWithUserInterfaceStyle(if dark {
+                UIUserInterfaceStyle::Dark
+            } else {
+                UIUserInterfaceStyle::Light
+            });
+            let color = match role {
+                SystemColor::Accent => UIColor::systemBlueColor(),
+                SystemColor::Text => UIColor::labelColor(),
+                SystemColor::SecondaryText => UIColor::secondaryLabelColor(),
+                SystemColor::Background => UIColor::systemBackgroundColor(),
+                SystemColor::Surface => UIColor::secondarySystemBackgroundColor(),
+            }
+            .resolvedColorWithTraitCollection(&traits);
+            let (mut r, mut g, mut b, mut a) = (0.0, 0.0, 0.0, 0.0);
+            // SAFETY: each out pointer refers to a live CGFloat on this stack.
+            if unsafe { color.getRed_green_blue_alpha(&mut r, &mut g, &mut b, &mut a) } {
+                day_spec::Color::rgba(r, g, b, a)
+            } else {
+                role.fallback(dark)
+            }
+        }
+
         fn dark_mode(&mut self) -> bool {
             // A DAY_THEME launch override wins (themed capture runs); else the current
             // trait collection's interface style.

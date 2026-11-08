@@ -7553,6 +7553,45 @@ pub struct RowMetrics {
     pub min_height: f64,
 }
 
+/// Platform colors for custom drawing. Native controls keep their own semantic styling.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(u8)]
+pub enum SystemColor {
+    Accent,
+    Text,
+    SecondaryText,
+    Background,
+    Surface,
+}
+
+impl SystemColor {
+    /// All roles, in discriminant order, for toolkit palette snapshots.
+    pub const ALL: [Self; 5] = [
+        Self::Accent,
+        Self::Text,
+        Self::SecondaryText,
+        Self::Background,
+        Self::Surface,
+    ];
+
+    /// Day's fallback palette when the toolkit cannot resolve a role.
+    /// These are fixed sRGB colors, not an approximation of a user-selected system accent.
+    pub const fn fallback(self, dark: bool) -> Color {
+        Color::hex(match (self, dark) {
+            (Self::Accent, false) => 0x0a66ff,
+            (Self::Accent, true) => 0x3f83ff,
+            (Self::Text, false) => 0x1d1d1f,
+            (Self::Text, true) => 0xf5f5f7,
+            (Self::SecondaryText, false) => 0x6e6e73,
+            (Self::SecondaryText, true) => 0x98989d,
+            (Self::Background, false) => 0xffffff,
+            (Self::Background, true) => 0x1e1e20,
+            (Self::Surface, false) => 0xf3f2f7,
+            (Self::Surface, true) => 0x2c2c2e,
+        })
+    }
+}
+
 pub trait Toolkit: Sized + 'static {
     // `'static` so a handle clone can cross the object-safe TreeOps boundary boxed as `Any`
     // (`node_handle_any`, the tweaks door, docs/tweaks.md).
@@ -8086,6 +8125,12 @@ pub trait Toolkit: Sized + 'static {
     /// surface produces dark-on-dark or light-on-light text on the other. Queried at
     /// build time (a piece rebuilt after a theme change re-queries). The default honors a
     /// `DAY_THEME` launch override and otherwise answers light.
+    /// Resolve a semantic color for custom artwork. Backends with native palette access
+    /// override this; the default follows light/dark appearance using Day's fixed palette.
+    fn system_color(&mut self, role: SystemColor) -> Color {
+        role.fallback(self.dark_mode())
+    }
+
     fn dark_mode(&mut self) -> bool {
         std::env::var("DAY_THEME").ok().as_deref() == Some("dark")
     }

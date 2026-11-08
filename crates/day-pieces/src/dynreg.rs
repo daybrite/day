@@ -770,6 +770,7 @@ fn apply_modifier(inner: Inner, name: &str, args: &[DynValue]) -> Result<Inner, 
             .any(),
         "width" => p.width(num(args, 0, "width")?).any(),
         "height" => p.height(num(args, 0, "height")?).any(),
+        "min_height" => p.min_height(num(args, 0, "min_height")?).any(),
         "corner_radius" => p.corner_radius(num(args, 0, "corner_radius")?).any(),
         "background" => match args.first() {
             Some(DynValue::Fn(f)) => {
@@ -922,6 +923,7 @@ pub fn catalog() -> Vec<SpecEntry> {
         g("frame", "frame(w, h)"),
         g("width", "width(n)"),
         g("height", "height(n)"),
+        g("min_height", "min_height(n)"),
         g("corner_radius", "corner_radius(n)"),
         g("background", "background(#hex | fn)"),
         g("on_tap", "on_tap(fn)"),

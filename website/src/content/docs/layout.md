@@ -50,7 +50,7 @@ size; text needs room to wrap and to grow in translation.
 
 ## Align a piece
 
-Use `.aligned(Alignment::Center)` to position a piece within a larger area. Add growth after
+Use [`.aligned(Alignment::Center)`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.aligned) to position a piece within a larger area. Add growth after
 alignment to keep the content at its natural size:
 
 ```rust
@@ -63,16 +63,16 @@ button(res::str::reset())
 supports `Leading`, `Trailing`, `Top`, `Bottom`, and the four corners. Leading and trailing
 follow the language's reading direction.
 
-Alignment alone adds no space. Give it room with `.grow(...)` or `.frame(...)` afterward.
+Alignment alone adds no space. Give it room with [`.grow(...)`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.grow) or [`.frame(...)`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.frame) afterward.
 Reversing the order aligns content that has already expanded. Controls that naturally fill
 the available width still fill it. A scroll view measures content without a limit in its scrolling direction, then places it
 in an area at least as large as the viewport. Growing content can use that area.
 
-Use a container's `.align(...)` to align its children, and a label's `.align(TextAlign::...)`
+Use a column's [`.align(...)`](https://docs.rs/day-pieces/latest/day_pieces/trait.ColumnBuilder.html#tymethod.align) to align its children, and a label's [`.align(TextAlign::...)`](https://docs.rs/day-pieces/latest/day_pieces/trait.LabelBuilder.html#tymethod.align)
 to align its text. Those settings serve different purposes from positioning the whole piece.
 
-When updating older code, replace `.grow()` with `.grow(Dimension::Both)`, `.grow_w()` with
-`.grow(Dimension::Width)`, and `.grow_h()` with `.grow(Dimension::Height)`. The last two methods
+When updating older code, replace [`.grow()`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.grow) with [`.grow(Dimension::Both)`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.grow), [`.grow_w()`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.grow_w) with
+[`.grow(Dimension::Width)`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.grow), and [`.grow_h()`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.grow_h) with [`.grow(Dimension::Height)`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.grow). The last two methods
 remain deprecated migration shims.
 
 ## The modifier vocabulary
@@ -246,3 +246,30 @@ pub fn settings(enabled: Signal<bool>) -> impl Piece {
 layout_heading = Settings
 layout_notifications = Notifications
 ```
+
+## Minimum and reactive sizes
+
+[`.min_height(points)`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.min_height)
+reserves a minimum height while allowing taller content, including larger text. Like
+[`.min_width(...)`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.min_width), it may overflow a parent that offers less than the minimum. Maximum-size
+modifiers cap the proposal; they do not override an inner minimum. Avoid contradictory bounds.
+Apply [`.aligned(...)`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.aligned) before the minimum to position naturally sized content inside that space.
+
+[`.width(...)`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.width), [`.height(...)`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.height), and [`.frame(width, height)`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.frame) accept constants, signals, or closures.
+Each frame dimension can use a different source:
+
+```rust
+let compact = Signal::new(false);
+let width = Signal::new(200.0);
+rectangle()
+    .fill(|| system_color(SystemColor::Accent))
+    .frame(width, move || if compact.get() { 80.0 } else { 160.0 })
+```
+
+Changing a size remeasures the existing subtree and moves surrounding content. It preserves
+native controls, focus, and bindings. Negative and non-finite values become zero. Fixed sizes
+can still clip content; use minimum sizes for text that needs room to expand.
+
+Padding, spacing, minimum/maximum sizes, alignment, and growth remain fixed configuration.
+A constant two-axis frame is a measurement boundary; a reactive frame propagates size changes
+to its ancestors so siblings can move.

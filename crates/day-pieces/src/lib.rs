@@ -99,10 +99,11 @@ pub use datetime::{
     DatePicker, DatePickerBuilder, DayDate, DayTime, TimePicker, TimePickerBuilder, date_picker,
     time_picker,
 };
+pub use day_localization::NumberFormat;
 pub use pager::{Pager, PagerState, pager};
 pub use pullrefresh::{PullRefresh, PullRefreshBuilder, pull_to_refresh};
 pub use searchfield::{SearchField, SearchFieldBuilder, search_field};
-pub use stepper::{Stepper, StepperIdiom, stepper};
+pub use stepper::{NumberField, Stepper, StepperIdiom, number_field, stepper};
 
 pub mod prelude {
     pub use crate::colorpicker::{ColorPicker, ColorPickerBuilder, PickerIdiom, color_picker};
@@ -114,8 +115,9 @@ pub mod prelude {
     pub use crate::pager::{Pager, PagerState, pager};
     pub use crate::pullrefresh::{PullRefresh, PullRefreshBuilder, pull_to_refresh};
     pub use crate::searchfield::{SearchField, SearchFieldBuilder, search_field};
-    pub use crate::stepper::{Stepper, StepperIdiom, stepper};
+    pub use crate::stepper::{NumberField, Stepper, StepperIdiom, number_field, stepper};
     pub use crate::{AsyncImage, AsyncImageBuilder, async_image};
+    pub use day_localization::NumberFormat;
 
     pub use crate::{DocumentTabs, TabActions, TabSet, document_tabs};
     pub use day_core::{ElementId, IntoElementKey, id};
@@ -150,7 +152,8 @@ pub mod prelude {
     // Canvas export (docs/canvas.md "Exporting"): record a drawing once, render it to a bitmap
     // or a PDF through the toolkit's own painter, and ask what this target can do first.
     pub use crate::{CanvasExports, Drawing, PdfDocument, canvas_exports};
-    pub use day_spec::ExportError;
+    pub use day_core::system_color;
+    pub use day_spec::{ExportError, SystemColor};
     // The hierarchical tree (docs/tree.md): the piece, its sources, and its verdict enum.
     pub use crate::{
         Branches, MoveVerdict, NodeSource, TreeBuilder, TreeConn, TreePiece, branches, tree,

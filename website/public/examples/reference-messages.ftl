@@ -138,6 +138,7 @@ rectangle = Rectangle
 refresh = Refresh
 release_note = **New:** Read saved articles offline.
 rename = Rename
+reset = Reset
 right_click_me = Right-click me
 sample_high = 15°
 sample_high_tuesday = 22°

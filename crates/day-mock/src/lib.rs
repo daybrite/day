@@ -295,6 +295,8 @@ pub struct MockWindow {
 
 #[derive(Default)]
 pub struct MockState {
+    /// Optional synthetic palette for appearance-reactivity tests.
+    pub system_colors: Option<[day_spec::Color; 5]>,
     /// Simulate native navigation that has not settled yet in engine tests.
     pub ui_busy: bool,
     next: u64,
@@ -1146,6 +1148,13 @@ impl MockToolkit {
 }
 
 impl Toolkit for MockToolkit {
+    fn system_color(&mut self, role: day_spec::SystemColor) -> day_spec::Color {
+        let colors = self.state.borrow().system_colors;
+        colors
+            .map(|colors| colors[role as usize])
+            .unwrap_or_else(|| role.fallback(self.dark_mode()))
+    }
+
     type Handle = MockHandle;
 
     fn capability(&self, cap: Cap) -> Support {

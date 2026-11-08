@@ -132,7 +132,7 @@ day::routes! { pub enum Section { Home => "home", Library => "library", Settings
     helpers += typed + '\n'
     prelude = {
         ('layout', 1): 'let enabled = Signal::new(false);',
-        ('layout', 2): '\n'.join(f'let {n} = spacer();' for n in ('a','b','c','x','y','photo','badge','long_column')),
+        ('layout', 3): '\n'.join(f'let {n} = spacer();' for n in ('a','b','c','x','y','photo','badge','long_column')),
         ('navigation', 4): 'let current = Signal::new(String::new()); let rooms = Signal::new(Vec::<Room>::new());',
         ('navigation', 5): 'let path = Signal::new(Vec::<String>::new()); let dirty = Signal::new(false);',
         ('navigation', 6): 'let path = Signal::new(Vec::<String>::new()); let root = home_page();',

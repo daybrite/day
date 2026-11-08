@@ -12487,3 +12487,142 @@ fn aligned_repositions_after_reactive_text_changes() {
     assert_eq!(frame.origin.x, 184.);
     assert_eq!(frame.size.width, 32.);
 }
+
+#[test]
+fn reactive_frame_reflows_siblings_without_rebuilding_controls() {
+    let width = Signal::new(80.0);
+    let height = Signal::new(30.0);
+    let text = Signal::new(String::from("fixture"));
+    let builds = std::rc::Rc::new(std::cell::Cell::new(0));
+    let counted = builds.clone();
+    let probe = boot(move || {
+        counted.set(counted.get() + 1);
+        column((
+            row((
+                text_field(text).frame(width, move || height.get()),
+                label("sibling"),
+            ))
+            .spacing(0.0)
+            .align(VAlign::Top),
+            label("below"),
+        ))
+        .spacing(0.0)
+        .align(HAlign::Leading)
+    });
+    let field = probe.find_by_kind("day.text_field")[0].0;
+    probe.clear_log();
+    day_reactive::batch(|| {
+        width.set(120.0);
+        height.set(60.0);
+    });
+    flush_sync();
+    let fields = probe.find_by_kind("day.text_field");
+    assert_eq!(fields[0].0, field);
+    assert_eq!(fields[0].1.frame.size, Size::new(120.0, 60.0));
+    let labels = probe.find_by_kind("day.label");
+    assert_eq!(
+        labels
+            .iter()
+            .find(|(_, w)| w.text == "sibling")
+            .unwrap()
+            .1
+            .frame
+            .origin
+            .x,
+        120.0
+    );
+    assert_eq!(
+        labels
+            .iter()
+            .find(|(_, w)| w.text == "below")
+            .unwrap()
+            .1
+            .frame
+            .origin
+            .y,
+        60.0
+    );
+    assert_eq!(builds.get(), 1);
+    assert_eq!(text.get(), "fixture");
+    assert!(
+        !probe
+            .mutations()
+            .iter()
+            .any(|m| m.starts_with("create ") || m.starts_with("release "))
+    );
+    width.set(f64::NAN);
+    height.set(-1.0);
+    flush_sync();
+    assert_eq!(
+        probe.find_by_kind("day.text_field")[0].1.frame.size,
+        Size::ZERO
+    );
+}
+
+#[test]
+fn reactive_size_bindings_dispose_with_their_subtree() {
+    let shown = Signal::new(true);
+    let width = Signal::new(40.0);
+    let probe = boot(move || {
+        when(
+            move || shown.get(),
+            move || label("fixture").width(width).height(30.0),
+        )
+    });
+    shown.set(false);
+    flush_sync();
+    probe.clear_log();
+    width.set(120.0);
+    flush_sync();
+    assert!(probe.find_by_kind("day.label").is_empty());
+    assert!(probe.mutations().is_empty());
+}
+
+#[test]
+fn minimum_height_expands_for_content_and_preserves_alignment_baselines() {
+    let probe = boot(|| {
+        column((
+            label("short").min_height(44.0),
+            label("tall").height(80.0).min_height(44.0),
+            label("center").aligned(Alignment::Center).min_height(44.0),
+        ))
+        .spacing(0.0)
+        .align(HAlign::Leading)
+    });
+    let labels = probe.find_by_kind("day.label");
+    let frame = |text: &str| labels.iter().find(|(_, w)| w.text == text).unwrap().1.frame;
+    assert_eq!(frame("short").size.height, 44.0);
+    assert_eq!(frame("tall").size.height, 80.0);
+    assert_eq!(frame("center").size.height, 16.0);
+    assert_eq!(frame("center").origin.y, 124.0 + 14.0);
+}
+
+#[test]
+fn system_palette_updates_without_a_dark_mode_change_and_survives_remount() {
+    for seed in [0x116633, 0x883311] {
+        day_core::uninstall_tree();
+        let (mock, probe) = MockToolkit::new();
+        let mut palette = SystemColor::ALL.map(|role| role.fallback(false));
+        palette[SystemColor::Accent as usize] = Color::hex(seed);
+        probe.state.borrow_mut().system_colors = Some(palette);
+        day_core::launch_with(mock, WindowOptions::default(), || {
+            label("fixture")
+                .background(|| system_color(SystemColor::Accent))
+                .any()
+        });
+        assert_eq!(system_color(SystemColor::Accent), Color::hex(seed));
+        palette[SystemColor::Accent as usize] = Color::hex(0x336699);
+        probe.state.borrow_mut().system_colors = Some(palette);
+        day_core::note_appearance_changed();
+        flush_sync();
+        assert_eq!(system_color(SystemColor::Accent), Color::hex(0x336699));
+        assert!(
+            probe
+                .state
+                .borrow()
+                .widgets
+                .values()
+                .any(|w| w.background == Some(Color::hex(0x336699)))
+        );
+    }
+}
