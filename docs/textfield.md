@@ -155,7 +155,7 @@ Details that differ by platform:
 
 ## Numeric input
 
-[`number_field(value)`](https://docs.rs/day-pieces/latest/day_pieces/fn.number_field.html) binds a native
+[`number_field(value)`](https://docs.rs/day-pieces/latest/day_pieces/stepper/fn.number_field.html) binds a native
 text field to a numeric signal or other `Binding<f64>`. It uses decimal formatting with two
 fraction digits by default:
 
@@ -169,8 +169,18 @@ number_field(value)
 Typing preserves incomplete input until Return or focus loss. Committing a valid number writes
 the binding once and clamps to the range; rejected input restores the previous formatted value.
 Locale and bound-value changes refresh the displayed text. The control supports generic
-modifiers such as [`.focused(...)`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.focused), [`.a11y(...)`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.a11y), and [`.min_width(...)`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.min_width); text-field-specific
-builders are not forwarded by this numeric wrapper.
+modifiers such as [`.focused(...)`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.focused), [`.a11y(...)`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.a11y), and [`.min_width(...)`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.min_width).
+
+[`NumberFieldBuilder`](https://docs.rs/day-pieces/latest/day_pieces/stepper/trait.NumberFieldBuilder.html)
+also provides a localized [`.placeholder(...)`](https://docs.rs/day-pieces/latest/day_pieces/stepper/trait.NumberFieldBuilder.html#tymethod.placeholder),
+reactive [`.enabled(...)`](https://docs.rs/day-pieces/latest/day_pieces/stepper/trait.NumberFieldBuilder.html#tymethod.enabled)
+and [`.read_only(...)`](https://docs.rs/day-pieces/latest/day_pieces/stepper/trait.NumberFieldBuilder.html#tymethod.read_only),
+[`.input_purpose(...)`](https://docs.rs/day-pieces/latest/day_pieces/stepper/trait.NumberFieldBuilder.html#tymethod.input_purpose),
+[`.submit_label(...)`](https://docs.rs/day-pieces/latest/day_pieces/stepper/trait.NumberFieldBuilder.html#tymethod.submit_label),
+and [`.on_submit(...)`](https://docs.rs/day-pieces/latest/day_pieces/stepper/trait.NumberFieldBuilder.html#tymethod.on_submit). The default input purpose is
+`InputPurpose::Decimal`. Submission commits the number and restores formatted text before
+calling [`.on_submit(...)`](https://docs.rs/day-pieces/latest/day_pieces/stepper/trait.NumberFieldBuilder.html#tymethod.on_submit); invalid input leaves the bound value unchanged. Focus loss commits
+without calling the submit callback. Numeric builders work before or after layout modifiers.
 
 See [editable numbers](/docs/reference/localization#editable-numbers) for parsing rules and
 [steppers](/docs/reference/stepper#formatted-values) to add increment/decrement buttons.

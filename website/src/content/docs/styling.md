@@ -154,7 +154,7 @@ rounded_rectangle(8.0)
     .fill(|| system_color(SystemColor::Accent))
 ```
 
-A closure tracks palette changes. Calling `system_color(...)` once and storing its returned
+A closure tracks palette changes. Calling [`system_color(...)`](https://docs.rs/day-app/latest/day/fn.system_color.html) once and storing its returned
 `Color` captures a snapshot. Native controls keep their existing styling; semantic text and
 surface roles remain preferable when drawing a custom shape is unnecessary.
 

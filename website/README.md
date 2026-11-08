@@ -13,6 +13,40 @@ The [App websites guide](src/content/docs/websites.md) covers their configuratio
 themes, custom Astro pages, built-in Actions deployment, and GitHub Pages/custom-domain setup.
 This directory maintains Day's own documentation and marketing site.
 
+## Documentation for coding agents
+
+Astro generates `/llms.txt`, `/llms-full.txt`, and Markdown endpoints for the selected guides
+on every build. Edit the canonical documentation and `tutorials/session-counter.yaml`, not the
+generated files. `src/data/llm-docs.json` selects agent conventions and all six Session counter
+lessons. The full bundle contains that selected app-building path; it is not a dump of every
+reference page. The remainder of the agent reference stays available on its HTML page.
+
+The generator resolves links to absolute canonical URLs, expands the same tutorial steps used
+by the website, and preserves code exactly. Draft posts, contributor history, and unpublished
+sources cannot enter this selection. Pages advertise `/llms.txt` with `rel="describedby"`;
+selected guides also advertise their Markdown endpoint.
+
+Production builds compile all six lesson stages for each of the three desktop configurations
+with the mock toolkit, then replay the recipe's interaction assertions and final dayscript.
+Day command syntax is checked against the CLI built from the same checkout. New shell commands
+need an explicit validation assignment; installation and native launches run in native CI.
+Day dependencies resolve to this checkout, matching the native CI main-compatibility lane.
+Compilation covers the complete Rust files, generated Fluent accessors, and manifests. It
+does not establish that platform SDKs, native rendering, packaging, or published crates work.
+The existing `doctor-verify.yml` workflow executes the native walkthroughs on macOS, Windows,
+and Linux, against both the checkout and published releases.
+
+`npm run llms:verify` runs the compiler and interaction checks independently. Successful results
+are cached under the repository's `.cache/docs/llm/` with hashes of the documentation, recipe,
+validation code, framework sources, lockfile, and Rust toolchain. Changed inputs invalidate the
+cache; failures stop the build. Use `npm run llms:verify -- --force` to bypass a successful
+receipt. Cargo uses cached dependencies by default; set `CARGO_NET_OFFLINE=false` to allow
+downloads on a fresh machine. Logs and the input hashes stay in that cache directory.
+
+Run `npm run llms:test` after generator changes. `npm run llms:check` compares generated files
+with their sources and checks their internal links after a build; the build runs this check too.
+New selected code fences or executable files need validation coverage before publication.
+
 ## Blog and RSS
 
 The header links to `/blog`. Posts use Astro's Markdown/MDX content collection in
@@ -55,7 +89,11 @@ preview locally; unfinished files in `drafts/` cannot break a production build.
 ### Feed discovery and UI strings
 
 `/rss.xml` is generated with `@astrojs/rss`. It contains each published post's title, summary,
-publication date, and absolute permalink/GUID. Readers follow the link to the complete article.
+publication date, absolute permalink/GUID, and complete article HTML in `content:encoded`.
+Markdown and MDX use the same Astro content renderer as article pages. Feed HTML preserves
+headings, lists, code, tables, and images; links and image URLs become absolute. Scripts,
+site styling, and interactive behavior are removed. Embedded components should include useful
+static content and a link to the article for any interaction that requires the website.
 The blog and footer provide subscription links. `BaseLayout.astro` adds RSS autodiscovery to
 normal pages, and the blog integration adds it to copied HTML during production builds.
 

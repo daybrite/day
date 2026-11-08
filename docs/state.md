@@ -88,19 +88,20 @@ sync engine, a document cache several windows share), use [`T::app()`](https://d
 on the reactive root scope the first time anything asks and returns that instance for the rest of the process,
 from any window, any menu action, and any task.
 
-### Two rules
+### Scope and lifetime
 
-**[`ambient()`](https://docs.rs/day-core/latest/day_core/trait.Ambient.html#method.ambient) resolves while a piece builds.** Read it in the piece's body and capture the value;
-calling it inside a reactive closure works on the first run and panics on the next, because a
-re-running reaction is no longer inside the scope that provided the value.
+[`ambient()`](https://docs.rs/day-core/latest/day_core/trait.Ambient.html#method.ambient) resolves through the current scope.
+Reactive closures, including label text, bindings, effects, watches, and memos, run in the scope
+where they were created. They can read that scope's environment on every update:
 
 ```rust
 // Diagnostic readout of model keys; use catalog messages for shipping UI.
-let scene = Scene::ambient();                       // ✅ read once, at build
-label(move || format!("{:?}", scene.selected.get()))
-
-label(move || format!("{:?}", Scene::ambient().selected.get()))        // ❌ panics when the label re-runs
+label(move || format!("{:?}", Scene::ambient().selected.get()))
 ```
+
+Ordinary callbacks and async tasks do not acquire this behavior automatically. Capture the
+needed state when creating them, or enter its scope explicitly. App-wide menu commands should
+use the focused-window rule below.
 
 **Per-window state must be created at build time.** [`T::scoped`](https://docs.rs/day-core/latest/day_core/trait.Ambient.html#method.scoped) does this for you (it defers
 through [`piece_fn`](https://docs.rs/day-core/latest/day_core/fn.piece_fn.html)). Writing it by hand with [`with_environment(Scene::create(), …)`](https://docs.rs/day-pieces/latest/day_pieces/fn.with_environment.html) creates the

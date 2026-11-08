@@ -93,6 +93,7 @@ pub fn stepper<V: Binding<f64>>(value: V) -> Stepper<V> {
     }
 }
 
+#[day_macros::builder(StepperBuilder)]
 impl<V: Binding<f64>> Stepper<V> {
     /// The value's bounds (default `0.0..=100.0`). Typed and stepped values both clamp.
     pub fn range(mut self, range: std::ops::RangeInclusive<f64>) -> Self {
@@ -340,21 +341,30 @@ fn build_composed<V: Binding<f64>>(stepper: Stepper<V>, cx: &mut BuildCx) -> RNo
         let binding = binding.clone();
         Rc::new(move || binding.peek()) as Rc<dyn Fn() -> String>
     });
+    let target = Rc::new(std::cell::Cell::new(None));
+    let field_target = target.clone();
     let field = Valued {
         inner: text_field(binding).id(key),
         value,
         clamp,
         restore,
-    }
+    };
+    let field = day_core::piece_fn(move |cx| {
+        let node = field.build(cx);
+        field_target.set(Some(node));
+        node
+    })
     .width(56.0);
-    row((
+    let row = row((
         button("−").compact().action(dec).id(dec_id),
         field,
         button("+").compact().action(inc).id(inc_id),
     ))
     .spacing(4.0)
     .align(VAlign::Center)
-    .build(cx)
+    .build(cx);
+    with_tree(|tree| tree.set_element_target(row, target.get().expect("the field was built")));
+    row
 }
 
 /// An editable number without step buttons. Edits commit on Return or focus loss.
@@ -365,6 +375,12 @@ pub struct NumberField<V: Binding<f64>> {
     max: f64,
     format: day_localization::NumberFormat,
     key: day_core::ElementId,
+    placeholder: Option<crate::TextSource>,
+    enabled: Reactive<bool>,
+    read_only: Reactive<bool>,
+    purpose: day_spec::InputPurpose,
+    submit_label: day_spec::SubmitLabel,
+    on_submit: Option<Rc<dyn Fn()>>,
 }
 
 /// A locale-aware numeric text field, initially using [`NumberFormat::decimal`].
@@ -375,10 +391,48 @@ pub fn number_field<V: Binding<f64>>(value: V) -> NumberField<V> {
         max: f64::MAX,
         format: NumberFormat::decimal(),
         key: day_core::id!(number_field),
+        placeholder: None,
+        enabled: Reactive::Const(true),
+        read_only: Reactive::Const(false),
+        purpose: day_spec::InputPurpose::Decimal,
+        submit_label: day_spec::SubmitLabel::Return,
+        on_submit: None,
     }
 }
 
+#[day_macros::builder(NumberFieldBuilder)]
 impl<V: Binding<f64>> NumberField<V> {
+    /// Whether the field accepts input and focus. Reactive; defaults to true.
+    pub fn enabled<M>(mut self, enabled: impl IntoReactive<bool, M>) -> Self {
+        self.enabled = enabled.into_reactive();
+        self
+    }
+    /// Allow selection and copying while preventing edits. Reactive; defaults to false.
+    pub fn read_only<M>(mut self, read_only: impl IntoReactive<bool, M>) -> Self {
+        self.read_only = read_only.into_reactive();
+        self
+    }
+    /// Localized hint shown when the editable text is empty.
+    pub fn placeholder<M>(mut self, text: impl IntoText<M>) -> Self {
+        self.placeholder = Some(text.into_text());
+        self
+    }
+    /// The keyboard purpose. Defaults to Decimal; use Number for unsigned integer entry.
+    pub fn input_purpose(mut self, purpose: day_spec::InputPurpose) -> Self {
+        self.purpose = purpose;
+        self
+    }
+    /// The label on the keyboard's submit key.
+    pub fn submit_label(mut self, label: day_spec::SubmitLabel) -> Self {
+        self.submit_label = label;
+        self
+    }
+    /// Run after the numeric edit has committed and its formatted text has been restored.
+    pub fn on_submit(mut self, action: impl Fn() + 'static) -> Self {
+        self.on_submit = Some(Rc::new(action));
+        self
+    }
+
     /// Clamp committed input to this inclusive range.
     pub fn range(mut self, range: std::ops::RangeInclusive<f64>) -> Self {
         self.min = *range.start();
@@ -405,6 +459,12 @@ impl<V: Binding<f64>> Piece for NumberField<V> {
             max,
             format,
             key,
+            placeholder,
+            enabled,
+            read_only,
+            purpose,
+            submit_label,
+            on_submit,
         } = self;
         let binding = FieldBinding {
             value: value.clone(),
@@ -417,13 +477,34 @@ impl<V: Binding<f64>> Piece for NumberField<V> {
             }),
         };
         let restore = binding.clone();
-        Valued {
-            inner: text_field(binding).id(key),
+        let field_enabled = enabled.clone();
+        let field_read_only = read_only.clone();
+        let mut field = text_field(binding)
+            .enabled(move || field_enabled.get())
+            .read_only(move || field_read_only.get())
+            .input_purpose(purpose)
+            .submit_label(submit_label);
+        if let Some(placeholder) = placeholder {
+            field = field.placeholder(placeholder);
+        }
+        let node = Valued {
+            inner: field.id(key),
             value,
             clamp: move |v: f64| v.clamp(min, max),
             restore: Some(Rc::new(move || restore.peek())),
         }
-        .build(cx)
+        .build(cx);
+        if let Some(on_submit) = on_submit {
+            cx.on(node, move |event| {
+                if matches!(event, Event::Submitted)
+                    && enabled.get_untracked()
+                    && !read_only.get_untracked()
+                {
+                    on_submit();
+                }
+            });
+        }
+        node
     }
 }
 
@@ -757,23 +838,38 @@ pub mod conformance {
     fn localized_numeric_input() -> day_core::conformance::Case {
         use crate::prelude::*;
         let value = Signal::new(0.4);
+        let submitted = Signal::new(0.0);
+        let enabled = Signal::new(true);
         Case::new()
             .proves(day_spec::kinds::TEXT_FIELD)
             .page(move || {
                 column((
                     stepper(value)
+                        .padding(4.0)
                         .range(0.0..=1.0)
                         .format(NumberFormat::percent())
                         .id(day_core::id!(percent_stepper)),
                     number_field(value)
+                        .padding(4.0)
                         .range(0.0..=1.0)
                         .format(NumberFormat::percent())
+                        .placeholder("Fixture percentage")
+                        .submit_label(SubmitLabel::Done)
+                        .enabled(enabled)
+                        .on_submit(move || submitted.set(value.get()))
                         .id(day_core::id!(percent_field)),
+                    label(move || NumberFormat::percent().format(submitted.get()))
+                        .id(day_core::id!(percent_submitted)),
+                    button("Disable fixture field")
+                        .action(move || enabled.set(false))
+                        .id(day_core::id!(percent_disable)),
                 ))
             })
             .drive(|d: Drive| async move {
                 d.input("percent_field", "73%").await?;
                 d.submit("percent_field").await?;
+                d.assert_text("percent_submitted", &NumberFormat::percent().format(0.73))
+                    .await?;
                 d.assert_text("percent_stepper", &NumberFormat::percent().format(0.73))
                     .await?;
                 d.input("percent_stepper", "invalid").await?;
@@ -782,7 +878,9 @@ pub mod conformance {
                     .await?;
                 d.set_value("percent_stepper", 0.4).await?;
                 d.assert_text("percent_field", &NumberFormat::percent().format(0.4))
-                    .await
+                    .await?;
+                d.tap("percent_disable").await?;
+                d.assert_enabled("percent_field", false).await
             })
     }
 

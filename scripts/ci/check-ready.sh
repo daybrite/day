@@ -6,6 +6,8 @@
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 
+python3 -B scripts/ci/check-cargo-configs.py
+python3 -B scripts/ci/test-cargo-configs.py
 python3 -B scripts/ci/check-crate-names.py
 python3 -B scripts/ci/test-crate-names.py
 bash scripts/ci/check-matrices.sh

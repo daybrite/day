@@ -70,6 +70,8 @@ pub struct GridFacts {
 #[derive(Clone, Debug, Default)]
 pub struct NodeProbe {
     pub text: String,
+    /// A label's effective font, also used by text reservation measurement.
+    pub font: Option<day_spec::FontSpec>,
     pub value: f64,
     pub flag: bool,
     pub selected: i64,
@@ -178,6 +180,8 @@ pub struct Tree<B: Toolkit> {
     /// A decorated piece's own node, mapped to the outermost node its modifiers wrapped it in
     /// (`set_element_outer`): how far a gesture addressed to that node may climb.
     element_outer: HashMap<RNode, RNode>,
+    /// A composed control's interactive node, used by identity modifiers.
+    element_targets: HashMap<RNode, RNode>,
     // (kind, handle): the kind rides along so the drain can offer a satellite piece its
     // `release` hook before the backend frees the handle (§15.2).
     release_queue: Vec<(day_spec::PieceKind, B::Handle)>,
@@ -263,6 +267,7 @@ impl<B: Toolkit> Tree<B> {
             handlers: HashMap::new(),
             gestures: HashMap::new(),
             element_outer: HashMap::new(),
+            element_targets: HashMap::new(),
             release_queue: Vec::new(),
             lists: HashMap::new(),
             trees: HashMap::new(),
@@ -540,6 +545,7 @@ impl<B: Toolkit> Tree<B> {
             self.handlers.remove(&n);
             self.gestures.remove(&n);
             self.element_outer.remove(&n);
+            self.element_targets.remove(&n);
             day_spec::keys::forget(rnode_to_id(n));
             if data.implicit_anim.is_some() {
                 self.implicit_anim_count = self.implicit_anim_count.saturating_sub(1);
@@ -840,6 +846,9 @@ pub trait TreeOps {
     /// span one element's modifiers built, which `gesture_target` climbs. A no-op when the two
     /// are the same node.
     fn set_element_outer(&mut self, inner: RNode, outer: RNode);
+    /// Identify a composed control by its interactive child rather than its layout container.
+    fn set_element_target(&mut self, outer: RNode, target: RNode);
+    fn element_target(&self, node: RNode) -> RNode;
     fn set_id(&mut self, node: RNode, id: String);
     /// Families attached at least once, including subsequently disposed/recycled nodes.
     fn mounted_id_families(&self) -> Vec<String>;
@@ -1333,6 +1342,7 @@ impl<B: Toolkit> TreeOps for Tree<B> {
             use day_spec::props::*;
             if let Some(p) = props.downcast_ref::<LabelProps>() {
                 probe.text = p.text.clone();
+                probe.font = Some(p.font);
             } else if let Some(p) = props.downcast_ref::<NavMenuProps>() {
                 probe.selected = p.selected.map(|i| i as i64).unwrap_or(-1);
                 probe.value = probe.selected as f64;
@@ -1557,6 +1567,21 @@ impl<B: Toolkit> TreeOps for Tree<B> {
             }
         }
         self.wrappers_above(cur).into_iter().find(|w| has(*w))
+    }
+
+    fn set_element_target(&mut self, outer: RNode, target: RNode) {
+        if outer != target {
+            self.element_targets.insert(outer, target);
+            self.set_element_outer(target, outer);
+        }
+    }
+
+    fn element_target(&self, node: RNode) -> RNode {
+        self.element_targets
+            .get(&node)
+            .copied()
+            .filter(|n| self.nodes.contains_key(*n))
+            .unwrap_or(node)
     }
 
     fn set_element_outer(&mut self, inner: RNode, outer: RNode) {
@@ -1942,7 +1967,8 @@ impl<B: Toolkit> TreeOps for Tree<B> {
                     match p {
                         LabelPatch::Text(t) => n.probe.text = t.clone(),
                         LabelPatch::Runs(t, _) => n.probe.text = t.clone(),
-                        LabelPatch::Font(_) | LabelPatch::Color(_) => {}
+                        LabelPatch::Font(font) => n.probe.font = Some(*font),
+                        LabelPatch::Color(_) => {}
                     }
                 } else if let Some(p) = patch.downcast_ref::<ButtonPatch>() {
                     match p {

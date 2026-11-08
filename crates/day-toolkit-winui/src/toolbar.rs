@@ -91,6 +91,7 @@ pub(super) fn glyph(s: Symbol) -> &'static str {
         Symbol::Group => "E8FD",
         // No stock ungroup glyph — the label fallback below.
         Symbol::Ungroup => "",
+        Symbol::Location => "E81D",
         // The vocabulary is `#[non_exhaustive]`: an unmapped symbol gets no glyph rather than an
         // arbitrary wrong one — the item still shows its label.
         _ => "",

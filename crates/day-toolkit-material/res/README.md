@@ -27,5 +27,5 @@ copyright header: they are vendored third-party art.
 | Mail / Folder / Document | mail / folder / description |
 | Check / Close / Warning | check / close / warning |
 | Rectangle / Circle / CircleFilled | rectangle / radio_button_unchecked / circle |
-| Text | text_fields |
+| Text / Location | text_fields / my_location |
 | Oval / Line / Group / Ungroup | drawn here |

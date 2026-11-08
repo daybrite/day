@@ -8,6 +8,9 @@
     "node": ">=22.12.0"
   },
   "scripts": {
+    "llms:test": "node --test scripts/llm-docs.test.mjs",
+    "llms:verify": "node scripts/verify-llm-docs.mjs",
+    "llms:check": "node scripts/check-llm-docs.mjs",
     "strings:generate": "node scripts/generate-site-strings.mjs",
     "strings:check": "node scripts/generate-site-strings.mjs --check",
     "blog:test": "node --test scripts/blog.test.mjs",
@@ -38,7 +41,13 @@
     "@astrojs/rss": "^4.0.19",
     "astro": "^7.2.3",
     "js-yaml": "^4.3.0",
-    "smol-toml": "1.7.0"
+    "remark-gfm": "^4.0.1",
+    "remark-parse": "^11.0.0",
+    "remark-stringify": "^11.0.0",
+    "sanitize-html": "^2.18.1",
+    "smol-toml": "1.7.0",
+    "unified": "^11.0.5",
+    "unist-util-visit": "^5.2.0"
   },
   "devDependencies": {
     "linkinator": "^6.3.0",

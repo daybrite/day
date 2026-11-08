@@ -9,6 +9,7 @@ import gallery from './integrations/gallery.mjs';
 import liveDemo from './integrations/live-demo.mjs';
 import docVersions from './integrations/doc-versions.mjs';
 import blog from './integrations/blog.mjs';
+import llmDocs from './integrations/llm-docs.mjs';
 import contentLinks from './plugins/content-links.mjs';
 import accentTargetCode from './plugins/accent-target-code.mjs';
 import tierBadge from './plugins/tier-badge.mjs';
@@ -35,7 +36,7 @@ export default defineConfig({
   },
   // mdx() lets individual docs pages pull in interactive components (e.g. the InstallPicker in
   // getting-started); plain .md remains the default for prose-only pages.
-  integrations: [blog(), docVersions(), liveDemo(), gallery(), mdx()],
+  integrations: [blog(), docVersions(), llmDocs(), liveDemo(), gallery(), mdx()],
   markdown: {
     // Shiki (build-time, zero client JS) for docs code fences; matches the CodeSample component.
     shikiConfig: { theme: 'night-owl', wrap: false },

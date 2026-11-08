@@ -73,6 +73,23 @@ To vary style *within* one label (a bold phrase, an inline `code` span, a colore
 [text-runs](./text-runs.md). It stays one label, so it wraps, selects and is announced as one
 paragraph.
 
+## Stable readout width
+
+Use [`.reserving(sample)`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.reserving)
+to keep a changing label from shifting nearby controls. Supply the widest expected text,
+including its translated units. Pair it with
+[`.tabular()`](https://docs.rs/day-pieces/latest/day_pieces/trait.LabelBuilder.html#tymethod.tabular)
+to give digits equal widths.
+
+The sample accepts the same strings, localized messages, signals, and closures as `label`.
+It updates when its text or locale changes. Day measures it in the label's final base font,
+including weight, scale, and tabular settings, regardless of modifier order. The visible label
+keeps its identity and baseline; the sample is hidden from assistive technology.
+
+Reservation follows a label through single-child layout wrappers. For other content, it measures
+the sample in `Font::Body`. It does not copy inline text-run styling or reserve padding around
+the sample. Put padding after [`.reserving(...)`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.reserving) when the reserved text needs insets.
+
 ## Color
 
 [`.color(Color)`](https://docs.rs/day-pieces/latest/day_pieces/trait.LabelBuilder.html#tymethod.color) sets the text color; omit it to use the platform's default label color (which adapts to

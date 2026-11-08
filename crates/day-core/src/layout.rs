@@ -1796,35 +1796,35 @@ impl Layout for MinHeightLayout {
 /// that until the reader raises their accessibility text size, at which point the number is
 /// clipped.
 ///
-/// Reserving a sample measures a real piece in the real font at the real size, so the reservation
-/// scales with the text exactly as the content does. `children[0]` is the sample (built
-/// transparent by `Decorate::reserving`, so it never paints and is placed at zero size);
-/// `children[1]` is the content, which receives the full reserved bounds and aligns itself.
+/// Reserves space using a hidden sample alongside the content. The piece builds the sample
+/// with the content label's font. Children are `[content, sample]`; the sample has no visible
+/// frame, and only the content supplies the baseline.
 pub struct ReserveLayout;
 
 impl Layout for ReserveLayout {
     fn measure(&self, cx: &mut dyn LayoutOps, children: &[RNode], p: Proposal) -> Size {
-        let (Some(&sample), Some(&content)) = (children.first(), children.get(1)) else {
-            return children
-                .first()
-                .map(|&c| cx.measure_child(c, p))
-                .unwrap_or(Size::ZERO);
+        let Some(&content) = children.first() else {
+            return Size::ZERO;
         };
-        let s = cx.measure_child(sample, p);
         let c = cx.measure_child(content, p);
+        let s = children
+            .get(1)
+            .map(|&sample| cx.measure_child(sample, p))
+            .unwrap_or(Size::ZERO);
         Size::new(s.width.max(c.width), s.height.max(c.height))
     }
 
     fn place(&self, cx: &mut dyn LayoutOps, children: &[RNode], bounds: Rect) {
-        // The sample has done its work in `measure`; give it no area so it costs nothing to draw.
-        if let Some(&sample) = children.first() {
-            cx.place_child(sample, Rect::from_size(Size::ZERO));
-        }
-        if let Some(&content) = children.get(1) {
-            let s = cx.measure_child(content, Proposal::exact(bounds.size));
-            let _ = s;
+        if let Some(&content) = children.first() {
             cx.place_child(content, Rect::from_size(bounds.size));
         }
+        if let Some(&sample) = children.get(1) {
+            cx.place_child(sample, Rect::from_size(Size::ZERO));
+        }
+    }
+
+    fn baseline(&self, cx: &mut dyn LayoutOps, children: &[RNode], size: Size) -> Option<f64> {
+        cx.baseline_of(*children.first()?, size)
     }
 }
 

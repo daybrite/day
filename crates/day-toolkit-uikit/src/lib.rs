@@ -16267,6 +16267,7 @@ mod imp {
             // app-level observers that stay app-scoped under scenes.
             #[unsafe(method(application:didFinishLaunchingWithOptions:))]
             fn did_finish_launching(&self, _app: &UIApplication, _opts: *mut AnyObject) -> bool {
+                day_core::services::initialize();
                 // Keyboard avoidance (docs/focus.md): one app-level observer; the handler
                 // resolves the KEY window's scene, so it follows whichever Day window the
                 // field lives in. WillChangeFrame covers show, hide, and height changes.

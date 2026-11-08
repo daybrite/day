@@ -372,10 +372,9 @@ pub trait Ambient: Clone + 'static {
     /// writes when the value is a precondition of it existing at all, like
     /// `@EnvironmentObject`, which likewise traps rather than rendering something wrong.
     ///
-    /// A build-time read, like [`environment`]: call it in a piece's body and capture the value
-    /// in whatever closures need it. Calling it *inside* a reactive closure works on the first
-    /// run and panics on the next, because a re-running reaction is no longer inside the scope
-    /// that provided the value.
+    /// Resolves through the current scope. Reactive computations re-enter their creation scope
+    /// on every run, so a reactive closure can read the same environment as its enclosing piece.
+    /// Ordinary callbacks and async tasks must capture the value or explicitly enter its scope.
     fn ambient() -> Self
     where
         Self: Sized,
@@ -384,10 +383,9 @@ pub trait Ambient: Clone + 'static {
             let t = std::any::type_name::<Self>();
             panic!(
                 "day: no ambient `{t}` in scope. Provide one above this piece with \
-                 `{t}::scoped(…)` (per window) or `{t}::app()` (app-wide). If there IS one, \
-                 this read is running too late: `ambient()` resolves while a piece BUILDS, so \
-                 read it in the piece's body and capture the value rather than calling it \
-                 inside a reactive closure (docs/state.md)."
+                 `{t}::scoped(…)` (per window), or use `{t}::app()` for app-wide state. \
+                 Outside reactive computations and registered UI handlers, capture the value \
+                 or enter the providing scope (docs/state.md)."
             )
         })
     }

@@ -1471,6 +1471,11 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      - name: Check Cargo configuration portability
+        run: |
+          python3 -B scripts/ci/check-cargo-configs.py
+          python3 -B scripts/ci/test-cargo-configs.py
+
       - name: Check every internal doc is published
         # The same script scripts/ci/lint.sh runs, so this drift is caught in the pre-flight on
         # the machine that caused it rather than ten minutes later here. `--fix` repairs it.
@@ -1506,6 +1511,8 @@ jobs:
       - name: Build the site (indexes each app's published screenshots)
         working-directory: website
         env:
+          # Build-time LLM example checks use this checkout and may need third-party crates.
+          CARGO_NET_OFFLINE: 'false'
           # Raises the API rate limit for the /showcase/ release lookup above the shared-IP
           # anonymous one.
           GITHUB_TOKEN: ${{ github.token }}
@@ -1522,6 +1529,7 @@ jobs:
           npm run docs:check
           npm run docs:test
           npm run blog:test
+          npm run llms:test
           npm run strings:check
           npm run docs:architecture
           npm run build:site

@@ -295,14 +295,14 @@ impl<P: Piece> Piece for Decorated<P> {
 // --- The modifier bodies, written once and shared by the trait and the inherent impl ---
 
 fn op_id(id: day_core::ElementId) -> impl FnOnce(RNode) {
-    move |n| with_tree(|t| t.set_id(n, id.as_str().to_owned()))
+    move |n| with_tree(|t| t.set_id(t.element_target(n), id.as_str().to_owned()))
 }
 
 fn op_id_of(id: impl Fn() -> day_core::ElementId + 'static) -> impl FnOnce(RNode) {
     move |n| {
         day_reactive::bind(id, move |s: &day_core::ElementId| {
             let s = s.as_str().to_owned();
-            with_tree(|t| t.set_id(n, s));
+            with_tree(|t| t.set_id(t.element_target(n), s));
         });
     }
 }
@@ -473,21 +473,57 @@ fn op_min_height(min: f64) -> impl FnOnce(Build) -> Build {
     }
 }
 
-fn op_reserving(sample: String) -> impl FnOnce(Build) -> Build {
+fn op_reserving(sample: TextSource) -> impl FnOnce(Build) -> Build {
     move |inner| {
         Box::new(move |cx| {
-            let w = cx.layout_only(
+            let wrapper = cx.layout_only(
                 Rc::new(day_core::ReserveLayout),
                 Flex::default(),
                 Boundary::No,
             );
-            cx.under(w, |cx| {
-                // children[0]: the measured-but-invisible sample.
-                let _ = crate::label(sample.clone()).opacity(0.0).build(cx);
-                // children[1]: the real content.
-                let _ = inner(cx);
+            cx.under(wrapper, |cx| {
+                let content = inner(cx);
+                // Find the label through single-child wrappers after all typed builders have
+                // configured it. Multi-child pieces use the default Body font.
+                let font = with_tree(|tree| {
+                    let mut node = content;
+                    loop {
+                        if let Some(font) = tree.node_probe(node).and_then(|p| p.font) {
+                            break font;
+                        }
+                        if tree.child_count(node) != 1 {
+                            break day_spec::FontSpec::from(day_spec::Font::Body);
+                        }
+                        let Some(child) = tree.first_child(node) else {
+                            break day_spec::FontSpec::from(day_spec::Font::Body);
+                        };
+                        node = child;
+                    }
+                });
+                let sample_node = cx.leaf(
+                    day_spec::kinds::LABEL,
+                    &LabelProps {
+                        text: sample.initial(),
+                        font,
+                        wraps: false,
+                        ..Default::default()
+                    },
+                    Flex::default(),
+                );
+                with_tree(|tree| {
+                    tree.set_node_opacity(sample_node, 0.0);
+                    tree.set_a11y(
+                        sample_node,
+                        A11yProps {
+                            hidden: true,
+                            decorative: true,
+                            ..Default::default()
+                        },
+                    );
+                });
+                sample.bind_to(sample_node, |s| Box::new(LabelPatch::Text(s)), true);
             });
-            w
+            wrapper
         })
     }
 }
@@ -1295,8 +1331,8 @@ impl<P: Piece> Decorated<P> {
     pub fn min_width(self, min: f64) -> Self {
         self.push(op_min_width(min))
     }
-    pub fn reserving(self, sample: impl Into<String>) -> Self {
-        self.push(op_reserving(sample.into()))
+    pub fn reserving<M>(self, sample: impl IntoText<M>) -> Self {
+        self.push(op_reserving(sample.into_text()))
     }
     /// Set both dimensions from constants, signals, or reactive closures.
     /// Negative and non-finite sizes become zero. Updates preserve mounted content.
@@ -1712,8 +1748,10 @@ pub trait Decorate: Piece + Sized {
     ///
     /// Pass the widest value the field can show (`"100"`, `"-99.9"`, `"88:88"`). Pair it with
     /// tabular numbers so the digits themselves stop shifting inside the reservation.
-    /// The sample never paints and never takes hit-testing area.
-    fn reserving(self, sample: impl Into<String>) -> Decorated<Self> {
+    /// Localized text, signals and closures update the reservation without rebuilding the label.
+    /// Single-child wrappers preserve the label's font; other pieces use the default Body font.
+    /// The sample is placed at zero size and hidden from assistive technology.
+    fn reserving<M>(self, sample: impl IntoText<M>) -> Decorated<Self> {
         Decorated::new(self).reserving(sample)
     }
 
@@ -2285,6 +2323,57 @@ pub(crate) mod conformance {
                 d.tap("resize").await?;
                 d.assert_frame("resizing", size(120.0, 64.0)).await?;
                 d.assert_frame("minimum", size(120.0, 44.0)).await
+            })
+    }
+
+    #[day_macros::test(day_core)]
+    fn text_reservation() -> Case {
+        let value = Signal::new("1".to_owned());
+        let sample = Signal::new("8888".to_owned());
+        Case::new()
+            .proves_modifier("reserving")
+            .page(move || {
+                column((
+                    label(value)
+                        .reserving(sample)
+                        .font(day_spec::Font::Title2)
+                        .tabular()
+                        .id(day_core::id!(reserved_readout)),
+                    label("8888")
+                        .font(day_spec::Font::Title2)
+                        .tabular()
+                        .id(day_core::id!(reservation_reference)),
+                    label("88888888")
+                        .font(day_spec::Font::Title2)
+                        .tabular()
+                        .id(day_core::id!(reservation_expanded)),
+                    button("Update fixture value")
+                        .action(move || value.set("88".into()))
+                        .id(day_core::id!(reservation_update)),
+                    button("Expand fixture sample")
+                        .action(move || sample.set("88888888".into()))
+                        .id(day_core::id!(reservation_expand)),
+                ))
+                .align(HAlign::Leading)
+            })
+            .drive(|d: Drive| async move {
+                let dimensions = |id: &str| {
+                    day_core::with_tree(|tree| {
+                        tree.node_frame(tree.find_by_id(id).unwrap()).unwrap().size
+                    })
+                };
+                let reference = dimensions("reservation_reference");
+                d.assert_frame("reserved_readout", size(reference.width, reference.height))
+                    .await?;
+                d.tap("reservation_update").await?;
+                d.assert_text("reserved_readout", "88").await?;
+                d.assert_frame("reserved_readout", size(reference.width, reference.height))
+                    .await?;
+                d.tap("reservation_expand").await?;
+                let expanded = dimensions("reservation_expanded");
+                d.assert_frame("reserved_readout", size(expanded.width, expanded.height))
+                    .await?;
+                d.assert_text("reserved_readout", "88").await
             })
     }
 

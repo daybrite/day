@@ -1,0 +1,21 @@
+{
+  "introduction": "docs/overview",
+  "guides": [
+    {
+      "key": "docs/for-agents",
+      "sections": [
+        "Naming (disambiguate before writing)",
+        "What Day is (facts)",
+        "Invariants (MUST; violating these is a bug)",
+        "Failure modes (do not do these)"
+      ],
+      "validation": "guidance"
+    },
+    { "key": "docs/getting-started", "validation": "tutorial" },
+    { "key": "docs/tutorial-events", "validation": "tutorial" },
+    { "key": "docs/tutorial-state", "validation": "tutorial" },
+    { "key": "docs/tutorial-layout", "validation": "tutorial" },
+    { "key": "docs/tutorial-navigation", "validation": "tutorial" },
+    { "key": "docs/tutorial-complete-app", "validation": "tutorial" }
+  ]
+}

@@ -201,7 +201,7 @@ struct Node {
     /// mirroring the per-run lifetime of `sources` itself. Run outside the runtime borrow.
     run_cleanups: Vec<Box<dyn FnOnce()>>,
     observers: Vec<NodeKey>,
-    #[allow(dead_code)] // ownership is tracked scope→nodes; kept for diagnostics
+    // Computations restore this owner when they run, including lazy memo reads.
     scope: ScopeKey,
     /// Ordering: (priority, scope depth, creation seq). Priority 0 = structural binding.
     priority: u8,
@@ -393,6 +393,27 @@ fn mark_observers(rt: &mut Runtime, source: NodeKey, level: NodeState) {
     }
 }
 
+/// Enter a computation's owner and tracking frame together. A memo can be pulled by a
+/// different window's reaction, and a queued effect can run after its caller has left scope.
+/// Neither should inherit that caller's context or allocate state into its scope.
+fn compute_in_owner<T>(key: NodeKey, f: impl FnOnce() -> T) -> Option<T> {
+    let owner = with_rt(|rt| {
+        let owner = rt.nodes.get(key)?.scope;
+        rt.scopes.contains_key(owner).then_some(owner)
+    })?;
+    let scope = Scope {
+        key: owner,
+        _not_send: PhantomData,
+    };
+    Some(scope.enter(|| {
+        with_rt(|rt| rt.observers.push(Some(key)));
+        let _guard = RtGuard(|rt: &mut Runtime| {
+            rt.observers.pop();
+        });
+        f()
+    }))
+}
+
 /// Pull-refresh a memo: recompute if (transitively) dirty; bump `last_changed` only on real change.
 fn refresh_memo(key: NodeKey) {
     let (state, kind) = match with_rt(|rt| rt.nodes.get(key).map(|n| (n.state, n.kind))) {
@@ -434,17 +455,14 @@ fn refresh_memo(key: NodeKey) {
     for f in cleanups {
         f();
     }
-    with_rt(|rt| rt.observers.push(Some(key)));
-    let new_value = {
-        // Popped on unwind too; see `run_reaction`.
-        let _g = RtGuard(|rt: &mut Runtime| {
-            rt.observers.pop();
-        });
-        compute()
+    let Some(new_value) = compute_in_owner(key, || compute()) else {
+        return;
     };
     with_rt(|rt| {
         let tick = rt.tick;
-        let node = &mut rt.nodes[key];
+        let Some(node) = rt.nodes.get_mut(key) else {
+            return;
+        };
         let changed = match (node.value.as_ref(), node.memo_eq) {
             (Some(old), Some(eq)) => {
                 // A reader may be holding this cell; compare against it without disturbing them.
@@ -517,15 +535,7 @@ fn run_reaction(key: NodeKey) {
     for f in cleanups {
         f();
     }
-    with_rt(|rt| rt.observers.push(Some(key)));
-    {
-        // Popped on unwind too (same rule as `untrack`): a stranded frame would attribute
-        // every later read to this dead run, even through a user's own `catch_unwind`.
-        let _g = RtGuard(|rt: &mut Runtime| {
-            rt.observers.pop();
-        });
-        reaction();
-    }
+    compute_in_owner(key, || reaction());
     with_rt(|rt| {
         let tick = rt.tick;
         rt.tick += 1;
@@ -1402,6 +1412,8 @@ fn eqbox_eq<T: 'static>(a: &dyn Any, b: &dyn Any) -> bool {
 // ---------------------------------------------------------------------------
 
 /// A reaction that re-runs when its tracked reads change. Runs once at creation.
+/// Every run enters the scope that created it. Ambient context and any new state or
+/// cleanup registrations belong to that owner, including when another scope triggers it.
 pub struct Effect;
 
 impl Effect {
@@ -1425,17 +1437,9 @@ fn create_reaction(f: Rc<dyn Fn()>, priority: u8) -> NodeKey {
         rt.nodes[k].created_at = created_at;
         k
     });
-    // Initial run, tracked.
-    with_rt(|rt| rt.observers.push(Some(key)));
     let reaction = with_rt(|rt| rt.nodes[key].reaction.clone());
-    {
-        // Popped on unwind too; see `run_reaction`.
-        let _g = RtGuard(|rt: &mut Runtime| {
-            rt.observers.pop();
-        });
-        if let Some(r) = reaction {
-            r();
-        }
+    if let Some(reaction) = reaction {
+        compute_in_owner(key, || reaction());
     }
     with_rt(|rt| {
         let tick = rt.tick;
@@ -2716,5 +2720,115 @@ mod unwind_safety_tests {
             after_cycle + 1,
             "binding stayed dead after hitting the re-run cap"
         );
+    }
+}
+
+#[cfg(test)]
+mod owner_scope_tests {
+    use super::*;
+
+    #[test]
+    fn reactions_and_lazy_memos_keep_their_owner_and_restore_the_caller() {
+        let outer = Scope::child();
+        outer.provide("outer fixture");
+        let first = outer.create_child();
+        let second = outer.create_child();
+        first.provide("first fixture");
+        second.provide("second fixture");
+        let source = Signal::new(0);
+        let seen = Rc::new(RefCell::new(Vec::new()));
+        let lazy = first.enter(|| {
+            Memo::new(move || {
+                (
+                    source.get(),
+                    Scope::current().use_context::<&str>().unwrap(),
+                )
+            })
+        });
+        let nested = second.enter(|| {
+            Memo::new(move || (lazy.get(), Scope::current().use_context::<&str>().unwrap()))
+        });
+        second.enter(|| assert_eq!(lazy.get(), (0, "first fixture")));
+        assert_eq!(nested.get(), ((0, "first fixture"), "second fixture"));
+        for (scope, name) in [(first, "first fixture"), (second, "second fixture")] {
+            let seen = seen.clone();
+            scope.enter(|| {
+                Effect::new(move || {
+                    seen.borrow_mut()
+                        .push((source.get(), Scope::current().use_context::<&str>()));
+                    assert_eq!(Scope::current().use_context::<&str>(), Some(name));
+                })
+            });
+        }
+        second.enter(|| {
+            batch(|| source.set(1));
+            assert_eq!(
+                Scope::current().use_context::<&str>(),
+                Some("second fixture")
+            );
+        });
+        assert_eq!(nested.get(), ((1, "first fixture"), "second fixture"));
+        assert_eq!(seen.borrow().len(), 4);
+        outer.dispose();
+        batch(|| source.set(2));
+        assert_eq!(seen.borrow().len(), 4, "disposed reactions must not run");
+    }
+
+    #[test]
+    fn watches_allocate_state_and_cleanup_in_their_owner() {
+        let owner = Scope::child();
+        let trigger = Signal::new(0);
+        let allocated = Rc::new(Cell::new(None::<Signal<i32>>));
+        let cleaned = Rc::new(Cell::new(0));
+        owner.enter(|| {
+            let allocated = allocated.clone();
+            let cleaned = cleaned.clone();
+            watch(
+                move || trigger.get(),
+                move |value, _| {
+                    allocated.set(Some(Signal::new(*value)));
+                    let cleaned = cleaned.clone();
+                    Scope::current().on_cleanup(move || cleaned.set(cleaned.get() + 1));
+                },
+            );
+        });
+        batch(|| trigger.set(1));
+        let state = allocated.get().unwrap();
+        assert_eq!(state.get(), 1);
+        owner.dispose();
+        assert_eq!(cleaned.get(), 1);
+        assert!(state.try_get().is_none());
+    }
+
+    #[test]
+    fn panic_in_owned_computations_restores_scope_and_tracking() {
+        let owner = Scope::child();
+        owner.provide("owner fixture");
+        let caller = Scope::child();
+        caller.provide("caller fixture");
+        let trigger = Signal::new(false);
+        let memo = owner.enter(|| {
+            Memo::new(move || {
+                assert_eq!(
+                    Scope::current().use_context::<&str>(),
+                    Some("owner fixture")
+                );
+                assert!(!trigger.get(), "synthetic memo failure");
+                7
+            })
+        });
+        assert_eq!(memo.get(), 7);
+        batch(|| trigger.set(true));
+        caller.enter(|| {
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| memo.get()));
+            assert!(result.is_err());
+            assert_eq!(
+                Scope::current().use_context::<&str>(),
+                Some("caller fixture")
+            );
+            assert!(with_rt(|rt| rt.observers.is_empty()));
+        });
+        owner.dispose();
+        caller.dispose();
     }
 }

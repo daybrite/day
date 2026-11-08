@@ -61,6 +61,12 @@ labeled(
 - **[`.id(…)`](https://docs.rs/day-pieces/latest/day_pieces/stepper/struct.Stepper.html#method.id)** names the interactive field for dayscript on both idioms, wherever it sits in the
   chain.
 
+[`StepperBuilder`](https://docs.rs/day-pieces/latest/day_pieces/stepper/trait.StepperBuilder.html) keeps
+[`.range(...)`](https://docs.rs/day-pieces/latest/day_pieces/stepper/trait.StepperBuilder.html#tymethod.range),
+[`.step(...)`](https://docs.rs/day-pieces/latest/day_pieces/stepper/trait.StepperBuilder.html#tymethod.step), formatting, and idiom selection available after layout modifiers
+such as [`.padding(...)`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.padding). Use [`number_field`](textfield.md#numeric-input) for the same numeric
+editing behavior without step buttons.
+
 ## Formatted values
 
 Use [`.format(NumberFormat::percent())`](https://docs.rs/day-pieces/latest/day_pieces/stepper/struct.Stepper.html#method.format)

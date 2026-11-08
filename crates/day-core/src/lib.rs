@@ -54,6 +54,7 @@ mod build;
 pub mod conformance;
 pub mod element_id;
 pub mod frame;
+pub mod services;
 pub use element_id::{ElementId, IntoElementKey};
 mod frames;
 pub mod image;

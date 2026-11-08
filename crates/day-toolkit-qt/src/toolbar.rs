@@ -99,6 +99,7 @@ fn icon_for(s: Symbol) -> (&'static str, i32) {
         Symbol::Line => ("draw-line", sp::NONE),
         Symbol::Group => ("object-group", sp::NONE),
         Symbol::Ungroup => ("object-ungroup", sp::NONE),
+        Symbol::Location => ("find-location", sp::NONE),
         // The vocabulary is `#[non_exhaustive]`: an unmapped symbol shows the label.
         _ => ("", sp::DIALOG_HELP),
     }

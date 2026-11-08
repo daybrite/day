@@ -1593,6 +1593,7 @@ mod imp {
             {
                 return;
             }
+            day_core::services::initialize();
             register_resource_opener(env);
             let d = density_ as f64;
             DENSITY.with(|x| x.set(d));

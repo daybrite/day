@@ -103,7 +103,9 @@ pub use day_localization::NumberFormat;
 pub use pager::{Pager, PagerState, pager};
 pub use pullrefresh::{PullRefresh, PullRefreshBuilder, pull_to_refresh};
 pub use searchfield::{SearchField, SearchFieldBuilder, search_field};
-pub use stepper::{NumberField, Stepper, StepperIdiom, number_field, stepper};
+pub use stepper::{
+    NumberField, NumberFieldBuilder, Stepper, StepperBuilder, StepperIdiom, number_field, stepper,
+};
 
 pub mod prelude {
     pub use crate::colorpicker::{ColorPicker, ColorPickerBuilder, PickerIdiom, color_picker};
@@ -115,7 +117,10 @@ pub mod prelude {
     pub use crate::pager::{Pager, PagerState, pager};
     pub use crate::pullrefresh::{PullRefresh, PullRefreshBuilder, pull_to_refresh};
     pub use crate::searchfield::{SearchField, SearchFieldBuilder, search_field};
-    pub use crate::stepper::{NumberField, Stepper, StepperIdiom, number_field, stepper};
+    pub use crate::stepper::{
+        NumberField, NumberFieldBuilder, Stepper, StepperBuilder, StepperIdiom, number_field,
+        stepper,
+    };
     pub use crate::{AsyncImage, AsyncImageBuilder, async_image};
     pub use day_localization::NumberFormat;
 

@@ -1,7 +1,7 @@
 ---
 navTitle: "Agent instructions"
 title: For AI Agents
-description: A terse, rule-based reference for LLMs and coding agents writing Day apps. Follow the invariants verbatim; prefer the patterns shown.
+description: Build and verify native Day apps using generated resources, reactive bindings, and platform tooling.
 order: 60
 section: Reference
 ---
@@ -34,12 +34,12 @@ Day builds cross-platform desktop + mobile apps in Rust. You write one declarati
 **Pieces**; each Piece is realized by a native widget ([`NSTextField`](https://developer.apple.com/documentation/appkit/nstextfield), [`UILabel`](https://developer.apple.com/documentation/uikit/uilabel), [`GtkEntry`](https://docs.gtk.org/gtk4/class.Entry.html),
 [`QSlider`](https://doc.qt.io/qt-6/qslider.html), WinUI [`TextBox`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.textbox), `android.widget.*`) through a per-platform toolkit. Day owns layout,
 reactivity, localization, accessibility policy, and scripting; the OS owns pixels, text input, scrolling,
-and assistive tech. The native tree is built once and Signals bind straight to native attributes;
-nothing diffs or rebuilds it.
+and assistive tech. The root UI is built once and signals bind to native attributes. Conditional
+and collection pieces manage their own child subtrees as their inputs change.
 
 ## Invariants (MUST; violating these is a bug)
 
-1. **One toolkit toolkit per binary.** A binary compiles exactly one toolkit (selected by a Cargo
+1. **One toolkit per binary.** A binary compiles exactly one toolkit (selected by a Cargo
    feature via the target). Never enable two. The build enforces this with a `compile_error!`.
 2. **Views are built once, then kept live by bindings, never rebuilt.** Never rebuild the view on state change. To make UI reactive, pass a
    closure that reads a Signal ([`label`](https://docs.rs/day-pieces/latest/day_pieces/fn.label.html)`(move || …count`[`.get`](https://docs.rs/day-reactive/latest/day_reactive/struct.Signal.html#method.get)`()…)`), or pass a Signal to a control

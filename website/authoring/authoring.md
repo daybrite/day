@@ -59,6 +59,15 @@ URLs. These checks use existing locked dependencies; they are not full Vale or m
 
 ## Validate app examples
 
+The agent documentation bundle is generated from selected canonical sections and all six
+Session counter lessons. Its selection is in `src/data/llm-docs.json`; do not maintain separate
+copies in `llms.txt` or `llms-full.txt`. Every production website build compiles the tutorial's
+18 lesson/platform configurations with the mock toolkit and executes their authored interaction
+assertions. New selected code fences and executable files must have validation coverage.
+Run `npm --prefix website run llms:test` for export checks and
+`npm --prefix website run llms:verify` for compilation and interaction checks.
+Native rendering and installation remain covered by the separate native walkthrough jobs below.
+
 The six Session counter lessons use `website/tutorials/session-counter.yaml` for all commands,
 file examples, platform variants, and UI assertions. Markdown places steps using
 `<!-- tutorial-step: lesson-id/step-id -->`; keep them in recipe order. Add executable examples

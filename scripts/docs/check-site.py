@@ -78,6 +78,8 @@ def main():
                 publication_failures.append(f'Draft in RSS: {link}')
             if not item.findtext('title') or not item.findtext('description'):
                 publication_failures.append(f'RSS item lacks title/summary: {link}')
+            if not (item.findtext('{http://purl.org/rss/1.0/modules/content/}encoded') or '').strip():
+                publication_failures.append(f'RSS item lacks full article content: {link}')
             guid=item.findtext('guid')
             if guid!=link or guid in seen:
                 publication_failures.append(f'RSS item has invalid/duplicate GUID: {link}')

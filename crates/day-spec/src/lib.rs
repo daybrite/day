@@ -1523,6 +1523,9 @@ pub enum Symbol {
     Ungroup,
     /// Text: a line of type as a drawing element (the drawing-tool "T").
     Text,
+    /// The device's own position: a map's "show my location" button (Apple's arrow, the
+    /// crosshair elsewhere).
+    Location,
 }
 
 /// The SF Symbol each standard symbol draws as. The system's own glyphs match the user's
@@ -1588,6 +1591,7 @@ pub fn sf_symbol_name(s: Symbol) -> &'static str {
         Symbol::Group => "square.on.square",
         Symbol::Ungroup => "square.on.square.dashed",
         Symbol::Text => "textformat",
+        Symbol::Location => "location",
     }
 }
 
@@ -5602,6 +5606,11 @@ impl Symbol {
             // Ungroup: the same two squares pulled apart.
             S::Group => "M8 4h12v12h-4V8H8zM4 8h12v12H4z",
             S::Ungroup => "M3 3h8v8H3zM13 13h8v8h-8z",
+            // A crosshair: a dot in a ring with four ticks, the even-odd fill leaving the gap
+            // between dot and ring empty.
+            S::Location => {
+                "M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8m8.9 3A9 9 0 0 0 13 3.1V1h-2v2.1A9 9 0 0 0 3.1 11H1v2h2.1a9 9 0 0 0 7.9 7.9V23h2v-2.1a9 9 0 0 0 7.9-7.9H23v-2zM12 19a7 7 0 1 1 0-14 7 7 0 0 1 0 14"
+            }
             // `Symbol` is `#[non_exhaustive]`: a variant added upstream draws nothing here rather
             // than failing to compile, and its item keeps its label.
             _ => return None,

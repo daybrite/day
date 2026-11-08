@@ -598,9 +598,15 @@ bind(move || count.get().to_string(),
 
 ### §4.3 Scopes and disposal
 
-Every signal/memo/effect/binding is owned by the `Scope` current at its creation; **event handlers
-run under the scope current at handler registration**. day-core enters a child scope for each
-dynamic region:
+Every signal/memo/effect/binding is owned by the `Scope` current at its creation. Reactive
+computations re-enter that scope for initial runs and reruns, including lazy memo refreshes.
+The caller's scope and observer stack are restored on return or panic. Context reads, state
+allocated during a computation, and registered cleanups therefore belong to its owner. Allocated
+state lasts until owner disposal, rather than being reset on each run. Disposed owners are skipped.
+Event handlers run under their registration scope. Ordinary callbacks and async tasks do not
+implicitly enter a scope; existing task cancellation and lifetime rules still apply.
+`day-reactive::owner_scope_tests` covers nested contexts, lazy reads, watch allocation, cleanup,
+and unwinding. day-core enters a child scope for each dynamic region:
 
 - `each(items, key, build)` — one child scope **per key**; when a key disappears, its scope is
   disposed: effects unsubscribed, signals dropped, native handles released.
@@ -630,8 +636,8 @@ collection so far.
   drop.
 
 `Scope::provide::<T>(value)` / `Scope::use_context::<T>()` give dependency injection down the
-*build* tree (theme, locale handle, navigation), resolved at build time — again, no re-render
-semantics needed.
+build tree (theme, locale handle, navigation). Computations resolve context from their creation
+scope on each run, so an update from another window cannot change the environment they read.
 
 ### §4.4 Events and controlled inputs
 
@@ -1092,6 +1098,16 @@ that group. The `absolute_route_replaces_remembered_path_in_newly_mounted_stack`
 in [mock_e2e.rs](crates/day-pieces/tests/mock_e2e.rs) covers replacement, preservation on a
 bare reopen, and returning to the root with one Back action on every toolkit.
 
+`reserving(sample)` accepts `IntoText`, including localized messages and reactive samples. It
+builds the visible content first, finds its label through single-child wrappers, and measures a
+hidden sample using that label's final `FontSpec` from `NodeProbe`. Multi-child/nonlabel content
+falls back to Body; inline runs and padding are not copied. `ReserveLayout` takes children in
+`[content, sample]` order, measures their maximum size, forwards the content baseline, and places
+the sample at zero size. The sample is transparent, decorative, and accessibility-hidden. Text
+updates invalidate measurement without rebuilding content. Regression tests in
+`day-pieces/tests/api_refinements.rs` check font parity, hidden samples, identity and live updates;
+the `text-reservation` conformance case checks native measured sizes.
+
 `min_height` mirrors `min_width`: it floors the offered and measured height, preserves the
 width, and permits overflow rather than silently violating its minimum. Its baseline uses
 the size assigned to the child. A conflicting outer maximum caps the proposal but does not
@@ -1193,6 +1209,12 @@ tests cover rejected edits, commit counts, range clamping, reactive formatter de
 and numeric events. `Stepper::format(NumberFormat)` uses day-localization's shared decimal/
 percent format. `number_field` uses the same committed-input binding without step buttons.
 Both preserve drafts until commit, reject malformed/non-finite input and clamp valid values.
+`StepperBuilder` and `NumberFieldBuilder` forward numeric builders through `Decorated`, so layout
+modifiers may precede numeric configuration. The composed stepper records its editable field as
+its element target: a later `.id(...)` addresses that field while `.wrapper_id(...)` addresses the
+layout wrapper. `number_field` forwards placeholder, reactive enabled/read-only state, input
+purpose, submit label, and submit callback to its native text field. The callback runs after the
+numeric commit and canonical text restoration; focus-loss commits do not invoke it.
 Locale/value changes refresh the display even during editing. `NumberFormat` derives digits,
 separators and grouping from the existing ICU formatter, validates grouped input against that
 locale, accepts ASCII digits and percent notation, and exposes tracked and explicit-locale
@@ -6417,6 +6439,11 @@ triggers retain their existing behavior.
    The readiness regression reports the gate's output when an earlier check prevents its test
    hook from running, so a naming failure is visible rather than hidden by a missing-file assertion.
 
+   The shared app workflow builds on its first scripted launch, then uses `--skip-build` for
+   subsequent scripts, including once-only scripts. Native scripts still launch separately to
+   check cold starts and persisted state. This avoids repeating unchanged Cargo/Xcode builds
+   and dSYM generation between scripts; CLIs without the reuse flag retain their previous behavior.
+
    > [!IMPORTANT]
    > **Changed 2026-09.** These jobs used to build, drive, capture and pack the showcase
    > themselves: nine hand-written copies of an app pipeline that `daybrite/actions`' `dayapp.yml`
@@ -6471,6 +6498,12 @@ triggers retain their existing behavior.
    excerpts against the checkout. Recipes must match rustfmt; excerpt fixtures supply the
    surrounding variables and generated message catalog, and must follow changes to the guide's
    code blocks. API-reference coverage then checks callable mentions outside fenced examples.
+   `check-cargo-configs.py` runs before the website build and in the local readiness gate. It
+   rejects generated `day patch` configurations and absolute dependency overrides in tracked
+   or unignored Cargo configuration files. Ignored local overrides remain available for local
+   development; the website-controls app uses its manifest's repository-relative dependencies
+   in CI. Regression fixtures cover Unix and Windows paths, portable configuration, and the
+   difference between an ignored override and one already tracked by Git.
    The gallery is now assembled from the machine-readable index each Day app's
    OWN site publishes (`day screenshot index`, [§14.7](#147-screenshot-metadata-and-the-gallery-index)),
    which carries every capture's absolute URL, shot id, localized title and caption, source path,
