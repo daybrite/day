@@ -48,6 +48,26 @@ class NamingTests(unittest.TestCase):
                 self.assertTrue(self.errors(old.replace("/", "\\") + "\\Cargo.toml"))
                 self.assertEqual(self.errors(new + "/Cargo.toml"), [])
 
+    def test_retained_repository_slugs_pass_in_commands_config_and_prose(self):
+        for old in manifest["external_repository_names_retained"]:
+            slug = f"daybrite/{old}"
+            for text in (slug, f"gh variable set KEY --repo {slug} --body value",
+                         f"repository = '{slug}'", f"The repository is `{slug}`."):
+                with self.subTest(text=text):
+                    self.assertEqual(self.errors(text), [])
+
+    def test_repository_slug_does_not_hide_retired_package_on_same_line(self):
+        for old in manifest["external_repository_names_retained"]:
+            self.assertEqual(len(self.errors(f'{old} = "daybrite/{old}"')), 1)
+            self.assertEqual(len(self.errors(f'"daybrite/{old}"; use {old.replace("-", "_")}')), 1)
+
+    def test_repository_slug_exemption_has_owner_and_token_boundaries(self):
+        for old in manifest["external_repository_names_retained"]:
+            for text in (f"other/{old}", f"not-daybrite/{old}",
+                         f"other/daybrite/{old}", f"daybrite/{old}/Cargo.toml"):
+                with self.subTest(text=text):
+                    self.assertTrue(self.errors(text))
+
     def test_worktree_repair_is_read_without_staging(self):
         old, new = next(iter(manifest["packages"].items()))
         self.errors(old)

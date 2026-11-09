@@ -126,6 +126,8 @@ fn dmg(
         Command::new("hdiutil")
             .args(["create", "-volname", &title, "-srcfolder"])
             .arg(&stage)
+            .arg("-size")
+            .arg(format!("{}k", dmg_volume_size(&stage) / 1024))
             .args(["-ov", "-format", "UDZO"])
             .arg(&dmg),
     )
@@ -160,6 +162,39 @@ fn dmg(
         sha256: String::new(),
         tier,
     })
+}
+
+/// The volume size handed to `hdiutil create -size`. Left to itself, `-srcfolder` estimates the
+/// volume from the folder, and on hosted runners that estimate has come up short: the main
+/// executable, copied last, failed with "No space left on device" inside `/Volumes/<title>`
+/// on a run whose identical predecessor packed fine. Each file is counted in whole 4 KiB
+/// blocks, then a fifth more and 16 MiB on top. UDZO compresses the free space, so the .dmg
+/// barely grows (Fleet Reader's: 58.3 MB → 59.5 MB).
+fn dmg_volume_size(stage: &Path) -> u64 {
+    let used = allocated_size(stage);
+    used + used / 5 + (16 << 20)
+}
+
+/// The bytes `dir` takes in whole 4 KiB blocks, symlinks counted as links (the drag-install
+/// `Applications` link must not pull in /Applications). Unreadable entries count as zero; the
+/// headroom in [`dmg_volume_size`] absorbs them, and hdiutil reports a real shortfall itself.
+fn allocated_size(dir: &Path) -> u64 {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return 0;
+    };
+    let mut total = 0;
+    for entry in entries.flatten() {
+        // DirEntry::metadata does not follow symlinks.
+        let Ok(meta) = entry.metadata() else {
+            continue;
+        };
+        total += if meta.is_dir() {
+            4096 + allocated_size(&entry.path())
+        } else {
+            meta.len().div_ceil(4096).max(1) * 4096
+        };
+    }
+    total
 }
 
 /// Disk Arbitration can briefly keep disk-image creation busy on hosted macOS runners.
@@ -228,6 +263,21 @@ mod dmg_tests {
         let (result, attempts) = fake_create("full", "hdiutil: No space left on device", 3);
         assert!(result.unwrap_err().contains("No space left on device"));
         assert_eq!(attempts, 1);
+    }
+
+    #[test]
+    fn volume_size_counts_whole_blocks_and_skips_the_applications_link() {
+        let dir = std::env::temp_dir().join(format!("day-dmg-size-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("A.app/Contents")).unwrap();
+        std::fs::write(dir.join("A.app/Contents/Info.plist"), "x").unwrap();
+        std::fs::write(dir.join("A.app/Contents/bin"), vec![0u8; 4097]).unwrap();
+        std::os::unix::fs::symlink("/Applications", dir.join("Applications")).unwrap();
+        // Two directories, one 1-block file, one 2-block file, and the link's own block.
+        let used = 4096 * (2 + 1 + 2 + 1);
+        assert_eq!(allocated_size(&dir), used);
+        assert_eq!(dmg_volume_size(&dir), used + used / 5 + (16 << 20));
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

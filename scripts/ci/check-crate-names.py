@@ -20,6 +20,9 @@ def check(root, manifest):
     external = "|".join(map(re.escape, manifest["external_repository_names_retained"]))
     # Package identity changes do not change an existing remote repository's URL.
     repository_url = re.compile(r"(?:https?://|git@)(?:github\.com|raw\.githubusercontent\.com)[:/]daybrite/(?:" + external + r")(?=[/.\s\"')#]|$)")
+    # GitHub CLI --repo arguments and updater configuration also use owner/repo.
+    # Exempt only the retained repository identifier, not another token on its line.
+    repository_slug = re.compile(r"(?<![\w/.:@-])daybrite/(?:" + external + r")(?=[\s`\"'.,;:)\]}]|$)")
     local_checkout = re.compile(r"(?:\.\./|/opt/src/github/daybrite/)(?:" + external + r")(?=[/\s\"')]|$)")
     files = subprocess.check_output(["git", "ls-files", "--cached", "--others", "--exclude-standard", "-z"], cwd=root).decode().split("\0")
     errors = []
@@ -37,6 +40,7 @@ def check(root, manifest):
             continue
         for number, line in enumerate(content.splitlines(), 1):
             line = local_checkout.sub("<repository>", repository_url.sub("<repository>", line))
+            line = repository_slug.sub("<repository>", line)
             for match in path_pattern.finditer(line.replace("\\", "/")):
                 errors.append(f"{name}:{number}: retired Day crate path {match[0]!r}")
             for match in pattern.finditer(line):

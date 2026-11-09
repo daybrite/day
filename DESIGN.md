@@ -6365,8 +6365,12 @@ triggers retain their existing behavior.
    crates + CLI/dayscript + mock-backend showcase, all `--all-targets`; the android
    cross-*check* lint; the drift checks for all three generated tables — duty, piece-vocabulary
    coverage, and recorder coverage); **`crate-names`**, which rejects retired crate names and
-   Rust imports (`scripts/ci/check-crate-names.py`, a separate workflow until 2026-10-25); plus
-   **`spelling`** (2026-08), which runs `typos` over the
+   Rust imports (`scripts/ci/check-crate-names.py`, a separate workflow until 2026-10-25).
+   Retained external repository names are accepted in URLs, checkout paths, and exact
+   `daybrite/<repository>` identifiers used by GitHub CLI and updater configuration; retired
+   package references elsewhere on the same line still fail. The shared Actions checker uses
+   the same rules, with regression tests in both repositories.
+   **`spelling`** (2026-08) runs `typos` over the
    whole tree. It gates two things at once: misspellings, and STYLE_GUIDE.md's American-English
    rule, which `typos.toml`'s `locale = "en-us"` turns from a convention into a check. The gate
    arrived with the cleanup it enforces — 355 British spellings had accumulated across 116 files,
