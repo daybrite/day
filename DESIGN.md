@@ -310,12 +310,12 @@ with the binary tool in `day-cli` producing a binary named `day`. An app writes
 > the newest release ([§15](#15-extensibility-pieces-parts-and-tweaks), [§20](#20-continuous-integration)).
 
 **Workspace versions.** Every framework crate inherits `[workspace.package].version` through
-`version.workspace = true`. Every internal entry in `[workspace.dependencies]` carries an
-explicit `version` equal to it: crates.io requires one, and Cargo cannot inherit a dependency
-requirement from `[workspace.package]`. A release moves the shared package version, those
-requirements, the few member manifests that name a sibling with a version (day-toolkit-qt's
-`day-platform-macos`), and every committed `Cargo.lock` together:
-`scripts/release/bump-version.py <x.y.z>` does all four and holds each lock to
+`version.workspace = true`. Before 1.0, internal dependencies carry the explicit requirement
+`version = "0.*"`, including dependencies on sibling crates declared in member manifests.
+A release moves the shared package version and every committed `Cargo.lock` together while
+preserving those wildcard requirements. An untagged version preparation can be corrected
+with the same script without reverting source changes:
+`scripts/release/bump-version.py <x.y.z>` updates the versions and holds each lock to
 `cargo metadata --locked`, and `--check` reports anything behind. The documentation names no
 release (`cargo add`, `--day-version latest`, docs.rs `latest`), which the website's docs check
 enforces, so a release leaves it alone. Internal dev-dependencies are
