@@ -45,7 +45,7 @@ corresponding runtime path, from creating a widget to handling its events.
 
 Support crates omitted from the diagram: `day-fonts` and `day-vector` (shared resource rules the
 CLI and runtime agree on), `day-toolchain` (SDK discovery). Crash reporting lives in the external
-[`day-piece-crash-reporter`](https://github.com/daybrite/day-piece-break) repository.
+[`day-piece-crash-reporter`](https://github.com/daybrite/day-piece-crash-reporter) repository.
 JS/TS miniapps run on [`day-lite`](https://github.com/daybrite/day-lite), which lives in its own
 repository.
 

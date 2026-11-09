@@ -2562,7 +2562,7 @@ read it opts down with.
 
 ### §8.5 Panics and crashes
 
-Crash reporting is an external compose Piece, [`day-piece-crash-reporter`](https://github.com/daybrite/day-piece-break),
+Crash reporting is an external compose Piece, [`day-piece-crash-reporter`](https://github.com/daybrite/day-piece-crash-reporter),
 with independent releases and crates.io dependencies on Day. Its default `ui` feature
 provides a localized consent banner with report review, Send, and Discard; disabling it leaves
 the capture/storage/transport APIs available. The framework supplies public lifecycle and

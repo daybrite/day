@@ -25,7 +25,7 @@
   },
   {
     "pkg": "day-piece-crash-reporter",
-    "repository": "https://github.com/daybrite/day-piece-break",
+    "repository": "https://github.com/daybrite/day-piece-crash-reporter",
     "guide": "/docs/reference/break",
     "api": "https://docs.rs/day-piece-crash-reporter/latest/day_piece_crash_reporter/",
     "group": "Pieces",

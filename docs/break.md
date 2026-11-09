@@ -26,7 +26,7 @@ cargo add 'day-piece-crash-reporter@0.*'
 
 [Crate](https://crates.io/crates/day-piece-crash-reporter) ·
 [API reference](https://docs.rs/day-piece-crash-reporter/latest/day_piece_crash_reporter/) ·
-[Source](https://github.com/daybrite/day-piece-break).
+[Source](https://github.com/daybrite/day-piece-crash-reporter).
 The default `ui` feature includes the consent interface. Use `default-features = false` for
 capture and transports with your own interface. No per-toolkit feature is required.
 
