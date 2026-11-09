@@ -1,13 +1,13 @@
 # Native UIKit search drawer regression
 
-Build and install the English iOS versions of Day-News and Day-Showcase with
+Build and install the English iOS versions of Fleet Reader and Day-Showcase with
 `.search_initially_hidden(true)` on a phone and an iPad simulator. Tests use real native
 swipes and taps: they check the initially collapsed drawer and compact title, pull-down
 reveal, editing, cancellation, destination navigation and subsequent collapse. Screenshots
-are retained in the result bundle. Day-News runs with a separate fixture library;
+are retained in the result bundle. Fleet Reader runs with a separate fixture library;
 these tests never change the production library or credentials.
 
-Before the full scrolling test, launch Day-News once with
+Before the full scrolling test, launch Fleet Reader once with
 `DAY_DATA_DIR=/tmp/day-search-drawer-fixture` and `DAY_NEWS_SYNC_TEST=1`, then run
 `python3 tests/ios-search/seed-news.py` to supply 40 offline feed rows. An empty fixture
 can check initial hiding and reveal, but UIKit keeps revealed search visible if the list

@@ -471,8 +471,9 @@ fn outranked(sources: &[Source], missing: &[(String, String, String)]) -> Option
         if newer(ours, theirs) {
             return Some(format!(
                 "{} carries {name} v{ours}, which the version this project asks for does not \
-                 accept (the graph resolved v{theirs} from the published crates); raise the \
-                 requirement in Cargo.toml so it takes v{ours}",
+                 accept (the graph resolved v{theirs} from the published crates); inspect \
+                 `cargo tree --all-features --target all -i {name}@{theirs}` and update the \
+                 requesting dependency (Daybrite 0.x requirements should be `0.*`)",
                 source.label()
             ));
         }
@@ -1507,6 +1508,28 @@ fn upstream_sources(
     let mut covered: BTreeSet<String> = BTreeSet::new();
     let mut followed: BTreeSet<String> = given.iter().map(|s| canon(&s.url)).collect();
     let mut queue: Vec<PathBuf> = projects_under(root);
+    // Unpublished Day extensions may still arrive through Git. Their registry dependencies
+    // are not visible in the app's path manifests (News -> sync-webdav -> webdav, for example).
+    // Read their resolved manifests too, preserving the Git source/ref the app requested.
+    for project in queue.clone() {
+        if manifest_dirs(&project).iter().any(|dir| {
+            manifest_git_deps(dir)
+                .unwrap_or_default()
+                .iter()
+                .any(|(_, url)| canon(url).starts_with(&format!("{org}/")))
+        }) {
+            let output = Command::new("cargo")
+                .current_dir(&project)
+                .args(["metadata", "--format-version", "1", "--all-features"])
+                .output();
+            if let Ok(output) = output
+                && output.status.success()
+                && let Ok(meta) = serde_json::from_slice::<serde_json::Value>(&output.stdout)
+            {
+                queue.extend(day_git_manifest_dirs(&meta));
+            }
+        }
+    }
     for source in given {
         covered.extend(checkout_crates(source.dir())?.into_keys());
         queue.push(source.dir().to_path_buf());
@@ -1543,6 +1566,39 @@ fn upstream_sources(
         }
     }
     Ok(found)
+}
+
+/// Registry requirements behind Git-based Day extensions belong to the same patch graph.
+fn day_git_manifest_dirs(meta: &serde_json::Value) -> Vec<PathBuf> {
+    let org = canon(DAY_ORG);
+    meta.get("packages")
+        .and_then(|p| p.as_array())
+        .into_iter()
+        .flatten()
+        .filter(|p| {
+            p.get("source")
+                .and_then(|s| s.as_str())
+                .is_some_and(|s| s.starts_with("git+") && canon(s).starts_with(&format!("{org}/")))
+        })
+        .filter_map(|p| {
+            p.get("manifest_path")?
+                .as_str()
+                .and_then(|m| Path::new(m).parent())
+        })
+        // A Git member commonly inherits registry dependencies from [workspace.dependencies].
+        // Reading only that member would see `workspace = true` and miss the dependency.
+        .map(|dir| {
+            dir.ancestors()
+                .find(|parent| {
+                    patch_doc(&parent.join("Cargo.toml"))
+                        .is_some_and(|doc| doc.get("workspace").is_some())
+                })
+                .unwrap_or(dir)
+                .to_path_buf()
+        })
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect()
 }
 
 /// One table per URL: cargo rejects a `[patch."…"]` key written twice, and the second checkout
@@ -2999,6 +3055,49 @@ local = { path = "../local" }
         .expect("sources");
         assert!(found.is_empty());
         let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn git_extensions_follow_inherited_registry_dependencies() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        let member = root.join("crates/day-sync-webdav");
+        std::fs::create_dir_all(&member).unwrap();
+        std::fs::write(
+            root.join("Cargo.toml"),
+            r#"
+[workspace]
+members = ["crates/day-sync-webdav"]
+[workspace.dependencies]
+day-webdav = "0.*"
+"#,
+        )
+        .unwrap();
+        std::fs::write(
+            member.join("Cargo.toml"),
+            r#"
+[package]
+name = "day-sync-webdav"
+version = "0.1.0"
+[dependencies]
+day-webdav.workspace = true
+"#,
+        )
+        .unwrap();
+        let meta = serde_json::json!({"packages": [
+            {"source": "git+https://github.com/daybrite/day-sync.git#abcdef",
+             "manifest_path": member.join("Cargo.toml")},
+            {"source": "git+https://github.com/daybrite-other/not-ours#abcdef",
+             "manifest_path": "/untrusted/Cargo.toml"},
+            {"source": "registry+https://github.com/rust-lang/crates.io-index",
+             "manifest_path": "/registry/Cargo.toml"}
+        ]});
+        let dirs = day_git_manifest_dirs(&meta);
+        assert_eq!(dirs, vec![root.to_path_buf()]);
+        assert_eq!(
+            registry_deps(&dirs[0]),
+            BTreeSet::from(["day-webdav".into()])
+        );
     }
 
     /// Which manifest entries ask crates.io for a Day crate: plain versions, renamed packages,

@@ -11,7 +11,7 @@ export const heroPicks = [
   { app: 'Day-Trader', shot: 'detail', platform: 'windows-winui', framed: true },
   { app: 'Games-Fair', shot: 'solitaire', platform: 'android-material' },
   { app: 'Day-Skies', shot: 'tokyo', platform: 'linux-qt' },
-  { app: 'Day-News', shot: 'seeded-demo', platform: 'macos-appkit', framed: true },
+  { app: 'Fleet-Reader', shot: 'seeded-demo', platform: 'macos-appkit', framed: true },
   { app: 'Day-Travel', shot: 'top', platform: 'harmony-arkui' },
   { app: 'Day-Trader', shot: 'watchlist', platform: 'linux-gtk' },
   { app: 'Day-Showcase', shot: 'canvas', platform: 'web-dom' },

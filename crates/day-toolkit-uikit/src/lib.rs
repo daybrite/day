@@ -16260,27 +16260,9 @@ mod imp {
                 );
             }
 
-            #[unsafe(method(application:didReceiveRemoteNotification:fetchCompletionHandler:))]
-            fn push_received(
-                &self,
-                _app: &UIApplication,
-                info: &objc2_foundation::NSDictionary,
-                completion: &block2::DynBlock<dyn Fn(objc2_ui_kit::UIBackgroundFetchResult)>,
-            ) {
-                // SAFETY: UIKit supplies the JSON-compatible APNs user-info dictionary.
-                if let Ok(data) = unsafe {
-                    objc2_foundation::NSJSONSerialization::dataWithJSONObject_options_error(
-                        info, objc2_foundation::NSJSONWritingOptions::empty(),
-                    )
-                } && let Ok(payload) = String::from_utf8(data.to_vec()) {
-                    day_core::services::notification(
-                        day_core::services::NotificationEvent::Received { payload, opened: false },
-                    );
-                }
-                // Delivery is handed off synchronously. This callback does not promise a
-                // background network fetch; apps schedule durable work through a background part.
-                completion.call((objc2_ui_kit::UIBackgroundFetchResult::NoData,));
-            }
+            // Foreground notifications and taps arrive through the shared UserNotifications
+            // delegate. Silent background pushes need a separate execution/completion contract;
+            // advertising the fetch callback here would require a background mode in every app.
 
             // The no-scene-manifest compat path reads `delegate.window` (pane's hard-won lesson).
             #[unsafe(method(window))]

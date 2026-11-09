@@ -79,9 +79,16 @@ pub fn pack(
     // image runs against its bundled libraries, and a crate can know that one of them needs a
     // particular setting there. Qt Multimedia's GStreamer backend finds no element plugins in an
     // AppImage, so day-piece-media selects the FFmpeg backend, whose codec libraries are bundled.
-    let defaults =
+    let needs =
         crate::pieces::resolve_appimage(project, target.toolkit).map_err(PackError::Other)?;
-    for d in &defaults {
+    for plugin in &needs.plugins {
+        if tool(&format!("linuxdeploy-plugin-{plugin}")).is_none() {
+            return Err(PackError::Other(format!(
+                "linuxdeploy-plugin-{plugin} is required by this app's dependencies; install it beside linuxdeploy or on PATH"
+            )));
+        }
+    }
+    for d in &needs.env {
         status(
             "Packing",
             &format!(
@@ -90,7 +97,7 @@ pub fn pack(
             ),
         );
     }
-    let env: Vec<_> = defaults.into_iter().map(|d| (d.name, d.value)).collect();
+    let env: Vec<_> = needs.env.into_iter().map(|d| (d.name, d.value)).collect();
 
     // `$0` is AppRun itself, and `readlink -f` resolves the symlink the host may have made, so
     // Here is the AppDir root wherever the image mounted this run.
@@ -153,7 +160,27 @@ pub fn pack(
     ));
     let _ = std::fs::remove_file(&out);
 
+    // linuxdeploy discovers plugins on PATH (including .sh plugins). Make an explicit
+    // DAY_LINUXDEPLOY_PLUGIN_* location discoverable by the child, too.
+    let mut plugin_paths = Vec::new();
+    for name in plugin
+        .into_iter()
+        .chain(needs.plugins.iter().map(String::as_str))
+    {
+        if let Some(path) = tool(&format!("linuxdeploy-plugin-{name}"))
+            && let Some(parent) = path.parent()
+        {
+            plugin_paths.push(parent.to_path_buf());
+        }
+    }
+    plugin_paths.extend(std::env::split_paths(
+        &std::env::var_os("PATH").unwrap_or_default(),
+    ));
     let mut cmd = Command::new(&linuxdeploy);
+    cmd.env(
+        "PATH",
+        std::env::join_paths(plugin_paths).map_err(|e| PackError::Other(e.to_string()))?,
+    );
     crate::ops::apply_determinism(&mut cmd);
     cmd.current_dir(&work)
         .arg("--appdir")
@@ -178,6 +205,11 @@ pub fn pack(
         && tool(&format!("linuxdeploy-plugin-{p}")).is_some()
     {
         cmd.args(["--plugin", p]);
+    }
+    for extra in &needs.plugins {
+        if Some(extra.as_str()) != plugin {
+            cmd.args(["--plugin", extra]);
+        }
     }
     run_tool(&mut cmd, "linuxdeploy").map_err(PackError::Other)?;
 
@@ -218,11 +250,24 @@ pub(super) fn tool(name: &str) -> Option<PathBuf> {
         let path = PathBuf::from(p);
         return path.is_file().then_some(path);
     }
-    std::env::var("PATH").ok().and_then(|p| {
-        std::env::split_paths(&p)
-            .map(|d| d.join(name))
-            .find(|c| c.is_file())
-    })
+    let mut dirs: Vec<PathBuf> = std::env::var_os("PATH")
+        .map(|p| std::env::split_paths(&p).collect())
+        .unwrap_or_default();
+    if name.starts_with("linuxdeploy-plugin-")
+        && let Some(deploy) = tool("linuxdeploy")
+        && let Some(parent) = deploy.parent()
+    {
+        dirs.push(parent.to_path_buf());
+    }
+    dirs.into_iter()
+        .flat_map(|dir| {
+            let mut candidates = vec![dir.join(name)];
+            if name.starts_with("linuxdeploy-plugin-") {
+                candidates.push(dir.join(format!("{name}.sh")));
+            }
+            candidates
+        })
+        .find(|path| path.is_file())
 }
 
 /// The CPU architecture in the artifact name. AppImages are per-arch, and a release may carry

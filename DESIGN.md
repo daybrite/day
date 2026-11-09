@@ -4424,6 +4424,10 @@ value = "ffmpeg"
 > translations to `platform/ios/Runner/InfoPlist.xcstrings` and to per-locale HarmonyOS
 > `string.json`s under `build/day/harmony/project/`, `day lint` reports the locale that lacks one, and `day metadata --json` carries
 > `reasons` per locale ([docs/permissions.md](docs/permissions.md), "Localized reasons").
+> The stale-catalog lint accepts Git's CRLF checkout line endings on Windows while still
+> reporting missing catalogs and changed permission text. The regression test
+> `apple_permission_catalogs_accept_windows_checkout_line_endings` in
+> `crates/day-cli/src/lint.rs` covers both Apple platforms.
 
 
 `[package.metadata.day.permissions]` is machine-facing only: a library declares WHICH permissions it
@@ -6279,6 +6283,19 @@ The `daybrite/actions` companion repository provides reusable workflows for exte
 ---
 
 ## §20 Continuous integration
+
+AppImage dependencies may declare toolkit-specific linuxdeploy plugins under
+`package.metadata.day.appimage.plugins`. Packaging invokes required plugins and refuses
+missing ones; GTK media includes GStreamer's dynamically loaded elements and scanner,
+which the binary's linked-library closure does not contain.
+
+Each framework CI run resolves Showcase to one commit before its build and conformance
+jobs start. All consumers use that commit, including jobs retried later. Main-source
+integration uses the CLI from the selected Day revision to patch every nested Cargo
+workspace; a released CLI recognizing `--main` is not sufficient to establish that it
+implements the current dependency-resolution checks. Git-sourced Day extensions retain
+their requested source, but their resolved manifests participate in registry dependency
+discovery, so a transitive published extension cannot silently retain an older framework.
 
 Daily CI runs overnight in `America/New_York`: the framework workflow starts at 22:00 and
 `doctor-verify.yml` at 04:00, once per night. Sibling repositories stagger their schedules
@@ -8948,6 +8965,9 @@ all Cargo features would silently add code from disabled providers. The regressi
 UIKit forwards APNs registration and notification payloads through the process-service notification
 handlers. Local and remote notifications share the existing UserNotifications delegate, installed
 before UI creation so notification taps can reach optional parts during a cold launch.
+The UIKit app delegate handles registration; the UserNotifications delegate forwards foreground
+messages and taps. It does not advertise the background-fetch notification callback: silent-push
+execution is outside the push API, and ordinary apps need no `remote-notification` background mode.
 Native event debug output omits device tokens and notification payloads. The optional push facade
 serializes each subscriber's callbacks, including replay, so a concurrently rotated token cannot
 overtake an older token queued during subscription. Server enrollment and sending remain outside

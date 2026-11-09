@@ -2133,7 +2133,11 @@ fn stale_apple_manifest(
     if crate::permissions::has_translations(&localized, &plan.default_locale) {
         let strings = plist.with_file_name(crate::mobile::INFO_PLIST_STRINGS);
         let want = crate::permissions::xcstrings_json(&plan.default_locale, &localized);
-        if std::fs::read_to_string(&strings).ok().as_deref() != Some(want.as_str()) {
+        // Git can check tracked catalogs out as CRLF on Windows without changing their content.
+        let have = std::fs::read_to_string(&strings)
+            .ok()
+            .map(|text| text.replace("\r\n", "\n"));
+        if have.as_deref() != Some(want.as_str()) {
             findings.push(Finding {
                 code: "day::lint::stale-manifest",
                 message: format!(
@@ -2674,6 +2678,62 @@ e = { PLATFORM() }
         let mut out: Vec<&'static str> = collect(project).iter().map(|f| f.code).collect();
         out.sort_unstable();
         out
+    }
+
+    #[test]
+    fn apple_permission_catalogs_accept_windows_checkout_line_endings() {
+        let (dir, project) = app(
+            "apple-catalog-newlines",
+            &[
+                (
+                    "Day.toml",
+                    "schema = 1\n[app]\nid = \"dev.example.a\"\n[permissions]\ncamera = true\n",
+                ),
+                ("src/lib.rs", ""),
+                (
+                    "resource/locales/en/app.ftl",
+                    "permission_camera = English camera reason\n",
+                ),
+                (
+                    "resource/locales/fr/app.ftl",
+                    "permission_camera = French camera reason\n",
+                ),
+            ],
+        );
+        for (os, macos) in [("ios", false), ("macos", true)] {
+            let plist = dir.join(format!("platform/{os}/Runner/Info.plist"));
+            std::fs::create_dir_all(plist.parent().unwrap()).unwrap();
+            std::fs::write(
+                &plist,
+                "<plist><dict><key>NSCameraUsageDescription</key><string>English camera reason</string></dict></plist>\n",
+            )
+            .unwrap();
+            let plan = crate::permissions::resolve_project(&project, os, &[]).unwrap();
+            let localized = crate::permissions::apple_keys_localized(&plan, macos);
+            let expected = crate::permissions::xcstrings_json(&plan.default_locale, &localized);
+            let strings = plist.with_file_name(crate::mobile::INFO_PLIST_STRINGS);
+            let check = || {
+                let mut findings = Vec::new();
+                stale_apple_manifest(&project, Some(plist.clone()), macos, &mut findings);
+                findings
+            };
+            for content in [expected.clone(), expected.replace('\n', "\r\n")] {
+                std::fs::write(&strings, content).unwrap();
+                let findings = check();
+                assert!(findings.is_empty(), "{os}: {findings:?}");
+            }
+            std::fs::write(
+                &strings,
+                expected.replace("French camera reason", "Outdated reason"),
+            )
+            .unwrap();
+            let findings = check();
+            assert_eq!(findings.len(), 1);
+            assert!(findings[0].message.contains("InfoPlist.xcstrings"));
+            std::fs::remove_file(&strings).unwrap();
+            assert_eq!(check().len(), 1);
+        }
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     /// A message with two or more arguments is called with its generated argument struct,

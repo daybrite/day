@@ -769,6 +769,19 @@ name = "QT_MEDIA_BACKEND"
 value = "ffmpeg"
 ```
 
+A dependency that loads native modules at runtime can require a linuxdeploy plugin too:
+
+```toml
+[[package.metadata.day.appimage.plugins]]
+toolkit = "gtk"
+name = "gstreamer"
+```
+
+`day pack` invokes each distinct plugin for the selected toolkit and fails if it is missing.
+Install the plugin beside linuxdeploy or on PATH, or set its `DAY_LINUXDEPLOY_PLUGIN_<NAME>`
+path. The GStreamer plugin bundles element libraries and the plugin scanner; copying only
+libgstreamer leaves GTK media playback unable to find `playbin3`.
+
 An AppImage runs against the libraries bundled inside it, and a bundled library can need a
 setting that the build machine did not. `day pack` reads declarations from the app's resolved
 dependency graph, including the app itself, the same way it reads Flatpak bases. It writes each

@@ -7,7 +7,7 @@ final class SearchTests: XCTestCase {
     }
 
     func testNewsDrawer() {
-        exerciseDrawer(bundle: "dev.daybrite.news", title: "Day News", destination: "All Articles")
+        exerciseDrawer(bundle: "org.appfair.app.FleetReader", title: "Fleet Reader", destination: "All Articles")
     }
 
     private func exerciseDrawer(bundle: String, title: String, destination: String) {

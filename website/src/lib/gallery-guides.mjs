@@ -4,7 +4,7 @@ const guides = {
   'Day-Rise': ['guide-storage', 'Saving app data'],
   'Day-Skies': ['guide-http', 'Making HTTP requests'],
   'Day-Trader': ['reactivity', 'Updating the UI from state'],
-  'Day-News': ['navigation', 'Building app navigation'],
+  'Fleet-Reader': ['navigation', 'Building app navigation'],
   'Day-Sketch': ['rendering', 'Drawing and rendering'],
   'Games-Fair': ['rendering', 'Drawing and rendering'],
 };

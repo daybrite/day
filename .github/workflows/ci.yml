@@ -74,12 +74,23 @@ env:
   # upstream ("will be removed in a later release"); when it stops working, replace it
   # with a `brew untap aws/tap` step next to the brew installs.
   HOMEBREW_NO_REQUIRE_TAP_TRUST: "1"
-  # Which ref of daybrite/Day-Showcase every job builds (.github/actions/showcase). Resolved here
-  # because a composite action cannot read the `vars` context; unset is the normal case and means
-  # `main`. Set the repository variable to point a whole run at an app branch.
-  DAY_SHOWCASE_REF: ${{ vars.DAY_SHOWCASE_REF }}
 
 jobs:
+  showcase-ref:
+    name: pin Showcase revision
+    if: ${{ !inputs.website-only && github.event_name != 'repository_dispatch' }}
+    runs-on: ubuntu-latest
+    outputs:
+      sha: ${{ steps.ref.outputs.commit }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          repository: daybrite/Day-Showcase
+          ref: ${{ vars.DAY_SHOWCASE_REF || 'main' }}
+      - id: ref
+        shell: bash
+        run: echo "commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
   # The framework lane is gated on not being a website-only run (a `gallery-published`
   # dispatch, or a manual run with `website-only` checked). Actions has no
   # workflow-level `if`, so the condition sits on each job with no `needs` and on `release`, the
@@ -526,7 +537,7 @@ jobs:
   # are framework checks that happen to use an app, not app checks.
   showcase:
     name: showcase
-    needs: [day-cli-macos, day-cli-linux, day-cli-windows]
+    needs: [day-cli-macos, day-cli-linux, day-cli-windows, showcase-ref]
     if: ${{ !startsWith(github.ref, 'refs/tags/') }}
     permissions:
       contents: read
@@ -544,8 +555,10 @@ jobs:
       # `setup-command`, so there would be no project there to rebuild.
       validate-rebuild: false
       setup-command: |
-        git clone --depth 1 --branch "${{ vars.DAY_SHOWCASE_REF || 'main' }}" \
-          https://github.com/daybrite/Day-Showcase.git showcase-src
+        git init showcase-src
+        git -C showcase-src remote add origin https://github.com/daybrite/Day-Showcase.git
+        git -C showcase-src fetch --depth 1 origin "${{ needs.showcase-ref.outputs.sha }}"
+        git -C showcase-src checkout --detach FETCH_HEAD
         "$DAY_BIN" --project showcase-src patch --local "$GITHUB_WORKSPACE" --main --check
       # Spelled out rather than read from this workflow's `env`: a reusable-workflow `with:`
       # block cannot see the `env` context. These are the gallery's variant ids.
@@ -623,7 +636,7 @@ jobs:
   toolkit:
     name: toolkit (${{ matrix.toolkit }})
     runs-on: ${{ matrix.os }}
-    needs: [day-cli-macos, day-cli-linux, day-cli-windows]
+    needs: [day-cli-macos, day-cli-linux, day-cli-windows, showcase-ref]
     if: ${{ !startsWith(github.ref, 'refs/tags/') }}
     strategy:
       fail-fast: false
@@ -698,6 +711,7 @@ jobs:
       - name: Check out the showcase app
         uses: ./.github/actions/showcase
         with:
+          ref: ${{ needs.showcase-ref.outputs.sha }}
           day-bin: ${{ env.DAY_BIN }}
       - name: Clippy (${{ matrix.toolkit }} backend)
         # In the app's checkout, not this workspace: the showcase is its own repository now, and
@@ -1168,7 +1182,7 @@ jobs:
     name: day-harmony-arkui
     runs-on: ubuntu-24.04
     continue-on-error: true
-    needs: [day-cli-linux]
+    needs: [day-cli-linux, showcase-ref]
     timeout-minutes: 90
     env:
       # hvigor + ohpm are not in the public SDK; they come from the OpenHarmony
@@ -1291,6 +1305,7 @@ jobs:
       - name: Check out the showcase app
         uses: ./.github/actions/showcase
         with:
+          ref: ${{ needs.showcase-ref.outputs.sha }}
           day-bin: ${{ env.DAY_BIN }}
       - name: Clippy (arkui backend, cross-check)
         if: ${{ !startsWith(github.ref, 'refs/tags/') }}
@@ -1393,7 +1408,7 @@ jobs:
   web-dom:
     name: day-web-dom
     if: ${{ !startsWith(github.ref, 'refs/tags/') }} # a walkthrough leg; the tag lane skips it
-    needs: [day-cli-linux]
+    needs: [day-cli-linux, showcase-ref]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
@@ -1435,6 +1450,7 @@ jobs:
       - name: Check out the showcase app
         uses: ./.github/actions/showcase
         with:
+          ref: ${{ needs.showcase-ref.outputs.sha }}
           day-bin: ${{ env.DAY_BIN }}
       - name: Clippy (dom backend)
         # `--lib` like the other non-desktop backends: wasm has no `day::launch` (desktop-only), so

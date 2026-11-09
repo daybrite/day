@@ -541,23 +541,39 @@ pub(crate) struct AppImageEnv {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct AppImageMeta {
+    #[serde(default)]
     env: Vec<AppImageEnv>,
+    #[serde(default)]
+    plugins: Vec<AppImagePlugin>,
+}
+
+/// A linuxdeploy plugin required by a dependency on the selected toolkit.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct AppImagePlugin {
+    pub toolkit: String,
+    pub name: String,
+}
+
+/// Launcher defaults and loadable-module bundlers from the reachable dependency graph.
+#[derive(Debug)]
+pub(crate) struct AppImageNeeds {
+    pub env: Vec<AppImageEnv>,
+    pub plugins: Vec<String>,
 }
 
 /// The launcher defaults the app's dependency closure declares for `toolkit`, sorted by name.
-pub(crate) fn resolve_appimage(
-    project: &Project,
-    toolkit: &str,
-) -> Result<Vec<AppImageEnv>, String> {
+pub(crate) fn resolve_appimage(project: &Project, toolkit: &str) -> Result<AppImageNeeds, String> {
     let mut features = vec![toolkit.to_string()];
     features.extend(feature_union(project, toolkit));
     let refs: Vec<_> = features.iter().map(String::as_str).collect();
-    appimage_env(&cargo_metadata(project, &refs)?, toolkit)
+    appimage_needs(&cargo_metadata(project, &refs)?, toolkit)
 }
 
-fn appimage_env(meta: &Metadata, toolkit: &str) -> Result<Vec<AppImageEnv>, String> {
+fn appimage_needs(meta: &Metadata, toolkit: &str) -> Result<AppImageNeeds, String> {
     let reachable = closure(meta);
     let mut chosen = std::collections::BTreeMap::<String, AppImageEnv>::new();
+    let mut plugins = std::collections::BTreeSet::new();
     for pkg in &meta.packages {
         if !reachable.contains(&pkg.id) {
             continue;
@@ -578,6 +594,24 @@ fn appimage_env(meta: &Metadata, toolkit: &str) -> Result<Vec<AppImageEnv>, Stri
                 pkg.manifest_path
             )
         })?;
+        for entry in declared.plugins {
+            if entry.toolkit.trim().is_empty()
+                || entry.name.is_empty()
+                || !entry
+                    .name
+                    .bytes()
+                    .all(|c| c.is_ascii_alphanumeric() || c == b'-')
+                || entry.name.starts_with('-')
+            {
+                return Err(format!(
+                    "{}: invalid AppImage plugin name or toolkit",
+                    pkg.manifest_path
+                ));
+            }
+            if entry.toolkit == toolkit {
+                plugins.insert(entry.name);
+            }
+        }
         for mut entry in declared.env {
             if entry.toolkit.trim().is_empty() || entry.value.is_empty() {
                 return Err(format!(
@@ -610,7 +644,10 @@ fn appimage_env(meta: &Metadata, toolkit: &str) -> Result<Vec<AppImageEnv>, Stri
             }
         }
     }
-    Ok(chosen.into_values().collect())
+    Ok(AppImageNeeds {
+        env: chosen.into_values().collect(),
+        plugins: plugins.into_iter().collect(),
+    })
 }
 
 /// A POSIX shell variable name.
@@ -2897,6 +2934,36 @@ mod tests {
     }
 
     #[test]
+    fn appimage_plugins_follow_reachable_toolkits_and_reject_paths() {
+        let mut data = serde_json::json!({
+            "packages": [
+                {"id":"app", "name":"app", "manifest_path":"app/Cargo.toml"},
+                {"id":"media", "name":"media", "manifest_path":"media/Cargo.toml",
+                 "metadata":{"day":{"appimage":{"plugins":[
+                     {"toolkit":"gtk", "name":"gstreamer"},
+                     {"toolkit":"gtk", "name":"gstreamer"}
+                 ]}}}},
+                {"id":"unused", "name":"unused", "manifest_path":"unused/Cargo.toml",
+                 "metadata":{"day":{"appimage":{"plugins":[
+                     {"toolkit":"gtk", "name":"not-installed"}
+                 ]}}}}
+            ],
+            "resolve":{"root":"app", "nodes":[
+                {"id":"app", "deps":[{"pkg":"media"}]}, {"id":"media", "deps":[]}
+            ]}
+        });
+        let collect = |v: &serde_json::Value, toolkit: &str| {
+            super::appimage_needs(&serde_json::from_value(v.clone()).unwrap(), toolkit)
+        };
+        assert_eq!(collect(&data, "gtk").unwrap().plugins, ["gstreamer"]);
+        assert!(collect(&data, "qt").unwrap().plugins.is_empty());
+        for bad in ["../gstreamer", "--output", "", "gst stream"] {
+            data["packages"][1]["metadata"]["day"]["appimage"]["plugins"][0]["name"] = bad.into();
+            assert!(collect(&data, "gtk").unwrap_err().contains("plugin"));
+        }
+    }
+
+    #[test]
     fn appimage_defaults_follow_closure_and_toolkit_and_refuse_conflicts() {
         let mut data = serde_json::json!({
             "packages": [
@@ -2919,7 +2986,8 @@ mod tests {
             ]}
         });
         let collect = |v: &serde_json::Value, toolkit: &str| {
-            super::appimage_env(&serde_json::from_value(v.clone()).unwrap(), toolkit)
+            super::appimage_needs(&serde_json::from_value(v.clone()).unwrap(), toolkit)
+                .map(|needs| needs.env)
         };
         // Two crates agreeing coalesce to the first; the unreachable crate's table is never read.
         let qt = collect(&data, "qt").unwrap();

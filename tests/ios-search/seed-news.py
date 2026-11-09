@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Seed only the disposable search-drawer fixture, after its first Day-News launch."""
+"""Seed only the disposable search-drawer fixture, after its first Fleet Reader launch."""
 from pathlib import Path
 import sqlite3
 import time
 
 path = Path('/tmp/day-search-drawer-fixture/sheets2.sqlite3')
 if not path.exists():
-    raise SystemExit('Launch Day-News once with DAY_DATA_DIR=/tmp/day-search-drawer-fixture first')
+    raise SystemExit('Launch Fleet Reader once with DAY_DATA_DIR=/tmp/day-search-drawer-fixture first')
 now = int(time.time())
 with sqlite3.connect(path) as db:
     for index in range(40):

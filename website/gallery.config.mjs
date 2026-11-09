@@ -166,12 +166,12 @@ export const apps = [
     },
   },
   {
-    id: 'Day-News',
-    label: 'Day News',
+    id: 'Fleet-Reader',
+    label: 'Fleet Reader',
     blurb:
       'A feed reader in three panes on a desktop and three taps on a phone, handling RSS, Atom, RDF and JSON Feed.',
-    repo: 'https://github.com/daybrite/Day-News',
-    metadata: 'https://daybrite.github.io/Day-News/gallery/gallery.json',
+    repo: 'https://github.com/Fleet-Reader/Fleet-Reader',
+    metadata: 'https://fleet-reader.github.io/Fleet-Reader/gallery/gallery.json',
     labels: {
       'seeded-fixtures': 'A seeded library',
       'search-results': 'Search results',
