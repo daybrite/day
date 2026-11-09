@@ -3059,8 +3059,9 @@ local = { path = "../local" }
 
     #[test]
     fn git_extensions_follow_inherited_registry_dependencies() {
-        let tmp = tempfile::tempdir().unwrap();
-        let root = tmp.path();
+        let tmp =
+            std::env::temp_dir().join(format!("day-patch-git-workspace-{}", std::process::id()));
+        let root = tmp.as_path();
         let member = root.join("crates/day-sync-webdav");
         std::fs::create_dir_all(&member).unwrap();
         std::fs::write(
@@ -3098,6 +3099,7 @@ day-webdav.workspace = true
             registry_deps(&dirs[0]),
             BTreeSet::from(["day-webdav".into()])
         );
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     /// Which manifest entries ask crates.io for a Day crate: plain versions, renamed packages,
