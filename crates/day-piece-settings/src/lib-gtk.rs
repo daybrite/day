@@ -1819,7 +1819,14 @@ fn shell_row(inst: Rc<Installed>, r: &Row, b: &mut ShellBuild) -> ShellRow {
                 (None, None) => None,
                 (_, Some(b_sig)) => Some(b.slot(
                     SlotKind::Suffix,
-                    Some(when(move || b_sig.get(), spinner).any()),
+                    // The row's ID lives on this slot even while idle. Keep the same
+                    // nonzero target as a marker when the conditional spinner is empty.
+                    Some(
+                        when(move || b_sig.get(), spinner)
+                            .min_width(1.0)
+                            .min_height(1.0)
+                            .any(),
+                    ),
                     Some(run.clone()),
                     id.clone(),
                 )),

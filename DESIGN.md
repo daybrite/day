@@ -2186,6 +2186,9 @@ through window creation.
 > On macOS the same dialogs are presented as windows of their own (where a Mac keeps
 > Preferences, and where a piece's Cocoa view in the GTK window would cover an in-window
 > sheet); on Linux they are the sheet.
+> GTK settings action rows keep a nonzero DayScript target while idle. For an action with a
+> busy signal, the suffix that carries its element ID retains a 1×1 minimum when the spinner
+> is absent; native row activation and scripted taps run the same guarded action.
 
 > [!NOTE]
 > Revised 2026-10: **window properties, chrome and the app's presence outside its windows
