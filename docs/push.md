@@ -119,10 +119,12 @@ Push Lab exposes registration, token changes, and incoming events. Configure its
 `dev.daybrite.push.demo`, separately from Day-Showcase. The portable walkthrough checks UI
 controls without requiring a provider account.
 
-The repository also contains a Cloudflare Worker relay for Day-Showcase. It issues short-lived
-enrollment codes and per-device credentials, stores registrations in D1, and sends through
-APNs or FCM. Sender keys stay in Worker secrets; the app stores its device credential in the
-[keychain](/docs/reference/keychain). See the
+The repository also contains a Cloudflare Worker relay for Day-Showcase. Any installation can
+register its device token and receives a per-device credential; registrations are limited per
+network and expire after a week without use. Device sends carry a fixed sample notification,
+and only the relay's administrator chooses other text. The relay stores registrations in D1
+and sends through APNs or FCM. Sender keys stay in Worker secrets; the app stores its device
+credential in the [keychain](/docs/reference/keychain). See the
 [relay guide](https://github.com/daybrite/day-part-push/blob/main/relay/README.md).
 
 CI tests the Rust workspace, the relay with synthetic credentials, and both Android flavors.
