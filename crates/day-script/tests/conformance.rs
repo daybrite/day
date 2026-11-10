@@ -336,3 +336,34 @@ fn picker_selection_rejects_invalid_indices_without_changing_selection() {
     .unwrap();
     assert!(day_script::step(current).ok);
 }
+
+/// A disabled menu item is retryable, as a disabled `tap` target is: its enabled state follows
+/// app state that may still be arriving, so the bounded wait gets to see it enable.
+#[test]
+fn a_disabled_menu_item_is_retried_not_failed() {
+    use day_pieces::Decorate;
+    let enabled = day_reactive::Signal::global(false);
+    let _probe = boot_with(move || {
+        day_core::AnyPiece::new(
+            day_pieces::label("Host")
+                .context_menu(move || {
+                    vec![
+                        day_pieces::menu_item("Go")
+                            .enabled(move || enabled.get())
+                            .action(|| {})
+                            .id(day_core::id!(go_item)),
+                    ]
+                })
+                .id(day_core::id!(menu_host)),
+        )
+    });
+    let choose: Step = serde_json::from_value(serde_json::json!({
+        "op": "context_menu", "id": "menu_host", "item_id": "go_item"
+    }))
+    .unwrap();
+    let reply = day_script::step(choose.clone());
+    assert!(!reply.ok && reply.retryable, "{reply:?}");
+    enabled.set(true);
+    day_reactive::flush_sync();
+    assert!(day_script::step(choose).ok);
+}

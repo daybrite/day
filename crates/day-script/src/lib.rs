@@ -1222,9 +1222,11 @@ fn exec(step: Step, revision: u32) -> Reply {
                                 false,
                             ))
                         } else if !enabled {
+                            // Retryable, as a disabled `tap` target is: an item's enabled state
+                            // follows app state that may still be arriving (a page's load).
                             Err(Reply::fail(
                                 format!("context_menu {id:?}: {what} is disabled"),
-                                false,
+                                true,
                             ))
                         } else {
                             day_core::dispatch_menu_action(*action);
@@ -1315,7 +1317,9 @@ fn exec(step: Step, revision: u32) -> Reply {
                                 false,
                             ))
                         } else if !enabled {
-                            Err(Reply::fail(format!("menu: {what} is disabled"), false))
+                            // Retryable, as a disabled `tap` target is: an item's enabled state
+                            // follows app state that may still be arriving (a page's load).
+                            Err(Reply::fail(format!("menu: {what} is disabled"), true))
                         } else {
                             day_core::dispatch_menu_action(*action);
                             day_reactive::flush_sync();
