@@ -9391,7 +9391,16 @@ fn the_soft_keyboard_does_not_change_the_size_class() {
         Some(day_spec::HeightClass::Medium)
     );
 
-    day_core::note_keyboard_overlap(day_spec::WINDOW_NODE, typing, tablet.height - typing.height);
+    // From inside a tree call, as UIKit delivers it: resigning a field posts the keyboard
+    // notification synchronously while Day holds the tree, and a note that borrowed the tree
+    // again panicked there and lost the resize report after it (day run 42913522360).
+    day_core::with_tree(|_| {
+        day_core::note_keyboard_overlap(
+            day_spec::WINDOW_NODE,
+            typing,
+            tablet.height - typing.height,
+        );
+    });
     probe.emit(
         day_spec::WINDOW_NODE,
         day_spec::Event::WindowResized(typing),

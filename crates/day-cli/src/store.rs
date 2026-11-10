@@ -1817,19 +1817,26 @@ fn listing_shots(
                 else {
                     continue;
                 };
-                for e in entries {
-                    if e["platform"].as_str() != Some(target.name)
-                        || e["shot"].as_str() != Some(shot)
-                        || capture_kind(target, e["device"].as_str()) != *kind
-                        || e["locale"].as_str() != Some(locale.as_str())
-                    {
-                        continue;
-                    }
-                    if let Some(t) = e["theme"].as_str()
-                        && t != theme
-                    {
-                        continue;
-                    }
+                // One capture per listed shot. A walkthrough's themed capture and a behavioral
+                // script's unthemed one of the same name can both be in the index; the themed
+                // one is what the listing asked for, and taking both listed the shot twice.
+                let matches = |e: &&serde_json::Value| {
+                    e["platform"].as_str() == Some(target.name)
+                        && e["shot"].as_str() == Some(shot)
+                        && capture_kind(target, e["device"].as_str()) == *kind
+                        && e["locale"].as_str() == Some(locale.as_str())
+                };
+                let pick = entries
+                    .iter()
+                    .filter(matches)
+                    .find(|e| e["theme"].as_str() == Some(theme))
+                    .or_else(|| {
+                        entries
+                            .iter()
+                            .filter(matches)
+                            .find(|e| e["theme"].as_str().is_none())
+                    });
+                if let Some(e) = pick {
                     let (w, h) = (
                         e["width"].as_u64().unwrap_or(0) as u32,
                         e["height"].as_u64().unwrap_or(0) as u32,
@@ -4471,6 +4478,17 @@ mod tests {
                 "theme": theme, "locale": locale, "store": store, "width": w, "height": h,
             }));
         }
+        // A behavioral script run once per device, with no theme, captures a shot of the same
+        // name (Net Skip's `default` variant); the listing still shows the themed one, once.
+        let rel = "ios-uikit/iphone/default/home.png";
+        let path = tree.join(rel);
+        std::fs::create_dir_all(path.parent().expect("dir")).expect("mkdir");
+        std::fs::write(&path, rel.as_bytes()).expect("capture");
+        entries.push(serde_json::json!({
+            "path": format!("gallery/{rel}"),
+            "shot": "home", "device": "iphone", "os": "ios", "platform": "ios-uikit",
+            "theme": null, "locale": "en", "width": 1320, "height": 2868,
+        }));
         let index_path = tree.join("gallery.json");
         std::fs::write(&index_path, index(&["en", "fr"], entries).to_string()).expect("index");
         let index = index_path;
@@ -4479,6 +4497,16 @@ mod tests {
         let ios = crate::targets::find("ios-uikit").expect("ios");
         let out = tmp.join("out-ios");
         let rules = StoreRules::parse(DEFAULT_RULES).expect("rules");
+        let parsed: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&index).expect("read index"))
+                .expect("index json");
+        let chosen = listing_shots(&parsed, ios, &rules).expect("listing shots");
+        let iphone_en: Vec<&str> = chosen
+            .iter()
+            .filter(|s| s.device == "iphone" && s.locale == "en")
+            .map(|s| s.shot.as_str())
+            .collect();
+        assert_eq!(iphone_en, ["home", "play"], "one capture per listed shot");
         stage(&project, ios, &listing, &out, Some(&source), &rules).expect("stage ios");
         let placed = |rel: &str| std::fs::read_to_string(out.join(rel)).ok();
         assert_eq!(
