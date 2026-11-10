@@ -1214,6 +1214,9 @@ pub fn write_android_manifest(project: &Project) -> Result<(), String> {
     if let Some(frag) = crate::documents::android(project) {
         components.push(frag);
     }
+    // Shortcuts and the document/URL/share filters both extend the launcher activity, and the
+    // merger refuses one file that declares an activity twice: fold them into one element.
+    let components = merge_activity_fragments(components);
     if entries.is_empty() && components.is_empty() && !pieces.disable_native_heap_pointer_tagging {
         let _ = std::fs::remove_file(&overlay);
     } else {
@@ -1357,6 +1360,64 @@ fn read_manifest_components(paths: &[String]) -> Result<Vec<String>, String> {
 /// The overlay: the `<uses-permission>`s, plus any `<application>` components pieces/parts
 /// declared, merged into the app manifest by AGP's manifest merger (which also dedups against any
 /// the app already declares).
+/// Fold `<activity>` fragments that name the same activity into one element: the first
+/// fragment's opening tag (its attributes), then every fragment's children in order. The manifest
+/// merger merges an activity across files by name, but within one file a second declaration is
+/// an error ("duplicated with element declared at"). Other fragments pass through unchanged.
+fn merge_activity_fragments(components: Vec<String>) -> Vec<String> {
+    struct Activity {
+        name: String,
+        lead: String,
+        open: String,
+        body: String,
+    }
+    fn parse(fragment: &str) -> Option<Activity> {
+        let trimmed = fragment.trim_end();
+        let start = trimmed.find("<activity")?;
+        if trimmed[start + 1..].contains("<activity") || !trimmed.ends_with("</activity>") {
+            return None;
+        }
+        let open_end = start + trimmed[start..].find('>')?;
+        if trimmed[..open_end].ends_with('/') {
+            return None;
+        }
+        let open = &trimmed[start..=open_end];
+        let at = open.find("android:name=\"")? + "android:name=\"".len();
+        let name = open[at..].split('"').next()?.to_string();
+        let body = &trimmed[open_end + 1..trimmed.len() - "</activity>".len()];
+        Some(Activity {
+            name,
+            lead: trimmed[..start].to_string(),
+            open: open.to_string(),
+            body: body.to_string(),
+        })
+    }
+    let mut out: Vec<Result<Activity, String>> = Vec::new();
+    for fragment in components {
+        match parse(&fragment) {
+            Some(activity) => {
+                let same = out
+                    .iter_mut()
+                    .find_map(|o| o.as_mut().ok().filter(|a| a.name == activity.name));
+                match same {
+                    Some(first) => {
+                        first.lead.push_str(&activity.lead);
+                        first.body.push_str(&activity.body);
+                    }
+                    None => out.push(Ok(activity)),
+                }
+            }
+            None => out.push(Err(fragment)),
+        }
+    }
+    out.into_iter()
+        .map(|o| match o {
+            Ok(a) => format!("{}{}{}</activity>", a.lead, a.open, a.body),
+            Err(fragment) => fragment,
+        })
+        .collect()
+}
+
 fn pieces_manifest(
     permissions: &[crate::permissions::AndroidRaw],
     components: &[String],
@@ -2668,6 +2729,27 @@ fn jvm_package(source: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn fragments_for_one_activity_merge_into_one_element() {
+        let shortcuts = "<!-- shortcuts -->\n<activity android:name=\"dev.daybrite.day.bridge.DayActivity\">\n    <meta-data android:name=\"android.app.shortcuts\" android:resource=\"@xml/day_shortcuts\" />\n</activity>".to_string();
+        let filters = "<activity android:name=\"dev.daybrite.day.bridge.DayActivity\" android:exported=\"true\">\n<intent-filter><action android:name=\"android.intent.action.SEND\"/></intent-filter>\n</activity>\n".to_string();
+        let receiver = "<receiver android:name=\"a.B\" android:exported=\"false\" />".to_string();
+        let merged = super::merge_activity_fragments(vec![shortcuts, receiver.clone(), filters]);
+        assert_eq!(merged.len(), 2, "{merged:#?}");
+        let activity = &merged[0];
+        assert_eq!(activity.matches("<activity").count(), 1, "{activity}");
+        assert!(activity.contains("android.app.shortcuts"));
+        assert!(activity.contains("android.intent.action.SEND"));
+        assert!(activity.ends_with("</activity>"));
+        assert_eq!(merged[1], receiver);
+        // Different activities stay apart.
+        let other = "<activity android:name=\"x.Other\"><meta-data android:name=\"k\" android:value=\"v\"/></activity>".to_string();
+        assert_eq!(
+            super::merge_activity_fragments(vec![other.clone()]),
+            vec![other]
+        );
+    }
+
     #[test]
     fn bridge_roots_use_resolved_dependency_names() {
         // Cargo's name is the real package, including renamed/workspace-inherited dependencies.

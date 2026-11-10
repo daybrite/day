@@ -1887,8 +1887,19 @@ public final class DayBridge extends DayRuntime {
     public static void setTextField(View v, String value) {
         EditText e = editTextOf(v);
         if (!e.getText().toString().equals(value)) { // controlled input (§4.4)
-            e.setText(value);
-            e.setSelection(value.length());
+            // Quiet: Day wrote this text, so it is not the user's edit. Reported, it arrived
+            // later than the write through the event queue, and an app that had moved on (an
+            // address bar that completed "kit" to "kitchen.example") read the stale echo as the
+            // user deleting the completion. UIKit and AppKit do not report a programmatic set.
+            InputState st = inputStates.get(v);
+            boolean wasQuiet = st != null && st.quiet;
+            if (st != null) st.quiet = true;
+            try {
+                e.setText(value);
+                e.setSelection(value.length());
+            } finally {
+                if (st != null) st.quiet = wasQuiet;
+            }
         }
     }
     /** Select code points `start..end` of a text field (docs/textfield.md "Selection"). Day

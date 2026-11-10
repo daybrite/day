@@ -1626,7 +1626,9 @@ pub fn launch_ohos(
     outcome: &BuildOutcome,
     spec: &LaunchSpec,
 ) -> Result<std::thread::JoinHandle<i32>, String> {
-    let bundle = project.manifest.app.id.clone();
+    // The id the HAP was signed with: `[app.harmony] id` where Day.toml sets one (HarmonyOS
+    // refuses a hyphen, so an app whose base id has one must), else `[app] id`.
+    let bundle = project.manifest.resolve("harmony-arkui").id;
     // Refused before the build by crate::grant::check_target; repeated here so a caller that
     // builds a spec by hand gets the same answer rather than a prompt the script never passes.
     if let Some(g) = spec.grants.first() {
