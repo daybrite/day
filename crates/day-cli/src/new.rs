@@ -3942,7 +3942,7 @@ mod scaffold_tests {
         // day it builds against: main on a push, the newest release nightly or when not ticked.
         assert!(!ci.contains("day-version"), "{ci}");
         assert!(
-            ci.contains("\n      day-source: ${{ inputs.day-main && 'main' || 'auto' }}\n"),
+            ci.contains("\n      day-deps: ${{ inputs.day-main && 'main' || 'auto' }}\n"),
             "{ci}"
         );
         assert!(ci.contains("\n  schedule:\n"), "{ci}");
@@ -4175,7 +4175,7 @@ mod scaffold_tests {
         let ci = String::from_utf8_lossy(ci);
         assert!(ci.contains("\n      day-version: \"0.3.1\"\n"), "{ci}");
         // …and builds the revision its git dependency pins, not main or a release.
-        assert!(ci.contains("\n      day-source: locked\n"), "{ci}");
+        assert!(ci.contains("\n      day-deps: locked\n"), "{ci}");
         assert!(!ci.contains("inputs.day-main &&"), "{ci}");
     }
 

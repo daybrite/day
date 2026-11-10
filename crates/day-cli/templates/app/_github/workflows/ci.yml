@@ -48,12 +48,12 @@ jobs:
 {{#if day_ci_pinned}}
       # Cargo.toml takes day from git, so the build uses the revision it pins, and the runner
       # installs the CLI from the same source, so the two never disagree.
-      day-source: locked
+      day-deps: locked
       day-version: "{{day_ci_version}}"
 {{else}}
       # Which day to build against: `auto` picks day's main branch or the newest release by the
       # event, as described at the top of this file, and installs the matching day CLI.
-      day-source: $\{{ inputs.day-main && 'main' || 'auto' }}
+      day-deps: $\{{ inputs.day-main && 'main' || 'auto' }}
 {{/if}}
       # Every dayscript under dayscript/ (`scripts: auto`), on every target, in every locale the
       # app ships (resource/locales/) and both appearances: a string that breaks only in one
