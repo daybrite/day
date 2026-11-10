@@ -9882,7 +9882,8 @@ impl Toolkit for Gtk {
         day_spec::Support::Native
     }
     #[cfg(target_os = "macos")]
-    fn share_url(&mut self, url: &str, _title: &str) -> bool {
+    fn share(&mut self, spec: &day_spec::share::ShareSpec, _anchor: Option<&Self::Handle>) -> bool {
+        let url = spec.url.as_str();
         use objc2::{msg_send, runtime::AnyObject};
         use objc2_foundation::{NSArray, NSPoint, NSRect, NSSize, NSString, NSURL};
         let Some(mtm) = objc2::MainThreadMarker::new() else {

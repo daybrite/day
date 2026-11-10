@@ -1271,6 +1271,18 @@ fn op_status_bar_hidden(hidden: Reactive<bool>) -> impl FnOnce(Build) -> Build {
     }
 }
 
+fn op_on_system_back(
+    enabled: Reactive<bool>,
+    handler: Rc<dyn Fn()>,
+) -> impl FnOnce(Build) -> Build {
+    move |inner| {
+        Box::new(move |cx| {
+            crate::nav::install_back_handler(cx.parent(), enabled, handler);
+            inner(cx)
+        })
+    }
+}
+
 fn op_interactive_dismiss_disabled() -> impl FnOnce(Build) -> Build {
     move |inner| {
         Box::new(move |cx| {
@@ -1546,6 +1558,13 @@ impl<P: Piece> Decorated<P> {
     }
     pub fn interactive_dismiss_disabled(self) -> Self {
         self.push(op_interactive_dismiss_disabled())
+    }
+    pub fn on_system_back<M>(
+        self,
+        enabled: impl IntoReactive<bool, M>,
+        handler: impl Fn() + 'static,
+    ) -> Self {
+        self.push(op_on_system_back(enabled.into_reactive(), Rc::new(handler)))
     }
     pub fn status_bar_hidden<M>(self, hidden: impl IntoReactive<bool, M>) -> Self {
         self.push(op_status_bar_hidden(hidden.into_reactive()))
@@ -2124,6 +2143,35 @@ pub trait Decorate: Piece + Sized {
     /// (an explicit close control) dismiss it.
     fn interactive_dismiss_disabled(self) -> Decorated<Self> {
         Decorated::new(self).interactive_dismiss_disabled()
+    }
+
+    /// While this subtree is mounted and `enabled` holds, a back nothing else takes runs
+    /// `handler` instead of the platform's default: Jetpack Compose's `BackHandler(enabled)`
+    /// (docs/navigation.md "Handling the system Back"). `enabled` is a constant, a `Signal`, or
+    /// a closure, followed as it changes.
+    ///
+    /// The back is Android's system back button and gesture (predictive back included),
+    /// HarmonyOS's back gesture, [`nav_back()`](crate::nav_back), and dayscript's `nav_back`
+    /// step in both forms. Navigation answers first: a presented [`cover`] closes and a pushed
+    /// page pops before any handler runs, so the handler takes only the back that would have
+    /// left the app (on a phone) or done nothing (on a desktop). Among several, the handler in
+    /// the topmost cover wins, then the one nested most deeply in the piece tree, then the most
+    /// recently mounted. A page's own "leave this page?" policy belongs on
+    /// [`NavStack::on_back`] instead.
+    ///
+    /// Disabled (or unmounted) on Android, the system back is released again, so the
+    /// predictive "back to home" preview shows whenever the press would leave the app.
+    ///
+    /// ```ignore
+    /// // A browser: Back goes back in the page's history while the tab can.
+    /// page_view(tab).on_system_back(move || tab.can_go_back(), move || tab.go_back())
+    /// ```
+    fn on_system_back<M>(
+        self,
+        enabled: impl IntoReactive<bool, M>,
+        handler: impl Fn() + 'static,
+    ) -> Decorated<Self> {
+        Decorated::new(self).on_system_back(enabled, handler)
     }
 
     /// Erase to a single [`AnyPiece`]: for a `Vec<AnyPiece>`, a `-> AnyPiece` signature, or any other

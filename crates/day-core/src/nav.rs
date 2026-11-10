@@ -65,6 +65,33 @@ pub struct NavController {
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct NavToken(u64);
 
+/// An app-level Back handler: Jetpack Compose's `BackHandler(enabled) { … }`
+/// (docs/navigation.md "Handling the system Back"). Registered with [`register_back_handler`]
+/// by `Decorate::on_system_back`; removed with [`unregister_nav`].
+///
+/// A handler is the last thing a back reaches. Every navigation surface answers first (a
+/// presented cover closes, a pushed page pops, a guard decides), and only a back none of them
+/// takes runs a handler, in place of the platform's default (leaving the app). Among handlers
+/// that are on screen and enabled, the one in the topmost cover wins, then the one nested most
+/// deeply in the piece tree (the most ancestors above [`Self::node`]), then the most recently
+/// registered.
+pub struct BackHandler {
+    /// The node the handler's piece is built under. Its depth in the tree, read when a back
+    /// arrives rather than at registration (a document page can move to a window of its own),
+    /// is what makes an inner handler win over an outer one, whichever mounted first.
+    pub node: crate::RNode,
+    /// Presentation order of the containing cover, like [`NavController::layer`].
+    pub layer: Box<dyn Fn() -> u64>,
+    /// Whether the handler is on screen, like [`NavController::active`]: false inside a resident
+    /// page its host is not showing.
+    pub active: Box<dyn Fn() -> bool>,
+    /// The app's condition: whether the handler wants the back right now. Read untracked; the
+    /// caller re-runs [`sync_system_back`] when it changes.
+    pub enabled: Box<dyn Fn() -> bool>,
+    /// What a back the handler takes does.
+    pub run: Box<dyn Fn()>,
+}
+
 day_reactive::tls_slots! {
     nav;
     static NAV_STACK: RefCell<Vec<(NavToken, Rc<NavController>)>> =
@@ -73,6 +100,11 @@ day_reactive::tls_slots! {
     static FALLBACK_NAV: RefCell<Vec<(NavToken, Rc<NavController>)>> =
         const { RefCell::new(Vec::new()) };
     static NEXT_TOKEN: Cell<u64> = const { Cell::new(1) };
+    /// The app's Back handlers ([`register_back_handler`]), in registration order.
+    static BACK_HANDLERS: RefCell<Vec<(NavToken, Rc<BackHandler>)>> =
+        const { RefCell::new(Vec::new()) };
+    /// What the toolkit was last told by [`sync_system_back`]: whether the system back is armed.
+    static BACK_ARMED: Cell<bool> = const { Cell::new(false) };
     /// A launch deep link recorded by the platform entry before `launch_with` runs: the entry
     /// point for hosts with no process environment (web-dom seeds it from the page's URL hash). The
     /// `DAY_DEEPLINK` environment variable, where one exists, still wins.
@@ -160,10 +192,132 @@ fn active_fallbacks() -> Vec<Rc<NavController>> {
     all.into_iter().filter(|c| (c.active)()).collect()
 }
 
-/// Remove a controller whose host was disposed. No-op if already gone.
+/// Install an app-level Back handler ([`BackHandler`]). Returns its token, which
+/// [`unregister_nav`] removes it with. Arms the platform's system back when the handler is
+/// enabled ([`sync_system_back`]).
+pub fn register_back_handler(handler: BackHandler) -> NavToken {
+    let token = NEXT_TOKEN.with(|c| {
+        let t = c.get();
+        c.set(t + 1);
+        NavToken(t)
+    });
+    BACK_HANDLERS.with(|s| s.borrow_mut().push((token, Rc::new(handler))));
+    sync_system_back();
+    token
+}
+
+/// Remove a controller whose host was disposed, or a Back handler whose piece was. No-op if
+/// already gone.
 pub fn unregister_nav(token: NavToken) {
     NAV_STACK.with(|s| s.borrow_mut().retain(|(t, _)| *t != token));
     FALLBACK_NAV.with(|s| s.borrow_mut().retain(|(t, _)| *t != token));
+    let had = BACK_HANDLERS.with(|s| {
+        let mut s = s.borrow_mut();
+        let before = s.len();
+        s.retain(|(t, _)| *t != token);
+        s.len() != before
+    });
+    if had {
+        sync_system_back();
+    }
+}
+
+/// The Back handler a back would run now: on screen and enabled, in the topmost cover, the
+/// most deeply nested in the piece tree, the most recently registered. Handlers are cloned out
+/// of the registry first, since `active`/`enabled` run app code (§3.3).
+fn winning_back_handler() -> Option<Rc<BackHandler>> {
+    let handlers = back_handlers_newest_first();
+    if handlers.is_empty() {
+        return None;
+    }
+    // Read every depth in one borrow, before any app code runs. A back arrives from the event
+    // pump or from app code, never from inside a tree borrow; if one ever does, equal depths
+    // leave registration order to decide rather than failing the back.
+    let depths = crate::tree::with_tree_if_free(|t| {
+        handlers
+            .iter()
+            .map(|h| tree_depth(t, h.node))
+            .collect::<Vec<_>>()
+    })
+    .unwrap_or_else(|| vec![0; handlers.len()]);
+    let mut ranked: Vec<(usize, Rc<BackHandler>)> = depths.into_iter().zip(handlers).collect();
+    day_reactive::untrack(|| {
+        // Stable, so equal keys keep the newest-first order.
+        ranked.sort_by_key(|(depth, h)| std::cmp::Reverse(((h.layer)(), *depth)));
+        ranked
+            .into_iter()
+            .map(|(_, h)| h)
+            .find(|h| (h.active)() && (h.enabled)())
+    })
+}
+
+/// The registered Back handlers, most recently registered first.
+fn back_handlers_newest_first() -> Vec<Rc<BackHandler>> {
+    BACK_HANDLERS.with(|s| s.borrow().iter().rev().map(|(_, h)| h.clone()).collect())
+}
+
+/// Whether any Back handler is on screen and enabled: what arming the system back needs, which,
+/// unlike choosing the one to run, does not depend on the tree.
+fn any_back_handler_wants() -> bool {
+    let handlers = back_handlers_newest_first();
+    !handlers.is_empty()
+        && day_reactive::untrack(|| handlers.iter().any(|h| (h.active)() && (h.enabled)()))
+}
+
+/// How many ancestors `node` has: its nesting depth in the piece tree.
+fn tree_depth(t: &dyn crate::tree::TreeOps, node: crate::RNode) -> usize {
+    let mut depth = 0;
+    let mut at = node;
+    while let Some(parent) = t.parent_of(at) {
+        depth += 1;
+        at = parent;
+    }
+    depth
+}
+
+/// Run the winning Back handler. False = none is on screen and enabled.
+fn run_back_handler() -> bool {
+    match winning_back_handler() {
+        Some(h) => {
+            (h.run)();
+            true
+        }
+        None => false,
+    }
+}
+
+/// Tell the toolkit whether the platform's system back belongs to the app's handlers: armed
+/// while any handler is on screen and enabled (`Toolkit::set_system_back`). Cheap and
+/// idempotent; the toolkit hears only changes. A handler's piece calls it whenever its
+/// `enabled` or the selection of a resident page around it changes, including a tab picked from
+/// code, and the event pump calls it after every batch for gates no signal reports.
+///
+/// While the tree is borrowed (a handler registered during a build that a toolkit call is
+/// part of), the update waits for the next safe point.
+pub fn sync_system_back() {
+    let want = any_back_handler_wants();
+    if BACK_ARMED.with(|a| a.get()) == want || crate::tree::tree_absent() {
+        return;
+    }
+    match crate::tree::with_tree_if_free(|t| t.set_system_back(want)) {
+        Some(()) => BACK_ARMED.with(|a| a.set(want)),
+        None => crate::tree::run_posted_or_defer(Box::new(sync_system_back)),
+    }
+}
+
+/// The platform's system back, armed by [`sync_system_back`], that no native container took
+/// (`Event::NavBack` on `WINDOW_NODE`): run the app's handler. The native side already gave
+/// its covers and pushed pages the first answer, so Day's surfaces are not asked again. With
+/// no handler left enabled (it turned off between the arming and the press), the press is
+/// dropped and the toolkit released, so the next one leaves the app as usual.
+pub(crate) fn system_back() {
+    if !run_back_handler() {
+        log::debug!("day: system back with no enabled handler; releasing it");
+        // The toolkit holds the back armed whatever Day last told it (a recreated Android
+        // activity starts over): tell it again rather than trust the cached answer.
+        BACK_ARMED.with(|a| a.set(true));
+    }
+    sync_system_back();
 }
 
 /// Drop every controller: a fresh mount / test boot (called from tree install/uninstall).
@@ -171,6 +325,9 @@ pub fn clear_controllers() {
     NAV_STACK.with(|s| s.borrow_mut().clear());
     FALLBACK_NAV.with(|s| s.borrow_mut().clear());
     NEXT_TOKEN.with(|c| c.set(1));
+    BACK_HANDLERS.with(|s| s.borrow_mut().clear());
+    // A fresh mount comes with a fresh toolkit, whose system back starts released.
+    BACK_ARMED.with(|a| a.set(false));
     PENDING.with(|p| p.borrow_mut().clear());
     PARAMS.with(|p| *p.borrow_mut() = Rc::new(Vec::new()));
 }
@@ -602,8 +759,11 @@ fn navigate_absolute(segments: &[String]) -> bool {
 
 /// Pop one level, day-initiated (the toolkit presents the pop). Native-initiated pops arrive as
 /// `Event::NavBack` and go through the owning host's `pop` directly.
+///
+/// A back no surface takes runs the app's Back handler ([`BackHandler`]), as the platform's
+/// system back does, so dayscript's `nav_back` and a desktop's own Back control reach it too.
 pub fn nav_back() -> bool {
-    let ok = dispatch(|nav| (nav.pop)(false));
+    let ok = dispatch(|nav| (nav.pop)(false)) || run_back_handler();
     maybe_notify_route_change();
     ok
 }

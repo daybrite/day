@@ -1481,6 +1481,65 @@ struct FieldIvars {
     node: NodeId,
 }
 
+/// The share picker's delegate (docs/sharing.md): offers the app's own actions as sharing
+/// services beside the system's, each reporting its choice as `Event::MenuAction`.
+struct SharePickerIvars {
+    actions: Vec<day_spec::share::ShareAction>,
+}
+
+define_class!(
+    #[unsafe(super(NSObject))]
+    #[thread_kind = MainThreadOnly]
+    #[name = "DaySharePickerDelegate"]
+    #[ivars = SharePickerIvars]
+    struct DaySharePickerDelegate;
+
+    unsafe impl NSObjectProtocol for DaySharePickerDelegate {}
+
+    impl DaySharePickerDelegate {
+        #[unsafe(method_id(sharingServicePicker:sharingServicesForItems:proposedSharingServices:))]
+        fn services(
+            &self,
+            _picker: &AnyObject,
+            _items: &AnyObject,
+            proposed: &objc2_foundation::NSArray<AnyObject>,
+        ) -> Retained<objc2_foundation::NSArray<AnyObject>> {
+            let mut services: Vec<Retained<AnyObject>> = Vec::new();
+            for action in &self.ivars().actions {
+                let id = action.id;
+                let handler = block2::RcBlock::new(move || {
+                    ffi_guard::contain((), || emit(WINDOW_NODE, Event::MenuAction(id)));
+                });
+                let image = action.symbol.and_then(|s| {
+                    objc2_app_kit::NSImage::imageWithSystemSymbolName_accessibilityDescription(
+                        &NSString::from_str(day_spec::sf_symbol_name(s)),
+                        None,
+                    )
+                });
+                // SAFETY: NSSharingService's documented initializer for a custom service; the
+                // handler block is copied by the service.
+                let service: Option<Retained<AnyObject>> = unsafe {
+                    let alloc: objc2::rc::Allocated<AnyObject> =
+                        msg_send![objc2::class!(NSSharingService), alloc];
+                    msg_send![
+                        alloc,
+                        initWithTitle: &*NSString::from_str(&action.title),
+                        image: image.as_deref(),
+                        alternateImage: None::<&AnyObject>,
+                        handler: &*handler
+                    ]
+                };
+                services.extend(service);
+            }
+            // The system's targets first, then the app's own, as Safari lists Add Bookmark
+            // after them.
+            let mut all: Vec<Retained<AnyObject>> = proposed.to_vec();
+            all.extend(services);
+            objc2_foundation::NSArray::from_retained_slice(&all)
+        }
+    }
+);
+
 define_class!(
     #[unsafe(super(NSTextField))]
     #[thread_kind = MainThreadOnly]
@@ -7464,6 +7523,8 @@ impl Drop for MenuEscapeMonitor {
 pub struct AppKit {
     menu_escape_monitor: Option<MenuEscapeMonitor>,
     sharing: Option<objc2::rc::Retained<objc2::runtime::AnyObject>>,
+    /// The picker's delegate, which the picker holds only weakly.
+    sharing_delegate: Option<Retained<DaySharePickerDelegate>>,
 
     mtm: MainThreadMarker,
     registry: Registry<AppKit>,
@@ -7613,6 +7674,7 @@ impl AppKit {
             registry,
             window: None,
             sharing: None,
+            sharing_delegate: None,
             content: None,
             secondary: Vec::new(),
             app_name: "Day".into(),
@@ -8363,6 +8425,8 @@ impl Toolkit for AppKit {
 
     fn capability(&self, cap: Cap) -> Support {
         match cap {
+            // An `NSSharingService` per app action, from the picker's delegate.
+            Cap::ShareActions => Support::Native,
             Cap::SearchField => Support::Native,
             Cap::ComboBox => Support::Native,
             Cap::Stepper => Support::Native,
@@ -9209,6 +9273,11 @@ impl Toolkit for AppKit {
                 let table: Retained<DayListView> =
                     unsafe { msg_send![DayListView::alloc(mtm), init] };
                 let table = Retained::into_super(table);
+                if p.inset_grouped {
+                    // macOS 11's inset style: rows set in from the edges with rounded selection,
+                    // the grouped look `ListProps::inset_grouped` asks for.
+                    unsafe { table.setStyle(objc2_app_kit::NSTableViewStyle::Inset) };
+                }
                 let col = unsafe {
                     NSTableColumn::initWithIdentifier(
                         NSTableColumn::alloc(mtm),
@@ -12363,17 +12432,17 @@ impl Toolkit for AppKit {
     fn share_support(&self) -> day_spec::Support {
         day_spec::Support::Native
     }
-    fn share_url(&mut self, url: &str, _title: &str) -> bool {
+    fn share(&mut self, spec: &day_spec::share::ShareSpec, anchor: Option<&Self::Handle>) -> bool {
         use objc2::{msg_send, runtime::AnyObject};
         use objc2_foundation::{NSArray, NSPoint, NSRect, NSSize, NSString, NSURL};
         let Some(mtm) = objc2::MainThreadMarker::new() else {
             return false;
         };
-        let Some(url) = NSURL::URLWithString(&NSString::from_str(url)) else {
+        let Some(url) = NSURL::URLWithString(&NSString::from_str(&spec.url)) else {
             return false;
         };
         let app = objc2_app_kit::NSApplication::sharedApplication(mtm);
-        let Some(view) = app.keyWindow().and_then(|w| w.contentView()) else {
+        let Some(window_view) = app.keyWindow().and_then(|w| w.contentView()) else {
             return false;
         };
         unsafe {
@@ -12381,18 +12450,34 @@ impl Toolkit for AppKit {
             let picker: objc2::rc::Allocated<AnyObject> =
                 msg_send![objc2::class!(NSSharingServicePicker), alloc];
             let picker: objc2::rc::Retained<AnyObject> = msg_send![picker, initWithItems: &*items];
-            let bounds = view.bounds();
-            let y = if view.isFlipped() {
-                30.0
-            } else {
-                bounds.size.height - 30.0
+            let delegate = DaySharePickerDelegate::alloc(mtm).set_ivars(SharePickerIvars {
+                actions: spec.actions.clone(),
+            });
+            let delegate: Retained<DaySharePickerDelegate> = msg_send![super(delegate), init];
+            let _: () = msg_send![&*picker, setDelegate: &*delegate];
+            // Pointing at the control that asked, under it; without one, at the window's top
+            // trailing corner.
+            let (view, rect, edge) = match anchor {
+                Some(view) => (view.clone(), view.bounds(), 1usize),
+                None => {
+                    let bounds = window_view.bounds();
+                    let y = if window_view.isFlipped() {
+                        30.0
+                    } else {
+                        bounds.size.height - 30.0
+                    };
+                    let rect = NSRect::new(
+                        NSPoint::new(bounds.size.width - 30.0, y),
+                        NSSize::new(1.0, 1.0),
+                    );
+                    (window_view, rect, 3usize)
+                }
             };
-            let rect = NSRect::new(
-                NSPoint::new(bounds.size.width - 30.0, y),
-                NSSize::new(1.0, 1.0),
-            );
-            let _: () = msg_send![&*picker, showRelativeToRect: rect, ofView: &*view, preferredEdge: 3usize];
+            let _: () =
+                msg_send![&*picker, showRelativeToRect: rect, ofView: &*view, preferredEdge: edge];
+            // The picker holds its delegate weakly: keep both until the next share.
             self.sharing = Some(picker);
+            self.sharing_delegate = Some(delegate);
         }
         true
     }

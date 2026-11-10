@@ -3785,6 +3785,8 @@ void day_xaml_delete(void* h) {
     g_field_parents.erase(h);
     g_button_selected.erase(h);
     g_button_tint.erase(h);
+    g_button_plain.erase(h);
+    g_button_icon_only.erase(h);
     delete reinterpret_cast<Node*>(h);
 }
 

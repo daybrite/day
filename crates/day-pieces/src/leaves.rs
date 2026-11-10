@@ -709,9 +709,12 @@ impl Button {
 
     /// A button no wider than its title: a stepper's "−" and "+", a chip's "×". Drops the
     /// minimum width and wide insets of toolkits that have them (Material); a no-op where the
-    /// stock button already hugs its title.
+    /// stock button already hugs its title. A [`plain`](Self::plain) button stays plain: it
+    /// already hugs its title everywhere, and Material's compact button is a filled one.
     pub fn compact(mut self) -> Self {
-        self.native_style = day_spec::props::ButtonStyleSpec::Compact;
+        if self.native_style != day_spec::props::ButtonStyleSpec::Plain {
+            self.native_style = day_spec::props::ButtonStyleSpec::Compact;
+        }
         self
     }
 
@@ -2259,5 +2262,25 @@ pub(crate) mod conformance {
                 d.tap("link").await?;
                 d.assert_opened_url("https://daybrite.dev/").await
             })
+    }
+}
+
+#[cfg(test)]
+mod button_style_tests {
+    use super::*;
+    use day_spec::props::ButtonStyleSpec;
+
+    #[test]
+    fn compact_keeps_a_plain_button_plain() {
+        assert_eq!(
+            button("×").plain().compact().native_style,
+            ButtonStyleSpec::Plain
+        );
+        assert_eq!(button("−").compact().native_style, ButtonStyleSpec::Compact);
+        // The last style asked for still wins otherwise.
+        assert_eq!(
+            button("+").compact().plain().native_style,
+            ButtonStyleSpec::Plain
+        );
     }
 }

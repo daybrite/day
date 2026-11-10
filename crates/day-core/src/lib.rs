@@ -130,7 +130,7 @@ pub use tree_driver::{
     TreeBuiltRow, TreeDriver, TreeMovesDriver, install_tree, tree_driver, tree_reload, tree_reveal,
     tree_set_expanded, tree_set_selected, tree_try_move, tree_visible_rows,
 };
-pub use urls::{on_open_url, request_open_url};
+pub use urls::{on_open_url, on_shared_text, request_open_url, request_shared_text};
 // The resource types live in day-spec (backends depend only on day-spec); re-exported for the
 // facade.
 pub use day_spec::resource::{

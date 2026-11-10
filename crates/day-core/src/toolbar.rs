@@ -126,8 +126,10 @@ day_reactive::tls_slots! {
 }
 
 /// Run `f` with `root` as the window contributions inside it belong to. day-core wraps each
-/// window's content build in this; nesting restores the previous window on the way out.
-pub(crate) fn with_window<R>(root: RNode, f: impl FnOnce() -> R) -> R {
+/// window's content build in this, and a presented cover wraps its content, so a navigation
+/// stack inside the cover puts its toolbar on the cover's own bar; nesting restores the
+/// previous window on the way out.
+pub fn with_window<R>(root: RNode, f: impl FnOnce() -> R) -> R {
     // Restored on unwind too (the anim.rs `Restore` rule): a contained panic during a
     // secondary window's build would otherwise leave `BUILDING` pointing at a dead window,
     // silently redirecting every later contribution.

@@ -254,3 +254,40 @@ make every HTTPS link leave a browser; MIME handling depends on browser/platform
 
 - [Apple: custom URL schemes](https://developer.apple.com/documentation/xcode/defining-a-custom-url-scheme-for-your-app)
 - [Android: deep links](https://developer.android.com/training/app-links/deep-linking)
+
+## Receiving shared links
+
+A browser or a reader app belongs in the system share sheet: someone shares a link from another
+app and picks yours. Declare the text types the app takes at the root of `Day.toml`:
+
+```toml
+share_target = ["text/plain"]
+```
+
+On android-material, `day build` adds an `ACTION_SEND` intent filter for each type to the app's
+activity, so the app appears in the share sheet for shared text and links. Only text types are
+accepted (`text/plain`, `text/*`): Day delivers the shared text, not files. The other targets
+ignore the key for now.
+
+What the app receives depends on the text:
+
+- **Text with a web link in it** goes to [`day::on_open_url`](https://docs.rs/day-app/latest/day/fn.on_open_url.html), the same path a tapped `https://`
+  link takes when the app is registered for it. Day takes the first `http` or `https` URL in
+  the text, so "Title https://example.org/post via App" arrives as `https://example.org/post`.
+  When the text has none, the share's subject is searched too.
+- **Other text** (a search term, a quote) goes to
+  [`day::on_shared_text`](https://docs.rs/day-app/latest/day/fn.on_shared_text.html):
+
+```rust
+day::on_shared_text(|text| {
+    // Search for it, start a note with it, …
+});
+```
+
+Register it in the app root, beside `on_open_url`. The newest registration receives the text,
+and a registration leaves with the scope it was made in. Text shared before any handler exists
+waits for the first one. An empty share is dropped.
+
+A share works cold and warm: DayActivity delivers it once the app has mounted, and a share to
+the running app arrives through `onNewIntent`. A recreation (a theme or language switch) does
+not deliver the same share again.

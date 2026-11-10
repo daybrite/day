@@ -92,6 +92,10 @@ pub(super) fn glyph(s: Symbol) -> &'static str {
         // No stock ungroup glyph — the label fallback below.
         Symbol::Ungroup => "",
         Symbol::Location => "E81D",
+        // TaskView, Library, History (Segoe Fluent Icons).
+        Symbol::Tabs => "E7C4",
+        Symbol::Book => "E8F1",
+        Symbol::History => "E81C",
         // The vocabulary is `#[non_exhaustive]`: an unmapped symbol gets no glyph rather than an
         // arbitrary wrong one — the item still shows its label.
         _ => "",

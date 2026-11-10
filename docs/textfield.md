@@ -150,7 +150,8 @@ text_field(address)
 ```
 
 Select-all on focus fires the trigger when the focus binding turns on. A field takes one
-`.select`, so a page that needs both behaviors keeps the range in a signal and fires one
+[`.select`](https://docs.rs/day-pieces/latest/day_pieces/trait.TextFieldBuilder.html#tymethod.select),
+so a page that needs both behaviors keeps the range in a signal and fires one
 trigger for both:
 
 ```rust

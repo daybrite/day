@@ -45,7 +45,10 @@ struct Index {
   // back only the bars Day did not hide on purpose.
   private statusBarHidden: boolean = false;
   onBackPress(): boolean {
-    return this.coverShown && nativeEntry.coverBackRequested();
+    if (this.coverShown && nativeEntry.coverBackRequested()) return true;
+    // Navigation popped nothing and no cover is up: an app handler may still want the back
+    // (docs/navigation.md "Handling the system Back"); otherwise the system leaves the app.
+    return nativeEntry.appBackRequested();
   }
 
   private startDay(widthVp: number, heightVp: number): void {

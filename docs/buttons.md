@@ -173,9 +173,16 @@ colors.
 [`.plain()`](https://docs.rs/day-pieces/latest/day_pieces/trait.ButtonBuilder.html#tymethod.plain) requests a borderless native action button for toolbar commands and list
 accessories. AppKit removes the [NSButton](https://developer.apple.com/documentation/appkit/nsbutton) bezel; UIKit uses its system button; Android
 uses Material's theme-resolved text-button colors with compact horizontal insets;
-GTK applies `flat`. Native press, focus, accessibility and disabled behavior remain.
-Qt, WinUI and web currently use their automatic style as a fallback; ArkUI's automatic
+GTK applies `flat`; WinUI clears the [`Button`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.button)'s
+fill and border at rest, keeping the template's pointer-over and pressed fills, and gives a
+plain button that shows only its icon a tight, even inset, so its glyph stays whole in a small
+frame. Native press, focus, accessibility and disabled behavior remain.
+Qt and web currently use their automatic style as a fallback; ArkUI's automatic
 style is already transparent. [`.plain()`](https://docs.rs/day-pieces/latest/day_pieces/trait.ButtonBuilder.html#tymethod.plain) and [`.compact()`](https://docs.rs/day-pieces/latest/day_pieces/trait.ButtonBuilder.html#tymethod.compact) are mutually exclusive style
-requests: the last one wins. Android plain already includes compact horizontal sizing.
+requests: the last one wins, except that [`.compact()`](https://docs.rs/day-pieces/latest/day_pieces/trait.ButtonBuilder.html#tymethod.compact) leaves a plain button plain, since a plain
+button already hugs its title and Android's compact button is a filled one. Android plain
+already includes compact horizontal sizing. A plain button that shows only its icon is
+Material's standard icon button: its glyph takes `colorOnSurfaceVariant` (and `colorOnSurface` at
+38% when disabled), not the primary color of a text button.
 Switching away from a tinted or plain style restores the original Material foreground
 and icon state colors as well as its background.

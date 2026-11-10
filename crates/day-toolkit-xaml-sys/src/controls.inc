@@ -281,10 +281,30 @@ void* day_xaml_button_new(const char* title, unsigned long long id, void (*cb)(u
 // deselection puts back. Both are dropped with the node (day_xaml_free).
 static std::map<void*, bool> g_button_selected;
 static std::map<void*, std::pair<unsigned, unsigned>> g_button_tint;
+// Plain buttons, and buttons whose content is their icon alone (day_xaml_button_set_content):
+// together they decide a plain icon button's insets (fit_plain_button). Dropped with the node.
+static std::set<void*> g_button_plain;
+static std::set<void*> g_button_icon_only;
+
+// Insets for a plain button. The stock template pads its content by 11 px left and right, which
+// a borderless button has no bezel to need; inside a small frame (a 26 px close button on a
+// card) those insets alone leave the glyph no room, and the layout clip drops it entirely. A
+// plain button that shows only its icon takes the even, tight inset of a Fluent icon button,
+// so its glyph stays centered and whole down to about its own size. Text keeps the stock
+// insets, which give a plain text button its usual hover target.
+static void fit_plain_button(void* h) {
+    auto b = elem(h).try_as<WUXC::Button>();
+    if (!b) return;
+    if (g_button_plain.count(h) && g_button_icon_only.count(h)) {
+        b.Padding(WUX::ThicknessHelper::FromUniformLength(3.0));
+    } else {
+        b.ClearValue(WUXC::Control::PaddingProperty());
+    }
+}
 
 // A plain Button has no checked state, so the selected look is the theme's accent fill and
 // the foreground it pairs with it, the treatment a chosen item gets; off restores the stock
-// look, or the button's tint. A ToggleButton (none are made here, but a tweak may) takes its own.
+// look, the button's tint, or a plain button's clear fill. A ToggleButton (none are made here, but a tweak may) takes its own.
 static void apply_button_selected(void* h, bool on) {
     auto b = elem(h).try_as<WUXC::Button>();
     if (!b) return;
@@ -310,6 +330,8 @@ static void apply_button_selected(void* h, bool on) {
     if (tint != g_button_tint.end()) {
         b.Background(brush_bits(tint->second.first));
         b.Foreground(brush_bits(tint->second.second));
+    } else if (g_button_plain.count(h)) {
+        b.Background(brush_bits(0));
     }
 }
 void day_xaml_button_set_selected(void* h, int on) {
@@ -319,7 +341,12 @@ void day_xaml_button_set_selected(void* h, int on) {
     });
 }
 
-/// Style a button in place: kind 0 automatic, 1 bordered, 2 prominent, 3 tinted.
+/// Style a button in place: kind 0 automatic, 1 bordered, 2 prominent, 3 tinted, 4 plain.
+///
+/// Plain is the borderless button: a transparent fill and border at rest, so it draws only its
+/// content on whatever lies behind it, while the template's pointer-over and pressed states
+/// still bring up the theme's own fill as feedback. XAML has no stock borderless Button style,
+/// and a local brush is the same seam a tint uses, so it stays a Button in every other respect.
 ///
 /// Prominent takes the resource set's AccentButtonStyle where it exists. A tint sets Background
 /// and Foreground on the Button, which leaves it a Button — its pointer-over and pressed visual
@@ -334,8 +361,29 @@ void day_xaml_button_set_style(void* h, int kind, unsigned argb, unsigned fg_arg
     if (!b) return;
     b.ClearValue(WUXC::Control::BackgroundProperty());
     b.ClearValue(WUXC::Control::ForegroundProperty());
+    b.ClearValue(WUXC::Control::BorderBrushProperty());
     b.ClearValue(WUX::FrameworkElement::StyleProperty());
     g_button_tint.erase(h);
+    g_button_plain.erase(h);
+    // The template's own state brushes a plain button clears, as lightweight styling: the
+    // visual states set them over the local brushes, so a disabled plain button would show the
+    // stock disabled fill and a hovered one the stock border. Hover and press keep their fill.
+    static const wchar_t* const plain_state_keys[] = {
+        L"ButtonBackgroundDisabled", L"ButtonBorderBrushDisabled",
+        L"ButtonBorderBrushPointerOver", L"ButtonBorderBrushPressed",
+    };
+    auto resources = b.Resources();
+    for (auto key : plain_state_keys) {
+        auto boxed = winrt::box_value(winrt::hstring(key));
+        if (kind == 4) resources.Insert(boxed, brush_bits(0));
+        else if (resources.HasKey(boxed)) resources.Remove(boxed);
+    }
+    if (kind == 4) {
+        g_button_plain.insert(h);
+        b.Background(brush_bits(0));
+        b.BorderBrush(brush_bits(0));
+    }
+    fit_plain_button(h);
     if (kind == 2) {
         auto res = WUX::Application::Current().Resources();
         auto key = winrt::box_value(winrt::hstring(L"AccentButtonStyle"));
@@ -353,7 +401,12 @@ void day_xaml_button_set_style(void* h, int kind, unsigned argb, unsigned fg_arg
     if (selected != g_button_selected.end() && selected->second) apply_button_selected(h, true);
 }
 void day_xaml_button_set_title(void* h, const char* t) {
-    if (auto b = elem(h).try_as<WUXC::Button>()) b.Content(winrt::box_value(hs(t)));
+    if (auto b = elem(h).try_as<WUXC::Button>()) {
+        b.Content(winrt::box_value(hs(t)));
+        // A text title replaces any icon content.
+        g_button_icon_only.erase(h);
+        fit_plain_button(h);
+    }
 }
 
 // ---- toggle (ToggleSwitch) ----

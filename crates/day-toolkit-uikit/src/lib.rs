@@ -1038,6 +1038,94 @@ mod imp {
     }
 
     // -----------------------------------------------------------------------
+    // DayShareActivity — one of the app's actions in the share sheet (docs/sharing.md)
+    // -----------------------------------------------------------------------
+
+    struct ShareActivityIvars {
+        /// The dispatch id a choice reports (`Event::MenuAction`).
+        action: u64,
+        title: Retained<NSString>,
+        /// The SF Symbol drawn beside the title.
+        symbol: Option<&'static str>,
+    }
+
+    define_class!(
+        // The default category is `UIActivityCategoryAction`: the sheet lists the action with
+        // its title and glyph under the share targets, as Safari's Add Bookmark is listed.
+        #[unsafe(super(objc2_ui_kit::UIActivity, NSObject))]
+        #[thread_kind = MainThreadOnly]
+        #[name = "DayUIKitShareActivity"]
+        #[ivars = ShareActivityIvars]
+        struct DayShareActivity;
+
+        unsafe impl NSObjectProtocol for DayShareActivity {}
+
+        impl DayShareActivity {
+            #[unsafe(method_id(activityType))]
+            fn activity_type(&self) -> Option<Retained<NSString>> {
+                Some(NSString::from_str(&format!(
+                    "{SHARE_ACTIVITY_PREFIX}{}",
+                    self.ivars().action
+                )))
+            }
+
+            #[unsafe(method_id(activityTitle))]
+            fn activity_title(&self) -> Option<Retained<NSString>> {
+                Some(self.ivars().title.clone())
+            }
+
+            #[unsafe(method_id(activityImage))]
+            fn activity_image(&self) -> Option<Retained<objc2_ui_kit::UIImage>> {
+                self.ivars()
+                    .symbol
+                    .and_then(|name| objc2_ui_kit::UIImage::systemImageNamed(&NSString::from_str(name)))
+            }
+
+            #[unsafe(method(canPerformWithActivityItems:))]
+            fn can_perform(&self, _items: &AnyObject) -> bool {
+                true
+            }
+
+            // Finish at once, so the sheet dismisses. The app's action does not run here: the
+            // sheet's `completionWithItemsHandler` reports it once the sheet has closed
+            // (`share`), so an action that presents a sheet of its own does not race the one
+            // still on screen.
+            #[unsafe(method(performActivity))]
+            fn perform_activity(&self) {
+                // SAFETY: UIKit's own completion call on the activity it is performing, on the
+                // main thread the sheet calls this from.
+                unsafe {
+                    let _: () = msg_send![self, activityDidFinish: true];
+                }
+            }
+        }
+    );
+
+    /// The `activityType` prefix of a [`DayShareActivity`]; the action's dispatch id follows it.
+    const SHARE_ACTIVITY_PREFIX: &str = "dev.daybrite.day.share.";
+
+    /// The dispatch id of the app action a share sheet reports as `activity_type`, if it is one
+    /// of Day's.
+    fn share_action_id(activity_type: &str) -> Option<u64> {
+        activity_type
+            .strip_prefix(SHARE_ACTIVITY_PREFIX)?
+            .parse()
+            .ok()
+    }
+
+    impl DayShareActivity {
+        fn new(action: &day_spec::share::ShareAction) -> Retained<Self> {
+            let this = Self::alloc(mtm()).set_ivars(ShareActivityIvars {
+                action: action.id,
+                title: NSString::from_str(&action.title),
+                symbol: action.symbol.map(day_spec::sf_symbol_name),
+            });
+            // SAFETY: `init` is UIActivity's designated initializer.
+            unsafe { msg_send![super(this), init] }
+        }
+    }
+
+    // -----------------------------------------------------------------------
     // DayTarget — target/action trampoline, node-id keyed
     // -----------------------------------------------------------------------
 
@@ -11563,6 +11651,8 @@ mod imp {
         }
         fn capability(&self, cap: Cap) -> Support {
             match cap {
+            // A `UIActivity` per app action, listed with the sheet's own actions.
+            Cap::ShareActions => Support::Native,
             Cap::SearchField => Support::Native,
             Cap::ComboBox => Support::Unsupported,
             Cap::Stepper => Support::Emulated,
@@ -12302,7 +12392,11 @@ mod imp {
                         objc2_ui_kit::UITableView::initWithFrame_style(
                             objc2_ui_kit::UITableView::alloc(mtm),
                             CGRect::new(CGPoint::new(0.0, 0.0), CGSize::new(0.0, 0.0)),
-                            objc2_ui_kit::UITableViewStyle::Plain,
+                            if p.inset_grouped {
+                                objc2_ui_kit::UITableViewStyle::InsetGrouped
+                            } else {
+                                objc2_ui_kit::UITableViewStyle::Plain
+                            },
                         )
                     };
                     let automatic = p.row_height == RowHeight::Automatic;
@@ -15435,10 +15529,14 @@ mod imp {
         fn share_support(&self) -> day_spec::Support {
             day_spec::Support::Native
         }
-        fn share_url(&mut self, url: &str, _title: &str) -> bool {
+        fn share(
+            &mut self,
+            spec: &day_spec::share::ShareSpec,
+            anchor: Option<&Self::Handle>,
+        ) -> bool {
             use objc2_ui_kit::UIActivityViewController;
             let Some(url) =
-                (unsafe { objc2_foundation::NSURL::URLWithString(&NSString::from_str(url)) })
+                (unsafe { objc2_foundation::NSURL::URLWithString(&NSString::from_str(&spec.url)) })
             else {
                 return false;
             };
@@ -15452,21 +15550,62 @@ mod imp {
                     parent = next;
                 }
                 let items = objc2_foundation::NSArray::<AnyObject>::from_slice(&[url.as_ref()]);
+                let activities: Vec<Retained<objc2_ui_kit::UIActivity>> = spec
+                    .actions
+                    .iter()
+                    .map(|a| Retained::into_super(DayShareActivity::new(a)))
+                    .collect();
+                let activities = objc2_foundation::NSArray::from_retained_slice(&activities);
                 let sheet = UIActivityViewController::initWithActivityItems_applicationActivities(
                     UIActivityViewController::alloc(mtm()),
                     &items,
-                    None,
+                    (!spec.actions.is_empty()).then_some(&*activities),
                 );
+                if !spec.actions.is_empty() {
+                    // UIKit calls this after the sheet is dismissed, which is when docs/sharing.md
+                    // promises the app's action runs: never while the chooser is still up.
+                    let finished = block2::RcBlock::new(
+                        |activity: *mut NSString,
+                         completed: objc2::runtime::Bool,
+                         _items: *mut objc2_foundation::NSArray,
+                         _error: *mut objc2_foundation::NSError| {
+                            // SAFETY: UIKit passes the chosen activity's type, a valid NSString,
+                            // or null when the sheet was cancelled.
+                            let Some(activity) = (unsafe { activity.as_ref() }) else {
+                                return;
+                            };
+                            if !completed.as_bool() {
+                                return;
+                            }
+                            if let Some(id) = share_action_id(&activity.to_string()) {
+                                day_spec::ffi_guard::contain((), || {
+                                    emit(WINDOW_NODE, Event::MenuAction(id));
+                                });
+                            }
+                        },
+                    );
+                    sheet.setCompletionWithItemsHandler(block2::RcBlock::as_ptr(&finished));
+                }
                 if let Some(popover) = sheet.popoverPresentationController() {
-                    let Some(view) = parent.view() else {
-                        return false;
-                    };
-                    popover.setSourceView(Some(&view));
-                    let bounds = view.bounds();
-                    popover.setSourceRect(CGRect::new(
-                        CGPoint::new(bounds.size.width - 30.0, 30.0),
-                        CGSize::new(1.0, 1.0),
-                    ));
+                    // An iPad presents the sheet as a popover: point it at the control that
+                    // asked, or, without one, at the window's top trailing corner.
+                    match anchor {
+                        Some(view) => {
+                            popover.setSourceView(Some(view));
+                            popover.setSourceRect(view.bounds());
+                        }
+                        None => {
+                            let Some(view) = parent.view() else {
+                                return false;
+                            };
+                            popover.setSourceView(Some(&view));
+                            let bounds = view.bounds();
+                            popover.setSourceRect(CGRect::new(
+                                CGPoint::new(bounds.size.width - 30.0, 30.0),
+                                CGSize::new(1.0, 1.0),
+                            ));
+                        }
+                    }
                 }
                 parent.presentViewController_animated_completion(&sheet, true, None);
             }

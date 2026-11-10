@@ -31,6 +31,12 @@ pub struct Manifest {
     /// Additional OS URL associations, delivered intact through on_open_url.
     #[serde(default)]
     pub url_schemes: Vec<String>,
+    /// MIME types the app accepts from the system share sheet (docs/deep-links.md "Receiving
+    /// shared links"): text types only (`text/plain`, `text/*`). Android lists the app as a
+    /// share target for them; shared text that holds a web link arrives through `on_open_url`,
+    /// other text through `on_shared_text`.
+    #[serde(default)]
+    pub share_target: Vec<String>,
     #[serde(default)]
     pub window: Window,
     /// `[screenshots]`: the size scripted runs capture desktop-class targets at
@@ -579,6 +585,13 @@ pub struct IosSigning {
     /// find-identity` prints it, or its SHA-1. Unused by `day pack`, for the same reason.
     #[serde(default)]
     pub identity: Option<String>,
+    /// The app's entitlements plist, relative to the project root (docs/packaging.md "iOS
+    /// entitlements"). Unset: the `CODE_SIGN_ENTITLEMENTS` that `platform/ios/DayApp.xcconfig`
+    /// names, if any. Day signs with this file's entitlements, its `$(VAR)` references resolved
+    /// and anything the provisioning profile does not grant dropped with a warning; with neither,
+    /// it signs with what the profile grants.
+    #[serde(default)]
+    pub entitlements: Option<String>,
     /// ExportOptions method; default "app-store-connect".
     #[serde(default)]
     pub export_method: Option<String>,
@@ -1148,6 +1161,20 @@ pub fn parse_manifest(
                 .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b"+.-".contains(&b))
         {
             return Err("url_schemes must contain lowercase URI scheme names".into());
+        }
+    }
+    for mime in &manifest.share_target {
+        let subtype = mime.strip_prefix("text/").unwrap_or_default();
+        if subtype.is_empty()
+            || !(subtype == "*"
+                || subtype
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b"+.-_".contains(&b)))
+        {
+            return Err(format!(
+                "share_target {mime:?}: give text MIME types such as \"text/plain\"; shared text \
+                 is what Day delivers"
+            ));
         }
     }
     if manifest.schema != 1 {

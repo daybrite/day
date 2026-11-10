@@ -532,6 +532,37 @@ fn register_route_surface_in_layer(
     Scope::current().on_cleanup(move || day_core::unregister_nav(token));
 }
 
+/// Register an app-level Back handler for [`Decorate::on_system_back`] under `at`, the node the
+/// decorated piece is built under (docs/navigation.md "Handling the system Back"). Records the
+/// containing cover's layer and the resident pages around the handler; day-core ranks by layer,
+/// then by `at`'s depth in the piece tree, then by recency. Lives as long as the current scope.
+pub(crate) fn install_back_handler(at: RNode, enabled: Reactive<bool>, handler: Rc<dyn Fn()>) {
+    let order = Scope::current()
+        .use_context::<NavLayer>()
+        .unwrap_or_default()
+        .order;
+    // Captured now, as `register_route_surface_in_layer` does: a handler in a tab the bar is not
+    // showing must not take the back.
+    let gates: Rc<[Rc<dyn Fn() -> bool>]> = NAV_PAGE_ACTIVE.with(|s| s.borrow().clone()).into();
+    let on_screen = move || gates.iter().all(|g| g());
+    let wants = enabled.clone();
+    let token = day_core::register_back_handler(day_core::BackHandler {
+        node: at,
+        layer: Box::new(move || order.get()),
+        active: Box::new(on_screen.clone()),
+        enabled: Box::new(move || wants.get_untracked()),
+        run: Box::new(move || handler()),
+    });
+    Scope::current().on_cleanup(move || day_core::unregister_nav(token));
+    // Re-arm the system back whenever this handler's answer can change: its own `enabled`, or the
+    // selection of a resident page around it. A tab selected from code (a signal write,
+    // `navigate`) passes through no event, so the event pump's own re-check never sees it.
+    bind(
+        move || on_screen() && enabled.get(),
+        |_: &bool| day_core::sync_system_back(),
+    );
+}
+
 /// Note a routed nav/tabs at the current nav depth and, in debug builds, warn if it is a
 /// sibling of another routed one-of-N surface, the case `.local()` exists for
 /// (docs/navigation.md). The count is decremented when the surface's scope disposes, so
@@ -5920,14 +5951,19 @@ impl<S: Binding<Option<R>>, R: Route> Piece for Cover<S, R> {
                     let card = composed_sheet
                         && !day_core::window_size_class_untracked(window)
                             .is_some_and(|c| c.width == day_spec::WidthClass::Compact);
+                    // The cover is its content's window for toolbar purposes: a navigation stack
+                    // inside it (a sheet's title, Done, bottom bar) belongs on the cover's bar,
+                    // not on the window it covers.
                     scope.enter(|| {
-                        let content = (build)(r);
-                        let mut c = BuildCx::new(node);
-                        if card {
-                            let _ = day_core::ComposedSheet { content, large }.build(&mut c);
-                        } else {
-                            let _ = content.build(&mut c);
-                        }
+                        day_core::toolbar::with_window(node, || {
+                            let content = (build)(r);
+                            let mut c = BuildCx::new(node);
+                            if card {
+                                let _ = day_core::ComposedSheet { content, large }.build(&mut c);
+                            } else {
+                                let _ = content.build(&mut c);
+                            }
+                        })
                     });
                     *current.borrow_mut() = Some(Presented {
                         key: r.clone(),

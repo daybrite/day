@@ -168,13 +168,25 @@ fn xml(s: &str) -> String {
         .replace('\'', "&apos;")
 }
 pub fn android(project: &Project) -> Option<String> {
-    if project.manifest.file_types.is_empty() && project.manifest.url_schemes.is_empty() {
+    if project.manifest.file_types.is_empty()
+        && project.manifest.url_schemes.is_empty()
+        && project.manifest.share_target.is_empty()
+    {
         return None;
     }
     let mut s = String::from(
         "<activity android:name=\"dev.daybrite.day.bridge.DayActivity\" android:exported=\"true\">\n",
     );
     s.push_str(&crate::url_handlers::android(project));
+    // Day.toml `share_target`: the share sheet's ACTION_SEND, which DayActivity hands to
+    // `on_open_url` (a web link) or `on_shared_text` (docs/deep-links.md).
+    if !project.manifest.share_target.is_empty() {
+        s.push_str("<intent-filter><action android:name=\"android.intent.action.SEND\"/><category android:name=\"android.intent.category.DEFAULT\"/>");
+        for mime in &project.manifest.share_target {
+            s.push_str(&format!("<data android:mimeType=\"{}\"/>", xml(mime)));
+        }
+        s.push_str("</intent-filter>\n");
+    }
     for t in project
         .manifest
         .file_types
@@ -880,6 +892,49 @@ mod tests {
             project.manifest.url_schemes.clear();
             sync_apple(&project, &path, false).unwrap();
             assert_eq!(std::fs::read_to_string(&path).unwrap(), scaffold);
+        }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+    #[test]
+    fn share_target_adds_a_send_filter_to_the_activity() {
+        let dir = std::env::temp_dir().join(format!("day-share-target-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("Cargo.toml"),
+            "[package]\nname='share-fixture'\nversion='0.1.0'\nedition='2024'\n",
+        )
+        .unwrap();
+        let write = |extra: &str| {
+            std::fs::write(
+                dir.join("Day.toml"),
+                format!("schema=1\n{extra}[app]\nid='org.test.browser'\n"),
+            )
+            .unwrap();
+            crate::meta::find_project(Some(&dir))
+        };
+        // Nothing declared, nothing generated.
+        assert!(android(&write("").unwrap()).is_none());
+        let project = write("share_target=['text/plain']\n").unwrap();
+        let frag = android(&project).unwrap();
+        assert!(frag.starts_with("<activity android:name=\"dev.daybrite.day.bridge.DayActivity\""));
+        assert!(frag.contains(
+            "<intent-filter><action android:name=\"android.intent.action.SEND\"/><category \
+             android:name=\"android.intent.category.DEFAULT\"/><data \
+             android:mimeType=\"text/plain\"/></intent-filter>"
+        ));
+        // Beside url_schemes, both filters land in the one activity.
+        let project =
+            write("url_schemes=['https']\nshare_target=['text/plain','text/*']\n").unwrap();
+        let frag = android(&project).unwrap();
+        assert_eq!(frag.matches("<activity ").count(), 1);
+        assert!(frag.contains("android.intent.action.VIEW"));
+        assert!(frag.contains("<data android:mimeType=\"text/*\"/>"));
+        // Only text: Day delivers EXTRA_TEXT, not streams.
+        for bad in ["image/png", "text/", "text/plain\"/><evil", "*/*"] {
+            assert!(
+                write(&format!("share_target=['{bad}']\n")).is_err(),
+                "{bad} accepted"
+            );
         }
         std::fs::remove_dir_all(dir).unwrap();
     }

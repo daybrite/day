@@ -167,3 +167,4 @@ An app branches on this rather than on the target name.
 | `Monitors` | N | E | N | N | N | E | E | E |
 | `DynamicShortcuts` | N | N | – | – | N | ? | – | – |
 | `ListSections` | N | N | E | E | E | E | E | E |
+| `ShareActions` | N | N | – | – | – | ? | – | – |

@@ -103,3 +103,12 @@ fn without_a_settings_section_the_cover_opens_on_the_group() {
     flush_sync();
     assert_eq!(preference_windows(&probe), 1);
 }
+
+/// A row's sub-page shows its own title in the bar, not the key it is routed under.
+#[test]
+fn a_row_sub_page_is_titled_by_its_title() {
+    use day_pieces::Route;
+    let route = day_piece_settings::SettingsRoute::Group("page:Filter Lists".into());
+    assert_eq!(route.title(), "Filter Lists");
+    assert_eq!(route.key(), "page:Filter Lists");
+}

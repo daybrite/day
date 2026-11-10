@@ -231,6 +231,13 @@ pub fn cover_back_requested() -> bool {
     crate::cover_back_requested()
 }
 
+/// The entry page's `onBackPress` once no cover took the back: true when an app handler armed
+/// the system back and now has it (docs/navigation.md "Handling the system Back").
+#[napi(js_name = "appBackRequested")]
+pub fn app_back_requested() -> bool {
+    crate::app_back_requested()
+}
+
 /// `start(nodeContent, widthVp, heightVp, density)`: mount the Day tree into the host's slot.
 #[napi(js_name = "start")]
 pub fn start(env: Env, content: Unknown, width_vp: f64, height_vp: f64, density: f64) {

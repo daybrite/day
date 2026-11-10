@@ -311,6 +311,12 @@ static SNAPSHOT_WORKS: AtomicBool = AtomicBool::new(false);
 /// later `screenshot` steps answer "unsupported" at once.
 static SNAPSHOT_NEVER: AtomicBool = AtomicBool::new(false);
 
+/// How many retries a `focus` step waits for the toolkit's focus report before passing
+/// without it: about a second at [`RETRY_MS`].
+const FOCUS_WAIT_POLLS: u32 = 10;
+/// Retries the current `focus` step has spent waiting for its focus report.
+static FOCUS_WAITS: AtomicU32 = AtomicU32::new(0);
+
 /// Implicit bounded wait (§14.3): retryable failures poll on the main thread until timeout
 /// (the shared default, or the step's `timeout_secs` where it declares one).
 static CAPTURE_REVISION: AtomicU32 = AtomicU32::new(1);
@@ -1817,9 +1823,24 @@ fn exec(step: Step, revision: u32) -> Reply {
                 Ok(Reply::ok())
             }
             Step::Focus { id, focused } => {
+                let want = focused.unwrap_or(true);
                 let node = find(&id)?;
-                with_tree(|t| t.focus_node(node, focused.unwrap_or(true)));
+                with_tree(|t| t.focus_node(node, want));
                 day_reactive::flush_sync();
+                // Wait, briefly, for the toolkit to report the move. XAML raises GotFocus and
+                // LostFocus as queued routed events, so on WinUI the report lands after this step
+                // returns: the app's reaction to gaining focus (an address bar selecting its whole
+                // address) then overwrote what a following `input` had typed. A control that never
+                // reports focus still passes, after FOCUS_WAIT_POLLS retries.
+                if probe(&id)?.focused != want
+                    && FOCUS_WAITS.fetch_add(1, Ordering::Relaxed) < FOCUS_WAIT_POLLS
+                {
+                    return Err(Reply::fail(
+                        format!("{id:?}: waiting for the toolkit to report focused={want}"),
+                        true,
+                    ));
+                }
+                FOCUS_WAITS.store(0, Ordering::Relaxed);
                 Ok(Reply::ok())
             }
             Step::AssertFocused { id, focused } => {
@@ -2480,6 +2501,38 @@ mod tests {
             day_script_protocol::EvidenceClass::Interaction
         );
         assert_eq!(presses.get(), 1);
+        day_core::uninstall_tree();
+    }
+
+    /// Both forms of `nav_back` reach an app's `on_system_back` handler (docs/navigation.md
+    /// "Handling the system Back"): Day's rail, and `native: true`, which presses the platform's
+    /// back (the mock answers it in Android's order). Disabled, the handler takes neither, and a
+    /// phone-width run fails the step as "nothing to pop".
+    #[test]
+    fn nav_back_steps_reach_the_system_back_handler() {
+        use day_pieces::prelude::*;
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        day_core::uninstall_tree();
+        let enabled = Signal::new(true);
+        let backs = Signal::new(0);
+        let (mock, probe) = day_mock::MockToolkit::new();
+        day_core::launch_with(mock, day_spec::WindowOptions::default(), move || {
+            label("Fixture page")
+                .on_system_back(move || enabled.get(), move || backs.update(|n| *n += 1))
+                .any()
+        });
+        let back = |native: bool| exec(Step::NavBack { native }, 1);
+        assert!(back(false).ok);
+        assert_eq!(backs.get(), 1);
+        assert!(back(true).ok);
+        assert_eq!(backs.get(), 2);
+        enabled.set(false);
+        day_reactive::flush_sync();
+        assert!(!probe.system_back_armed());
+        // Whether a missing pop fails depends on the width class; the handler must not run.
+        let _ = back(false);
+        let _ = back(true);
+        assert_eq!(backs.get(), 2);
         day_core::uninstall_tree();
     }
 

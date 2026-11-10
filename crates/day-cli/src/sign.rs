@@ -6,6 +6,7 @@
 //! a secret value; `day sign status <id>` polls an async notarytool submission. Actual signing
 //! runs inside `day pack` (the per-format modules in pack/).
 
+use std::collections::BTreeMap;
 use std::path::Path;
 use std::process::Command;
 
@@ -112,6 +113,11 @@ pub fn check(project: &Project) -> i32 {
         if let Some(i) = ios {
             if let Err(e) = interpolate(&i.team) {
                 c.problems.push(format!("team: {e}"));
+            }
+            if let Some(e) = &i.entitlements
+                && !project.root.join(e).exists()
+            {
+                c.problems.push(format!("entitlements file missing: {e}"));
             }
             let triple = [
                 ("key-id", &i.key_id),
@@ -855,9 +861,10 @@ fn sign_hap(
 struct AppleMaterial {
     profile: PathBuf,
     identity: String,
-    /// `None` = take the entitlements the profile itself grants, which is what Xcode does when a
-    /// project does not override them.
-    entitlements: Option<PathBuf>,
+    /// The app's own entitlements (`--entitlements`, `[signing.ios] entitlements`, or the
+    /// project's `CODE_SIGN_ENTITLEMENTS`), resolved and intersected with the profile at signing
+    /// time. `None` = take the entitlements the profile itself grants.
+    entitlements: Option<AppEntitlements>,
 }
 
 /// Resolve the Apple signing material: the command line first, then `[signing.ios]`.
@@ -911,15 +918,23 @@ fn apple_material(
             }
         },
     };
-    let entitlements = over.entitlements.map(Path::to_path_buf);
-    if let Some(e) = &entitlements
-        && !e.is_file()
-    {
-        return Err(CliError::sign(format!(
-            "entitlements file not found: {}",
-            e.display()
-        )));
-    }
+    // The command line's file, else the project's own (a store build signs Release).
+    let entitlements = match over.entitlements {
+        Some(e) if !e.is_file() => {
+            return Err(CliError::sign(format!(
+                "entitlements file not found: {}",
+                e.display()
+            )));
+        }
+        Some(e) => Some(AppEntitlements {
+            path: e.to_path_buf(),
+            settings: BTreeMap::new(),
+        }),
+        None => match project {
+            Some(p) => ios_app_entitlements(p, "Release").map_err(CliError::sign)?,
+            None => None,
+        },
+    };
     Ok(AppleMaterial {
         profile,
         identity,
@@ -975,13 +990,32 @@ fn sign_apple(artifact: &Path, out: Option<&Path>, m: &AppleMaterial) -> Result<
             app_bundle_in(&payload)?
         };
 
-        // The profile the signature is checked against on device, and the entitlements it grants.
+        // The profile the signature is checked against on device, and the entitlements: the
+        // app's own within what the profile grants, or the profile's when the app names none.
         std::fs::copy(&m.profile, bundle.join("embedded.mobileprovision"))
             .map_err(|e| format!("embed the profile: {e}"))?;
-        let entitlements = match &m.entitlements {
-            Some(e) => e.clone(),
-            None => profile_entitlements(&m.profile, &work)?,
-        };
+        let decoded = profile_entitlements(&m.profile, &work)?;
+        let granted = plist::Value::from_file(&decoded)
+            .map_err(|e| format!("read {}: {e}", decoded.display()))?
+            .into_dictionary()
+            .ok_or("the profile's Entitlements is not a dictionary")?;
+        let bundle_id = plist::Value::from_file(bundle.join("Info.plist"))
+            .ok()
+            .and_then(|v| {
+                v.as_dictionary()
+                    .and_then(|d| d.get("CFBundleIdentifier"))
+                    .and_then(plist::Value::as_string)
+                    .map(str::to_string)
+            })
+            .ok_or("the bundle's Info.plist has no CFBundleIdentifier")?;
+        let entitlements = work.join("signing.entitlements");
+        write_ios_signing_entitlements(
+            &granted,
+            m.entitlements.as_ref(),
+            &bundle_id,
+            &m.profile.display().to_string(),
+            &entitlements,
+        )?;
 
         // Inside out: a nested bundle's signature is part of what seals the bundle above it, so
         // signing the app first would invalidate it the moment a framework is re-signed.
@@ -1282,6 +1316,601 @@ fn profile_entitlements(profile: &Path, work: &Path) -> Result<PathBuf, String> 
     Ok(out)
 }
 
+// --- iOS entitlements -------------------------------------------------------
+//
+// The app's own entitlements win, as they do in Xcode: a provisioning profile lists what Apple
+// allows for the app id, which is usually more than the app claims (a team profile grants Game
+// Center and a wildcard keychain group to every app it covers). Signing with the profile's set
+// verbatim ships capabilities the app never asked for. So when the project names an entitlements
+// file, Day signs with that file: its `$(VAR)` references resolved the way Xcode resolves them,
+// then intersected with the profile, because a signature claiming what the profile does not grant
+// fails to install. Only with no file at all does the profile's set stand in, which is what a
+// project without entitlements has always been signed with.
+
+/// The app's own iOS entitlements file, and the build settings its `$(VAR)` references resolve
+/// against.
+#[derive(Debug, Default)]
+pub(crate) struct AppEntitlements {
+    /// The plist, absolute.
+    pub path: PathBuf,
+    /// Settings from the `platform/ios/DayApp.xcconfig` chain for one build configuration, plus
+    /// the project-level ones Xcode defines (`DAY_PROJECT_ROOT`, `SRCROOT`). Empty for a file
+    /// named on the command line, which then resolves the signing-time variables only.
+    pub settings: BTreeMap<String, String>,
+}
+
+/// The project's iOS entitlements file: `[signing.ios] entitlements` first, else the
+/// `CODE_SIGN_ENTITLEMENTS` setting the app's `platform/ios/DayApp.xcconfig` chain gives a
+/// device build (`iphoneos`, `arm64`) of `configuration` ("Debug" or "Release"), conditional
+/// settings included. `None` when the project names neither, with a warning when the xcconfig
+/// sets it only for other builds.
+pub(crate) fn ios_app_entitlements(
+    project: &Project,
+    configuration: &str,
+) -> Result<Option<AppEntitlements>, String> {
+    let xcconfig = project.root.join("platform/ios/DayApp.xcconfig");
+    let srcroot = crate::xcode::project_dir(&project.root, "ios")
+        .parent()
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| project.root.join("platform/ios"));
+    // Day signs device and store builds only; a simulator build is signed by Xcode itself.
+    let read = xcconfig_settings(
+        &xcconfig,
+        &XcconfigBuild {
+            configuration,
+            sdk: "iphoneos",
+            arch: "arm64",
+        },
+    );
+    let mut settings = read.values;
+    let root = project.root.display().to_string();
+    let src = srcroot.display().to_string();
+    for (key, value) in [
+        ("DAY_PROJECT_ROOT", root.as_str()),
+        ("SRCROOT", src.as_str()),
+        ("SOURCE_ROOT", src.as_str()),
+        ("PROJECT_DIR", src.as_str()),
+        ("CONFIGURATION", configuration),
+    ] {
+        settings.insert(key.into(), value.into());
+    }
+    let declared = project
+        .manifest
+        .signing
+        .as_ref()
+        .and_then(|s| s.ios.as_ref())
+        .and_then(|i| i.entitlements.as_ref());
+    let path = if let Some(raw) = declared {
+        let p = interpolate(raw).map_err(|e| format!("signing.ios.entitlements: {e}"))?;
+        project.root.join(p)
+    } else {
+        match settings.get("CODE_SIGN_ENTITLEMENTS") {
+            Some(raw) if !raw.trim().is_empty() => {
+                let p = expand_build_variables(raw, &settings).map_err(|var| {
+                    format!(
+                        "CODE_SIGN_ENTITLEMENTS in {} references $({var}), which Day cannot \
+                         resolve — write the path relative to the project, or set \
+                         [signing.ios] entitlements in Day.toml",
+                        xcconfig.display()
+                    )
+                })?;
+                // Xcode reads a relative path against the project directory.
+                srcroot.join(p)
+            }
+            _ => {
+                // Assigned, but only for another build: Xcode may sign with that file where Day
+                // falls back to the profile's set, so say so rather than differ in silence.
+                if let Some(skipped) = read.unmatched.get("CODE_SIGN_ENTITLEMENTS") {
+                    status(
+                        "Warning",
+                        &format!(
+                            "{} sets CODE_SIGN_ENTITLEMENTS only as {}, which does not apply to \
+                             the {configuration} iphoneos arm64 build Day signs; signing with \
+                             the provisioning profile's entitlements. Add an unconditional or \
+                             [sdk=iphoneos*] setting, or set [signing.ios] entitlements in \
+                             Day.toml",
+                            xcconfig.display(),
+                            skipped.join(", ")
+                        ),
+                    );
+                }
+                return Ok(None);
+            }
+        }
+    };
+    if !path.is_file() {
+        return Err(format!("entitlements file not found: {}", path.display()));
+    }
+    Ok(Some(AppEntitlements { path, settings }))
+}
+
+/// The build an xcconfig is read for: what its conditional settings (`NAME[sdk=iphoneos*] = …`)
+/// are matched against, as Xcode matches them for one build of one target.
+#[derive(Clone, Copy, Debug)]
+struct XcconfigBuild<'a> {
+    /// The build configuration, `[config=…]`: "Debug" or "Release".
+    configuration: &'a str,
+    /// The SDK's platform name without its version, `[sdk=…]`: "iphoneos" for a device,
+    /// "iphonesimulator" for the simulator, "macosx" for a Mac.
+    sdk: &'a str,
+    /// The architecture, `[arch=…]`: "arm64" or "x86_64".
+    arch: &'a str,
+}
+
+/// What [`xcconfig_settings`] read: each setting's value for the build, and the settings that
+/// were assigned only under conditions the build does not meet.
+#[derive(Debug, Default)]
+struct XcconfigSettings {
+    /// The resolved value of every setting with an assignment that applies to the build.
+    values: BTreeMap<String, String>,
+    /// Settings assigned somewhere, but never by an assignment that applies to the build:
+    /// conditioned on another SDK, configuration or architecture, or on a condition Day does not
+    /// evaluate. A setting here that the caller needs is worth a warning, since Xcode itself may
+    /// well apply it.
+    unmatched: BTreeMap<String, Vec<String>>,
+}
+
+/// Read one xcconfig and the files it `#include`s, the way Xcode does for `build`.
+///
+/// A setting takes the value of its most specific assignment whose conditions all match the build
+/// (an unconditional one has none, so any matching conditional assignment wins over it), and of
+/// the last such assignment where two are equally specific. An included file's lines count as if
+/// they appeared where it is included. `$(inherited)` expands to the value held so far. Best
+/// effort: a missing file contributes nothing, which is what Xcode does for `#include?`.
+fn xcconfig_settings(path: &Path, build: &XcconfigBuild<'_>) -> XcconfigSettings {
+    let mut held: BTreeMap<String, (usize, String)> = BTreeMap::new();
+    let mut unmatched: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    read_xcconfig(path, build, &mut held, &mut unmatched, 0);
+    let values: BTreeMap<String, String> = held.into_iter().map(|(k, (_, v))| (k, v)).collect();
+    unmatched.retain(|name, _| !values.contains_key(name));
+    XcconfigSettings { values, unmatched }
+}
+
+/// One file of [`xcconfig_settings`]: `held` is each setting's value so far with the number of
+/// conditions the assignment that set it carried.
+fn read_xcconfig(
+    path: &Path,
+    build: &XcconfigBuild<'_>,
+    held: &mut BTreeMap<String, (usize, String)>,
+    unmatched: &mut BTreeMap<String, Vec<String>>,
+    depth: usize,
+) {
+    let Ok(text) = std::fs::read_to_string(path) else {
+        return;
+    };
+    let dir = path.parent().unwrap_or(Path::new("."));
+    for line in text.lines() {
+        let line = line.trim();
+        if let Some(rest) = line
+            .strip_prefix("#include?")
+            .or_else(|| line.strip_prefix("#include"))
+        {
+            let included = rest.trim().trim_matches('"');
+            if depth < 8 && !included.is_empty() {
+                read_xcconfig(&dir.join(included), build, held, unmatched, depth + 1);
+            }
+            continue;
+        }
+        let line = line.split("//").next().unwrap_or_default().trim();
+        // The `=` that ends the key is the first one outside a `[condition=value]`.
+        let mut nesting = 0;
+        let Some(eq) = line.char_indices().find_map(|(i, c)| {
+            match c {
+                '[' => nesting += 1,
+                ']' => nesting -= 1,
+                '=' if nesting == 0 => return Some(i),
+                _ => {}
+            }
+            None
+        }) else {
+            continue;
+        };
+        let (key, value) = (line[..eq].trim(), &line[eq + 1..]);
+        let value = value.trim().trim_end_matches(';').trim();
+        let (name, conditions) = match key.split_once('[') {
+            Some((name, conds)) => (name.trim(), conds),
+            None => (key, ""),
+        };
+        if name.is_empty() || !name.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_') {
+            continue;
+        }
+        // `[config=Debug][sdk=iphoneos*]` is two conditions, both of which have to hold.
+        let conditions: Vec<&str> = conditions
+            .split('[')
+            .map(|c| c.trim().trim_end_matches(']').trim())
+            .filter(|c| !c.is_empty())
+            .collect();
+        if !conditions
+            .iter()
+            .all(|c| xcconfig_condition_holds(c, build))
+        {
+            unmatched
+                .entry(name.to_string())
+                .or_default()
+                .push(format!("{name}[{}]", conditions.join("][")));
+            continue;
+        }
+        let specificity = conditions.len();
+        if held.get(name).is_some_and(|(s, _)| *s > specificity) {
+            continue;
+        }
+        let inherited = held.get(name).map(|(_, v)| v.as_str()).unwrap_or_default();
+        let value = value.replace("$(inherited)", inherited).trim().to_string();
+        held.insert(name.to_string(), (specificity, value));
+    }
+}
+
+/// Whether one `key=pattern` condition of an xcconfig assignment holds for `build`. Patterns take
+/// `*` wildcards; an SDK pattern may also name a version (`iphoneos18.0`), which Day does not
+/// know, so it matches on the platform name. Conditions Day does not evaluate never hold.
+fn xcconfig_condition_holds(condition: &str, build: &XcconfigBuild<'_>) -> bool {
+    let Some((key, pattern)) = condition.split_once('=') else {
+        return false;
+    };
+    let pattern = pattern.trim();
+    match key.trim() {
+        "config" => glob_matches(pattern, build.configuration),
+        "arch" => glob_matches(pattern, build.arch),
+        "sdk" => {
+            glob_matches(pattern, build.sdk)
+                || pattern.trim_end_matches(|c: char| c.is_ascii_digit() || c == '.' || c == '*')
+                    == build.sdk
+        }
+        _ => false,
+    }
+}
+
+/// Whether `value` matches `pattern`, where `*` stands for any run of characters.
+fn glob_matches(pattern: &str, value: &str) -> bool {
+    let Some((first, rest)) = pattern.split_once('*') else {
+        return pattern == value;
+    };
+    let Some(mut tail) = value.strip_prefix(first) else {
+        return false;
+    };
+    let mut parts: Vec<&str> = rest.split('*').collect();
+    let last = parts.pop().unwrap_or_default();
+    for part in parts {
+        match tail.find(part) {
+            Some(at) => tail = &tail[at + part.len()..],
+            None => return false,
+        }
+    }
+    tail.len() >= last.len() && tail.ends_with(last)
+}
+
+/// Expand `$(VAR)` and `${VAR}` references against `vars`, recursively (a setting may name
+/// another). Understands the `:lower`, `:upper` and `:rfc1034identifier` modifiers; `$(inherited)`
+/// expands to nothing. The error is the first variable `vars` does not define.
+pub(crate) fn expand_build_variables(
+    raw: &str,
+    vars: &BTreeMap<String, String>,
+) -> Result<String, String> {
+    fn go(raw: &str, vars: &BTreeMap<String, String>, depth: usize) -> Result<String, String> {
+        let mut out = String::with_capacity(raw.len());
+        let mut rest = raw;
+        while let Some(at) = rest.find('$') {
+            out.push_str(&rest[..at]);
+            let after = &rest[at + 1..];
+            let close = match after.as_bytes().first() {
+                Some(b'(') => ')',
+                Some(b'{') => '}',
+                _ => {
+                    out.push('$');
+                    rest = after;
+                    continue;
+                }
+            };
+            let Some(end) = after.find(close) else {
+                out.push_str(&rest[at..]);
+                rest = "";
+                break;
+            };
+            let reference = &after[1..end];
+            rest = &after[end + 1..];
+            let (name, modifier) = match reference.split_once(':') {
+                Some((n, m)) => (n, Some(m)),
+                None => (reference, None),
+            };
+            if name == "inherited" {
+                continue;
+            }
+            let value = vars.get(name).ok_or_else(|| name.to_string())?;
+            let value = if depth < 16 {
+                go(value, vars, depth + 1)?
+            } else {
+                value.clone()
+            };
+            out.push_str(&match modifier {
+                Some("lower") => value.to_lowercase(),
+                Some("upper") => value.to_uppercase(),
+                Some("rfc1034identifier") => value
+                    .chars()
+                    .map(|c| {
+                        if c.is_ascii_alphanumeric() || c == '-' || c == '.' {
+                            c
+                        } else {
+                            '-'
+                        }
+                    })
+                    .collect(),
+                _ => value,
+            });
+        }
+        out.push_str(rest);
+        Ok(out)
+    }
+    go(raw, vars, 0)
+}
+
+/// Which side of Apple's development/distribution split a signature is for. A development
+/// profile (it grants `get-task-allow`) signs device launches; a distribution profile signs what
+/// `day pack` hands a store. The push environment follows it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ApsEnvironment {
+    Development,
+    Production,
+}
+
+impl ApsEnvironment {
+    /// The kind of signature `profile` makes: development when it grants `get-task-allow`.
+    pub(crate) fn of_profile(profile: &plist::Dictionary) -> Self {
+        if profile
+            .get("get-task-allow")
+            .and_then(plist::Value::as_boolean)
+            == Some(true)
+        {
+            Self::Development
+        } else {
+            Self::Production
+        }
+    }
+
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Development => "development",
+            Self::Production => "production",
+        }
+    }
+}
+
+/// The entitlements to sign an iOS bundle with, and what had to be dropped from the app's file
+/// because the profile does not grant it (one line per entitlement or value, for a warning).
+///
+/// `granted` is the profile's `Entitlements` dictionary. With `app` (the app's own file, as read,
+/// and the build settings it resolves against), the result is that file with every `$(VAR)`
+/// resolved — the identifier prefixes and the bundle id from the profile and the bundle, a
+/// variable `aps-environment` from the kind of signature — intersected with `granted`, plus the
+/// identifiers every signature carries (`application-identifier`, the team, `get-task-allow`,
+/// `beta-reports-active`), which Xcode takes from the profile too. Without `app`, it is `granted`
+/// with a wildcard `application-identifier` narrowed to this bundle.
+pub(crate) fn ios_signing_entitlements(
+    granted: &plist::Dictionary,
+    app: Option<(&plist::Dictionary, &BTreeMap<String, String>)>,
+    bundle_id: &str,
+) -> Result<(plist::Dictionary, Vec<String>), String> {
+    let string = |key: &str| {
+        granted
+            .get(key)
+            .and_then(plist::Value::as_string)
+            .map(str::to_string)
+    };
+    let profile_app_id = string("application-identifier").unwrap_or_default();
+    // The App ID prefix is usually the team id, but not for an app id registered before teams
+    // had one; Xcode's `AppIdentifierPrefix` is the profile's, so this is too.
+    let app_prefix = profile_app_id
+        .split_once('.')
+        .map(|(p, _)| p.to_string())
+        .unwrap_or_default();
+    let team = string("com.apple.developer.team-identifier").unwrap_or_else(|| app_prefix.clone());
+    let concrete_app_id = if profile_app_id.ends_with('*') || profile_app_id.is_empty() {
+        format!("{app_prefix}.{bundle_id}")
+    } else {
+        profile_app_id.clone()
+    };
+
+    let Some((requested, settings)) = app else {
+        let mut all = granted.clone();
+        if !profile_app_id.is_empty() {
+            all.insert("application-identifier".into(), concrete_app_id.into());
+        }
+        return Ok((all, Vec::new()));
+    };
+
+    let mut vars = settings.clone();
+    for (key, value) in [
+        ("AppIdentifierPrefix", format!("{app_prefix}.")),
+        ("TeamIdentifierPrefix", format!("{team}.")),
+        ("DEVELOPMENT_TEAM", team.clone()),
+        ("PRODUCT_BUNDLE_IDENTIFIER", bundle_id.to_string()),
+        ("CFBundleIdentifier", bundle_id.to_string()),
+    ] {
+        vars.insert(key.into(), value);
+    }
+    let aps = ApsEnvironment::of_profile(granted);
+    let mut resolved = plist::Dictionary::new();
+    for (key, value) in requested {
+        // The push environment is the one value Xcode projects leave to the configuration
+        // (`$(DAY_APNS_ENVIRONMENT)`). Whatever the variable is called, the signature's kind
+        // decides it: a development profile only ever grants development, a store one production.
+        if key == "aps-environment"
+            && value
+                .as_string()
+                .is_some_and(|s| s.contains("$(") || s.contains("${"))
+        {
+            resolved.insert(key.clone(), aps.as_str().into());
+            continue;
+        }
+        let value = expand_plist_value(value, &vars).map_err(|var| {
+            format!(
+                "entitlement {key} references $({var}), which Day cannot resolve — define it in \
+                 platform/ios/DayApp.xcconfig or write the value out"
+            )
+        })?;
+        resolved.insert(key.clone(), value);
+    }
+
+    let (mut signed, dropped) = intersect_entitlements(resolved, granted);
+    signed.insert("application-identifier".into(), concrete_app_id.into());
+    if !team.is_empty() {
+        signed.insert(
+            "com.apple.developer.team-identifier".into(),
+            team.clone().into(),
+        );
+    }
+    for key in ["get-task-allow", "beta-reports-active"] {
+        if let Some(v) = granted.get(key) {
+            signed.insert(key.into(), v.clone());
+        }
+    }
+    Ok((signed, dropped))
+}
+
+/// `value` with every string in it expanded by [`expand_build_variables`].
+fn expand_plist_value(
+    value: &plist::Value,
+    vars: &BTreeMap<String, String>,
+) -> Result<plist::Value, String> {
+    Ok(match value {
+        plist::Value::String(s) => plist::Value::String(expand_build_variables(s, vars)?),
+        plist::Value::Array(items) => plist::Value::Array(
+            items
+                .iter()
+                .map(|v| expand_plist_value(v, vars))
+                .collect::<Result<_, _>>()?,
+        ),
+        plist::Value::Dictionary(d) => {
+            let mut out = plist::Dictionary::new();
+            for (k, v) in d {
+                out.insert(k.clone(), expand_plist_value(v, vars)?);
+            }
+            plist::Value::Dictionary(out)
+        }
+        other => other.clone(),
+    })
+}
+
+/// Keep what `granted` allows of `requested`: a key the profile lacks goes, an array keeps the
+/// elements the profile's value covers, and a string has to match it. A profile value covers a
+/// request when it is equal, `*`, or a prefix ending in `*` (`TEAMID.*` covers every keychain
+/// group of the team). Returns what is kept and a line for everything dropped.
+fn intersect_entitlements(
+    requested: plist::Dictionary,
+    granted: &plist::Dictionary,
+) -> (plist::Dictionary, Vec<String>) {
+    fn covers(grant: &plist::Value, want: &str) -> bool {
+        let one = |g: &str| {
+            g == want || g == "*" || g.strip_suffix('*').is_some_and(|p| want.starts_with(p))
+        };
+        match grant {
+            plist::Value::String(g) => one(g),
+            plist::Value::Array(gs) => gs.iter().filter_map(plist::Value::as_string).any(one),
+            _ => false,
+        }
+    }
+    let mut kept = plist::Dictionary::new();
+    let mut dropped = Vec::new();
+    for (key, value) in requested {
+        let Some(grant) = granted.get(&key) else {
+            dropped.push(key.clone());
+            continue;
+        };
+        match &value {
+            // `false` claims nothing.
+            plist::Value::Boolean(false) => {
+                kept.insert(key, value);
+            }
+            plist::Value::Boolean(true) => {
+                if grant.as_boolean() == Some(false) {
+                    dropped.push(format!("{key} (granted as false)"));
+                } else {
+                    kept.insert(key, value);
+                }
+            }
+            plist::Value::String(want) => {
+                if covers(grant, want) {
+                    kept.insert(key, value);
+                } else {
+                    dropped.push(format!("{key} = {want}"));
+                }
+            }
+            plist::Value::Array(items) => {
+                let mut allowed = Vec::new();
+                for item in items {
+                    match item.as_string() {
+                        Some(want) if covers(grant, want) => allowed.push(item.clone()),
+                        Some(want) => dropped.push(format!("{key} {want}")),
+                        None => dropped.push(format!("{key} (a value that is not a string)")),
+                    }
+                }
+                if !allowed.is_empty() {
+                    kept.insert(key, plist::Value::Array(allowed));
+                }
+            }
+            _ => {
+                if *grant == value {
+                    kept.insert(key, value);
+                } else {
+                    dropped.push(format!("{key} (differs from the profile's value)"));
+                }
+            }
+        }
+    }
+    (kept, dropped)
+}
+
+/// The profile's `Entitlements` dictionary, from a profile already decoded to a plist.
+pub(crate) fn decoded_profile_entitlements(decoded: &Path) -> Result<plist::Dictionary, String> {
+    plist::Value::from_file(decoded)
+        .map_err(|e| format!("read {}: {e}", decoded.display()))?
+        .as_dictionary()
+        .and_then(|d| d.get("Entitlements"))
+        .and_then(plist::Value::as_dictionary)
+        .cloned()
+        .ok_or_else(|| format!("{} has no Entitlements", decoded.display()))
+}
+
+/// Write the entitlements an iOS bundle is signed with to `out`, warning about each one the
+/// profile made Day drop. `app` is the app's own file (see [`ios_signing_entitlements`]).
+pub(crate) fn write_ios_signing_entitlements(
+    granted: &plist::Dictionary,
+    app: Option<&AppEntitlements>,
+    bundle_id: &str,
+    profile_name: &str,
+    out: &Path,
+) -> Result<plist::Dictionary, String> {
+    let requested = match app {
+        Some(a) => Some(
+            plist::Value::from_file(&a.path)
+                .map_err(|e| format!("entitlements {}: {e}", a.path.display()))?
+                .into_dictionary()
+                .ok_or_else(|| format!("{} is not a plist dictionary", a.path.display()))?,
+        ),
+        None => None,
+    };
+    let (signed, dropped) = ios_signing_entitlements(
+        granted,
+        requested.as_ref().zip(app.map(|a| &a.settings)),
+        bundle_id,
+    )?;
+    if let Some(a) = app {
+        for line in &dropped {
+            status(
+                "Warning",
+                &format!(
+                    "{} asks for entitlement {line}, which the profile {profile_name:?} does not \
+                     grant — signing without it",
+                    a.path.display()
+                ),
+            );
+        }
+    }
+    plist::Value::Dictionary(signed.clone())
+        .to_file_xml(out)
+        .map_err(|e| format!("write {}: {e}", out.display()))?;
+    Ok(signed)
+}
+
 /// The sha256 of the signing certificate itself, so an Apple signature reports the same "which
 /// key" field an Android one does. Best effort: a missing certificate is not a signing failure.
 pub(crate) fn leaf_certificate_sha256(bundle: &Path, work: &Path) -> Option<String> {
@@ -1480,5 +2109,411 @@ mod apply_tests {
         let report = "Owner: CN=Day\n         SHA256: A1:B2:C3:D4\n";
         assert_eq!(keytool_fingerprint(report).as_deref(), Some("a1b2c3d4"));
         assert_eq!(apksigner_fingerprint("nothing here"), None);
+    }
+}
+
+#[cfg(test)]
+mod ios_entitlement_tests {
+    use super::*;
+
+    /// A team profile as Apple issues it: more than any one app claims, with wildcards.
+    fn store_profile() -> plist::Dictionary {
+        let text = r#"<?xml version="1.0" encoding="UTF-8"?>
+<plist version="1.0"><dict>
+  <key>application-identifier</key><string>TEAM123.org.example.Browser</string>
+  <key>com.apple.developer.team-identifier</key><string>TEAM123</string>
+  <key>aps-environment</key><string>production</string>
+  <key>beta-reports-active</key><true/>
+  <key>get-task-allow</key><false/>
+  <key>com.apple.developer.game-center</key><true/>
+  <key>com.apple.developer.web-browser</key><true/>
+  <key>com.apple.developer.associated-domains</key><string>*</string>
+  <key>com.apple.security.application-groups</key>
+  <array><string>group.org.example</string></array>
+  <key>keychain-access-groups</key>
+  <array><string>TEAM123.*</string><string>com.apple.token</string></array>
+</dict></plist>"#;
+        plist::Value::from_reader_xml(text.as_bytes())
+            .unwrap()
+            .into_dictionary()
+            .unwrap()
+    }
+
+    fn dev_profile() -> plist::Dictionary {
+        let mut p = store_profile();
+        p.insert(
+            "application-identifier".into(),
+            "TEAM123.*".to_string().into(),
+        );
+        p.insert("aps-environment".into(), "development".to_string().into());
+        p.insert("get-task-allow".into(), true.into());
+        p.remove("beta-reports-active");
+        p
+    }
+
+    fn app_file() -> plist::Dictionary {
+        let text = r#"<?xml version="1.0" encoding="UTF-8"?>
+<plist version="1.0"><dict>
+  <key>aps-environment</key><string>$(DAY_APNS_ENVIRONMENT)</string>
+  <key>com.apple.developer.web-browser</key><true/>
+  <key>com.apple.developer.siri</key><true/>
+  <key>com.apple.developer.associated-domains</key>
+  <array><string>applinks:$(DAY_LINK_HOST)</string></array>
+  <key>com.apple.security.application-groups</key>
+  <array><string>group.org.example</string><string>group.org.other</string></array>
+  <key>keychain-access-groups</key>
+  <array><string>$(AppIdentifierPrefix)org.example</string></array>
+</dict></plist>"#;
+        plist::Value::from_reader_xml(text.as_bytes())
+            .unwrap()
+            .into_dictionary()
+            .unwrap()
+    }
+
+    fn settings() -> BTreeMap<String, String> {
+        BTreeMap::from([("DAY_LINK_HOST".to_string(), "example.org".to_string())])
+    }
+
+    fn strings(d: &plist::Dictionary, key: &str) -> Vec<String> {
+        d.get(key)
+            .and_then(plist::Value::as_array)
+            .map(|a| {
+                a.iter()
+                    .filter_map(plist::Value::as_string)
+                    .map(str::to_string)
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    #[test]
+    fn build_variables_resolve_like_xcode() {
+        let vars = BTreeMap::from([
+            ("ROOT".to_string(), "/p".to_string()),
+            ("FILE".to_string(), "$(ROOT)/a.entitlements".to_string()),
+            ("NAME".to_string(), "Net Skip".to_string()),
+        ]);
+        assert_eq!(
+            expand_build_variables("$(FILE)", &vars).unwrap(),
+            "/p/a.entitlements"
+        );
+        assert_eq!(
+            expand_build_variables("${ROOT}-$(NAME:rfc1034identifier)-$(NAME:lower)", &vars)
+                .unwrap(),
+            "/p-Net-Skip-net skip"
+        );
+        assert_eq!(
+            expand_build_variables("$(inherited) $5", &vars).unwrap(),
+            " $5"
+        );
+        assert_eq!(
+            expand_build_variables("$(MISSING)/x", &vars).unwrap_err(),
+            "MISSING"
+        );
+    }
+
+    #[test]
+    fn the_app_file_wins_within_what_the_profile_grants() {
+        let (signed, dropped) = ios_signing_entitlements(
+            &store_profile(),
+            Some((&app_file(), &settings())),
+            "org.example.Browser",
+        )
+        .unwrap();
+        // The variables resolve: the App ID prefix, a setting, and the push environment from the
+        // kind of profile.
+        assert_eq!(
+            strings(&signed, "keychain-access-groups"),
+            ["TEAM123.org.example"]
+        );
+        assert_eq!(
+            strings(&signed, "com.apple.developer.associated-domains"),
+            ["applinks:example.org"]
+        );
+        assert_eq!(
+            signed.get("aps-environment").and_then(|v| v.as_string()),
+            Some("production")
+        );
+        // What the profile grants and the app never asked for stays out.
+        assert!(!signed.contains_key("com.apple.developer.game-center"));
+        // What the app asks for and the profile lacks is dropped, by name.
+        assert!(!signed.contains_key("com.apple.developer.siri"));
+        assert_eq!(
+            strings(&signed, "com.apple.security.application-groups"),
+            ["group.org.example"]
+        );
+        assert_eq!(
+            dropped,
+            [
+                "com.apple.developer.siri",
+                "com.apple.security.application-groups group.org.other"
+            ]
+        );
+        // The identifiers every signature carries come from the profile.
+        let s = |k: &str| {
+            signed
+                .get(k)
+                .and_then(|v| v.as_string())
+                .map(str::to_string)
+        };
+        assert_eq!(
+            s("application-identifier").as_deref(),
+            Some("TEAM123.org.example.Browser")
+        );
+        assert_eq!(
+            s("com.apple.developer.team-identifier").as_deref(),
+            Some("TEAM123")
+        );
+        assert_eq!(
+            signed
+                .get("beta-reports-active")
+                .and_then(|v| v.as_boolean()),
+            Some(true)
+        );
+        assert_eq!(
+            signed.get("get-task-allow").and_then(|v| v.as_boolean()),
+            Some(false)
+        );
+    }
+
+    #[test]
+    fn a_development_profile_signs_for_development_push() {
+        let (signed, _) = ios_signing_entitlements(
+            &dev_profile(),
+            Some((&app_file(), &settings())),
+            "org.example.Browser.dev",
+        )
+        .unwrap();
+        let s = |k: &str| {
+            signed
+                .get(k)
+                .and_then(|v| v.as_string())
+                .map(str::to_string)
+        };
+        assert_eq!(s("aps-environment").as_deref(), Some("development"));
+        // A wildcard profile's app id narrows to the bundle being signed.
+        assert_eq!(
+            s("application-identifier").as_deref(),
+            Some("TEAM123.org.example.Browser.dev")
+        );
+        assert_eq!(
+            signed.get("get-task-allow").and_then(|v| v.as_boolean()),
+            Some(true)
+        );
+        // A literal environment the profile does not grant is dropped, not rewritten.
+        let mut literal = app_file();
+        literal.insert("aps-environment".into(), "production".to_string().into());
+        let (signed, dropped) =
+            ios_signing_entitlements(&dev_profile(), Some((&literal, &settings())), "x.y").unwrap();
+        assert!(!signed.contains_key("aps-environment"));
+        assert!(dropped.contains(&"aps-environment = production".to_string()));
+    }
+
+    #[test]
+    fn an_unresolved_variable_is_an_error_naming_it() {
+        let err = ios_signing_entitlements(
+            &store_profile(),
+            Some((&app_file(), &BTreeMap::new())),
+            "org.example.Browser",
+        )
+        .unwrap_err();
+        assert!(err.contains("DAY_LINK_HOST"), "{err}");
+    }
+
+    #[test]
+    fn without_an_app_file_the_profile_set_stands() {
+        let (signed, dropped) =
+            ios_signing_entitlements(&dev_profile(), None, "org.example.B").expect("profile set");
+        assert!(dropped.is_empty());
+        assert!(signed.contains_key("com.apple.developer.game-center"));
+        assert_eq!(
+            signed
+                .get("application-identifier")
+                .and_then(|v| v.as_string()),
+            Some("TEAM123.org.example.B")
+        );
+    }
+
+    /// A device build of `configuration`, the build Day signs.
+    fn device(configuration: &str) -> XcconfigBuild<'_> {
+        XcconfigBuild {
+            configuration,
+            sdk: "iphoneos",
+            arch: "arm64",
+        }
+    }
+
+    #[test]
+    fn xcconfig_settings_follow_includes_and_the_configuration() {
+        let dir = std::env::temp_dir().join(format!("day-xcconfig-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("gen")).unwrap();
+        std::fs::write(
+            dir.join("DayApp.xcconfig"),
+            "// comment\nA = one\nAPS = production\nAPS[config=Debug] = development\n\
+             B[sdk=macosx*] = skipped\n#include? \"gen/ios.xcconfig\"\n#include? \"absent\"\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("gen/ios.xcconfig"),
+            "A = $(inherited) two // trailing\n",
+        )
+        .unwrap();
+        let debug = xcconfig_settings(&dir.join("DayApp.xcconfig"), &device("Debug"));
+        assert_eq!(debug.values.get("A").map(String::as_str), Some("one two"));
+        assert_eq!(
+            debug.values.get("APS").map(String::as_str),
+            Some("development")
+        );
+        assert!(!debug.values.contains_key("B"));
+        assert_eq!(debug.unmatched["B"], ["B[sdk=macosx*]"]);
+        let release = xcconfig_settings(&dir.join("DayApp.xcconfig"), &device("Release"));
+        assert_eq!(
+            release.values.get("APS").map(String::as_str),
+            Some("production")
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Conditional settings resolve for the build being signed, as Xcode resolves them: every
+    /// condition has to hold, `*` is a wildcard, the most specific match wins whatever order the
+    /// lines come in, and a later line wins among equally specific ones.
+    #[test]
+    fn xcconfig_conditions_pick_the_most_specific_match_for_the_build() {
+        let dir = std::env::temp_dir().join(format!("day-xcconfig-cond-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("DayApp.xcconfig");
+        std::fs::write(
+            &file,
+            "ENTS[sdk=iphoneos*] = App.entitlements\n\
+             ENTS[sdk=iphonesimulator*] = Sim.entitlements\n\
+             ENTS[sdk=macosx*] = Mac.entitlements\n\
+             ENTS = Plain.entitlements\n\
+             ENTS[config=Release][sdk=iphoneos*] = Store.entitlements\n\
+             ARCH[arch=x86_64] = intel\n\
+             ARCH[arch=arm*] = arm\n\
+             VER[sdk=iphoneos18.0] = versioned\n\
+             LAST[sdk=iphoneos*] = first\n\
+             LAST[sdk=*] = second\n\
+             ODD[variant=profile] = unevaluated\n\
+             ONLY[sdk=iphonesimulator*] = sim\n",
+        )
+        .unwrap();
+        let read = |configuration, sdk, arch| {
+            xcconfig_settings(
+                &file,
+                &XcconfigBuild {
+                    configuration,
+                    sdk,
+                    arch,
+                },
+            )
+        };
+        let get = |s: &XcconfigSettings, k: &str| s.values.get(k).cloned().unwrap_or_default();
+
+        let debug = read("Debug", "iphoneos", "arm64");
+        assert_eq!(get(&debug, "ENTS"), "App.entitlements");
+        assert_eq!(get(&debug, "ARCH"), "arm");
+        assert_eq!(get(&debug, "VER"), "versioned");
+        assert_eq!(get(&debug, "LAST"), "second");
+        assert!(!debug.values.contains_key("ODD"));
+        assert_eq!(debug.unmatched["ONLY"], ["ONLY[sdk=iphonesimulator*]"]);
+        assert!(!debug.unmatched.contains_key("ENTS"), "ENTS did apply");
+
+        let release = read("Release", "iphoneos", "arm64");
+        assert_eq!(get(&release, "ENTS"), "Store.entitlements");
+        let sim = read("Debug", "iphonesimulator", "x86_64");
+        assert_eq!(get(&sim, "ENTS"), "Sim.entitlements");
+        assert_eq!(get(&sim, "ARCH"), "intel");
+        assert_eq!(get(&sim, "ONLY"), "sim");
+        assert_eq!(
+            get(&read("Release", "macosx", "arm64"), "ENTS"),
+            "Mac.entitlements"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn glob_patterns_match_like_xcode_conditions() {
+        assert!(glob_matches("iphoneos*", "iphoneos"));
+        assert!(glob_matches("*", "anything"));
+        assert!(glob_matches("*os", "iphoneos"));
+        assert!(glob_matches("i*o*s", "iphoneos"));
+        assert!(!glob_matches("iphoneos*", "iphonesimulator"));
+        assert!(!glob_matches("Debug", "Release"));
+        assert!(glob_matches("a*ba", "aba"));
+        assert!(!glob_matches("ab*ba", "aba"), "the two ends cannot overlap");
+    }
+
+    #[test]
+    fn signing_ios_entitlements_wins_over_the_xcconfig() {
+        let dir = std::env::temp_dir()
+            .join(format!("day-ios-ents-{}", std::process::id()))
+            .join("ents-fixture-root");
+        std::fs::create_dir_all(dir.join("platform/ios/Runner")).unwrap();
+        std::fs::write(
+            dir.join("Cargo.toml"),
+            "[package]\nname='ents-fixture'\nversion='0.1.0'\nedition='2024'\n",
+        )
+        .unwrap();
+        let plist = "<?xml version=\"1.0\"?><plist version=\"1.0\"><dict/></plist>";
+        std::fs::write(dir.join("platform/ios/Runner/App.entitlements"), plist).unwrap();
+        std::fs::write(dir.join("Store.entitlements"), plist).unwrap();
+        std::fs::write(
+            dir.join("platform/ios/DayApp.xcconfig"),
+            "CODE_SIGN_ENTITLEMENTS = $(DAY_PROJECT_ROOT)/platform/ios/Runner/App.entitlements\n",
+        )
+        .unwrap();
+        let manifest = |extra: &str| {
+            std::fs::write(
+                dir.join("Day.toml"),
+                format!("schema=1\n[app]\nid='org.test.ents'\n{extra}"),
+            )
+            .unwrap();
+            crate::meta::find_project(Some(&dir)).unwrap()
+        };
+        // The xcconfig's setting, with its variable resolved.
+        let found = ios_app_entitlements(&manifest(""), "Release")
+            .unwrap()
+            .unwrap();
+        assert!(found.path.ends_with("platform/ios/Runner/App.entitlements"));
+        // An SDK-conditioned setting is the device build's file, not a quiet fallback to the
+        // profile's set.
+        std::fs::write(
+            dir.join("platform/ios/DayApp.xcconfig"),
+            "CODE_SIGN_ENTITLEMENTS[sdk=iphoneos*] = $(DAY_PROJECT_ROOT)/platform/ios/Runner/App.entitlements\n\
+             CODE_SIGN_ENTITLEMENTS[sdk=iphonesimulator*] = Runner/Sim.entitlements\n",
+        )
+        .unwrap();
+        let found = ios_app_entitlements(&manifest(""), "Release")
+            .unwrap()
+            .unwrap();
+        assert!(found.path.ends_with("platform/ios/Runner/App.entitlements"));
+        // Set only for the simulator: nothing for the device build (Day warns about it).
+        std::fs::write(
+            dir.join("platform/ios/DayApp.xcconfig"),
+            "CODE_SIGN_ENTITLEMENTS[sdk=iphonesimulator*] = Runner/App.entitlements\n",
+        )
+        .unwrap();
+        assert!(
+            ios_app_entitlements(&manifest(""), "Release")
+                .unwrap()
+                .is_none()
+        );
+        // Day.toml's key wins.
+        let project =
+            manifest("[signing.ios]\nteam='TEAM123'\nentitlements='Store.entitlements'\n");
+        let found = ios_app_entitlements(&project, "Release").unwrap().unwrap();
+        assert!(found.path.ends_with("ents-fixture-root/Store.entitlements"));
+        // A missing file is an error, not a quiet fallback to the profile's set.
+        let project = manifest("[signing.ios]\nteam='TEAM123'\nentitlements='Gone.entitlements'\n");
+        assert!(ios_app_entitlements(&project, "Release").is_err());
+        // Neither: the profile's set.
+        std::fs::write(dir.join("platform/ios/DayApp.xcconfig"), "A = 1\n").unwrap();
+        assert!(
+            ios_app_entitlements(&manifest(""), "Release")
+                .unwrap()
+                .is_none()
+        );
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

@@ -1536,9 +1536,13 @@ impl Route for SettingsRoute {
     fn title(&self) -> String {
         match self {
             SettingsRoute::About => day_localization::t(day_localization::key::day_about),
-            SettingsRoute::Group(g) => installed()
-                .and_then(|i| i.group(g).map(|g| resolve_text(&g.title)))
-                .unwrap_or_else(|| g.clone()),
+            // A row's sub-page goes by its title (`push_subpage`); its key carries a prefix.
+            SettingsRoute::Group(g) => match g.strip_prefix("page:") {
+                Some(title) => title.to_string(),
+                None => installed()
+                    .and_then(|i| i.group(g).map(|g| resolve_text(&g.title)))
+                    .unwrap_or_else(|| g.clone()),
+            },
         }
     }
 }

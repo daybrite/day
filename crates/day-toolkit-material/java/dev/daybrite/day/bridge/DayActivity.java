@@ -41,6 +41,8 @@ public class DayActivity extends androidx.fragment.app.FragmentActivity {
 
         DayBridge.ctx = this;
         DayBridge.primaryCreated(this);
+        // Before anything else adds a back callback, so the app's own sits beneath them all.
+        DayBridge.installAppBack(this);
         DayBridge.fastAnimations = "1".equals(getIntent().getStringExtra("day.env.DAY_TEST_FAST"));
         lastNightMode = DayBridge.isDarkMode();
         lastLocales = getResources().getConfiguration().getLocales().toLanguageTags();
@@ -136,6 +138,7 @@ public class DayActivity extends androidx.fragment.app.FragmentActivity {
             blob.append("DAY_OPEN_URL=").append(data.toString()).append('\n');
         }
         final String envBlobBase = blob.toString();
+        final boolean freshLaunch = savedInstanceState == null;
         final DayActivity self = this;
         // The insets listener does exactly one job: keep the root's margins equal to the
         // system-bar (+ cutout) insets. Everything downstream is size-driven; no launch or
@@ -218,6 +221,9 @@ public class DayActivity extends androidx.fragment.app.FragmentActivity {
                 // post, so their events were dropped; synthesize the current active state.
                 DayBridge.started = true;
                 self.openDocumentIntent(self.getIntent());
+                // Once per share: a recreation (theme, language, a reclaimed process) restores
+                // state and must not hand the same text over again.
+                if (freshLaunch) self.openShareIntent(self.getIntent());
                 reportTopInset(); // deliver the initial safe area now that native listens
                 if (self.resumed) DayBridge.lifecycle(2); // DidBecomeActive
             }
@@ -656,11 +662,26 @@ public class DayActivity extends androidx.fragment.app.FragmentActivity {
         return true;
     }
 
+    /** Text from another app's share sheet (Day.toml share_target, docs/deep-links.md):
+     *  EXTRA_TEXT, and EXTRA_SUBJECT after the unit separator when there is one. Rust sends a
+     *  web link in it to on_open_url and other text to on_shared_text. */
+    private boolean openShareIntent(android.content.Intent intent) {
+        if (!android.content.Intent.ACTION_SEND.equals(intent.getAction())) return false;
+        CharSequence text = intent.getCharSequenceExtra(android.content.Intent.EXTRA_TEXT);
+        CharSequence subject = intent.getCharSequenceExtra(android.content.Intent.EXTRA_SUBJECT);
+        if (text == null && subject == null) return true;
+        String payload = text == null ? "" : text.toString();
+        if (subject != null) payload = payload + (char) 0x1f + subject;
+        DayBridge.nativeOnEvent(0, DayBridge.K_SHARED_TEXT, 0.0, payload);
+        return true;
+    }
+
     /** Warm deep link (launchMode=singleTask): route to the running nav host. */
     @Override protected void onNewIntent(android.content.Intent intent) {
         super.onNewIntent(intent);
         setIntent(intent);
         if (openDocumentIntent(intent)) return;
+        if (openShareIntent(intent)) return;
         android.net.Uri data = intent.getData();
         DayNavHost nav = DayNavHost.active;
         if (data != null) {

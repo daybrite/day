@@ -258,6 +258,9 @@ mod imp {
         static ROOT_KEEP: Cell<Option<(usize, f64, f64)>> = const { Cell::new(None) };
         /// Separate host slot above ArkTS Navigation; the root page is below NavDestinations.
         static COVER_ROOT: Cell<Option<(usize, f64, f64)>> = const { Cell::new(None) };
+        /// Whether day-core armed the system back for the app's handlers
+        /// ([`Toolkit::set_system_back`]): the entry page's `onBackPress` consumes the back.
+        static SYSTEM_BACK: Cell<bool> = const { Cell::new(false) };
         /// Nav transitions in flight, for [`Toolkit::ui_idle`] (dayscript screenshots wait on
         /// it): pushed page keys awaiting their destination's first area report, and popped
         /// page keys awaiting their `navPopped` acknowledgment. Both hold only keys whose
@@ -1360,6 +1363,23 @@ mod imp {
         } else {
             (0.0, layer_h)
         }
+    }
+
+    /// The entry page's `onBackPress`, after Navigation popped nothing and no cover took the
+    /// back: while an app handler armed the system back, hand the press to it (`NavBack` on
+    /// `WINDOW_NODE`) and consume it; otherwise let the system leave the app
+    /// (docs/navigation.md "Handling the system Back").
+    pub(crate) fn app_back_requested() -> bool {
+        if !SYSTEM_BACK.with(|b| b.get()) {
+            return false;
+        }
+        emit(
+            day_spec::WINDOW_NODE,
+            Event::NavBack {
+                already_popped: false,
+            },
+        );
+        true
     }
 
     /// Native back targets the top cover, leaving the underlying navigation path intact.
@@ -4439,6 +4459,20 @@ mod imp {
                     .ok_or("capture window is gone")?,
             };
             crate::host_api::prepare_capture(revision, window)
+        }
+
+        /// Armed, the entry page's `onBackPress` hands a back Navigation did not pop to the
+        /// app's handlers ([`app_back_requested`]).
+        fn set_system_back(&mut self, armed: bool) {
+            SYSTEM_BACK.with(|b| b.set(armed));
+        }
+
+        /// dayscript's `nav_back: { native: true }`: the path a back takes once Navigation and
+        /// the covers have passed on it, the entry page's `onBackPress`, which reaches the
+        /// app's handlers while they arm it. ArkUI has no call that presses the system back
+        /// itself, so a pushed destination or a cover is not popped this way.
+        fn native_back(&mut self) -> bool {
+            app_back_requested()
         }
 
         fn ui_idle(&mut self) -> bool {

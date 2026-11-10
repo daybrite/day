@@ -84,6 +84,11 @@ day_core::tls_group! {
     /// is rebuilt as a `PasswordBox` whose callbacks must report against the same node. It is
     /// also what tells a text field's handle from any other. Entries drop in `release`.
     static TEXT_FIELD_NODE: RefCell<HashMap<usize, u64>> = RefCell::new(HashMap::new());
+    /// Text field node id → the text day last wrote into it. XAML raises `TextChanged` for a
+    /// programmatic write too, later and asynchronously, so `on_text` drops a report of exactly
+    /// this text as the echo of day's own write instead of handing it back to the app as typing.
+    /// Cleared by the first report that differs, and in `release`.
+    static TEXT_FIELD_ECHO: RefCell<HashMap<u64, String>> = RefCell::new(HashMap::new());
     /// NAV_MENU widget ptr → (rows, section titles) (for measure).
     static NAV_MENU_ROWS: RefCell<HashMap<usize, (usize, usize)>> = RefCell::new(HashMap::new());
     /// NAV host ptr → its native presentation (NavigationView split / two-pane, docs/navigation.md).
@@ -567,10 +572,12 @@ fn apply_button_style(h: *mut c_void, style: day_spec::props::ButtonStyleSpec) {
     };
     let (kind, fill) = match style {
         // A XAML Button pads a one-glyph title modestly; Compact takes the stock look.
-        S::Automatic | S::Compact | S::Plain => (0, day_spec::Color::CLEAR),
+        S::Automatic | S::Compact => (0, day_spec::Color::CLEAR),
         S::Bordered => (1, day_spec::Color::CLEAR),
         S::Prominent => (2, day_spec::Color::CLEAR),
         S::Tinted(c) => (3, c),
+        // Borderless: no fill or border at rest, the template's hover and pressed fills kept.
+        S::Plain => (4, day_spec::Color::CLEAR),
     };
     // SAFETY: `h` is a live Button handle from `day_xaml_button_new`; the shim only reads the
     // packed colors.
@@ -747,6 +754,18 @@ extern "C" fn on_toggle(id: u64, on: c_int) {
 extern "C" fn on_text(id: u64, s: *const c_char) {
     ffi_guard::contain((), || {
         let text = unsafe { CStr::from_ptr(s) }.to_string_lossy().into_owned();
+        // The late echo of day's own write (an address bar's completion) is not typing.
+        let echo = TEXT_FIELD_ECHO.with(|m| {
+            let mut m = m.borrow_mut();
+            if m.get(&id) == Some(&text) {
+                return true;
+            }
+            m.remove(&id);
+            false
+        });
+        if echo {
+            return;
+        }
         emit(NodeId(id), Event::TextChanged(text));
     });
 }
@@ -2434,6 +2453,12 @@ impl Toolkit for Xaml {
                         match p {
                             TextFieldPatch::Text { text, from_native } => {
                                 if !*from_native {
+                                    let node = TEXT_FIELD_NODE
+                                        .with(|m| m.borrow().get(&(h.0 as usize)).copied());
+                                    if let Some(node) = node {
+                                        TEXT_FIELD_ECHO
+                                            .with(|m| m.borrow_mut().insert(node, text.clone()));
+                                    }
                                     ffi::day_xaml_textbox_set_text(h.0, cstr(text).as_ptr());
                                 }
                             }
@@ -2494,7 +2519,9 @@ impl Toolkit for Xaml {
         let key = h.0 as usize;
         BUTTON_MENUS.with(|m| m.borrow_mut().retain(|_, (button, _)| *button != key));
         LABEL_NODE.with(|m| m.borrow_mut().remove(&key));
-        TEXT_FIELD_NODE.with(|m| m.borrow_mut().remove(&key));
+        if let Some(node) = TEXT_FIELD_NODE.with(|m| m.borrow_mut().remove(&key)) {
+            TEXT_FIELD_ECHO.with(|m| m.borrow_mut().remove(&node));
+        }
         NAV_MENU_ROWS.with(|m| m.borrow_mut().remove(&key));
         NAV_PAGE_IDS.with(|m| m.borrow_mut().remove(&key));
         // A disposed inspector host drops its state AND its by-node-id pane map, so a recycled
@@ -3238,7 +3265,8 @@ impl Toolkit for Xaml {
         day_spec::Support::Native
     }
     #[cfg(windows)]
-    fn share_url(&mut self, url: &str, title: &str) -> bool {
+    fn share(&mut self, spec: &day_spec::share::ShareSpec, _anchor: Option<&Self::Handle>) -> bool {
+        let (url, title) = (spec.url.as_str(), spec.title.as_str());
         day_platform_windows::share::share(url, title)
     }
     fn open_url(&mut self, url: &str) {

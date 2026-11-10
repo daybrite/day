@@ -3796,7 +3796,8 @@ impl Toolkit for Dom {
             day_spec::Support::Unsupported
         }
     }
-    fn share_url(&mut self, url: &str, title: &str) -> bool {
+    fn share(&mut self, spec: &day_spec::share::ShareSpec, _anchor: Option<&Self::Handle>) -> bool {
+        let (url, title) = (&spec.url, &spec.title);
         unsafe { day_dom_share_url(url.as_ptr(), url.len(), title.as_ptr(), title.len()) }
     }
     fn open_url(&mut self, url: &str) {

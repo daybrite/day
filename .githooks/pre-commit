@@ -3,7 +3,7 @@
 #
 # Host Clippy is NOT run here: its three passes took ~35 s of a ~40 s commit after a day-core
 # edit. Run `bash scripts/ci/check-ready.sh` (matrices, fmt and host Clippy) before reporting
-# work ready; CI runs the same Clippy commands.
+# work ready; it also runs website source and API-reference checks shared with website CI.
 #
 # Tracked here rather than in .git/hooks (which git does not version) and wired up with
 # `git config core.hooksPath .githooks`, so a fresh clone gets it from one command:

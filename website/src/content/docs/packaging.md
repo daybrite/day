@@ -153,6 +153,7 @@ profile = "${DAY_MAS_PROFILE}"            # Mac App Store Connect .provisionprof
 
 [signing.ios]
 team = "${DAY_APPLE_TEAM}"
+entitlements = "platform/ios/Runner/App.entitlements"  # default: the xcconfig's CODE_SIGN_ENTITLEMENTS
 key-id = "${DAY_ASC_KEY_ID}"              # ASC key for -allowProvisioningUpdates in CI
 issuer = "${DAY_ASC_ISSUER}"
 key-path = "${DAY_ASC_KEY}"
@@ -177,6 +178,45 @@ profile = "${DAY_OHOS_PROFILE}"
 
 `day sign check` reports each platform's readiness (env vars set, key files present) without
 printing any secret value.
+
+### iOS entitlements
+
+Day signs an iOS app with the app's own entitlements, as Xcode does. The file is
+`[signing.ios] entitlements` when set, else the `CODE_SIGN_ENTITLEMENTS` that
+`platform/ios/DayApp.xcconfig` names:
+
+```ini
+CODE_SIGN_ENTITLEMENTS = $(DAY_PROJECT_ROOT)/platform/ios/Runner/App.entitlements
+DAY_APNS_ENVIRONMENT = production
+DAY_APNS_ENVIRONMENT[config=Debug] = development
+```
+
+The same file applies to every lane that signs. The `xcodebuild archive` lane hands it to Xcode,
+which resolves and checks it itself. Where Day signs (`day pack` over an installed App Store
+profile, `day sign apply` run in the project, and `day launch` on a connected iPhone), Day:
+
+- Resolves `$(VAR)` and `${VAR}` references. `$(AppIdentifierPrefix)` and
+  `$(TeamIdentifierPrefix)` come from the profile, `$(PRODUCT_BUNDLE_IDENTIFIER)` and
+  `$(CFBundleIdentifier)` from the bundle, and any other name from the xcconfig chain (the
+  committed file, the generated one it includes, and `DayApp.local.xcconfig`). A name Day
+  cannot resolve stops the signature with the name in the error.
+- Reads conditional settings the way Xcode does for the build being signed, which is a device
+  build (`sdk=iphoneos`, `arch=arm64`) of the configuration being signed. A setting such as
+  `CODE_SIGN_ENTITLEMENTS[sdk=iphoneos*]` or `DAY_APNS_ENVIRONMENT[config=Debug]` applies when
+  each of its conditions matches, `*` matches any text, and the matching setting with the most
+  conditions wins over one with fewer, unconditioned ones included. If the xcconfig sets
+  `CODE_SIGN_ENTITLEMENTS` only for other builds, such as `[sdk=iphonesimulator*]`, Day warns
+  and signs with what the profile grants.
+- Sets a variable `aps-environment` from the kind of signature: `development` with a
+  development profile (device launches), `production` with a distribution profile (`day pack`).
+- Keeps only what the profile grants. An entitlement the profile lacks, or an array value it
+  does not cover, is dropped with a warning that names it, because a signature that claims it
+  fails to install. `TEAMID.*` in the profile covers `$(AppIdentifierPrefix)org.example`.
+- Adds what every signature carries from the profile: `application-identifier` (narrowed to
+  the bundle id under a wildcard profile), `com.apple.developer.team-identifier`,
+  `get-task-allow`, and `beta-reports-active` for TestFlight.
+
+An app with no entitlements file is signed with what the profile grants.
 
 ## Signing an existing package
 
@@ -246,12 +286,12 @@ flags matter more here than the Day.toml values do: a distributor signs an artif
 someone else's project, whose `Day.toml` names the developer's profile and certificate rather
 than the distributor's.
 
-**Entitlements come from the profile** unless `--entitlements <file>` says otherwise. That is what
-Xcode does when a project overrides nothing, and it is the safe default in both directions:
-entitlements a profile does not grant are rejected at install, and asking for fewer than it grants
-silently drops capabilities the app shipped with. The profile's set is what lands —
-`application-identifier`, `aps-environment`, `beta-reports-active`, `get-task-allow=false` for a
-distribution profile.
+**Entitlements come from the app** when there is a file to take them from: `--entitlements
+<file>`, else, with a project present, the file described in [iOS entitlements](#ios-entitlements).
+Day resolves its variables and drops anything the profile does not grant, naming each one, so the
+signature claims what the app asked for and nothing it cannot install with. With no file and no
+project, the profile's set is what lands, its wildcard `application-identifier` narrowed to the
+bundle id.
 
 The signed bundle is verified with `codesign --verify --deep --strict` before it replaces
 anything, so a bad identity or an out-of-order nested signature fails with the artifact untouched.

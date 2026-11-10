@@ -24,19 +24,23 @@ with your checkout; those files are not part of the published documentation.
 
 ## Editorial and structural checks
 
-Use Node.js 22.12.0 or newer and npm, Python 3, and Bash. From the repository root:
+Use Node.js 22.12.0 or newer and npm, Python 3, Bash, jq, Rust, and rustup. The API build
+installs the `x86_64-unknown-linux-gnu` Rust target used by docs.rs. From the repository root:
 
 ```sh
 npm --prefix website ci
-npm --prefix website run docs:check
-npm --prefix website run docs:test
-npm --prefix website run docs:architecture
-python3 -B scripts/ci/doc-links.py
-bash scripts/ci/docs-symlinks.sh
+bash scripts/ci/check-website-source.sh
 ```
 
 `npm ci` installs locked dependencies and replaces the website's installed packages. Skip it when
 matching dependencies already exist. No global editorial package is required.
+
+The source gate is shared by `check-ready.sh` and website CI. It checks publishing symlinks,
+source links, prose, generated strings, route architecture, and the documentation, blog, and
+agent-export tests. It also rebuilds Rustdoc from the checkout and checks API-reference
+coverage before the site build. Run it for public API changes even when Markdown is unchanged:
+a new callable name can expose an unlinked reference in existing prose. A cached Rustdoc
+directory from an earlier revision does not validate the current API surface.
 
 `docs:check` discovers all Markdown under `docs/`, `website/src/content/docs/`, and
 `website/authoring/`, plus the contribution guide. New pages are included automatically. It checks Markdown structure, fence languages,
@@ -146,12 +150,17 @@ for a preservation-sensitive review. From the repository root:
 ```sh
 npm --prefix website run build:force
 python3 -B scripts/docs/check-site.py
+python3 -B scripts/docs/check-api-links.py
 npm --prefix website run linkcheck
 ```
 
 The build checks MDX and Astro output and generates the Pagefind search index. Force a rebuild
 after Markdown plugin edits. The rendered audit checks metadata, headings, IDs, image alt
 attributes, and sitemap membership. The link checker excludes external URLs, including docs.rs.
+The API-link check uses the fresh Rustdoc output from the source gate above. Run this rendered
+sequence for changes to published content, routes, templates, styles, plugins, or build
+integrations. Also run `npm --prefix website run demo:test` after changing the embedded demo
+or its integration. The source gate alone does not validate rendered destinations or behavior.
 
 The site publishes no API reference of its own; every API link goes to docs.rs. To check those
 links after a site build, build rustdoc the way docs.rs does and run both API checks (from
@@ -211,6 +220,10 @@ the final file and exact fragment, including Rustdoc re-export redirects.
 Run `bash scripts/ci/check-ready.sh` against the full working tree before reporting it ready to
 commit or push. Follow root instructions for formatting, stale matrices, and backend Clippy.
 HarmonyOS emulator acceptance runs in CI, not locally.
+
+Record source and rendered checks separately. If another contributor changes relevant inputs
+during validation, rerun the affected checks after those changes settle. A successful check
+against an earlier tree is not a pass for the final tree.
 
 Distinguish PASS, FAIL, and NOT RUN. Include changed files, evidence, and remaining limitations.
 Marc's explicit permission is required separately for commits and pushes. A request for changes

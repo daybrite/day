@@ -19,7 +19,7 @@ copyright header: they are vendored third-party art.
 | Refresh / Search / Share / Settings / Info | refresh / search / share / settings / info |
 | Star / Bookmark / Home / Sidebar | star / bookmark / home / view_sidebar |
 | Back / Forward / Up / Down | arrow_back / arrow_forward / arrow_upward / arrow_downward |
-| Filter / Sort / More | filter_list / sort / more_horiz |
+| Filter / Sort / More | filter_list / sort / more_vert (Android's overflow menu is vertical) |
 | Play / Pause / Stop / Camera / Code | play_arrow / pause / stop / photo_camera / code |
 | Light / Dark / Auto | light_mode / dark_mode / contrast |
 | ZoomIn / ZoomOut / ZoomReset | zoom_in / zoom_out / fit_screen |
@@ -29,3 +29,4 @@ copyright header: they are vendored third-party art.
 | Rectangle / Circle / CircleFilled | rectangle / radio_button_unchecked / circle |
 | Text / Location | text_fields / my_location |
 | Oval / Line / Group / Ungroup | drawn here |
+| Tabs / Book / History | filter_none / menu_book / history (rounded style) |

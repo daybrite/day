@@ -140,6 +140,9 @@ extern "C" void day_xaml_button_set_content(void* h, const char* title, const ch
         content.Children().Append(label);
     }
     button.Content(content);
+    if (icon_only && icon) g_button_icon_only.insert(h);
+    else g_button_icon_only.erase(h);
+    fit_plain_button(h);
     // The title names the button for UI Automation (an icon-only one shows none), unless the app
     // named it itself; overwriting that here is what replaced app labels on a title change.
     if (!reinterpret_cast<Node*>(h)->app_named)

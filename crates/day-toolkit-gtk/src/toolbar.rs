@@ -86,6 +86,9 @@ fn icon_candidates(s: Symbol) -> &'static [&'static str] {
         Symbol::Group => &["object-group-symbolic", "object-group"],
         Symbol::Ungroup => &["object-ungroup-symbolic", "object-ungroup"],
         Symbol::Location => &["find-location-symbolic", "find-location"],
+        Symbol::Tabs => &["view-paged-symbolic", "tab-new"],
+        Symbol::Book => &["user-bookmarks-symbolic", "bookmarks"],
+        Symbol::History => &["document-open-recent-symbolic", "document-open-recent"],
         // The vocabulary is `#[non_exhaustive]`: an unmapped symbol falls back to the item's
         // label rather than to GTK's broken-image icon.
         _ => &[],

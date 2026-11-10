@@ -4185,8 +4185,8 @@ impl Toolkit for Qt {
         day_spec::Support::Native
     }
     #[cfg(target_os = "macos")]
-    fn share_url(&mut self, url: &str, title: &str) -> bool {
-        unsafe { ffi::day_qt_share_url(cstr(url).as_ptr(), cstr(title).as_ptr()) }
+    fn share(&mut self, spec: &day_spec::share::ShareSpec, _anchor: Option<&Self::Handle>) -> bool {
+        unsafe { ffi::day_qt_share_url(cstr(&spec.url).as_ptr(), cstr(&spec.title).as_ptr()) }
     }
     fn open_url(&mut self, url: &str) {
         if let Ok(c) = std::ffi::CString::new(url) {

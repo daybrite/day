@@ -13,5 +13,14 @@
              instead, which is this same surface. -->
         <item name="android:statusBarColor">?attr/colorSurface</item>
         <item name="android:windowLightStatusBar">?attr/isLightTheme</item>
+        <!-- Text actions in an app bar ("Done", "Edit") in sentence case, as Material 3 sets
+             them. AppCompat's action button style still capitalizes them, a Material 2 look
+             that nothing else in the theme shares. -->
+        <item name="actionButtonStyle">@style/AppTheme.ActionButton</item>
+    </style>
+
+    <style name="AppTheme.ActionButton" parent="Widget.AppCompat.ActionButton">
+        <item name="textAllCaps">false</item>
+        <item name="android:textAllCaps">false</item>
     </style>
 </resources>

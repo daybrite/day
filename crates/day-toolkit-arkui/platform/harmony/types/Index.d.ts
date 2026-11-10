@@ -8,6 +8,9 @@ export const start: (content: Object, widthVp: number, heightVp: number, density
 export const registerCoverLayer: (content: Object, shown: (value: boolean) => void) => void;
 export const coverLayerResized: (widthVp: number, heightVp: number) => void;
 export const coverBackRequested: () => boolean;
+/** A back Navigation and the covers passed on: true when an app handler takes it
+ *  (docs/navigation.md "Handling the system Back"). */
+export const appBackRequested: () => boolean;
 /** A deep link (docs/deep-links.md): a cold want.uri or a warm onNewWant one. Safe before
  *  start() — buffered until the first mount. */
 export const deepLink: (uri: string) => void;

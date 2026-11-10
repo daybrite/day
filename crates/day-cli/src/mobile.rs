@@ -1496,8 +1496,8 @@ pub fn build_ios_for(
             // capability; `Manual` names our profile, but command-line settings reach every
             // target, and the SwiftPM package targets (Lottie, DayPieces) refuse a profile at all
             // ("does not support provisioning profiles"). Signing afterwards sidesteps both, and
-            // takes the identity and entitlements from the profile itself, so the three can't
-            // disagree.
+            // takes the identity from the profile and the entitlements from the app within what
+            // the profile grants, so the three can't disagree.
             cmd.arg("CODE_SIGNING_ALLOWED=NO")
                 .arg("CODE_SIGNING_REQUIRED=NO");
         }
@@ -1535,7 +1535,7 @@ pub fn build_ios_for(
                 apple_app_id(project, "ios-uikit")
             )
         })?;
-        sign_ios_bundle(project, &app, &p)?;
+        sign_ios_bundle(project, &app, &p, configuration)?;
     }
     Ok(BuildOutcome {
         target: target.name,
@@ -1546,12 +1546,16 @@ pub fn build_ios_for(
 
 /// Sign a device bundle against the profile that provisions it.
 ///
-/// Both inputs come from the profile rather than from configuration: the signing identity is the
-/// certificate the profile lists (matched by SHA-1, so a machine holding several development
-/// certificates picks the right one), and the entitlements are the profile's own. A signature can
-/// only claim entitlements its profile grants, so taking them from there makes that true by
-/// construction instead of by a file someone has to keep in step.
-fn sign_ios_bundle(project: &Project, app: &Path, prof: &InstalledProfile) -> Result<(), String> {
+/// The signing identity is the certificate the profile lists (matched by SHA-1, so a machine
+/// holding several development certificates picks the right one). The entitlements are the app's
+/// own when it names a file, as Xcode would sign them, cut down to what the profile grants (a
+/// signature can only claim those); with no file, the profile's own set.
+fn sign_ios_bundle(
+    project: &Project,
+    app: &Path,
+    prof: &InstalledProfile,
+    configuration: &str,
+) -> Result<(), String> {
     let tmp = std::env::temp_dir().join("day-ios-sign");
     let _ = std::fs::create_dir_all(&tmp);
     let plist = tmp.join("profile.plist");
@@ -1570,48 +1574,38 @@ fn sign_ios_bundle(project: &Project, app: &Path, prof: &InstalledProfile) -> Re
         ));
     }
 
-    // The entitlements the signature will claim.
+    // The entitlements the signature will claim: the app's own file (`[signing.ios]
+    // entitlements`, else the xcconfig's `CODE_SIGN_ENTITLEMENTS`) within what the profile
+    // grants, or the profile's own set when the app names none (docs/packaging.md "iOS
+    // entitlements").
     let ents = tmp.join("signing.entitlements");
-    run_logged(
-        Command::new("plutil")
-            .args(["-extract", "Entitlements", "xml1", "-o"])
-            .arg(&ents)
-            .arg(&plist),
-        "plutil -extract Entitlements",
+    let granted = crate::sign::decoded_profile_entitlements(&plist)?;
+    let app_ents = crate::sign::ios_app_entitlements(project, configuration)?;
+    let signed = crate::sign::write_ios_signing_entitlements(
+        &granted,
+        app_ents.as_ref(),
+        &apple_app_id(project, "ios-uikit"),
+        &prof.name,
+        &ents,
     )?;
-
-    // A wildcard profile grants `TEAMID.*`; the signature names the one app it signs.
-    let ents_text = std::fs::read_to_string(&ents).map_err(|e| e.to_string())?;
-    if let Some(wild) = ents_text
-        .split("<key>application-identifier</key>")
-        .nth(1)
-        .and_then(|a| a.split("<string>").nth(1))
-        .and_then(|v| v.split("</string>").next())
-        .filter(|v| v.ends_with('*'))
-        && let Some((team, _)) = wild.split_once('.')
-    {
-        let concrete = format!("{team}.{}", apple_app_id(project, "ios-uikit"));
-        let fixed = ents_text.replacen(
-            &format!("<string>{wild}</string>"),
-            &format!("<string>{concrete}</string>"),
-            1,
-        );
-        std::fs::write(&ents, fixed).map_err(|e| e.to_string())?;
-    }
 
     // What the app declares and what the profile grants have to agree. Catching it here beats
     // shipping an app to the device that silently cannot register for push.
-    if ios_wants_push(project)? {
-        let text = std::fs::read_to_string(&ents).unwrap_or_default();
-        if !text.contains("aps-environment") {
-            return Err(format!(
+    if ios_wants_push(project)? && !signed.contains_key("aps-environment") {
+        return Err(match &app_ents {
+            Some(a) if granted.contains_key("aps-environment") => format!(
+                "Day.toml declares `notifications`, but {} does not claim aps-environment. Add \
+                 `<key>aps-environment</key><string>$(DAY_APNS_ENVIRONMENT)</string>` to it.",
+                a.path.display()
+            ),
+            _ => format!(
                 "Day.toml declares `notifications`, but the profile {:?} does not grant \
                  aps-environment. Enable Push Notifications on the App ID for {} and regenerate \
                  the profile.",
                 prof.name,
                 apple_app_id(project, "ios-uikit")
-            ));
-        }
+            ),
+        });
     }
 
     // The certificate to sign with: the first one the profile lists whose private key is in

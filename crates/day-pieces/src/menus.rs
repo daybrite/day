@@ -945,6 +945,117 @@ pub(crate) mod conformance {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Sharing (docs/sharing.md)
+// ---------------------------------------------------------------------------
+
+/// A link to share through the system's share chooser, with the app's own actions beside the
+/// system's targets: Safari's Add Bookmark and Find on Page. Build one with
+/// [`Share::url`], then [`present`](Share::present) it from a user action.
+///
+/// ```rust,ignore
+/// Share::url(page.url())
+///     .title(page.title())
+///     .action(share_action(res::str::add_bookmark()).symbol(Symbol::Bookmark).action(add))
+///     .action(share_action(res::str::find_on_page()).symbol(Symbol::Search).action(find))
+///     .anchor(id!(share))
+///     .present();
+/// ```
+#[must_use = "a share request does nothing until it is presented"]
+pub struct Share {
+    url: String,
+    title: String,
+    actions: Vec<ShareAction>,
+    anchor: Option<day_core::ElementId>,
+}
+
+impl Share {
+    /// Share `url`.
+    pub fn url(url: impl Into<String>) -> Self {
+        Share {
+            url: url.into(),
+            title: String::new(),
+            actions: Vec::new(),
+            anchor: None,
+        }
+    }
+
+    /// The link's title: a mail's subject, the chooser's header where it shows one.
+    pub fn title(mut self, title: impl Into<String>) -> Self {
+        self.title = title.into();
+        self
+    }
+
+    /// Offer one of the app's own actions in the chooser, after the system's. Where the chooser
+    /// cannot carry the app's actions (`Cap::ShareActions` is `Unsupported`), they are left out:
+    /// offer the same commands in the app's own menu as well.
+    pub fn action(mut self, action: ShareAction) -> Self {
+        self.actions.push(action);
+        self
+    }
+
+    /// The control the chooser points at where it opens as a popover (iPad, macOS), by its
+    /// element id: usually the share button itself. Without one, the chooser points at the
+    /// window's top trailing corner.
+    pub fn anchor(mut self, id: day_core::ElementId) -> Self {
+        self.anchor = Some(id);
+        self
+    }
+
+    /// Present the chooser. Call it from a user action (the web requires one). Returns whether
+    /// the chooser opened; cancelling it is not an error, and nothing reports what was shared.
+    pub fn present(self) -> bool {
+        let actions = self
+            .actions
+            .into_iter()
+            .map(|a| (a.label.resolve(), a.symbol, a.handler))
+            .collect();
+        day_core::present_share(
+            &self.url,
+            &self.title,
+            actions,
+            self.anchor.as_ref().map(|id| id.as_str()),
+        )
+    }
+}
+
+/// One of the app's actions in a share chooser (see [`Share::action`]).
+pub struct ShareAction {
+    label: TextSource,
+    symbol: Option<day_spec::Symbol>,
+    handler: Rc<dyn Fn()>,
+}
+
+/// Build a share-chooser action named `label` (a literal or a `res::str::…` text, resolved
+/// when the chooser opens). Chain [`symbol`](ShareAction::symbol) for its glyph and
+/// [`action`](ShareAction::action) for the work, which runs once the chooser has closed.
+pub fn share_action<M>(label: impl IntoText<M>) -> ShareAction {
+    ShareAction {
+        label: label.into_text(),
+        symbol: None,
+        handler: Rc::new(|| {}),
+    }
+}
+
+impl ShareAction {
+    /// The action's glyph, where the chooser draws one.
+    pub fn symbol(mut self, symbol: day_spec::Symbol) -> Self {
+        self.symbol = Some(symbol);
+        self
+    }
+
+    /// What choosing the action does.
+    pub fn action(mut self, f: impl Fn() + 'static) -> Self {
+        self.handler = Rc::new(f);
+        self
+    }
+}
+
+/// Whether this target can present a share chooser at all (docs/sharing.md).
+pub fn share_support() -> day_spec::Support {
+    day_core::share_support()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

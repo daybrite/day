@@ -75,7 +75,7 @@ the architecture-level view and the rationale.
 
 | subsystem | normative doc | overview here |
 |---|---|---|
-| navigation — `routes!`, `nav`, `nav_stack`, deep links, predictive back | [docs/navigation.md](docs/navigation.md) | [§10.5](#105-navigation-and-presentation) |
+| navigation — `routes!`, `nav`, `nav_stack`, deep links, predictive back, `on_back` guards and the app-level `on_system_back` handler | [docs/navigation.md](docs/navigation.md) | [§10.5](#105-navigation-and-presentation) |
 | native recycling lists — platform row metrics, and `list_item`, the platform's own row content (`Cap::ListItem`) | [docs/list.md](docs/list.md) | [§10](#10-native-list-integration), [§5.3](#53-built-in-pieces-mvp-set) |
 | scrolling — the scroll piece, programmatic `ScrollTarget`, dayscript `scroll_to` | [docs/scroll.md](docs/scroll.md) | [§7.6](#76-scroll) |
 | baseline alignment — form rows and `VAlign::FirstBaseline` sitting text on one line | [docs/baseline.md](docs/baseline.md) | [§7.10](#710-baseline-alignment) |
@@ -1039,6 +1039,12 @@ nav(section)                       // sidebar / tabs / segmented, per NavStyle
                                    //   layer's bar, live
     .no_sidebar_toggle()           //   drop the platform's show/hide-sidebar affordance
 nav_stack(path, root)              // push/pop navigation bound to a Vec<Route> signal
+    .on_back(guard)                //   a page's own back policy: Proceed / Handled + proceed()
+piece.on_system_back(enabled, f)   // app-level back (Compose's BackHandler): the back no cover
+                                   //   or pushed page takes; Android/HarmonyOS system back,
+                                   //   nav_back(), dayscript nav_back. Topmost cover, then the
+                                   //   deepest in the piece tree, then the newest wins; armed
+                                   //   as its enabled or tab selection changes (docs/navigation.md)
 page.searchable(Search::new(q).on_submit(f).available(v))   // a nav_stack page's own field:
                                    //   day::search on the page's chrome, drawn where the platform
                                    //   puts a page's search (docs/search.md "Page search")
@@ -1139,7 +1145,9 @@ colors through `Toolkit::system_color`; its default is a fixed light/dark fallba
 installation seeds the palette outside draw callbacks and refreshes it on remount. Appearance
 notifications refresh colors even when dark mode is unchanged. AppKit resolves NSColors in
 the app's effective appearance and watches system-color changes; UIKit resolves its semantic
-colors against the app's light/dark style; DOM resolves Day CSS variables to sRGB. Other
+colors against the app's light/dark style; Material resolves the theme's Material 3 roles
+(`colorPrimary`, `colorOnSurface`, `colorOnSurfaceVariant`, `colorSurface` (the window and the
+status bar behind it), `colorSurfaceContainer`); DOM resolves Day CSS variables to sRGB. Other
 backends use the documented fallback. Per-window appearance, control-specific tints, and
 UIKit contrast traits are not included. The existing semantic native text/surface APIs remain
 unchanged. See [styling](website/src/content/docs/styling.md#platform-colors-for-custom-artwork).
@@ -1327,12 +1335,21 @@ windows do not register competing application shortcuts or replace the primary a
 can safely transfer the Quit shortcut to a declared menu role after a secondary window closes.
 The native `qt-menu-lifetime` regression exercises disposal before rebuilding the menu.
 
-Native URL sharing is an imperative toolkit operation (`share_support` / `share_url`),
-exposed on Day alongside URL opening. Invoke it directly from user activation; `true` means
-that a chooser started, not that a target received data. AppKit and macOS GTK use
-`NSSharingServicePicker`, retained by the backend until replacement/teardown; macOS Qt uses
-an Objective-C++ picker. UIKit presents `UIActivityViewController` from the current controller
-and anchors its iPad popover. Android launches an `ACTION_SEND` chooser.
+Native URL sharing is an imperative toolkit operation (`share_support` / `share`), exposed
+to apps as day-pieces' `Share` builder (`Share::url(…).title(…).action(…).anchor(…).present()`).
+Invoke it directly from user activation; `true` means that a chooser started, not that a
+target received data. A request may carry the app's own actions (`ShareSpec::actions`,
+`Cap::ShareActions`): day-core registers each handler as a menu action, and the toolkit reports
+a choice as `Event::MenuAction` once the chooser has closed; the next chooser retires the
+previous one's ids. AppKit adds an `NSSharingService` per action from the
+`NSSharingServicePicker`'s delegate, UIKit a `UIActivity` subclass per action (it finishes at
+once, and the sheet's `completionWithItemsHandler`, called after dismissal, reports the choice),
+Android 14+ a `ChooserAction` whose `PendingIntent` reaches a not-exported receiver; other
+toolkits leave the actions out. The duty receives the anchor
+control's handle, which the AppKit picker and UIKit's iPad popover point at. AppKit and macOS
+GTK use `NSSharingServicePicker`, retained by the backend until replacement/teardown; macOS Qt
+uses an Objective-C++ picker. UIKit presents `UIActivityViewController` from the current
+controller. Android launches an `ACTION_SEND` chooser.
 The two Windows targets share a DataTransferManager adapter; its previous DataRequested registration
 is removed before a new payload is installed. Missing active windows and missing event arguments
 return explicit `E_HANDLE` / `E_POINTER` errors; neither condition reads stale thread error state. Web Share checks user activation and suppresses
@@ -1916,6 +1933,15 @@ then checks that readiness runs formatting followed by that entire sequence, inc
 injected failure. New host lint combinations automatically join this test; it does not assume
 a fixed invocation count or duplicate the script's feature combinations.
 
+The completion gate also runs `scripts/ci/check-website-source.sh`, shared with website CI.
+It checks documentation sources, publishing symlinks, generated strings, route architecture,
+and documentation-related tests, then rebuilds Rustdoc and checks API-reference coverage.
+New public callable names can invalidate existing prose, so this runs for Rust changes too.
+CI runs it before compiling examples and building the site. Rendered pages, API destinations,
+internal links, and the live demo remain separate website checks described in the
+[authoring workflow](website/authoring/authoring.md). Readiness regression tests require a
+website-check failure to fail the gate and require API coverage to follow Rustdoc generation.
+
 > [!NOTE]
 > **Status: shipped and grown, exactly as the evolution policy intended.** The original v1
 > surface froze, and every later subsystem arrived as a defaulted duty. The listing below is
@@ -2082,6 +2108,11 @@ pub trait Toolkit: Sized + 'static {
     // Day), which `nav_back()`, Day's rail, never reaches. dayscript's
     // `nav_back: { native: true }` drives it (2026-09, docs/navigation.md). Defaulted.
     fn native_back(&mut self) -> bool { false }
+    // Take or release the platform's system back for the app's `on_system_back` handlers:
+    // day-core arms it while one is enabled, and a back no native container consumed arrives
+    // as `NavBack` on WINDOW_NODE. Android: an OnBackPressedCallback beneath all of Day's;
+    // HarmonyOS: the entry page's onBackPress (2026-11, docs/navigation.md). Defaulted.
+    fn set_system_back(&mut self, armed: bool) {}
 
     // presentation (docs/dialogs.md, docs/files.md): alerts/confirm/prompt/sheets/pickers
     fn present(&mut self, req: u64, spec: &present::PresentSpec) {}
@@ -2457,7 +2488,8 @@ pub enum Event {
     Pan { phase, delta, location },           // two-finger scroll/pan (docs/canvas.md)
     ScrollChanged(Point),                     // §7.6
     FrameChanged(Size),                       // canvas re-record; nav pane size reports
-    NavBack { already_popped: bool },         // native back (docs/navigation.md)
+    NavBack { already_popped: bool },         // native back (docs/navigation.md); on
+                                              //   WINDOW_NODE, the app handlers' system back
     Key(KeyEvent), Pointer(PointerEvent),
     WindowResized(Size),
     PresentResult { req, result },            // modal answers (docs/dialogs.md)
@@ -5261,8 +5293,14 @@ place only after it verifies, so a failure leaves the unsigned input untouched; 
 matches an upload against.
 
 Apple follows the same contract with Xcode's export steps written out: embed the profile
-(`--profile`, else `signing.ios.profile`), take the entitlements the profile grants unless
-`--entitlements` overrides them (what Xcode does, and the only set that installs), sign nested
+(`--profile`, else `signing.ios.profile`), take the app's own entitlements (`--entitlements`, else
+`signing.ios.entitlements`, else the `CODE_SIGN_ENTITLEMENTS` of `platform/ios/DayApp.xcconfig`,
+its `[config=…]`/`[sdk=…]`/`[arch=…]` conditions matched against the device build being signed,
+most specific match winning, with a warning when it is set only for other builds)
+with their `$(VAR)` references resolved and anything the profile does not grant dropped by name,
+or the profile's set when the app names no file (2026-11-10; until then the profile's set always
+won, which signed a team profile's Game Center and wildcard keychain group into apps that never
+claimed them; `day launch` on a device takes the same path), sign nested
 frameworks and plug-ins deepest-first, sign the bundle with `--generate-entitlement-der`, verify
 with `codesign --verify --deep --strict`, repack with `ditto`. `--identity`/`signing.ios.identity`
 names the certificate; the flags outrank the manifest because a distributor signs an artifact
@@ -5823,6 +5861,10 @@ license = "lgpl-dynamic"            # or "commercial" — gates `day pack` stati
 identity = "${DAY_SIGN_MACOS_IDENTITY}"
 notarize = { key-id = "${DAY_NOTARY_KEY_ID}", issuer = "${DAY_NOTARY_ISSUER}", key-path = "${DAY_NOTARY_KEY}", wait = "30m" }
 app-store = { identity = "${DAY_MAS_IDENTITY}", installer-identity = "${DAY_MAS_INSTALLER_IDENTITY}", profile = "${DAY_MAS_PROFILE}" }  # the Mac App Store .pkg (2026-10-16)
+
+[signing.ios]
+team = "${DAY_APPLE_TEAM}"
+entitlements = "platform/ios/Runner/App.entitlements"  # default: DayApp.xcconfig's CODE_SIGN_ENTITLEMENTS (2026-11-10)
 
 [signing.android]
 keystore = "${DAY_ANDROID_KEYSTORE}"
@@ -8132,11 +8174,11 @@ The Showcase walkthrough samples after groups of screens and ends with a `1G` bu
 | `context_menu` | `id`, `item_id` \| `item` \| `key`, `path?`, `if_present?` | choose an item from the element's context menu (`.context_menu`, `.context_menu_fn`; a provider is asked at the element's origin), or from a `menu_button`'s menu when `id` names one, addressed as `menu` addresses one; `if_present` skips an absent element once the UI settles, as `tap`'s does. Day keeps each node's menu as the app gave it, so this runs the item's action the way the native choice would, without the native menu opening — [docs/menus.md](docs/menus.md) |
 | `toolbar` | `item`, `text?` \| `key?` + `args?` \| `on?`, `submit?` | drive a toolbar item by its id (`day::search` reaches the search field inline too, where a phone's bar holds none): bare = run a button's command, `text` types into a search item (`key` types a Fluent key resolved in the run's locale instead — locale-portable, as `input` takes one) and `submit: true` then submits it as its Return key does, `on` sets a toggle. Resolves against the window's COMPOSED bar, so it reaches only what is on screen — a list pane's command needs that list showing. Goes through the same dispatch the native control fires, so it exercises the app's wiring but does NOT prove the widget drew — [docs/toolbars.md](docs/toolbars.md) |
 | `close_window` | `window` | close the secondary window opened under this key through the async confirm → teardown path ([docs/windows.md](docs/windows.md)); already-closed is a success |
-| `focus` | `id`, `focused?` | drives the REAL `Toolkit::focus` duty (keyboards engage); `focused: false` resigns ([docs/focus.md](docs/focus.md)) |
+| `focus` | `id`, `focused?` | drives the REAL `Toolkit::focus` duty (keyboards engage); `focused: false` resigns ([docs/focus.md](docs/focus.md)); then waits up to about a second for the toolkit's own focus report, which XAML delivers as a queued routed event, so the app's reaction to the focus lands before the next step types |
 | `scroll_to` | `id`, `edge?` \| `x?`+`y?` | `edge: top\|bottom\|leading\|trailing` or an offset drives a `scroll` piece; bare `id` reveals that element in its nearest scroll ([docs/scroll.md](docs/scroll.md)); unanimated |
 | `navigate` | `route` | reset-to semantics; `""` = root ([docs/navigation.md](docs/navigation.md)) |
 | `deep_link` | `url` | deliver a deep-link URL in-process: the URL maps to its route through the same `day_spec::route_of_url` every platform intake uses, then navigates — a warm OS delivery minus the OS (which is the launch runner's tier; [docs/deep-links.md](docs/deep-links.md)) |
-| `nav_back` | `native?` | pop one level through Day's rail; `native: true` presses the platform's own back (`Toolkit::native_back`) so the backend's user-back path runs — mobile only, tolerated where the width class never pushed ([docs/navigation.md](docs/navigation.md)) |
+| `nav_back` | `native?` | pop one level through Day's rail, or run the app's `on_system_back` handler when nothing pops; `native: true` presses the platform's own back (`Toolkit::native_back`) so the backend's user-back path runs, the handler's included — mobile only, tolerated where the width class never pushed ([docs/navigation.md](docs/navigation.md)) |
 | `assert_route` | `route` | current path |
 | `assert_visible` | `id` | realized with a nonzero frame |
 | `assert_missing` | `id` | the id is NOT in the tree — the assertion for a subtree a `when` has not mounted (a property row that does not apply). `assert_visible` cannot express it: a missing id is an error there |
@@ -8724,6 +8766,12 @@ same ordered delivery; queued events for disposed nodes are ignored by the event
 ### External protocol data and subscription sheets
 
 Root `url_schemes = ["feed", "web+feed"]` declarations complement `[[file_types]]`.
+Root `share_target = ["text/plain"]` (2026-11-10) puts the app in the share sheet for shared
+text: android-material generates an `ACTION_SEND` filter, and DayActivity forwards `EXTRA_TEXT`
+and `EXTRA_SUBJECT` (bridge kind `SharedText`) to `day_core::request_shared_text`, which sends the
+first `http`/`https` link in them through `on_open_url` and other text to the scoped
+`day::on_shared_text` handler ([docs/deep-links.md](docs/deep-links.md) "Receiving shared links"). Only text types are
+accepted; the other targets ignore the key.
 The CLI merges additional protocol candidates into Apple URL types, Android browsable VIEW
 filters, Linux desktop MIME handlers, Windows MSIX protocol extensions / per-user installer
 capabilities, and Harmony EntryAbility skills. Windows installer registration offers a candidate

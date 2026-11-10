@@ -631,6 +631,19 @@ While editing, UIKit narrows each cell's content view for the two controls. Rows
 `DayListCell`s that report the narrower width through `ListSource::layout_cell`, so Day lays the
 row out to fit between them rather than under them.
 
+## Appearance
+
+[`.inset_grouped()`](https://docs.rs/day-pieces/latest/day_pieces/struct.List.html#method.inset_grouped)
+draws the list as the platform's inset grouped list: each section a rounded group of rows set in
+from the edges on the grouped background, as iOS Settings and Safari's Bookmarks and History draw
+them. It suits a list of places or settings more than a feed.
+
+| Toolkit | Inset grouped |
+|---|---|
+| UIKit | `UITableViewStyleInsetGrouped`; section headers sit above their group and scroll with it rather than pinning |
+| AppKit | `NSTableViewStyleInset`: rows set in from the edges with a rounded selection |
+| Android, GTK, Qt, WinUI, web, ArkUI | the plain list |
+
 ## Separators
 
 ```rust

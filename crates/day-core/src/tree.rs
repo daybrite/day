@@ -986,6 +986,9 @@ pub trait TreeOps {
     fn native_back(&mut self) -> bool {
         false
     }
+    /// Arm or release the platform's system back for the app's handlers
+    /// (`Toolkit::set_system_back`, docs/navigation.md "Handling the system Back").
+    fn set_system_back(&mut self, _armed: bool) {}
     fn prepare_snapshot(
         &mut self,
         root: Option<RNode>,
@@ -1118,7 +1121,7 @@ pub trait TreeOps {
     /// Open `url` in the platform's default handler (what the `link` piece calls).
     fn open_url(&mut self, url: &str);
     fn share_support(&self) -> Support;
-    fn share_url(&mut self, url: &str, title: &str) -> bool;
+    fn share(&mut self, spec: &day_spec::share::ShareSpec, anchor: Option<RNode>) -> bool;
     fn application_handlers(
         &mut self,
         query: &day_spec::applications::HandlerQuery,
@@ -1294,8 +1297,11 @@ impl<B: Toolkit> TreeOps for Tree<B> {
     fn share_support(&self) -> Support {
         self.toolkit.share_support()
     }
-    fn share_url(&mut self, url: &str, title: &str) -> bool {
-        self.toolkit.share_url(url, title)
+    fn share(&mut self, spec: &day_spec::share::ShareSpec, anchor: Option<RNode>) -> bool {
+        let handle = anchor
+            .and_then(|n| self.nodes.get(n))
+            .and_then(|n| n.handle.clone());
+        self.toolkit.share(spec, handle.as_ref())
     }
 
     fn application_handlers(
@@ -2354,6 +2360,10 @@ impl<B: Toolkit> TreeOps for Tree<B> {
         self.toolkit.native_back()
     }
 
+    fn set_system_back(&mut self, armed: bool) {
+        self.toolkit.set_system_back(armed)
+    }
+
     fn prepare_snapshot(
         &mut self,
         root: Option<RNode>,
@@ -3217,6 +3227,9 @@ day_reactive::tls_slots! {
 
     /// The node that last reported gaining focus, cleared when it reports losing it.
     static FOCUSED: std::cell::Cell<Option<RNode>> = const { std::cell::Cell::new(None) };
+    /// The dispatch ids of the last share chooser's app actions, dropped when the next one
+    /// opens: a chooser is modal, so at most one can still report a choice.
+    static SHARE_ACTION_IDS: RefCell<Vec<u64>> = const { RefCell::new(Vec::new()) };
 }
 
 pub fn install_tree(tree: Box<dyn TreeOps>) {
@@ -3380,11 +3393,42 @@ pub fn announce_urgent(text: &str) {
 pub fn share_support() -> Support {
     with_tree(|t| t.share_support())
 }
-/// Present a native chooser for a URL. Call directly from user activation (required on web).
+/// One of the app's actions for [`present_share`]: its localized title, glyph and handler.
+pub type ShareActionEntry = (String, Option<day_spec::Symbol>, Rc<dyn Fn()>);
+
+/// Present the native share chooser for `url` (docs/sharing.md), with the app's own `actions`
+/// (title, glyph, handler) beside the system's targets where the chooser can carry them
+/// (`Cap::ShareActions`). `anchor` names the control the chooser points at where it is a
+/// popover, by its element id. Call directly from user activation (required on web).
+///
 /// Returns false if unavailable or presentation failed; cancellation is not an error and no
-/// completion is implied. The caller owns any explicitly labeled fallback.
-pub fn share_url(url: &str, title: &str) -> bool {
-    with_tree(|t| t.share_url(url, title))
+/// completion is implied. Apps use day-pieces' `Share` builder, which resolves localized titles.
+pub fn present_share(
+    url: &str,
+    title: &str,
+    actions: Vec<ShareActionEntry>,
+    anchor: Option<&str>,
+) -> bool {
+    for id in SHARE_ACTION_IDS.with(|ids| std::mem::take(&mut *ids.borrow_mut())) {
+        crate::menu::forget_action(id);
+    }
+    let actions: Vec<day_spec::share::ShareAction> = actions
+        .into_iter()
+        .map(|(title, symbol, run)| {
+            let id = crate::menu::register_menu_action(run);
+            SHARE_ACTION_IDS.with(|ids| ids.borrow_mut().push(id));
+            day_spec::share::ShareAction { id, title, symbol }
+        })
+        .collect();
+    let spec = day_spec::share::ShareSpec {
+        url: url.to_string(),
+        title: title.to_string(),
+        actions,
+    };
+    with_tree(|t| {
+        let anchor = anchor.and_then(|id| t.find_by_id(id));
+        t.share(&spec, anchor)
+    })
 }
 
 /// Query current system associations on the UI thread. macOS AppKit implements all query
@@ -3675,6 +3719,12 @@ fn pump_events_inner() {
             crate::toolbar::dispatch_toolbar_value(*action, value);
             continue;
         }
+        // The platform's system back that no native container consumed, taken for the app's
+        // own handlers while they arm it (docs/navigation.md "Handling the system Back").
+        if id == day_spec::WINDOW_NODE && matches!(ev, Event::NavBack { .. }) {
+            crate::nav::system_back();
+            continue;
+        }
         // Lifecycle phases are app-global, not keyed by tree node (docs/lifecycle.md).
         if let Event::Lifecycle(phase) = ev {
             crate::lifecycle::dispatch_lifecycle(phase);
@@ -3710,6 +3760,9 @@ fn pump_events_inner() {
     // the last route) is how the recorder captures navigation regardless of what triggered it
     // (docs/navigation.md, §14.6).
     crate::nav::maybe_notify_route_change();
+    // A handler re-arms as its `enabled` and its tabs' selections change; a gate no signal
+    // reports (a document tab moved to its own window) is re-checked here, after every batch.
+    crate::nav::sync_system_back();
 }
 
 /// The node that currently has the keyboard, as the platform last reported it. Keys follow

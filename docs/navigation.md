@@ -499,6 +499,70 @@ content list, so the platform's back closes the detail instead of popping the pa
 both (see `detail_visible` below). The host counts the requests to arm it, so a guarded stack
 merged into the host and an open detail never disarm each other.
 
+## Handling the system Back ([`on_system_back`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.on_system_back))
+
+[`on_system_back(enabled, handler)`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.on_system_back) is Jetpack Compose's `BackHandler(enabled) { … }`. While the
+decorated subtree is mounted and `enabled` holds, a back that no navigation surface takes runs
+`handler` instead of the platform's default. On a phone that default is leaving the app. A
+browser is the usual case: with no Back button, as in Chrome on Android, the system back goes
+back in the page's history while the tab can.
+
+```rust
+browser_window(browser).on_system_back(
+    move || browser.current().is_some_and(|t| t.can_go_back()),
+    move || {
+        if let Some(t) = browser.current_untracked() {
+            t.go_back();
+        }
+    },
+)
+```
+
+`enabled` is a constant, a `Signal`, or a closure, and Day follows it as it changes.
+
+**Order.** A back goes through the same layers everywhere:
+
+1. a presented [`cover`](https://docs.rs/day-pieces/latest/day_pieces/fn.cover.html) closes (or the stack inside it pops first, as above);
+2. a pushed page pops, a guarded stack's [`on_back`](https://docs.rs/day-pieces/latest/day_pieces/struct.NavStack.html#method.on_back) decides, a phone's section page returns to its list;
+3. the app's handler runs, chosen among those that are enabled and on screen (a handler in a
+   tab the bar is not showing is off screen): the one in the topmost cover, then the one nested
+   most deeply in the piece tree, then the most recently mounted;
+4. the platform's default.
+
+Nesting is counted in pieces, not navigation hosts. A handler on a piece inside a column is
+deeper than a handler on that column's sibling, so it wins even when the sibling mounted later.
+Each page a navigation host shows adds its own levels, so a handler inside a page beats one
+beside the host. Day reads the depth when a back arrives, so a page that has moved since it
+mounted, such as a document tab in a window of its own, is ranked where it is now. Handlers at
+the same depth go to the most recently mounted, as with Compose's `BackHandler`.
+
+Day follows each handler's `enabled` and the selection of every tab around it. Selecting a tab
+from code, by writing its selection or calling `navigate`, arms or releases the platform's back
+in the same turn as a tap on the tab does.
+
+A handler takes only the back that would otherwise have left the app, so it never competes with
+navigation. A page's own "discard your changes?" policy belongs on [`NavStack::on_back`](https://docs.rs/day-pieces/latest/day_pieces/struct.NavStack.html#method.on_back), which
+runs before the pop.
+
+**Which backs reach it.** Day's rail, [`nav_back()`](https://docs.rs/day-pieces/latest/day_pieces/fn.nav_back.html), runs the handler when no surface pops, so
+dayscript's `nav_back: {}` and an app's own Back control reach it on every toolkit. dayscript's
+`nav_back: { native: true }` reaches it through the platform's back where the toolkit has one.
+Day arms the platform's back ([`Toolkit::set_system_back`](https://docs.rs/day-spec/latest/day_spec/trait.Toolkit.html#method.set_system_back)) only while some mounted handler is
+enabled, and releases it as soon as none is:
+
+| toolkit | system back while a handler is enabled |
+|---|---|
+| Android | an [`OnBackPressedCallback`](https://developer.android.com/reference/androidx/activity/OnBackPressedCallback) added first, in `DayActivity.onCreate`, sits beneath every other: a cover's, a nav host's guard and section back, and the `FragmentManager`'s. It is enabled only while a handler is, so a pushed page still pops with the predictive-back preview, and a back that would leave the app still shows the "back to home" preview whenever no handler wants it. Enabled, it passes the press to Day as `NavBack` on `WINDOW_NODE`, and the predictive preview does not show for that press. |
+| HarmonyOS (ArkUI) | the entry page's `onBackPress`, reached once `Navigation` has nothing to pop and no cover is up, consumes the back and passes it to Day. `nav_back: { native: true }` reaches the handler the same way; ArkUI has no call that presses the system back, so the native form does not pop a destination there. |
+| iOS / macOS / GTK / Qt / WinUI | no system back to take: the handler runs for [`nav_back()`](https://docs.rs/day-pieces/latest/day_pieces/fn.nav_back.html) and dayscript's `nav_back` |
+| web | the browser's Back is history-based and left to the browser; the handler runs for [`nav_back()`](https://docs.rs/day-pieces/latest/day_pieces/fn.nav_back.html) |
+
+The precedence, the enabled toggling, and both dayscript forms are covered by
+`mock_e2e::system_back_handler_runs_after_covers_and_pushed_pages`,
+`mock_e2e::system_back_arming_follows_enabled`, the `system_back` tests in day-pieces
+(selecting a tab from code, and ranking by nesting), and day-script's
+`nav_back_steps_reach_the_system_back_handler`.
+
 ## Routes: the string-route adapter (deep links & dayscript)
 
 Each mounted surface registers a small adapter over its own signal, so a string route can
@@ -532,7 +596,8 @@ Reserved characters inside a segment or param value (`/ ? & = %`) are percent-en
   the first segment, however early it registered, and an absolute path's remaining segments go
   to its own `enter`. The Settings cover on a phone is one: `settings/search` selects an app's
   own `settings` section when the app has one (built yet or not) and presents the cover only
-  when it has none. A fallback contributes nothing to `current_route()`.
+  when it has none. A fallback contributes nothing to
+  [`current_route()`](https://docs.rs/day-pieces/latest/day_pieces/fn.current_route.html).
 
 **Params** ride the query string: [`route_param("hint")`](https://docs.rs/day-pieces/latest/day_pieces/fn.route_param.html) / [`route_params()`](https://docs.rs/day-pieces/latest/day_pieces/fn.route_params.html) inside a destination
 builder return the values of the navigation being applied. They describe the navigation in

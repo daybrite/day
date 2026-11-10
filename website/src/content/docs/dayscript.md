@@ -135,6 +135,12 @@ ways. Desktops have no native back for a nested stack, so gate the step `only_on
 The native form waits for the toolkit's transitions to settle before pressing, as `screenshot`
 does, so it never races the push it is meant to undo.
 
+Both forms also reach an app's
+[`on_system_back`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.on_system_back)
+handler when nothing is left to pop: a browser's Back that goes back in the page, for example.
+On HarmonyOS, `native: true` reaches only that handler, since ArkUI has no call that presses
+the system back.
+
 Every locating step waits (bounded, five seconds by default) rather than failing instantly, so
 scripts need no hand-tuned sleeps. Acting steps synthesize Day events on the
 main thread between reactive updates. `tap` waits for native navigation to settle and for the

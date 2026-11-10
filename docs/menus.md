@@ -442,14 +442,18 @@ menu_button(res::str::more(), move || {
 
 [`menu_button(label, entries)`](https://docs.rs/day-pieces/latest/day_pieces/fn.menu_button.html) takes a label (any text source) and the entries: a `Vec` or array
 of [`MenuEntry`] values, or a closure that builds them. The menu is built each time it opens, so
-titles, [`.checked`](#checked-items) marks and `.enabled` states are the current ones either way, and
+titles, [`.checked`](#checked-items) marks and
+[`.enabled`](https://docs.rs/day-pieces/latest/day_pieces/struct.MenuEntry.html#method.enabled)
+states are the current ones either way, and
 the closure form lets the list itself follow the app's state. The entries are the ones a context
 menu takes: checked and disabled items, separators, submenus and icons behave as they do there,
-and choosing an item runs its `.action`.
+and choosing an item runs its
+[`.action`](https://docs.rs/day-pieces/latest/day_pieces/struct.MenuEntry.html#method.action).
 
 The button keeps the look builders a [button](buttons.md) has: [`.icon`](https://docs.rs/day-pieces/latest/day_pieces/trait.MenuButtonBuilder.html#tymethod.icon), [`.image`](https://docs.rs/day-pieces/latest/day_pieces/trait.MenuButtonBuilder.html#tymethod.image), [`.icon_only`](https://docs.rs/day-pieces/latest/day_pieces/trait.MenuButtonBuilder.html#tymethod.icon_only),
 [`.plain`](https://docs.rs/day-pieces/latest/day_pieces/trait.MenuButtonBuilder.html#tymethod.plain), [`.bordered`](https://docs.rs/day-pieces/latest/day_pieces/trait.MenuButtonBuilder.html#tymethod.bordered), [`.compact`](https://docs.rs/day-pieces/latest/day_pieces/trait.MenuButtonBuilder.html#tymethod.compact), [`.prominent`](https://docs.rs/day-pieces/latest/day_pieces/trait.MenuButtonBuilder.html#tymethod.prominent) and [`.enabled`](https://docs.rs/day-pieces/latest/day_pieces/trait.MenuButtonBuilder.html#tymethod.enabled). It has no
-`.action`: its press opens the menu. A disabled menu button opens nothing, and neither does a
+[`.action`](https://docs.rs/day-pieces/latest/day_pieces/trait.ButtonBuilder.html#tymethod.action):
+its press opens the menu. A disabled menu button opens nothing, and neither does a
 menu whose closure removes its own button: the closure is app code, a signal it writes can
 rebuild the tree before it returns, and every toolkit checks after it returns that the button
 it was pressed on is still there ([`day_spec::resolve_button_menu`](https://docs.rs/day-spec/latest/day_spec/fn.resolve_button_menu.html)).

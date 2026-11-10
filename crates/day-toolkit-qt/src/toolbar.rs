@@ -100,6 +100,9 @@ fn icon_for(s: Symbol) -> (&'static str, i32) {
         Symbol::Group => ("object-group", sp::NONE),
         Symbol::Ungroup => ("object-ungroup", sp::NONE),
         Symbol::Location => ("find-location", sp::NONE),
+        Symbol::Tabs => ("tab-new", sp::NONE),
+        Symbol::Book => ("bookmarks", sp::NONE),
+        Symbol::History => ("document-open-recent", sp::NONE),
         // The vocabulary is `#[non_exhaustive]`: an unmapped symbol shows the label.
         _ => ("", sp::DIALOG_HELP),
     }

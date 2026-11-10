@@ -272,6 +272,12 @@ pub struct MockWidget {
     /// `None` until the host is asked to select one, which only happens in a presentation whose
     /// rows are chrome; a stacked host pushes and pops instead.
     pub selected_page: Option<usize>,
+    /// Pages a nav host holds above its root (`NavPatch::Pushed` less `Popped`), what the
+    /// mock's [`Toolkit::native_back`] pops first.
+    pub nav_depth: usize,
+    /// A nav host's back guard (`NavPatch::GuardTop`): the native back asks Day instead of
+    /// popping.
+    pub nav_guarded: bool,
 }
 
 /// A secondary window opened through the `open_window` duty (docs/windows.md),
@@ -374,6 +380,12 @@ pub struct MockState {
     /// Menu buttons' providers by button handle (`set_button_menu`, docs/menus.md "Menu
     /// buttons"), callable after releasing the probe's state borrow, as a press would.
     pub button_menus: HashMap<u64, day_spec::ContextMenuFn>,
+    /// Every share chooser presented, with the handle of the control it pointed at, if any
+    /// (docs/sharing.md).
+    pub shares: Vec<(day_spec::share::ShareSpec, Option<u64>)>,
+    /// Whether day-core armed the system back for the app's handlers
+    /// (`Toolkit::set_system_back`, docs/navigation.md "Handling the system Back").
+    pub system_back: bool,
     /// Secondary windows (docs/windows.md), in open order, probe-visible.
     pub windows: Vec<MockWindow>,
     /// `open_window` answers `Unsupported` (the cover-fallback test harness).
@@ -875,6 +887,36 @@ impl MockProbe {
         day_spec::resolve_button_menu(&provider, || {
             self.state.borrow().button_menus.contains_key(&button)
         })
+    }
+
+    /// The share choosers presented so far, oldest first, with the anchor's handle.
+    pub fn shares(&self) -> Vec<(day_spec::share::ShareSpec, Option<u64>)> {
+        self.state.borrow().shares.clone()
+    }
+
+    /// Whether day-core has the system back armed for the app's handlers (docs/navigation.md
+    /// "Handling the system Back").
+    pub fn system_back_armed(&self) -> bool {
+        self.state.borrow().system_back
+    }
+
+    /// Choose app action `index` in the last share chooser, as a person tapping it would: the
+    /// choice arrives as the action's `Event::MenuAction`. False if there is no such action.
+    pub fn choose_share_action(&self, index: usize) -> bool {
+        let id = self
+            .state
+            .borrow()
+            .shares
+            .last()
+            .and_then(|(spec, _)| spec.actions.get(index))
+            .map(|a| a.id);
+        match id {
+            Some(id) => {
+                self.emit(day_spec::WINDOW_NODE, day_spec::Event::MenuAction(id));
+                true
+            }
+            None => false,
+        }
     }
 
     // --- secondary windows (docs/windows.md) -------------------------------------------
@@ -1627,9 +1669,13 @@ impl Toolkit for MockToolkit {
                 match p {
                     NavPatch::Pushed { title, .. } => {
                         w.text = title.clone();
+                        w.nav_depth += 1;
                         format!("nav pushed title={title:?}")
                     }
-                    NavPatch::Popped => "nav popped".into(),
+                    NavPatch::Popped => {
+                        w.nav_depth = w.nav_depth.saturating_sub(1);
+                        "nav popped".into()
+                    }
                     NavPatch::Title(t) => {
                         w.text = t.clone();
                         format!("nav title={t:?}")
@@ -1637,6 +1683,7 @@ impl Toolkit for MockToolkit {
                     // Probe-visible: tests assert the armed flag round-trips.
                     NavPatch::GuardTop(on) => {
                         w.flag = *on;
+                        w.nav_guarded = *on;
                         format!("nav guard={on}")
                     }
                     // The host's presentation after a size-class change. `flag` tracks it the
@@ -2508,6 +2555,18 @@ impl Toolkit for MockToolkit {
         self.state.borrow_mut().log(format!("dismiss req={req}"));
     }
 
+    fn share_support(&self) -> day_spec::Support {
+        day_spec::Support::Native
+    }
+
+    fn share(&mut self, spec: &day_spec::share::ShareSpec, anchor: Option<&Self::Handle>) -> bool {
+        // No chooser to show; record it so a test can read the request and choose an action
+        // (`MockProbe::choose_share_action`).
+        let anchor = anchor.map(|h| h.0);
+        self.state.borrow_mut().shares.push((spec.clone(), anchor));
+        true
+    }
+
     fn open_url(&mut self, url: &str) {
         // No browser to launch; record it so op-log assertions can verify a `link` fired.
         self.state.borrow_mut().log(format!("open_url {url}"));
@@ -2719,6 +2778,77 @@ impl Toolkit for MockToolkit {
             enabled: Some(w.enabled),
             visible: None,
             frame: Some(window_frame(&s, h.0)),
+        }
+    }
+
+    fn set_system_back(&mut self, armed: bool) {
+        let mut s = self.state.borrow_mut();
+        s.system_back = armed;
+        s.log(format!("system_back armed={armed}"));
+    }
+
+    /// Android's back dispatcher, in its order: the topmost presented cover's callback, then a
+    /// nav host with a page above its root (asking Day when guarded, else popping natively and
+    /// reporting it), then the app's own system-back callback while day-core arms it. With
+    /// none of them, the press would leave the app: `false`.
+    fn native_back(&mut self) -> bool {
+        let target = {
+            let mut s = self.state.borrow_mut();
+            let Some(sink) = s.sink.clone() else {
+                return false;
+            };
+            let cover = s
+                .widgets
+                .values()
+                .filter(|w| w.kind == kinds::COVER && w.flag)
+                .map(|w| w.node)
+                .max();
+            let host = s
+                .widgets
+                .iter()
+                .filter(|(_, w)| w.nav_depth > 0)
+                .max_by_key(|(_, w)| w.node)
+                .map(|(h, _)| *h);
+            let target = if let Some(node) = cover {
+                Some((
+                    NodeId(node),
+                    Event::NavBack {
+                        already_popped: false,
+                    },
+                ))
+            } else if let Some(h) = host {
+                let w = s.widgets.get_mut(&h).expect("host just found");
+                let guarded = w.nav_guarded;
+                if !guarded {
+                    w.nav_depth -= 1;
+                }
+                Some((
+                    NodeId(w.node),
+                    Event::NavBack {
+                        already_popped: !guarded,
+                    },
+                ))
+            } else if s.system_back {
+                Some((
+                    day_spec::WINDOW_NODE,
+                    Event::NavBack {
+                        already_popped: false,
+                    },
+                ))
+            } else {
+                None
+            };
+            if let Some((node, _)) = &target {
+                s.log(format!("native_back -> {node:?}"));
+            }
+            target.map(|(node, ev)| (sink, node, ev))
+        };
+        match target {
+            Some((sink, node, ev)) => {
+                sink(node, ev);
+                true
+            }
+            None => false,
         }
     }
 

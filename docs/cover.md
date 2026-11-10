@@ -85,6 +85,9 @@ game_page()
   ([`open.set(None)`](https://docs.rs/day-reactive/latest/day_reactive/struct.Signal.html#method.set), dayscript [`nav_back`](https://docs.rs/day-pieces/latest/day_pieces/fn.nav_back.html)) still close it; ship an explicit close control.
   The state is queryable via [`day_core::shield::dismiss_disabled()`](https://docs.rs/day-core/latest/day_core/shield/fn.dismiss_disabled.html) (reactive: reads track
   a change counter).
+- A presented cover answers the back before an app's
+  [`on_system_back`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.on_system_back) handler does, on every rail: the cover closes first, and only
+  the next back reaches the handler ([navigation](navigation.md#handling-the-system-back-on_system_back)).
 
 ## Hiding the status bar
 
@@ -211,6 +214,11 @@ Conformance: `cover-sheet-composes-a-card-on-wide` measures the card's content a
 on every toolkit that composes the sheet, and the mock.
 
 The composed wide-window sheet has not been verified on WinUI, Android tablets, or HarmonyOS.
+
+A navigation stack inside a cover keeps its chrome on the cover: its title, toolbar items (a
+Done button, a segmented control) and bottom bar ride the cover's own navigation bar, never the
+bar of the window underneath. On iOS the sheet's `UINavigationController` carries them, as a
+page sheet in Safari or Mail does.
 
 ## Large sheet
 

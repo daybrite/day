@@ -115,6 +115,12 @@
       "items": { "type": "string", "pattern": "^[a-z][a-z0-9+.-]*$" },
       "uniqueItems": true
     },
+    "share_target": {
+      "type": "array",
+      "description": "Text MIME types the app takes from the system share sheet (android-material). A shared web link reaches on_open_url, other text on_shared_text.",
+      "items": { "type": "string", "pattern": "^text/([*]|[A-Za-z0-9+._-]+)$" },
+      "uniqueItems": true
+    },
     "sandbox": {
       "type": "object",
       "additionalProperties": false,
@@ -313,6 +319,7 @@
           "required": ["team"],
           "properties": {
             "team": { "type": "string", "description": "Apple Developer team id." },
+            "entitlements": { "type": "string", "description": "The app's entitlements plist, relative to the project root. Default: the CODE_SIGN_ENTITLEMENTS in platform/ios/DayApp.xcconfig. Day signs with it, $(VAR) references resolved, minus anything the provisioning profile does not grant." },
             "export_method": { "type": "string", "enum": ["app-store", "ad-hoc", "development", "enterprise"] },
             "key_id": { "type": "string" },
             "issuer": { "type": "string" },

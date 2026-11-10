@@ -5534,6 +5534,124 @@ fn back_skips_hidden_tabs_and_dismisses_cover_before_underlying_stack() {
     assert_eq!(second.get_untracked(), vec!["second-detail"]);
 }
 
+/// `Decorate::on_system_back` (docs/navigation.md "Handling the system Back"): a back reaches the
+/// app's handler only after a presented cover closed and a pushed page popped, and passes
+/// through to the default (nothing to pop) while the handler is disabled. Both rails take the
+/// same order: Day's `nav_back()` and the platform's own back (`native_back`), which the mock
+/// answers in Android's dispatcher order. The system back is armed exactly while the handler
+/// is enabled, and released when it unmounts.
+#[test]
+fn system_back_handler_runs_after_covers_and_pushed_pages() {
+    for native in [false, true] {
+        let enabled = Signal::new(true);
+        let mounted = Signal::new(true);
+        let ran = Signal::new(0usize);
+        let inner = Signal::new(0usize);
+        let path = Signal::new(vec!["detail".to_string()]);
+        let open = Signal::new(Some("sheet".to_string()));
+        let probe = boot(move || {
+            when(
+                move || mounted.get(),
+                move || {
+                    zstack((
+                        nav_stack_root(path),
+                        cover(open, |_: &String| label("sheet")),
+                        // The innermost of two handlers wins; the outer one is the fallback.
+                        column((label("inner"),)).on_system_back(
+                            move || enabled.get(),
+                            move || inner.update(|n| *n += 1),
+                        ),
+                    ))
+                    .on_system_back(true, move || ran.update(|n| *n += 1))
+                },
+            )
+        });
+        flush_sync();
+        let cover = probe.find_by_kind("day.cover")[0].0;
+        let cover_node = NodeId(probe.widget(cover).node);
+        assert!(probe.system_back_armed());
+        let back = || {
+            let ok = if native {
+                day_core::with_tree(|t| t.native_back())
+            } else {
+                nav_back()
+            };
+            flush_sync();
+            ok
+        };
+
+        // 1. The cover closes first; the pushed page and the handlers are untouched.
+        assert!(back());
+        assert!(open.get_untracked().is_none(), "native={native}");
+        assert_eq!(path.get_untracked(), vec!["detail"]);
+        assert_eq!((ran.get_untracked(), inner.get_untracked()), (0, 0));
+        probe.emit(cover_node, Event::CoverHidden);
+        flush_sync();
+
+        // 2. Then the pushed page pops.
+        assert!(back());
+        assert!(path.get_untracked().is_empty(), "native={native}");
+        assert_eq!((ran.get_untracked(), inner.get_untracked()), (0, 0));
+
+        // 3. Nothing left to pop: the innermost enabled handler takes it, every time.
+        assert!(back());
+        assert!(back());
+        assert_eq!((ran.get_untracked(), inner.get_untracked()), (0, 2));
+
+        // 4. The inner one disabled, the outer one takes it; the system back stays armed.
+        enabled.set(false);
+        flush_sync();
+        assert!(probe.system_back_armed());
+        assert!(back());
+        assert_eq!((ran.get_untracked(), inner.get_untracked()), (1, 2));
+
+        // 5. A new push still pops before any handler.
+        path.set(vec!["again".into()]);
+        flush_sync();
+        assert!(back());
+        assert!(path.get_untracked().is_empty());
+        assert_eq!((ran.get_untracked(), inner.get_untracked()), (1, 2));
+
+        // 6. Unmounted, both handlers are gone: the back falls through to the default (leaving
+        //    the app, which neither rail does by itself) and the system back is released.
+        mounted.set(false);
+        flush_sync();
+        assert!(!probe.system_back_armed());
+        assert!(!back());
+        assert_eq!((ran.get_untracked(), inner.get_untracked()), (1, 2));
+
+        // 7. Re-enabled while unmounted, nothing arms: a handler exists only while mounted.
+        enabled.set(true);
+        flush_sync();
+        assert!(!probe.system_back_armed());
+    }
+}
+
+/// A handler whose `enabled` turns false releases the system back at once, so Android's
+/// predictive back shows its "leave the app" preview again; turning true re-arms it.
+#[test]
+fn system_back_arming_follows_enabled() {
+    let enabled = Signal::new(false);
+    let ran = Signal::new(0usize);
+    let probe = boot(move || {
+        label("page").on_system_back(move || enabled.get(), move || ran.update(|n| *n += 1))
+    });
+    flush_sync();
+    assert!(!probe.system_back_armed());
+    assert!(!nav_back(), "a disabled handler takes no back");
+    assert!(!day_core::with_tree(|t| t.native_back()));
+    enabled.set(true);
+    flush_sync();
+    assert!(probe.system_back_armed());
+    assert!(day_core::with_tree(|t| t.native_back()));
+    flush_sync();
+    assert_eq!(ran.get_untracked(), 1);
+    enabled.set(false);
+    flush_sync();
+    assert!(!probe.system_back_armed());
+    assert_eq!(ran.get_untracked(), 1);
+}
+
 #[test]
 fn queued_native_events_finish_the_current_handler_before_dispatch() {
     let order = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));

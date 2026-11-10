@@ -74,7 +74,7 @@ app_leg() {
 
 # 1) The mandatory readiness gate checks matrices, formatting, and host Clippy against
 # working-tree content. Correct, uncommitted generated files are valid inputs.
-leg "readiness (matrices, fmt, host clippy)" bash scripts/ci/check-ready.sh
+leg "readiness (matrices, fmt, host clippy, website source)" bash scripts/ci/check-ready.sh
 
 # 1b) Spelling + the American-English rule (typos.toml, STYLE_GUIDE.md), the local twin of
 # ci.yml's `spelling` job. Not installed is a skip rather than a failure, since it is the one leg

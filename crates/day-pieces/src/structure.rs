@@ -899,6 +899,7 @@ pub struct List<S: RowSource> {
     swipe_leading: Option<SwipeProvider>,
     swipe_trailing: Option<SwipeProvider>,
     separators: Option<bool>,
+    inset_grouped: bool,
     editing: crate::Reactive<bool>,
     sections: Option<ListSections<S::Slot>>,
 }
@@ -1347,6 +1348,7 @@ where
         swipe_leading: None,
         swipe_trailing: None,
         separators: None,
+        inset_grouped: false,
         editing: crate::Reactive::Const(false),
         sections: None,
     }
@@ -1508,6 +1510,14 @@ impl<S: RowSource + 'static> List<S> {
         self
     }
 
+    /// Draw the list as the platform's inset grouped list: rounded groups of rows set in from
+    /// the edges, one per section, as iOS Settings and Safari's History do (docs/list.md
+    /// "Appearance"). iOS and macOS draw it; the other platforms draw their plain list.
+    pub fn inset_grouped(mut self) -> Self {
+        self.inset_grouped = true;
+        self
+    }
+
     /// Draw no separator between rows, on a platform whose default draws one (iOS).
     pub fn no_separators(mut self) -> Self {
         self.separators = Some(false);
@@ -1613,6 +1623,7 @@ impl<S: RowSource + 'static> Piece for List<S> {
             separators: self.separators,
             editing: self.editing.get_untracked(),
             sections: self.sections.is_some(),
+            inset_grouped: self.inset_grouped,
         };
         let node = cx.leaf(
             kinds::LIST,

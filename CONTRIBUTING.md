@@ -39,7 +39,9 @@ Agree on the scope and submission process with a maintainer before starting. Rea
    Include a Day-Showcase example for a new framework feature, submitted after the framework change.
 4. Run `cargo fmt --all` and `bash scripts/ci/check-ready.sh` against all outstanding changes
    before reporting work ready to commit or push. The gate checks formatting, generated
-   matrices, and host Clippy with test targets and warnings denied. Regenerate stale tables
+   matrices, host Clippy with test targets and warnings denied, and website source checks
+   against a fresh Rustdoc build. Install the locked website dependencies with
+   `npm --prefix website ci` on a fresh checkout and after package-lock changes. Regenerate stale tables
    with their `scripts/ci/*-matrix.sh` generators and rerun the gate.
 5. Run `bash scripts/ci/lint.sh` for the available platform Clippy checks and `cargo test` for
    the crates you touched. Report any checks you could not run. The hooks and build tests do

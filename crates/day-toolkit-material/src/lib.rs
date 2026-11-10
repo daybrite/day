@@ -57,6 +57,7 @@ mod bridge_kinds_parity {
             ("K_FRAME_CHANGED", BridgeKind::FrameChanged),
             ("K_DEEPLINK", BridgeKind::Deeplink),
             ("K_DOCUMENT_OPENED", BridgeKind::DocumentOpened),
+            ("K_SHARED_TEXT", BridgeKind::SharedText),
             ("K_PRESENT_BUTTON", BridgeKind::PresentButton),
             ("K_PRESENT_TEXT", BridgeKind::PresentText),
             ("K_PRESENT_DISMISSED", BridgeKind::PresentDismissed),
@@ -721,6 +722,7 @@ mod imp {
         static fn imageEncode(id: jlong, format: JString, quality: jint, fit_w: jdouble, fit_h: jdouble) -> jbyte[],
         static fn imageRelease(id: jlong),
         static fn isDarkMode() -> jboolean,
+        static fn systemColor(role: jint) -> jint,
         static fn listPaintSelection(v: android.view.View, host_id: jlong),
         static fn listReload(v: android.view.View),
         static fn listScrollToEnd(v: android.view.View),
@@ -778,6 +780,7 @@ mod imp {
         static fn scrollToRect(v: android.view.View, x: jint, y: jint, w: jint, h: jint, animated: jboolean),
         static fn navScrollToEdge(v: android.view.View, bottom: jboolean) -> jboolean,
         static fn setA11y(v: android.view.View, label: JString, hint: JString, value: JString, id: JString, role: jint, level: jint, hidden: jboolean, selected: jint),
+        static fn setAppBack(on: jboolean),
         static fn setAppearance(mode: jint),
         static fn setAppMenu(spec: JString),
         static fn setButtonContent(view: android.view.View, title: JString, icon_name: JString, icon_only: jboolean),
@@ -836,7 +839,7 @@ mod imp {
         static fn setWindowSurface(v: android.view.View, radius_px: jfloat, clips: jboolean),
         static fn setWindowTitle(node: jlong, title: JString),
         static fn setWindowToolbar(root: android.view.View, spec: JString),
-        static fn shareUrl(url: JString, title: JString) -> jboolean,
+        static fn share(url: JString, title: JString, actions: JString) -> jboolean,
         static fn snapshotOrigin(root: android.view.View) -> JString,
         static fn treeExpand(view: android.view.View, token: jlong, open: jboolean),
         static fn treeReload(view: android.view.View, data: JString),
@@ -1844,6 +1847,17 @@ mod imp {
             // Navigation (docs/navigation.md): system back / gesture / toolbar up. num == 1.0
             // means the native FragmentManager already popped (predictive back commit, back
             // button, up arrow), so Rust updates the path without re-issuing the pop.
+            // Id 0 is the app's own system-back callback (DayBridge.appBack, armed by
+            // `set_system_back`): a back no cover or nav host took, for the app's handlers.
+            K_NAV_BACK if id == 0 => {
+                emit(
+                    day_spec::WINDOW_NODE,
+                    Event::NavBack {
+                        already_popped: false,
+                    },
+                );
+                return;
+            }
             K_NAV_BACK => Event::NavBack {
                 already_popped: num != 0.0,
             },
@@ -1869,6 +1883,16 @@ mod imp {
             K_DEEPLINK => {
                 let route: String = string_of(env, jstr).ok().unwrap_or_default();
                 day_core::request_open_url(&route);
+                return;
+            }
+            // The share sheet (docs/deep-links.md): a web link in it takes the deep-link path.
+            k if k == bridge::BridgeKind::SharedText as i32 => {
+                let payload: String = string_of(env, jstr).ok().unwrap_or_default();
+                let (text, subject) = match payload.split_once('\u{1f}') {
+                    Some((text, subject)) => (text, Some(subject)),
+                    None => (payload.as_str(), None),
+                };
+                day_core::request_shared_text(text, subject);
                 return;
             }
             // Presentation answers (docs/dialogs.md): id == request id.
@@ -2838,6 +2862,9 @@ mod imp {
         }
         fn capability(&self, cap: Cap) -> Support {
             match cap {
+            // `ChooserAction`s on the system chooser, which Android 14 (API 34) introduced.
+            Cap::ShareActions if day_platform_android::sdk_int() >= 34 => Support::Native,
+            Cap::ShareActions => Support::Unsupported,
             Cap::SearchField => Support::Native,
             Cap::ComboBox => Support::Native,
             Cap::Stepper => Support::Emulated,
@@ -3067,11 +3094,31 @@ mod imp {
         fn share_support(&self) -> day_spec::Support {
             day_spec::Support::Native
         }
-        fn share_url(&mut self, url: &str, title: &str) -> bool {
+        fn share(
+            &mut self,
+            spec: &day_spec::share::ShareSpec,
+            _anchor: Option<&Self::Handle>,
+        ) -> bool {
+            // The app's actions cross as lines of `id \t drawable \t title`; the drawable is
+            // the action's symbol (`day_symbol_*`), or empty for the chooser's default glyph.
+            let actions: String = spec
+                .actions
+                .iter()
+                .map(|a| {
+                    let title: String = a
+                        .title
+                        .chars()
+                        .map(|c| if c == '\t' || c == '\n' { ' ' } else { c })
+                        .collect();
+                    let icon = a.symbol.map(symbol_drawable).unwrap_or_default();
+                    format!("{}\t{icon}\t{title}\n", a.id)
+                })
+                .collect();
             with_env(|env| {
-                let url = jstr(env, url);
-                let title = jstr(env, title);
-                java_in(env, |env| DayBridge::shareUrl(env, &url, &title)).unwrap_or(false)
+                let url = jstr(env, &spec.url);
+                let title = jstr(env, &spec.title);
+                let actions = jstr(env, &actions);
+                java_in(env, |env| DayBridge::share(env, &url, &title, &actions)).unwrap_or(false)
             })
         }
 
@@ -5230,6 +5277,26 @@ mod imp {
             });
         }
 
+        /// The theme's Material 3 color for each role (DayBridge.systemColor), so custom drawing
+        /// matches the window and the status bar behind it; Day's fallback before a themed
+        /// context exists.
+        fn system_color(&mut self, role: day_spec::SystemColor) -> day_spec::Color {
+            use day_spec::SystemColor;
+            let index = match role {
+                SystemColor::Accent => 0,
+                SystemColor::Text => 1,
+                SystemColor::SecondaryText => 2,
+                SystemColor::Background => 3,
+                SystemColor::Surface => 4,
+            };
+            let argb = with_env(|env| DayBridge::systemColor(env, index).unwrap_or(0)) as u32;
+            if argb == 0 {
+                return role.fallback(self.dark_mode());
+            }
+            let channel = |shift: u32| f64::from((argb >> shift) & 0xff) / 255.0;
+            day_spec::Color::rgba(channel(16), channel(8), channel(0), channel(24))
+        }
+
         /// The system color mode, DAY_THEME override first (themed capture runs).
         fn dark_mode(&mut self) -> bool {
             match std::env::var("DAY_THEME").ok().as_deref() {
@@ -5254,6 +5321,16 @@ mod imp {
         /// when nothing would pop, since the dispatcher would finish the activity instead.
         fn native_back(&mut self) -> bool {
             with_env(|env| DayBridge::nativeBack(env).unwrap_or(false))
+        }
+
+        /// The app's own `OnBackPressedCallback`, beneath every other (DayBridge.appBack):
+        /// enabled while an `on_system_back` handler is, so a back no cover or pushed page
+        /// takes reaches Day instead of finishing the activity, and disabled otherwise, so the
+        /// predictive "back to home" preview still shows when the press would leave.
+        fn set_system_back(&mut self, armed: bool) {
+            with_env(|env| {
+                let _ = java_in(env, |env| DayBridge::setAppBack(env, armed));
+            });
         }
 
         /// Whether native transitions have settled (dayscript screenshots wait on this):

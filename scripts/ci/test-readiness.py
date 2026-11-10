@@ -48,6 +48,11 @@ class ReadinessTests(unittest.TestCase):
             'Path("readiness-tests-called").touch()\n'
             'sys.exit(int(os.environ.get("DAY_TEST_SUITE_EXIT", "0")))\n'
         )
+        # The website suite is exercised separately. Observe readiness's invocation and
+        # propagate a synthetic failure without installing dependencies in each fixture.
+        (self.root / "scripts/ci/check-website-source.sh").write_text(
+            '#!/bin/sh\ntouch website-check-called\nexit "${DAY_TEST_WEBSITE_EXIT:-0}"\n'
+        )
         self.env.pop("DAY_BIN", None)
         self.run_cmd("git", "init", "-q")
         self.run_cmd("git", "add", "--force", ".")
@@ -139,6 +144,50 @@ class ReadinessTests(unittest.TestCase):
         manifest.write_text(original)
         self.run_cmd("python3", "scripts/ci/check-platform-runtimes.py")
 
+    def test_website_source_checks_rebuild_api_before_coverage(self):
+        # Synthetic tools exercise the shared entry point without building a second site.
+        script = self.root / "scripts/ci/check-website-source.sh"
+        script.write_text((ROOT / "scripts/ci/check-website-source.sh").read_text())
+        modules = self.root / "website/node_modules"
+        # A local dependency symlink can be copied as an untracked fixture input.
+        if modules.is_symlink():
+            modules.unlink()
+        modules.mkdir(exist_ok=True)
+        (self.root / "scripts/ci/docs-symlinks.sh").write_text("exit 0\n")
+        (self.root / "scripts/ci/doc-links.py").write_text("pass\n")
+        (self.root / "scripts/build-api-docs.sh").write_text("touch rebuilt-api\n")
+        bindir = self.root / "test-bin"
+        bindir.mkdir()
+        (bindir / "npm").write_text('#!/bin/sh\necho "$*" >> npm.log\n')
+        (bindir / "node").write_text(
+            '#!/bin/sh\n'
+            'test -f rebuilt-api || exit 2\n'
+            'test "$*" = website/scripts/check-api-references.mjs || exit 3\n'
+            'touch checked-api\n'
+            'exit "${DAY_TEST_API_EXIT:-0}"\n'
+        )
+        for tool in ("npm", "node"):
+            (bindir / tool).chmod(0o755)
+        self.env["PATH"] = str(bindir) + os.pathsep + self.env["PATH"]
+        self.run_cmd("bash", "scripts/ci/check-website-source.sh")
+        self.assertTrue((self.root / "checked-api").exists())
+        self.assertEqual((self.root / "npm.log").read_text().splitlines(), [
+            f"--prefix website run {name}" for name in (
+                "docs:check", "docs:test", "blog:test", "llms:test", "strings:check",
+                "docs:architecture",
+            )
+        ])
+        self.env["DAY_TEST_API_EXIT"] = "1"
+        self.run_cmd("bash", "scripts/ci/check-website-source.sh", ok=False)
+        shutil.rmtree(modules)
+        result = self.run_cmd("bash", "scripts/ci/check-website-source.sh", ok=False)
+        self.assertIn("npm --prefix website ci", result.stderr)
+        workflow = (self.root / ".github/workflows/ci.yml").read_text().split("\n  website:\n")[1]
+        self.assertLess(
+            workflow.index("bash scripts/ci/check-website-source.sh"),
+            workflow.index("run: npm run build:site"),
+        )
+
     def test_readiness_requires_fmt_and_every_host_clippy_command(self):
         # Synthetic cargo fixture: verify failures propagate without building copied crates.
         bindir = self.root / "test-bin"
@@ -202,12 +251,18 @@ class ReadinessTests(unittest.TestCase):
         # require the gate to stop there. A command-name failure only tested the first Clippy call.
         for fail_at in range(len(expected) + 1):
             with self.subTest(fail_at=fail_at):
+                website_called = self.root / "website-check-called"
+                website_called.unlink(missing_ok=True)
                 self.env["DAY_TEST_FAIL_AT"] = str(fail_at)
                 log.write_text("")
                 self.run_cmd("bash", "scripts/ci/check-ready.sh", ok=fail_at == 0)
                 calls = log.read_text().splitlines()
                 self.assertEqual(calls, expected[:fail_at] if fail_at else expected)
+                self.assertEqual(website_called.exists(), fail_at == 0)
         self.env["DAY_TEST_FAIL_AT"] = "0"
+        self.env["DAY_TEST_WEBSITE_EXIT"] = "1"
+        self.run_cmd("bash", "scripts/ci/check-ready.sh", ok=False)
+        self.env["DAY_TEST_WEBSITE_EXIT"] = "0"
         # The hook formats but leaves host Clippy to check-ready.sh and CI: it was most of the
         # commit time.
         for fail in ("fmt", "clippy", ""):

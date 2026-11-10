@@ -137,6 +137,9 @@ public final class DayBridge extends DayRuntime {
     public static final int K_FRAME_CHANGED = 6;
     public static final int K_DEEPLINK = 7;
     public static final int K_DOCUMENT_OPENED = 32;
+    /** Text from the share sheet (Day.toml share_target, docs/deep-links.md): the text, then
+     *  the unit separator and the subject when there is one. */
+    public static final int K_SHARED_TEXT = 37;
     public static final int K_PRESENT_BUTTON = 8;
     public static final int K_PRESENT_TEXT = 9;
     public static final int K_PRESENT_DISMISSED = 10;
@@ -1401,6 +1404,26 @@ public final class DayBridge extends DayRuntime {
         if (!appLabeled.containsKey(button)) button.setContentDescription(title);
         // `View.setTooltipText` is API 26; the compat call reaches the scaffold's minSdk of 24 (docs/size-classes.md).
         androidx.appcompat.widget.TooltipCompat.setTooltipText(button, iconOnly && icon != null ? title : null);
+        if (iconOnly && icon != null) buttonIconOnly.put(button, Boolean.TRUE);
+        else buttonIconOnly.remove(button);
+        applyPlainIconTint(button);
+    }
+
+    /** Buttons showing only their icon, and the plain ones (style kind 5): together an M3
+     *  standard icon button, whatever order the content and style patches arrive in. */
+    private static final java.util.WeakHashMap<View, Boolean> buttonIconOnly = new java.util.WeakHashMap<>();
+    private static final java.util.WeakHashMap<View, Boolean> buttonPlain = new java.util.WeakHashMap<>();
+
+    /** A plain icon-only button is M3's standard icon button: its glyph in onSurfaceVariant,
+     *  and onSurface at 38% when disabled, not the primary color of a text button. */
+    private static void applyPlainIconTint(MaterialButton b) {
+        if (!buttonPlain.containsKey(b) || !buttonIconOnly.containsKey(b)) return;
+        int normal = MaterialColors.getColor(b, com.google.android.material.R.attr.colorOnSurfaceVariant);
+        int onSurface = MaterialColors.getColor(b, com.google.android.material.R.attr.colorOnSurface);
+        int disabled = (onSurface & 0x00FFFFFF) | (0x61 << 24); // 38%
+        b.setIconTint(new android.content.res.ColorStateList(
+                new int[][] { new int[] { -android.R.attr.state_enabled }, new int[] {} },
+                new int[] { disabled, normal }));
     }
 
     public static View makeButton(final long id, String title) {
@@ -1478,8 +1501,11 @@ public final class DayBridge extends DayRuntime {
             b.setBackgroundTintList(android.content.res.ColorStateList.valueOf(android.graphics.Color.TRANSPARENT));
             b.setTextColor(text.getTextColors());
             b.setIconTint(text.getIconTint());
+            buttonPlain.put(b, Boolean.TRUE);
+            applyPlainIconTint(b);
             return;
         }
+        buttonPlain.remove(b);
         if (kind != 3) {
             b.setTextColor(buttonTextColors.get(b));
             b.setIconTint(buttonIconColors.get(b));
@@ -1818,6 +1844,9 @@ public final class DayBridge extends DayRuntime {
         // wrapping a TextInputEditText. Rust talks to the outer view; setters reach the editable.
         TextInputLayout box = new TextInputLayout(ctx);
         box.setHint(placeholder);
+        // Given more height than it asks for (a toolbar or a fixed-height row), the box keeps
+        // its field in the middle, as UIKit and AppKit do, instead of stacking it at the top.
+        box.setGravity(android.view.Gravity.CENTER_VERTICAL);
         TextInputEditText e = new TextInputEditText(box.getContext());
         e.setText(value);
         e.setSingleLine(true);
@@ -2677,14 +2706,38 @@ public final class DayBridge extends DayRuntime {
         return fence.ready ? 1 : 0;
     }
 
+    /** The app's own system-back callback (Toolkit::set_system_back, docs/navigation.md
+     *  "Handling the system Back"). Added first, from DayActivity.onCreate, so it sits beneath
+     *  every callback added later: a cover's, a nav host's guard and section back, and the
+     *  FragmentManager's (re-added at each ON_START). It hears a back only when none of those
+     *  takes it, which is when no cover is up and no page is pushed, and passes it to Rust's
+     *  handlers on WINDOW_NODE (id 0). Enabled only while Rust arms it, so a back nothing wants
+     *  still leaves the app, predictive "back to home" preview and all. */
+    static androidx.activity.OnBackPressedCallback appBack;
+
+    static void installAppBack(androidx.activity.ComponentActivity activity) {
+        // A recreated activity starts released: its re-mounted tree arms it again.
+        appBack = new androidx.activity.OnBackPressedCallback(false) {
+            @Override public void handleOnBackPressed() {
+                nativeOnEvent(0L, K_NAV_BACK, 0.0, null);
+            }
+        };
+        activity.getOnBackPressedDispatcher().addCallback(appBack);
+    }
+
+    /** Arm or release the app's system-back callback (Toolkit::set_system_back). */
+    public static void setAppBack(boolean on) {
+        if (appBack != null) appBack.setEnabled(on);
+    }
+
     /** Press the system back (Toolkit::native_back): the dispatcher runs the nav host's guard
      *  callback or the fragment manager's pop, the same path a back gesture takes. Only when
-     *  a nav host has something to pop or a guard armed; with neither, the dispatcher would
-     *  finish the activity, which no walkthrough means. */
+     *  a nav host has something to pop or a guard armed, or the app's handler armed the system
+     *  back; with none, the dispatcher would finish the activity, which no walkthrough means. */
     public static boolean nativeBack() {
         // All tabs may be built eagerly. The last constructed host need not be visible.
         View root = ((android.app.Activity) ctx).getWindow().getDecorView();
-        if (!hasVisibleBackHost(root)) return false;
+        if (!hasVisibleBackHost(root) && !(appBack != null && appBack.isEnabled())) return false;
         ((androidx.fragment.app.FragmentActivity) ctx).getOnBackPressedDispatcher().onBackPressed();
         return true;
     }
@@ -2702,6 +2755,25 @@ public final class DayBridge extends DayRuntime {
     }
 
     /** Whether the system renders in dark appearance (Toolkit::dark_mode). */
+    /** `Toolkit::system_color`: the theme's Material 3 role for a Day `SystemColor`, as ARGB:
+     *  0 accent (colorPrimary), 1 text (colorOnSurface), 2 secondary text
+     *  (colorOnSurfaceVariant), 3 background (colorSurface, what the window and the status bar
+     *  behind it show), 4 surface (colorSurfaceContainer). 0, fully transparent, when there is
+     *  no themed context yet, which tells Rust to use Day's fallback palette. */
+    public static int systemColor(int role) {
+        if (ctx == null) return 0;
+        int attr;
+        switch (role) {
+            case 0: attr = androidx.appcompat.R.attr.colorPrimary; break;
+            case 1: attr = com.google.android.material.R.attr.colorOnSurface; break;
+            case 2: attr = com.google.android.material.R.attr.colorOnSurfaceVariant; break;
+            case 3: attr = com.google.android.material.R.attr.colorSurface; break;
+            case 4: attr = com.google.android.material.R.attr.colorSurfaceContainer; break;
+            default: return 0;
+        }
+        return MaterialColors.getColor((android.content.Context) ctx, attr, 0);
+    }
+
     public static boolean isDarkMode() {
         int night = ((android.content.Context) ctx).getResources().getConfiguration().uiMode
                 & android.content.res.Configuration.UI_MODE_NIGHT_MASK;
@@ -3724,7 +3796,17 @@ public final class DayBridge extends DayRuntime {
 
     /** Open a URL in the system's default handler (browser for http(s), mail app for mailto:, ...).
      *  Backs the `link` piece. NEW_TASK is required because ctx may be the application context. */
-    public static boolean shareUrl(String url, String title) {
+    /** The broadcast a share chooser's app action sends back (docs/sharing.md). */
+    static final String SHARE_ACTION = "dev.daybrite.day.SHARE_ACTION";
+    private static boolean shareReceiverRegistered = false;
+
+    /**
+     * Present the system chooser for {@code url}. {@code actions} holds the app's own actions as
+     * lines of {@code id \t drawable \t title}; on Android 14 (API 34) and later each becomes a
+     * {@link android.service.chooser.ChooserAction} whose choice reaches native as a menu action.
+     * Earlier versions show the system's targets only.
+     */
+    public static boolean share(String url, String title, String actions) {
         if (ctx == null || url == null) return false;
         try {
             android.content.Intent intent = new android.content.Intent(android.content.Intent.ACTION_SEND);
@@ -3732,10 +3814,60 @@ public final class DayBridge extends DayRuntime {
             intent.putExtra(android.content.Intent.EXTRA_TEXT, url);
             intent.putExtra(android.content.Intent.EXTRA_SUBJECT, title);
             android.content.Intent chooser = android.content.Intent.createChooser(intent, null);
+            if (android.os.Build.VERSION.SDK_INT >= 34 && actions != null && !actions.isEmpty()) {
+                android.service.chooser.ChooserAction[] custom = shareActions(actions);
+                if (custom.length > 0) {
+                    chooser.putExtra(android.content.Intent.EXTRA_CHOOSER_CUSTOM_ACTIONS, custom);
+                }
+            }
             chooser.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
             ctx.startActivity(chooser);
             return true;
         } catch (Exception ignored) { return false; }
+    }
+
+    @android.annotation.TargetApi(34)
+    private static android.service.chooser.ChooserAction[] shareActions(String spec) {
+        registerShareReceiver();
+        java.util.ArrayList<android.service.chooser.ChooserAction> out = new java.util.ArrayList<>();
+        String pkg = ctx.getPackageName();
+        for (String line : spec.split("\n")) {
+            String[] f = line.split("\t", 3);
+            if (f.length < 3) continue;
+            long id;
+            try { id = Long.parseLong(f[0]); } catch (NumberFormatException e) { continue; }
+            int res = f[1].isEmpty() ? 0 : ctx.getResources().getIdentifier(f[1], "drawable", pkg);
+            android.graphics.drawable.Icon icon = res != 0
+                    ? android.graphics.drawable.Icon.createWithResource(ctx, res)
+                    : android.graphics.drawable.Icon.createWithResource(ctx, android.R.drawable.ic_menu_add);
+            // Explicit to this package, so the not-exported receiver below takes it, and keyed
+            // by id so each action keeps its own PendingIntent.
+            android.content.Intent back = new android.content.Intent(SHARE_ACTION)
+                    .setPackage(pkg)
+                    .putExtra("id", id);
+            android.app.PendingIntent pending = android.app.PendingIntent.getBroadcast(
+                    ctx, (int) id, back,
+                    android.app.PendingIntent.FLAG_IMMUTABLE | android.app.PendingIntent.FLAG_UPDATE_CURRENT);
+            out.add(new android.service.chooser.ChooserAction.Builder(icon, f[2], pending).build());
+        }
+        return out.toArray(new android.service.chooser.ChooserAction[0]);
+    }
+
+    @android.annotation.TargetApi(34)
+    private static void registerShareReceiver() {
+        if (shareReceiverRegistered) return;
+        shareReceiverRegistered = true;
+        android.content.BroadcastReceiver receiver = new android.content.BroadcastReceiver() {
+            @Override public void onReceive(android.content.Context c, android.content.Intent i) {
+                long id = i.getLongExtra("id", 0L);
+                if (id != 0L && started) nativeOnEvent(id, K_MENU_ACTION, 0.0, "");
+            }
+        };
+        // The PendingIntent is sent with this app's identity, so a receiver no other app can
+        // reach still receives it.
+        ctx.getApplicationContext().registerReceiver(receiver,
+                new android.content.IntentFilter(SHARE_ACTION),
+                android.content.Context.RECEIVER_NOT_EXPORTED);
     }
 
     public static void openUrl(String url) {

@@ -745,11 +745,16 @@ pub mod bridge {
         WindowStateChanged = 34,
         /// Native pull-to-refresh request; no payload.
         RefreshRequested = 35,
+        /// Text shared to the app from the system share sheet (Day.toml `share_target`,
+        /// docs/deep-links.md): `text` = the shared text, then the unit separator and the
+        /// subject when one came with it. Node id ignored and no `Event` is emitted; Rust calls
+        /// `day_core::request_shared_text`, which sends a web link in it to `on_open_url`.
+        SharedText = 37,
     }
 
     impl BridgeKind {
         /// Every variant, for uniqueness/parity tests and exhaustive dispatch.
-        pub const ALL: [BridgeKind; 36] = [
+        pub const ALL: [BridgeKind; 38] = [
             BridgeKind::Pressed,
             BridgeKind::TextChanged,
             BridgeKind::ToggleChanged,
@@ -786,6 +791,8 @@ pub mod bridge {
             BridgeKind::ReduceMotionChanged,
             BridgeKind::WindowStateChanged,
             BridgeKind::RefreshRequested,
+            BridgeKind::Text,
+            BridgeKind::SharedText,
         ];
     }
 
@@ -1487,7 +1494,8 @@ pub enum Symbol {
     Sidebar,
     Filter,
     Sort,
-    /// An overflow affordance (macOS `ellipsis`, GNOME's hamburger, Fluent `More`).
+    /// An overflow affordance (macOS `ellipsis`, Android's vertical `more_vert`, GNOME's hamburger,
+    /// Fluent `More`).
     More,
     Play,
     Pause,
@@ -1540,6 +1548,12 @@ pub enum Symbol {
     /// The device's own position: a map's "show my location" button (Apple's arrow, the
     /// crosshair elsewhere).
     Location,
+    /// The open tabs or windows: a browser's tab switcher (two overlapping squares).
+    Tabs,
+    /// A book: a library of bookmarks or saved reading (Safari's bookmarks button).
+    Book,
+    /// Past activity: a history list (a clock with a turning arrow).
+    History,
 }
 
 /// The SF Symbol each standard symbol draws as. The system's own glyphs match the user's
@@ -1606,6 +1620,9 @@ pub fn sf_symbol_name(s: Symbol) -> &'static str {
         Symbol::Ungroup => "square.on.square.dashed",
         Symbol::Text => "textformat",
         Symbol::Location => "location",
+        Symbol::Tabs => "square.on.square",
+        Symbol::Book => "book",
+        Symbol::History => "clock.arrow.circlepath",
     }
 }
 
@@ -3012,12 +3029,19 @@ pub enum Cap {
     /// itself. Headers are unselectable rows on every toolkit, so an app needs this only to
     /// describe the difference, never to decide whether to call `.sections`.
     ListSections,
+    /// The toolkit's share chooser carries the app's own actions ([`share::ShareSpec::actions`],
+    /// docs/sharing.md): Add Bookmark or Find on Page beside the system's targets, each with
+    /// its title and glyph. `Native` on ios-uikit (a `UIActivity` per action), macos-appkit (an
+    /// `NSSharingService` per action, offered by the picker's delegate) and android-material
+    /// on Android 14 and later (`ChooserAction`). `Unsupported` everywhere else: the chooser
+    /// shows the system's targets only, and the app offers its actions in its own menu.
+    ShareActions,
 }
 
 impl Cap {
     /// Every capability, in declaration order: what a conformance run asks the toolkit about,
     /// so the evidence can be held against the declared coverage matrix (docs/testing.md).
-    pub const ALL: [Cap; 90] = [
+    pub const ALL: [Cap; 91] = [
         Cap::DragDrop,
         Cap::DragExternalImport,
         Cap::DragExternalExport,
@@ -3108,6 +3132,7 @@ impl Cap {
         Cap::PullRefreshGesture,
         Cap::FolderDialog,
         Cap::ListSections,
+        Cap::ShareActions,
     ];
 
     /// The capability's place in [`Cap::ALL`]. Exhaustive, so a new variant fails to compile
@@ -3204,6 +3229,7 @@ impl Cap {
             Cap::PullRefreshGesture => 87,
             Cap::FolderDialog => 88,
             Cap::ListSections => 89,
+            Cap::ShareActions => 90,
         }
     }
 }
@@ -6970,6 +6996,11 @@ pub mod props {
         /// "Sections"): `ListSource::is_header` says which rows. Probe
         /// [`crate::Cap::ListSections`] for whether headers float natively.
         pub sections: bool,
+        /// Draw the rows as the platform's inset grouped list (docs/list.md "Appearance"):
+        /// rounded groups set in from the edges on a grouped background, as iOS Settings and
+        /// Safari's History draw them. ios-uikit (`UITableViewStyleInsetGrouped`) and
+        /// macos-appkit (`NSTableViewStyleInset`); the other toolkits draw their plain list.
+        pub inset_grouped: bool,
     }
 
     /// One row-level result-set change. Indexes are sequential (each delta describes the
@@ -7055,6 +7086,34 @@ pub mod props {
 // ---------------------------------------------------------------------------
 // Imperative presentation (docs/dialogs.md)
 // ---------------------------------------------------------------------------
+
+/// Sharing (docs/sharing.md): what [`Toolkit::share`] presents.
+pub mod share {
+    use crate::Symbol;
+
+    /// A share request: the page or link to share, and the app's own actions to offer beside
+    /// the system's targets.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct ShareSpec {
+        /// The URL handed to the chosen target.
+        pub url: String,
+        /// Its title: the subject of a mail, the header of the chooser where it shows one.
+        pub title: String,
+        /// The app's actions, in order (`Cap::ShareActions`).
+        pub actions: Vec<ShareAction>,
+    }
+
+    /// One of the app's actions in a share chooser.
+    #[derive(Clone, Debug, PartialEq)]
+    pub struct ShareAction {
+        /// The dispatch id a choice reports, as `Event::MenuAction(id)`.
+        pub id: u64,
+        /// The action's name, already localized.
+        pub title: String,
+        /// Its glyph, where the chooser draws one.
+        pub symbol: Option<Symbol>,
+    }
+}
 
 pub mod present {
     /// A dialog button's semantic role: styling + default/cancel placement on each toolkit.
@@ -8198,6 +8257,16 @@ pub trait Toolkit: Sized + 'static {
     fn native_back(&mut self) -> bool {
         false
     }
+    /// Take (`true`) or release (`false`) the platform's system back for the app's own
+    /// handlers ([`Decorate::on_system_back`](/api/day_pieces/trait.Decorate.html#method.on_system_back)):
+    /// day-core arms it while at least one mounted handler is enabled. Armed, a system back that
+    /// nothing native consumes first (a presented cover, a pushed page, an armed guard) reaches
+    /// Day as [`Event::NavBack`] on [`WINDOW_NODE`] instead of leaving the app; released, the
+    /// platform's default runs, predictive-back preview and all. Android registers an
+    /// `OnBackPressedCallback` beneath its own; HarmonyOS consumes the page's `onBackPress`.
+    /// Defaulted, so a toolkit with no system back (desktop, iOS, the web) needs no code.
+    /// docs/navigation.md "Handling the system Back".
+    fn set_system_back(&mut self, _armed: bool) {}
     /// Whether the UI has settled, with no native transition (modal present/dismiss, nav push)
     /// still animating. The dayscript `screenshot` step polls this before capturing so shots
     /// never catch a half-faded dialog or half-pushed page. Backends without async
@@ -8222,9 +8291,14 @@ pub trait Toolkit: Sized + 'static {
     fn share_support(&self) -> Support {
         Support::Unsupported
     }
-    /// Present the system share chooser. True means presentation started, not that sharing
-    /// completed. Never sends data without the user's choice of a target.
-    fn share_url(&mut self, _url: &str, _title: &str) -> bool {
+    /// Present the system share chooser for `spec` (docs/sharing.md). True means presentation
+    /// started, not that sharing completed. Never sends data without the user's choice of a
+    /// target. Where the chooser can carry the app's own actions (`Cap::ShareActions`), each
+    /// of `spec.actions` appears with its title and glyph, and choosing one enqueues
+    /// `Event::MenuAction(action.id)`; elsewhere the actions are left out. `anchor` is the
+    /// control the chooser points at where it is a popover (iPad, macOS); without one the
+    /// chooser uses the window's top trailing corner.
+    fn share(&mut self, _spec: &share::ShareSpec, _anchor: Option<&Self::Handle>) -> bool {
         false
     }
 

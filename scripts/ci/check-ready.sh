@@ -15,3 +15,4 @@ python3 -B scripts/ci/check-platform-runtimes.py
 python3 -B scripts/ci/test-readiness.py
 cargo fmt --all -- --check
 bash scripts/ci/host-clippy.sh
+bash scripts/ci/check-website-source.sh

@@ -164,6 +164,16 @@ pub fn pack(
     if let Some(f) = &floor {
         cmd.arg(format!("IPHONEOS_DEPLOYMENT_TARGET={f}"));
     }
+    // `[signing.ios] entitlements` wins over the xcconfig's own setting here too, so both lanes
+    // sign with the same file; Xcode resolves its variables and checks it against the profile.
+    if let Some(e) = &ios.entitlements {
+        let path = super::settings::interpolate(e)
+            .map_err(|e| PackError::Sign(format!("signing.ios.entitlements: {e}")))?;
+        cmd.arg(format!(
+            "CODE_SIGN_ENTITLEMENTS={}",
+            project.root.join(path).display()
+        ));
+    }
     cmd.arg("archive");
     if let Some((k, i, p)) = &asc {
         cmd.args(["-authenticationKeyID", k])
@@ -263,6 +273,8 @@ fn signed_over_profile(
         crate::sign::AppleOverrides {
             profile: Some(&profile.path),
             identity: Some(&profile.cert_sha1),
+            // The project's own: `[signing.ios] entitlements`, else the xcconfig's
+            // `CODE_SIGN_ENTITLEMENTS`, within what the profile grants (`sign::apply`).
             entitlements: None,
             installer_identity: None,
         },

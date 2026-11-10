@@ -44,9 +44,7 @@ pub use day_core::{
 };
 /// Display-synchronized, cancellable frame callbacks for any UI client.
 pub use day_core::{ElementId, IntoElementKey, id};
-pub use day_core::{
-    application_handlers, default_browser, open_url_with_application, share_support, share_url,
-};
+pub use day_core::{application_handlers, default_browser, open_url_with_application};
 /// Programmatic navigation on the deep-link rail (docs/deep-links.md, docs/navigation.md):
 /// route the app to `route`, buffered before the root is ready and applied after, exactly like
 /// a cold launcher shortcut. The route grammar is what `day::routes!` keys and dayscript speak.
@@ -77,6 +75,8 @@ pub use day_pieces::{AsyncImage, AsyncImageBuilder, async_image};
 pub use day_pieces::{
     CanvasExports, Drawing, PdfDocument, RenderBitmap, RenderPdf, canvas_exports,
 };
+/// Sharing (docs/sharing.md): `Share::url(…)…present()`, with the app's own chooser actions.
+pub use day_pieces::{Share, ShareAction, share_action, share_support};
 pub use day_pieces::{colorpicker, combobox, datetime, pager, pullrefresh, searchfield, stepper};
 pub use day_spec::AppBadge;
 pub use day_spec::applications::{
@@ -1287,6 +1287,9 @@ pub mod arkui {
 /// Native drag-and-drop data and acceptance policy.
 pub use day_spec::transfer;
 
+/// Receive text shared to the app from the system share sheet (Day.toml `share_target`); a
+/// shared web link arrives through [`on_open_url`] instead. See docs/deep-links.md.
+pub use day_core::on_shared_text;
 /// Receive local document activations from the operating system. See docs/documents.md.
 pub use day_core::{on_open_files, on_open_url};
 
