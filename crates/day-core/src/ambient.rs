@@ -54,6 +54,9 @@ day_reactive::tls_slots! {
     ambient;
     static AMBIENT: RefCell<Vec<(RNode, WindowAmbient)>> = const { RefCell::new(Vec::new()) };
     static SEED: std::cell::Cell<Option<day_geometry::Insets>> = const { std::cell::Cell::new(None) };
+    /// Per window: the content size a backend shrank the root to for the soft keyboard, and
+    /// how many points the keyboard took ([`note_keyboard_overlap`]).
+    static KEYBOARD: RefCell<Vec<(RNode, day_geometry::Size, f64)>> = const { RefCell::new(Vec::new()) };
 }
 
 /// One window's signals, created on first touch.
@@ -157,6 +160,45 @@ pub fn set_size_class(class: SizeClass) {
     set_window_size_class(primary_root(), class);
 }
 
+/// Backend-facing: the soft keyboard covers `overlap` points of `window`'s content, and the
+/// backend shrank the root to `content` to keep it clear (docs/focus.md). Call it just before
+/// emitting the `WindowResized(content)` for that shrink, and again with an `overlap` of 0 when
+/// the keyboard goes away. `window` is the id the resize is emitted against: `WINDOW_NODE` for
+/// the primary window, a secondary window's root otherwise.
+///
+/// The size class describes the window, not what the keyboard leaves of it
+/// (docs/size-classes.md): a landscape tablet with its keyboard up is still a tablet, as it is
+/// to UIKit's trait collection. Bucketing the shrunken height turned it into a landscape phone,
+/// so a layout keyed off the class swapped while the user typed, and the swap rebuilt the very
+/// field that raised the keyboard. The note is keyed by `content`, so a resize to any other
+/// size (a rotation, a split-screen drag) buckets exactly as reported.
+pub fn note_keyboard_overlap(window: day_spec::NodeId, content: day_geometry::Size, overlap: f64) {
+    let root = if window == day_spec::WINDOW_NODE {
+        primary_root()
+    } else {
+        crate::tree::id_to_rnode(window)
+    };
+    KEYBOARD.with(|k| {
+        let mut k = k.borrow_mut();
+        k.retain(|(r, _, _)| *r != root);
+        if overlap > 0.0 {
+            k.push((root, content, overlap));
+        }
+    });
+}
+
+/// The class a window resized to `size` belongs in: the size itself, plus the height the soft
+/// keyboard took when the backend noted that this exact size is a keyboard shrink.
+pub(crate) fn resized_size_class(root: RNode, size: day_geometry::Size) -> SizeClass {
+    let lift = KEYBOARD.with(|k| {
+        k.borrow()
+            .iter()
+            .find(|(r, content, _)| *r == root && *content == size)
+            .map_or(0.0, |(_, _, overlap)| *overlap)
+    });
+    SizeClass::from_size(size.width, size.height + lift)
+}
+
 /// Force a class the window is not at: dayscript's `size_class:` step and tests.
 ///
 /// Leaves the reported class alone: this is a claim about the window, not a report from it, so
@@ -226,11 +268,13 @@ fn primary_root() -> RNode {
 /// Drop a closed window's ambient state (called from the window teardown path).
 pub(crate) fn forget_window(root: RNode) {
     AMBIENT.with(|m| m.borrow_mut().retain(|(r, _)| *r != root));
+    KEYBOARD.with(|k| k.borrow_mut().retain(|(r, _, _)| *r != root));
 }
 
 /// Reset every window's ambient state (tests; pairs with `uninstall_tree`).
 pub fn reset_ambient() {
     AMBIENT.with(|m| m.borrow_mut().clear());
+    KEYBOARD.with(|k| k.borrow_mut().clear());
 }
 // ---------------------------------------------------------------------------
 // @Environment: ambient values over day-reactive's scope context (§4.3). No backend work.

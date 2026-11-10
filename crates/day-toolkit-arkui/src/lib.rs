@@ -2615,8 +2615,9 @@ mod imp {
 
     /// The ArkTS host reports a ROOT area change after start (keyboard RESIZE avoidance,
     /// rotation, window resize), routed to Day as a window resize, the shared rail
-    /// (docs/focus.md; same shape as Android's kind-15 event).
-    pub fn resized(w: f64, h: f64) {
+    /// (docs/focus.md; same shape as Android's kind-15 event). `keyboard` is the keyboard's
+    /// avoid-area height, which the size class adds back: a tablet typing is still a tablet.
+    pub fn resized(w: f64, h: f64, keyboard: f64) {
         day_spec::ffi_guard::contain((), || {
             if w > 0.0 && h > 0.0 {
                 ROOT_KEEP.with(|r| {
@@ -2624,7 +2625,9 @@ mod imp {
                         r.set(Some((ptr, w, h)));
                     }
                 });
-                emit(day_spec::WINDOW_NODE, Event::WindowResized(Size::new(w, h)));
+                let size = Size::new(w, h);
+                day_core::note_keyboard_overlap(day_spec::WINDOW_NODE, size, keyboard.max(0.0));
+                emit(day_spec::WINDOW_NODE, Event::WindowResized(size));
             }
         });
     }

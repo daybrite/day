@@ -158,6 +158,7 @@ public class DayActivity extends androidx.fragment.app.FragmentActivity {
                 androidx.core.graphics.Insets ime = insets.getInsets(
                         androidx.core.view.WindowInsetsCompat.Type.ime());
                 int bottom = Math.max(bars.bottom, ime.bottom);
+                keyboardPx = bottom - bars.bottom;
                 android.widget.FrameLayout.LayoutParams lp =
                         (android.widget.FrameLayout.LayoutParams) root.getLayoutParams();
                 int top = edgeToEdge ? 0 : bars.top;
@@ -235,7 +236,7 @@ public class DayActivity extends androidx.fragment.app.FragmentActivity {
                     launched[0] = true;
                     root.post(start);
                 } else {
-                    DayBridge.resized(w, h);
+                    DayBridge.resized(w, h, keyboardPx);
                 }
             }
         };
@@ -245,6 +246,9 @@ public class DayActivity extends androidx.fragment.app.FragmentActivity {
     static boolean edgeToEdge;
     /** The current status-bar inset in px (edge-to-edge mode stashes it for the safe area). */
     static int statusInsetPx;
+    /** How much of the root's bottom margin the soft keyboard adds, in px: 0 while it is down.
+     *  Rides along with each resize so the size class leaves it out (docs/size-classes.md). */
+    static int keyboardPx;
 
     /** Edge-to-edge mode: report the top chrome (status bar + any immersive nav app bar) to
      *  Rust as the app-visible safe area (K_SAFE_AREA, px; docs/layout.md). Bottom and sides

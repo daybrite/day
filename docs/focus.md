@@ -101,4 +101,6 @@ clear its focus binding explicitly after successful submission.
 Place long forms in a scroll view. Android and UIKit resize the available content area when
 the keyboard appears and reveal the focused field, in a cover or sheet as well as in the
 window, so a button row at the bottom of a sheet stays above the keyboard. HarmonyOS uses ArkUI's resize avoidance
-mode. Test field visibility at the bottom of the form and after changing keyboard height.
+mode. Test field visibility at the bottom of the form and after changing keyboard height. The
+smaller content area does not change the window's [size class](size-classes.md), so a tablet
+layout stays a tablet layout while the keyboard is up.

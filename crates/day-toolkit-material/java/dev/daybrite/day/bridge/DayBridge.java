@@ -4742,13 +4742,16 @@ public final class DayBridge extends DayRuntime {
         return navState.remove(key);
     }
 
-    /** Forward a root size change (px) to native as a window resize (event kind 18). Posted:
+    /** Forward a root size change (px) to native as a window resize (event kind 18), with the
+     *  part of the shrink the soft keyboard caused (px, 0 while it is down). Posted:
      *  onSizeChanged fires inside the layout pass, and the native relayout it triggers must not
      *  re-enter it. */
-    public static void resized(final int w, final int h) {
+    public static void resized(final int w, final int h, final int keyboard) {
         if (!started) return;
         main.post(new Runnable() {
-            public void run() { nativeOnEvent(0L, K_WINDOW_RESIZED, 0, w + "," + h); }
+            public void run() {
+                nativeOnEvent(0L, K_WINDOW_RESIZED, 0, w + "," + h + "," + keyboard);
+            }
         });
     }
 

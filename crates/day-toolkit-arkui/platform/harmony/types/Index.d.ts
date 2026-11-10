@@ -14,8 +14,9 @@ export const appBackRequested: () => boolean;
 /** A deep link (docs/deep-links.md): a cold want.uri or a warm onNewWant one. Safe before
  *  start() — buffered until the first mount. */
 export const deepLink: (uri: string) => void;
-/** Root-area change after start (keyboard RESIZE avoidance, rotation), in vp. */
-export const resized: (widthVp: number, heightVp: number) => void;
+/** Root-area change after start (keyboard RESIZE avoidance, rotation), in vp, with the height
+ *  of the keyboard's avoid area (0 while it is down). */
+export const resized: (widthVp: number, heightVp: number, keyboardVp: number) => void;
 
 // Set a process environment variable before `start()`. The launcher (`day launch` → hdc
 // `aa start --ps`) hands the app its dayscript engine port + token (and locale / autodrive) this

@@ -858,7 +858,7 @@ fn wire_window_events(root: RNode) {
                     // until a window could be resized at all, which on the phones it now can.
                     crate::ambient::set_window_size_class(
                         root,
-                        day_spec::SizeClass::from_size(s.width, s.height),
+                        crate::ambient::resized_size_class(root, s),
                     );
                 }
                 Event::WindowFocused(f) => {

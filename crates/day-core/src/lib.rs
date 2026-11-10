@@ -78,10 +78,10 @@ pub mod tween;
 pub mod windows;
 
 pub use ambient::{
-    Ambient, app_environment, environment, focused_environment, override_size_class, reset_ambient,
-    restore_reported_size_class, safe_area, seed_safe_area, set_safe_area, set_size_class,
-    set_window_safe_area, set_window_size_class, size_class, window_safe_area, window_size_class,
-    window_size_class_untracked, with_environment,
+    Ambient, app_environment, environment, focused_environment, note_keyboard_overlap,
+    override_size_class, reset_ambient, restore_reported_size_class, safe_area, seed_safe_area,
+    set_safe_area, set_size_class, set_window_safe_area, set_window_size_class, size_class,
+    window_safe_area, window_size_class, window_size_class_untracked, with_environment,
 };
 pub use anim::{current_anim, with_animation};
 pub use build::*;
@@ -805,11 +805,9 @@ pub fn launch_with<P: Platform>(
                             // Re-bucket the window (docs/size-classes.md). Derived here, from the
                             // geometry every backend already reports, so there is one breakpoint
                             // table rather than one per toolkit, and only a class change
-                            // notifies, so dragging an edge within a bucket costs nothing.
-                            ambient::set_window_size_class(
-                                rn,
-                                day_spec::SizeClass::from_size(s.width, s.height),
-                            );
+                            // notifies, so dragging an edge within a bucket costs nothing. A
+                            // shrink the backend noted as the soft keyboard's keeps the class.
+                            ambient::set_window_size_class(rn, ambient::resized_size_class(rn, s));
                         }
                         day_spec::Event::RouteRequested(route) => handle_route_request(route),
                         // A native undo front's invocation (⌘Z through the stock Edit menu, a

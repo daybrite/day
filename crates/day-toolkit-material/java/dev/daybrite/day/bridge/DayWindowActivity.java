@@ -19,6 +19,8 @@ public class DayWindowActivity extends androidx.fragment.app.FragmentActivity {
 
     long node;
     private boolean started = false;
+    /** The soft keyboard's share of the root's bottom margin, px (see DayActivity.keyboardPx). */
+    private int keyboardPx = 0;
     /** Set by DayBridge.closeWindow, which reports the close itself; onDestroy then stays quiet
      *  rather than confirming the same close a second time. */
     boolean closeReported = false;
@@ -58,6 +60,7 @@ public class DayWindowActivity extends androidx.fragment.app.FragmentActivity {
                 androidx.core.graphics.Insets ime = insets.getInsets(
                         androidx.core.view.WindowInsetsCompat.Type.ime());
                 int bottom = Math.max(bars.bottom, ime.bottom);
+                keyboardPx = bottom - bars.bottom;
                 android.widget.FrameLayout.LayoutParams lp =
                         (android.widget.FrameLayout.LayoutParams) root.getLayoutParams();
                 // A secondary window with no navigation host carries the window toolbar the
@@ -92,7 +95,8 @@ public class DayWindowActivity extends androidx.fragment.app.FragmentActivity {
                         }
                     }});
                 } else {
-                    DayBridge.nativeOnEvent(node, DayBridge.K_WINDOW_RESIZED, 0, w + "," + h);
+                    DayBridge.nativeOnEvent(node, DayBridge.K_WINDOW_RESIZED, 0,
+                            w + "," + h + "," + keyboardPx);
                 }
             }
         };

@@ -62,6 +62,15 @@ signal is keyed by window root, alongside the safe-area insets, and both scope t
 The value is derived in day-core from `Event::WindowResized`, which every toolkit already emits.
 A toolkit reports geometry and never a class, which keeps the breakpoint table in day-core alone.
 
+The soft keyboard does not change the class. Android, UIKit and ArkUI shrink the content area
+while the keyboard is up ([keyboard avoidance](focus.md#mobile-keyboards)), and on a landscape
+tablet that leaves less than 480 points, but the window is still a tablet, as it is to UIKit's
+trait collection. Each of those toolkits calls
+[`day_core::note_keyboard_overlap`](https://docs.rs/day-core/latest/day_core/fn.note_keyboard_overlap.html)
+with the keyboard's height just before it reports the shrunken size, and day-core adds that
+height back before bucketing. Without it, a layout keyed off the class swaps while the user
+types, and the swap can rebuild the field that raised the keyboard.
+
 ## Adaptive navigation
 
 A [`nav`](https://docs.rs/day-pieces/latest/day_pieces/fn.nav.html) presents as `Split` (list beside detail), `Stack` (one page at a time,

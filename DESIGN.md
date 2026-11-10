@@ -3317,7 +3317,9 @@ to update and are ignored; the selected destination's navigation host owns its t
 >   [docs/navigation.md](docs/navigation.md) is normative.
 > - **Size-class presentation** *(2026-08)* — the split-vs-stack choice moved off `Cap::NavSplit`
 >   alone and onto the WINDOW: `SizeClass` (Android's breakpoints, one table for every backend)
->   rides a per-window reactive signal that day-core derives from `Event::WindowResized`, and
+>   rides a per-window reactive signal that day-core derives from `Event::WindowResized` (with
+>   the soft keyboard's share of a shrink added back, which android-material, ios-uikit and
+>   harmony-arkui report through `day_core::note_keyboard_overlap`, 2026-11), and
 >   `NavProps::presentation` is re-resolved on every change. A `nav` re-presents in place
 >   through `NavPatch::Presentation` — the toolkit rebuilds its chrome and RE-HOMES the pages it
 >   already has, keyed by `NavPageProps::pane` (`Sidebar`/`Detail`, a model fact rather than a

@@ -16638,10 +16638,11 @@ mod imp {
                     let f = CGRect::new(base.origin, CGSize::new(base.size.width, new_h));
                     if unsafe { root.frame() }.size.height != new_h {
                         unsafe { root.setFrame(f) };
-                        emit(
-                            target,
-                            Event::WindowResized(Size::new(f.size.width, f.size.height)),
-                        );
+                        // The shrink is the keyboard's, so the size class keeps the window's
+                        // own height, as the trait collection does (docs/size-classes.md).
+                        let size = Size::new(f.size.width, f.size.height);
+                        day_core::note_keyboard_overlap(target, size, base.size.height - new_h);
+                        emit(target, Event::WindowResized(size));
                     }
                     if new_h < base.size.height {
                         reveal_focused_field();

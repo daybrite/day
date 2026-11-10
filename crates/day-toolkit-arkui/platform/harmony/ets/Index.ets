@@ -44,6 +44,8 @@ struct Index {
   // The primary window's last status-bar request (docs/cover.md), so leaving fullscreen brings
   // back only the bars Day did not hide on purpose.
   private statusBarHidden: boolean = false;
+  // The primary window, for the keyboard's avoid area on each root resize (docs/focus.md).
+  private mainWindow?: window.Window;
   onBackPress(): boolean {
     if (this.coverShown && nativeEntry.coverBackRequested()) return true;
     // Navigation popped nothing and no cover is up: an app handler may still want the back
@@ -56,6 +58,11 @@ struct Index {
       return;
     }
     this.started = true;
+    window.getLastWindow(this.getUIContext().getHostContext() as common.UIAbilityContext)
+      .then((win: window.Window) => { this.mainWindow = win; })
+      .catch((err: BusinessError) => {
+        console.error(`day: main window lookup failed: ${err.code} ${err.message}`);
+      });
     DayCapture.register(0, this.getUIContext());
     // API 18's C editor lacks a Shift+Enter binding and insert-text controller. Rust
     // temporarily selects the newline action; this dispatch keeps the edit in ArkUI's
@@ -179,6 +186,20 @@ struct Index {
 
   // Whether privacy mode is open to this app: ohos.permission.PRIVACY_WINDOW is granted at install
   // to an app whose Day.toml declares `screen-privacy` (docs/permissions.md), and to no other.
+  // The height the soft keyboard takes from the window, in vp: RESIZE avoidance shrinks the
+  // root by it, and Day keeps it out of the window's size class (docs/size-classes.md).
+  private keyboardVp(): number {
+    if (this.mainWindow === undefined) {
+      return 0;
+    }
+    try {
+      const area = this.mainWindow.getWindowAvoidArea(window.AvoidAreaType.TYPE_KEYBOARD);
+      return this.getUIContext().px2vp(area.bottomRect.height);
+    } catch (err) {
+      return 0;
+    }
+  }
+
   private static privacyGranted(ctx: common.UIAbilityContext): boolean {
     try {
       return abilityAccessCtrl.createAtManager().checkAccessTokenSync(
@@ -328,8 +349,11 @@ struct Index {
         Stack() { ContentSlot(this.content) }
           .width('100%').layoutWeight(1).clip(true)
           .onAreaChange((_old: Area, area: Area) => {
-            if (this.started) nativeEntry.resized(Number(area.width), Number(area.height));
-            else this.startDay(Number(area.width), Number(area.height));
+            if (this.started) {
+              nativeEntry.resized(Number(area.width), Number(area.height), this.keyboardVp());
+            } else {
+              this.startDay(Number(area.width), Number(area.height));
+            }
           })
       }.width('100%').height('100%')
       // Covers remain above all tab-local Navigation hosts and their destinations.

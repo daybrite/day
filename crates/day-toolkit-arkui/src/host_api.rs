@@ -253,11 +253,12 @@ pub fn start(env: Env, content: Unknown, width_vp: f64, height_vp: f64, density:
     unsafe { day_arkui_start(handle.cast(), width_vp, height_vp, node::density()) };
 }
 
-/// `resized(w, h)`: the root area changed after start (keyboard RESIZE avoidance, rotation).
+/// `resized(w, h, keyboard)`: the root area changed after start (keyboard RESIZE avoidance,
+/// rotation); `keyboard` is the keyboard's avoid-area height, 0 while it is down.
 #[napi(js_name = "resized")]
-pub fn resized(env: Env, width_vp: f64, height_vp: f64) {
+pub fn resized(env: Env, width_vp: f64, height_vp: f64, keyboard_vp: f64) {
     remember(&env);
-    crate::resized(width_vp, height_vp);
+    crate::resized(width_vp, height_vp, keyboard_vp);
 }
 
 /// `setEnv(key, value)`: a process environment variable, before `start()`. The launcher hands

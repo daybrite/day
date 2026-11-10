@@ -2098,7 +2098,12 @@ mod imp {
                 } else {
                     day_spec::NodeId(id as u64)
                 };
-                emit(target, Event::WindowResized(Size::new(p[0] / d, p[1] / d)));
+                let size = Size::new(p[0] / d, p[1] / d);
+                // The third field: the soft keyboard's share of the shrink, which the size
+                // class adds back (docs/size-classes.md).
+                let keyboard = p.get(2).map_or(0.0, |k| k.max(0.0) / d);
+                day_core::note_keyboard_overlap(target, size, keyboard);
+                emit(target, Event::WindowResized(size));
                 return;
             }
             // A window's display state (docs/windows.md): the system bars hid or showed for a

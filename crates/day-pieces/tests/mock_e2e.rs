@@ -9371,6 +9371,75 @@ fn resizing_one_window_leaves_the_others_class_alone() {
 }
 
 #[test]
+fn the_soft_keyboard_does_not_change_the_size_class() {
+    // A landscape tablet (1365×706) raising its keyboard: ArkUI, Android and UIKit shrink the
+    // root to what the keyboard leaves (339 tall), and bucketing that made the tablet a
+    // landscape phone. Net Skip then swapped to its phone toolbar while the user typed, which
+    // rebuilt the address field, which dropped the keyboard, which swapped back (Net Skip run
+    // 42882241938, harmony-arkui tablet).
+    let probe = boot(adaptive_shell);
+    let tablet = Size::new(1365.0, 706.0);
+    let typing = Size::new(1365.0, 339.0);
+    probe.emit(
+        day_spec::WINDOW_NODE,
+        day_spec::Event::WindowResized(tablet),
+    );
+    flush_sync();
+    let at_rest = day_core::size_class();
+    assert_eq!(
+        at_rest.map(|c| c.height),
+        Some(day_spec::HeightClass::Medium)
+    );
+
+    day_core::note_keyboard_overlap(day_spec::WINDOW_NODE, typing, tablet.height - typing.height);
+    probe.emit(
+        day_spec::WINDOW_NODE,
+        day_spec::Event::WindowResized(typing),
+    );
+    flush_sync();
+    assert_eq!(
+        day_core::size_class(),
+        at_rest,
+        "the keyboard's shrink re-bucketed the window"
+    );
+
+    // The keyboard goes away; a later resize to the same short size for any other reason (a
+    // split-screen drag) buckets as reported.
+    day_core::note_keyboard_overlap(day_spec::WINDOW_NODE, tablet, 0.0);
+    probe.emit(
+        day_spec::WINDOW_NODE,
+        day_spec::Event::WindowResized(tablet),
+    );
+    probe.emit(
+        day_spec::WINDOW_NODE,
+        day_spec::Event::WindowResized(typing),
+    );
+    flush_sync();
+    assert_eq!(
+        day_core::size_class().map(|c| c.height),
+        Some(day_spec::HeightClass::Compact),
+        "a short window stopped being compact once the keyboard was noted and gone"
+    );
+
+    // A secondary window's note applies to that window alone.
+    day_core::open_window(
+        win_options("second", 1365.0, 706.0).key("second"),
+        adaptive_shell,
+    );
+    flush_sync();
+    let secondary = day_core::windows::window_root_by_key("second").expect("the second window");
+    let node = probe.windows()[0].node;
+    day_core::note_keyboard_overlap(node, typing, tablet.height - typing.height);
+    probe.resize_window(node, typing);
+    flush_sync();
+    assert_eq!(
+        day_core::window_size_class(secondary).map(|c| c.height),
+        Some(day_spec::HeightClass::Medium),
+        "the second window's keyboard shrink re-bucketed it"
+    );
+}
+
+#[test]
 fn a_resize_within_one_class_notifies_nothing() {
     // Dragging a window edge in Android desktop windowing delivers a resize per frame. Only a
     // bucket change may notify, or every frame of that drag would re-present the navigation.
