@@ -481,6 +481,12 @@ unsafe extern "C" {
     ) -> *mut c_void;
     pub fn day_xaml_textbox_set_text(w: *mut c_void, text: *const c_char);
     pub fn day_xaml_textbox_set_placeholder(w: *mut c_void, text: *const c_char);
+    /// Select characters (Unicode scalar values) `start..end`, held to the text, caret at `end`
+    /// (docs/textfield.md "Selection"). A `PasswordBox` takes only a request for everything.
+    pub fn day_xaml_textbox_select(w: *mut c_void, start: c_int, end: c_int);
+    /// The callback a text field asks about its Up, Down and Escape (docs/textfield.md "Keys"):
+    /// `cb(node, name, modifiers)` answers 1 when the node claims the key, having reported it.
+    pub fn day_xaml_set_field_keys(cb: extern "C" fn(u64, *const c_char, c_int) -> c_int);
     // Entry traits (docs/textfield.md). A secure field is a `PasswordBox`, a class of its own, so
     // the two text setters above and every generic entry point accept either class.
     /// 1 while the field is the secure class (`PasswordBox`).
@@ -650,6 +656,9 @@ unsafe extern "C" {
     // menus (docs/menus.md): a tab/newline spec parsed by the shim into MenuFlyout / MenuBar.
     pub fn day_xaml_set_menu_cb(cb: extern "C" fn(u64));
     pub fn day_xaml_set_context_menu(elem: *mut c_void, spec: *const c_char);
+    /// Show `spec` (the menu serialization `day_xaml_set_context_menu` takes) as a menu under
+    /// the button `elem` (docs/menus.md "Menu buttons").
+    pub fn day_xaml_show_button_menu(elem: *mut c_void, spec: *const c_char);
     pub fn day_xaml_set_app_menu(win: *mut c_void, spec: *const c_char);
 
     // Window toolbar (docs/toolbars.md): a CommandBar under the menu bar, edited one item at a

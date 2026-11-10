@@ -323,8 +323,8 @@ pub enum Step {
     /// match). Items that run a native selector instead of a day action (role items with
     /// id 0) are not invokable this way.
     /// Choose an item from an element's context menu (`.context_menu`, `.context_menu_fn`;
-    /// docs/menus.md), as a right click or long press followed by a choice would. `id` names the
-    /// element; the item is addressed as [`Step::Menu`] addresses one: `item_id:` (the name the
+    /// docs/menus.md), as a right click or long press followed by a choice would, or from a
+    /// `menu_button`'s menu, as a press and a choice would. `id` names the element; the item is addressed as [`Step::Menu`] addresses one: `item_id:` (the name the
     /// app gave it), `item:` (the literal label) or `key:`, with `path` for submenus. A
     /// provider menu is asked at the element's origin.
     ContextMenu {

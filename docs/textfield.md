@@ -114,6 +114,117 @@ cut to fit before the bound value sees it, and the cut text is written back to t
 holds the bound itself so it counts the same characters on every platform; GTK's native limit
 counts the same unit and is applied as well.
 
+## Selection
+
+[`.select(trigger, range)`](https://docs.rs/day-pieces/latest/day_pieces/trait.TextFieldBuilder.html#tymethod.select) selects part of the field's text, or places the caret, each time
+`trigger` fires. `range` is a closure Day calls once the turn settles, and it returns a range of
+characters (Unicode scalar values, as [`.max_length`](https://docs.rs/day-pieces/latest/day_pieces/trait.TextFieldBuilder.html#tymethod.max_length) counts them): `..` selects everything,
+`3..` from the fourth character to the end, and `3..3` puts the caret after the third. Ends
+past the text are held to it. Each backend converts the range to the unit its field counts, so
+an emoji or an accented letter is one position on every platform.
+
+An address bar uses it twice. Inline completion writes the completed text and selects the part
+the user did not type, so the next keystroke replaces it and Backspace removes it:
+
+```rust
+let address = Signal::new(String::new());
+let typed = Signal::new(0usize);
+let complete = Trigger::new();
+
+watch(
+    move || address.get(),
+    move |now, before| {
+        // Complete only while the text grows, so Backspace can remove the completion.
+        let grew = now.chars().count() > before.map_or(0, |b| b.chars().count());
+        if let Some(host) = grew.then(|| history.complete(now)).flatten() {
+            typed.set(now.chars().count());
+            address.set(host);
+            complete.notify();
+        }
+    },
+);
+
+text_field(address)
+    .input_purpose(InputPurpose::Url)
+    .select(complete, move || typed.get_untracked()..)
+```
+
+Select-all on focus fires the trigger when the focus binding turns on. A field takes one
+`.select`, so a page that needs both behaviors keeps the range in a signal and fires one
+trigger for both:
+
+```rust
+let editing = Signal::new(false);
+let range = Signal::new(0..usize::MAX);
+let select = Trigger::new();
+watch(move || editing.get(), move |&on, _| if on {
+    range.set(0..usize::MAX);
+    select.notify();
+});
+
+text_field(address)
+    .focused(editing)
+    .select(select, move || range.get_untracked())
+```
+
+Writing the bound text while the user types replaces the typing session. Return or focus loss
+then commits nothing further, so the typed "git" never lands back over the completed
+"github.com", and an Escape handler that puts the page's URL back keeps it as the field loses
+focus. The binding's preview session ends there too ([`Binding::end_preview`](https://docs.rs/day-reactive/latest/day_reactive/trait.Binding.html#method.end_preview)): the app's write
+recorded its own change, so with a [day-model](model.md) field the next edit undoes back to the
+app's text, not to the text from before the typing.
+
+Day reads the range once the turn settles and applies it after the turn's other updates, so
+text written in the same handler or effect reaches the field first, whichever the app wrote
+first, and so does a focus request. Each firing is a new request, and the same range applies
+again on the next one.
+
+A selection is meant for a focused field. AppKit and UIKit keep a field's selection in the
+editor they attach while it edits, so a request for an unfocused field does nothing there.
+GTK, Qt, Android, WinUI, ArkUI and the web set it on the unfocused field, where the platform's
+own focus behavior may then replace it: a keyboard focus-in selects everything on GTK, and a
+click places the caret on every desktop. Focus the field first, fire the trigger from the
+focus change as above, or write the focus binding and fire the trigger in the same handler, as
+a browser's ⌘L does.
+
+WinUI's `PasswordBox` can only select everything, so a [`secure_field`](https://docs.rs/day-pieces/latest/day_pieces/fn.secure_field.html) takes a request for the
+whole text and ignores any other. An input method's composition in progress belongs to the
+input method; a request that arrives during one may end it or be overridden, depending on the
+platform.
+
+## Keys
+
+A field decorated with [`.on_key(f)`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.on_key) hands three keys to `f` while it has focus, instead of
+acting on them itself: `ArrowUp`, `ArrowDown` and `Escape`, pressed with no modifier. That is
+what an address bar needs to walk a suggestion list drawn below it and to cancel an edit:
+
+```rust
+text_field(address)
+    .focused(editing)
+    .on_submit(go)
+    .on_key(move |k| match k.key.as_str() {
+        "ArrowDown" => highlight.update(|i| *i = (*i + 1).min(last)),
+        "ArrowUp" => highlight.update(|i| *i = i.saturating_sub(1)),
+        "Escape" => {
+            address.set(current_url.get_untracked());
+            editing.set(false);
+        }
+        _ => {}
+    })
+```
+
+The field claims the three keys whenever it has a handler, so the native field never sees
+them: AppKit's caret stays put on Up, GTK's focus does not move to the next widget on Down, and
+an `Escape` neither opens AppKit's completion list nor closes a dialog or a sheet around the
+field. Return stays [`on_submit`](https://docs.rs/day-pieces/latest/day_pieces/trait.TextFieldBuilder.html#tymethod.on_submit), Tab moves focus, every other key edits, and a modified arrow
+(Shift+Up extends the selection) stays the field's. A field without a handler behaves as it
+always did. On AppKit the keys arrive as the field editor's `moveUp:`, `moveDown:` and
+`cancelOperation:` commands, so Control-P, Control-N and ⌘. arrive as `ArrowUp`, `ArrowDown`
+and `Escape` too, as they do in Safari's address bar.
+
+The desktop toolkits (AppKit, GTK, Qt, WinUI) and the web deliver these keys. UIKit, Android
+and ArkUI do not deliver them from a text field.
+
 ## Toolkit implementations
 
 Platform guidance: [Apple: text fields](https://developer.apple.com/design/human-interface-guidelines/text-fields); [Android: input methods](https://developer.android.com/develop/ui/views/touch-and-input/creating-input-method); [Windows: text controls](https://learn.microsoft.com/en-us/windows/apps/design/controls/text-controls).
@@ -125,6 +236,8 @@ Platform guidance: [Apple: text fields](https://developer.apple.com/design/human
 | read-only | `editable` off | delegate refuses edits, empty input view | `editable` off | `readOnly` | no key listener, text selectable | `IsReadOnly` | refuses inserts and deletes | `readonly` |
 | purpose | content type | keyboard, content type, capitalization, correction | input purpose and hints | input method hints | input type, autofill hints | `InputScope`, spell check, prediction | input type, content type | `inputmode`, `autocomplete`, `autocapitalize`, `spellcheck` |
 | action key | – | `returnKeyType` | – | – | IME action | – | enter key type | `enterkeyhint` |
+| selection | field editor `selectedRange` | `selectedTextRange` | `select_region` | `setSelection` | `setSelection` | `Select` | `NODE_TEXT_INPUT_TEXT_SELECTION` | `setSelectionRange` |
+| ↑ ↓ Esc | field editor delegate | – | capture-phase key controller | event filter | – | `PreviewKeyDown` | – | `keydown` |
 
 A dash means the toolkit has no such notion: a desktop keyboard's Return key carries no label.
 

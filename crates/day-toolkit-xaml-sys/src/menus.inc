@@ -207,6 +207,21 @@ extern "C" void day_xaml_set_context_menu(void* h, const char* spec) try {
 } catch (...) {
 }
 
+// A menu button's press (docs/menus.md "Menu buttons"): the menu the provider built just now,
+// shown as a MenuFlyout under the button's leading edge, the placement DropDownButton uses. A
+// fresh flyout per press, since the entries are rebuilt on every open.
+extern "C" void day_xaml_show_button_menu(void* h, const char* spec) try {
+    if (!h || !spec || !*spec) return;
+    auto fe = elem(h).try_as<FrameworkElement>();
+    if (!fe) return;
+    WUXC::MenuFlyout fly;
+    build_menu_items(fly.Items(), spec);
+    WUXCP::FlyoutShowOptions opts;
+    opts.Placement(WUXCP::FlyoutPlacementMode::BottomEdgeAlignedLeft);
+    fly.ShowAt(fe, opts);
+} catch (...) {
+}
+
 /// Build the docked MenuBar for `root`, replacing any previous one; null for an empty spec.
 ///
 /// Shared by the primary window and every secondary one (docs/windows.md): day's app menu has no

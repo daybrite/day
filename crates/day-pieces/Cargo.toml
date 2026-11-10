@@ -52,3 +52,7 @@ objc2-foundation = { workspace = true, features = ["NSURL", "NSData", "NSError",
 [[test]]
 name = "model_rows"
 required-features = ["model"]
+
+[[test]]
+name = "text_field_model"
+required-features = ["model"]

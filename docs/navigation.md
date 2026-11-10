@@ -526,6 +526,13 @@ Reserved characters inside a segment or param value (`/ ? & = %`) are percent-en
   (set-semantics: navigating `mail/inbox` while `mail/inbox/msg-42` shows pops the detail,
   and switching back into a resident tab with a deeper path, `settings/privacy` after an
   earlier `settings/general`, first pops that tab's stack to its root).
+- **A fallback answers what nothing mounted knows**: a piece that presents a destination
+  outside the app's navigation registers with [`day_core::register_nav_fallback`](https://docs.rs/day-core/latest/day_core/fn.register_nav_fallback.html) instead of
+  `register_nav`. Either form of route reaches it only after every mounted surface has refused
+  the first segment, however early it registered, and an absolute path's remaining segments go
+  to its own `enter`. The Settings cover on a phone is one: `settings/search` selects an app's
+  own `settings` section when the app has one (built yet or not) and presents the cover only
+  when it has none. A fallback contributes nothing to `current_route()`.
 
 **Params** ride the query string: [`route_param("hint")`](https://docs.rs/day-pieces/latest/day_pieces/fn.route_param.html) / [`route_params()`](https://docs.rs/day-pieces/latest/day_pieces/fn.route_params.html) inside a destination
 builder return the values of the navigation being applied. They describe the navigation in

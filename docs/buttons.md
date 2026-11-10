@@ -42,6 +42,11 @@ to work, so the diagnostic does not silently change gesture semantics.
 For an operation shared across surfaces, use a [reusable `Command`](commands.md) to define its
 title, availability, optional check state, icon, shortcut, and handler once.
 
+A button that opens a menu instead of running an action, such as the ⋯ More button beside a
+browser's address bar, is a [menu button](menus.md#menu-buttons):
+[`menu_button`](https://docs.rs/day-pieces/latest/day_pieces/fn.menu_button.html)`(res::str::more(), entries)`[`.icon`](https://docs.rs/day-pieces/latest/day_pieces/trait.MenuButtonBuilder.html#tymethod.icon)`(Symbol::More)`[`.icon_only()`](https://docs.rs/day-pieces/latest/day_pieces/trait.MenuButtonBuilder.html#tymethod.icon_only). It takes the
+same look builders as a button.
+
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
 [example messages](/docs/reference/localization#reference-example-messages) and [catalog setup](/docs/how-to/localization).
 

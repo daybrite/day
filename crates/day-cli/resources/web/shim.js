@@ -967,6 +967,24 @@ const env = {
     else el.value = v;
   },
   day_dom_set_checked(id, on) { V(id).checked = !!on; },
+  // A text field's selection (docs/textfield.md "Selection"): `a..b` in characters (Unicode
+  // scalar values), walked onto the input's UTF-16 value a surrogate pair at a time and held to
+  // its end. The caret lands on `b`.
+  day_dom_field_select(id, a, b) {
+    const el = V(id);
+    if (typeof el.setSelectionRange !== 'function') return;
+    const v = el.value;
+    const at = (n) => {
+      let i = 0;
+      while (n > 0 && i < v.length) {
+        const c = v.charCodeAt(i);
+        i += c >= 0xd800 && c <= 0xdbff && i + 1 < v.length ? 2 : 1;
+        n--;
+      }
+      return i;
+    };
+    try { el.setSelectionRange(at(a), at(b)); } catch (_) { /* a type without a selection */ }
+  },
   // Text entry traits (docs/textfield.md): one object of attribute name to value from the Rust
   // side, "" removing the attribute. Only a text field's <input> takes them. `type` is assigned
   // as the property: the value and focus survive the change, and the caret is put back.
@@ -1732,6 +1750,12 @@ const env = {
     toolbarTrack(strip, 'detail').append(el);
     strip.menuBtn = el;
     layoutToolbar(strip);
+  },
+  // A menu button's press (docs/menus.md "Menu buttons"): the items its provider built just
+  // now, under the button, in the popover a toolbar pull-down gets. A second press closes it.
+  day_dom_button_menu(el, json, len) {
+    const anchor = els[el];
+    if (anchor) toggleToolbarMenu(anchor, JSON.parse(str(json, len)));
   },
   day_dom_toolbar_patch(host, json, len) {
     closeToolbarMenu();
@@ -2761,7 +2785,15 @@ function listen(id, mask) {
     el.addEventListener('focus', () => wasm.day_dom_event(id, 7, 1, 0, 0, 0));
     el.addEventListener('blur', () => wasm.day_dom_event(id, 7, 0, 0, 0, 0));
   }
-  if (mask & 16) el.addEventListener('keydown', (e) => { if (e.key === 'Enter') wasm.day_dom_event(id, 3, 0, 0, 0, 0); });
+  if (mask & 16) el.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') wasm.day_dom_event(id, 3, 0, 0, 0, 0);
+    // The keys a field with a key handler claims (docs/textfield.md "Keys"), never in the
+    // middle of a composition, whose candidate list owns them.
+    const field = { ArrowUp: 0, ArrowDown: 1, Escape: 2 }[e.key];
+    if (field === undefined || e.isComposing || e.keyCode === 229) return;
+    const mods = (e.shiftKey ? 1 : 0) | (e.metaKey || e.ctrlKey ? 2 : 0) | (e.altKey ? 4 : 0);
+    if (wasm.day_dom_field_key(id, field, mods)) e.preventDefault();
+  });
   if (mask & 512) dayEditorListen(id, el);
   if (mask & 32) resizeObserver.observe(host);
   if (mask & 64) host.addEventListener('scroll', () => wasm.day_dom_event(id, 12, host.scrollLeft, host.scrollTop, 0, 0));

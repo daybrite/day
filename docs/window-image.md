@@ -108,7 +108,11 @@ External `simctl` screenshots keep their own color profile.
 drew and nothing else, so macOS's composited materials (a Liquid Glass sidebar, vibrancy)
 come back blank. [`CGWindowListCreateImage`](https://developer.apple.com/documentation/coregraphics/cgwindowlistcreateimage) asks the window server for the pixels the user is
 looking at. It has the opposite limitation: it has no image for a window that is not on
-screen, so the offscreen render remains the fallback.
+screen, so the offscreen render remains the fallback. That is also why the window server is
+the only route that shows an out-of-process web view (WKWebView) with its page. Under native
+document tabs the primary window is an off-screen host and each document has a window of its
+own in the tab group, so a capture of the main window shows the group's selected document
+window instead.
 
 **ArkUI encodes natively.** The obvious route is the ArkTS host (that is how
 day-toolkit-arkui reaches the file picker and the browser), but `@ohos.multimedia.image` has no

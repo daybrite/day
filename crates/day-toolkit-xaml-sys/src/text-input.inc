@@ -15,6 +15,13 @@ static std::map<void*, std::shared_ptr<bool>> g_field_live;
 // it was inserted into so an initial secure replacement cannot leave a plain field behind.
 static std::map<void*, winrt::weak_ref<WUXC::Panel>> g_field_parents;
 
+// ---- field keys (docs/textfield.md "Keys") ----
+// Asked about a text field's Up, Down or Escape with the day modifier mask (1 shift, 2 primary,
+// 4 alt): the callback answers 1 when the node claims the key, having reported it, and 0 to
+// leave it to the field. Set once, by day_xaml_set_field_keys.
+static int (*g_field_key_cb)(unsigned long long, const char*, int) = nullptr;
+void day_xaml_set_field_keys(int (*cb)(unsigned long long, const char*, int)) { g_field_key_cb = cb; }
+
 // ---- focus (docs/focus.md) ----
 // Observe: kind 1 = gained, 0 = lost, 2 = submitted (Enter in a TextBox or a PasswordBox). System
 // XAML has no global focus event, so each control reports its own GotFocus/LostFocus.
@@ -42,6 +49,25 @@ void day_xaml_enable_focus(void* h, unsigned long long id,
         e.KeyDown([id, cb, live](WF::IInspectable const&, WUXIn::KeyRoutedEventArgs const& a) {
             if (live && !*live) return;
             if (a.Key() == winrt::Windows::System::VirtualKey::Enter) cb(id, 2);
+        });
+        // The claimed keys are heard in the tunneling phase: a TextBox marks the arrows handled
+        // itself, so they never bubble out as KeyDown, and a claimed Escape must not go on to
+        // close a dialog around the field.
+        e.PreviewKeyDown([id, live](WF::IInspectable const&, WUXIn::KeyRoutedEventArgs const& a) {
+            if (live && !*live) return;
+            if (!g_field_key_cb) return;
+            using VK = winrt::Windows::System::VirtualKey;
+            const char* name = nullptr;
+            switch (a.Key()) {
+            case VK::Up: name = "ArrowUp"; break;
+            case VK::Down: name = "ArrowDown"; break;
+            case VK::Escape: name = "Escape"; break;
+            default: return;
+            }
+            const int mods = (GetKeyState(VK_SHIFT) & 0x8000 ? 1 : 0) |
+                             (GetKeyState(VK_CONTROL) & 0x8000 ? 2 : 0) |
+                             (GetKeyState(VK_MENU) & 0x8000 ? 4 : 0);
+            if (g_field_key_cb(id, name, mods)) a.Handled(true);
         });
     }
 } catch (...) {}
@@ -125,6 +151,34 @@ void day_xaml_textbox_set_text(void* h, const char* t) {
         auto nt = hs(t);
         if (pb.Password() != nt) pb.Password(nt);
     }
+}
+// Select characters `start..end` (docs/textfield.md "Selection"). Day counts Unicode scalar
+// values and a TextBox UTF-16 units, so each end walks the text a surrogate pair at a time and
+// stops at its end. A PasswordBox can only select everything, so it takes a request that covers
+// the whole text and ignores any other.
+static int field_utf16_offset(winrt::hstring const& s, int chars) {
+    int i = 0;
+    const int n = static_cast<int>(s.size());
+    while (chars > 0 && i < n) {
+        const wchar_t c = s[i];
+        const bool pair = c >= 0xd800 && c <= 0xdbff && i + 1 < n && s[i + 1] >= 0xdc00 && s[i + 1] <= 0xdfff;
+        i += pair ? 2 : 1;
+        --chars;
+    }
+    return i;
+}
+void day_xaml_textbox_select(void* h, int start, int end) {
+    guard([&] {
+        if (auto tb = elem(h).try_as<WUXC::TextBox>()) {
+            auto text = tb.Text();
+            const int a = field_utf16_offset(text, start);
+            const int b = field_utf16_offset(text, end);
+            tb.Select(a, b - a);
+        } else if (auto pb = elem(h).try_as<WUXC::PasswordBox>()) {
+            auto text = pb.Password();
+            if (start == 0 && field_utf16_offset(text, end) == static_cast<int>(text.size())) pb.SelectAll();
+        }
+    });
 }
 void day_xaml_textbox_set_placeholder(void* h, const char* t) {
     if (auto tb = elem(h).try_as<WUXC::TextBox>()) tb.PlaceholderText(hs(t));

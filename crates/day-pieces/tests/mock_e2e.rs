@@ -41,6 +41,127 @@ fn dynamic_context_menu_survives_padding_and_uses_live_state() {
     assert_eq!(title(), "Fixture revision 1");
 }
 
+/// A menu button (docs/menus.md "Menu buttons") hands the toolkit a provider on its own button
+/// node; the entries resolve when the menu opens, not when the button was built, and a chosen
+/// item's action runs through the ordinary menu-action dispatch. The dayscript `context_menu`
+/// step reaches the same menu through the button's element id, and a disabled button opens
+/// nothing.
+/// A provider is app code: one that removes its own button (a signal write that rebuilds the
+/// tree) while still answering items must open nothing, and the released button must leave the
+/// registry, so no toolkit hands a freed native handle to its menu presenter.
+#[test]
+fn a_menu_button_whose_provider_removes_it_opens_nothing() {
+    let shown = Signal::new(true);
+    let probe = boot(move || {
+        column((when(
+            move || shown.get(),
+            move || {
+                menu_button("More", move || {
+                    shown.set(false);
+                    vec![menu_item("Open").id(id!(open))]
+                })
+                .id(id!(more))
+            },
+        ),))
+    });
+    flush_sync();
+    let (handle, _) = probe.find_by_kind("day.button").into_iter().next().unwrap();
+    assert!(probe.state.borrow().button_menus.contains_key(&handle.0));
+    assert!(probe.press_menu_button(handle.0).is_none());
+    flush_sync();
+    assert!(!probe.state.borrow().button_menus.contains_key(&handle.0));
+    assert!(probe.find_by_kind("day.button").is_empty());
+}
+
+#[test]
+fn menu_button_resolves_entries_on_open_and_runs_the_chosen_action() {
+    let count = Signal::new(0i64);
+    let chose = Signal::new(0i64);
+    let reader = Signal::new(false);
+    let open = Signal::new(true);
+    let probe = boot(move || {
+        menu_button("More", move || {
+            let n = count.get_untracked();
+            vec![
+                menu_item(format!("Take {n}"))
+                    .id(id!(take))
+                    .action(move || chose.set(n)),
+                menu_separator(),
+                menu_item("Reader")
+                    .id(id!(reader))
+                    .checked(reader)
+                    .action(move || reader.set(!reader.get())),
+                sub_menu("Share", vec![menu_item("Copy Link").id(id!(copy_link))]),
+            ]
+        })
+        .icon(Symbol::More)
+        .icon_only()
+        .plain()
+        .enabled(open)
+        .id(id!(more))
+    });
+    let (handle, button) = probe.find_by_kind("day.button").into_iter().next().unwrap();
+    // A press alone runs nothing: the toolkit opens the menu instead of reporting it.
+    probe.emit(NodeId(button.node), Event::Pressed);
+    flush_sync();
+    assert_eq!(chose.get_untracked(), 0);
+    let provider = probe
+        .state
+        .borrow()
+        .button_menus
+        .get(&handle.0)
+        .cloned()
+        .expect("the menu button registers its provider on the button's own node");
+
+    let take = |items: &[day_spec::MenuItem]| match &items[0] {
+        day_spec::MenuItem::Action { label, action, .. } => (label.clone(), *action),
+        _ => panic!("expected the Take action first"),
+    };
+    count.set(2);
+    flush_sync();
+    let items = provider(day_spec::Point::ZERO);
+    assert_eq!(items.len(), 4);
+    assert!(matches!(items[1], day_spec::MenuItem::Separator));
+    assert!(matches!(
+        &items[2],
+        day_spec::MenuItem::Action { checked: Some(false), id: Some(id), .. } if id == "reader"
+    ));
+    assert!(matches!(&items[3], day_spec::MenuItem::Submenu { items, .. } if items.len() == 1));
+    let (label, action) = take(&items);
+    assert_eq!(label, "Take 2");
+    day_core::dispatch_menu_action(action);
+    flush_sync();
+    assert_eq!(chose.get_untracked(), 2);
+
+    // The next open sees the state the last choice left: the check mark moved.
+    reader.set(true);
+    let items = provider(day_spec::Point::ZERO);
+    assert!(matches!(
+        &items[2],
+        day_spec::MenuItem::Action {
+            checked: Some(true),
+            ..
+        }
+    ));
+
+    // The script route: the element id names the button, and its menu answers.
+    let node = day_core::with_tree(|t| t.find_by_id("more")).expect("the id names the button");
+    assert_eq!(
+        day_core::with_tree(|t| t.node_kind(node)),
+        Some(day_spec::kinds::BUTTON)
+    );
+    let menu = day_core::with_tree(|t| t.context_menu_of(node)).expect("the step finds the menu");
+    count.set(5);
+    assert_eq!(take(&menu(day_spec::Point::ZERO)).0, "Take 5");
+
+    // Disabled: the native control greys out, and nothing opens.
+    open.set(false);
+    flush_sync();
+    assert!(provider(day_spec::Point::ZERO).is_empty());
+    let (_, button) = probe.find_by_kind("day.button").into_iter().next().unwrap();
+    assert!(!button.enabled);
+}
+
 /// Generic in its signature, erasing internally: the shape `day::launch` has, so a test can boot
 /// a root of any piece type without an `.any()` at every call.
 fn boot<P: Piece>(root: impl FnOnce() -> P + 'static) -> MockProbe {

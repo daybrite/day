@@ -292,7 +292,7 @@ impl NavHostCx {
     }
 }
 
-day_reactive::tls_group! {
+day_reactive::tls_slots! { nav;
     /// Increasing presentation order for fullscreen navigation layers.
     static NEXT_COVER_LAYER: Cell<u64> = const { Cell::new(1) };
     /// Build-time stack of enclosing nav hosts. `None` is a barrier (a resident container such as

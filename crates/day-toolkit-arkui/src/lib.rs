@@ -233,6 +233,10 @@ mod imp {
         /// Tap-node handle ptr → its node id, so `release` (which only gets the handle) can drop the
         /// matching TAP_NODES entry (else a recycling list would grow the set unbounded).
         static TAP_HANDLES: RefCell<HashMap<usize, u64>> = RefCell::new(HashMap::new());
+        /// Menu buttons (`set_button_menu`, docs/menus.md "Menu buttons"): node id → button
+        /// handle ptr. The NDK has no menu to bind, so a press reports `Event::ContextMenu` at the
+        /// button's bottom-leading corner and day-pieces presents the composed menu there.
+        static MENU_BUTTONS: RefCell<HashMap<u64, usize>> = RefCell::new(HashMap::new());
         /// Fullscreen covers (docs/cover.md): handle ptr → day NodeId. A cover's frame is
         /// native-owned (full window while presented), so `set_frame` skips these.
         static COVER_NODES: RefCell<HashMap<usize, u64>> = RefCell::new(HashMap::new());
@@ -1632,6 +1636,21 @@ mod imp {
         on_event(id, kind, num, &node::text_of(text));
     }
 
+    /// A menu button's bottom-leading corner in the content root's coordinates, in vp: where
+    /// the composed menu opens (docs/menus.md "Menu buttons"). The origin when the layout
+    /// cannot be read, so the menu still opens.
+    fn menu_button_anchor(button: usize) -> Point {
+        let root = ROOT_KEEP.with(|r| r.get()).map(|(ptr, _, _)| ptr);
+        if let Some(root) = root
+            && let Some((x, y, _, h)) = node::layout_frame_px(button as Handle)
+            && let Some((rx, ry, _, _)) = node::layout_frame_px(root as Handle)
+        {
+            let d = node::density();
+            return Point::new((x - rx) / d, (y + h - ry) / d);
+        }
+        Point::ZERO
+    }
+
     fn on_event_inner(id: u64, kind: i32, num: f64, text: &str) {
         use day_spec::bridge::BridgeKind as K;
         if kind == K::Custom as i32 && text == "day-list-first-visible" {
@@ -1649,6 +1668,19 @@ mod imp {
             && let Some((menu, index)) = MENU_ROWS.with(|m| m.borrow().get(&id).copied())
         {
             emit(menu, Event::SelectionChanged(index));
+            return;
+        }
+        // A menu button's press opens its menu: the composed one, placed under the button.
+        if kind == K::Pressed as i32
+            && let Some(button) = MENU_BUTTONS.with(|m| m.borrow().get(&id).copied())
+        {
+            emit(
+                NodeId(id),
+                Event::ContextMenu {
+                    local: Point::ZERO,
+                    window: menu_button_anchor(button),
+                },
+            );
             return;
         }
         // A node with a registered Tap gesture emits `Event::Tap`, not `Event::Pressed`.
@@ -3459,6 +3491,7 @@ mod imp {
                         node::set_input_text(h.0, text);
                     }
                     Some(TextFieldPatch::Enabled(on)) => node::set_enabled(h.0, *on),
+                    Some(TextFieldPatch::Select(sel)) => node::select_input(h.0, *sel),
                     _ => {}
                 },
                 kinds::TEXT_AREA => {
@@ -3720,6 +3753,7 @@ mod imp {
                     }
                 });
             }
+            MENU_BUTTONS.with(|m| m.borrow_mut().retain(|_, button| *button != key));
             if let Some(nid) = TAP_HANDLES.with(|m| m.borrow_mut().remove(&key)) {
                 TAP_NODES.with(|s| {
                     s.borrow_mut().remove(&nid);
@@ -4129,6 +4163,12 @@ mod imp {
             // The accessibility kit's announcement event (src/host.rs); nothing when the ArkTS
             // arm is not staged, which is also what `Cap::Announce` reports.
             crate::host::announce(text, urgent);
+        }
+
+        fn set_button_menu(&mut self, h: &AHandle, node: NodeId, _f: day_spec::ContextMenuFn) {
+            // The press arrives in `on_event_inner`, which reports the summon; the provider
+            // stays with day-pieces' composed presenter, which asks it then.
+            MENU_BUTTONS.with(|m| m.borrow_mut().insert(node.0, h.0 as usize));
         }
 
         fn enable_gesture(&mut self, h: &AHandle, node_id: NodeId, kind: GestureKind) {

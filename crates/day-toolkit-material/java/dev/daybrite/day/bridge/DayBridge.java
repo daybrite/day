@@ -179,6 +179,8 @@ public final class DayBridge extends DayRuntime {
      *  asks before it raises the soft keyboard or names a letter. */
     public static native boolean nativeHandlesText(long id);
     public static native String nativeContextMenu(long token, float x, float y);
+    /** A menu button's menu spec, lowered by its provider now (docs/menus.md "Menu buttons"). */
+    public static native String nativeButtonMenu(long token);
     public static native void nativeRunPosted(long token);
     /** Frame clock (§8.4): Choreographer's per-vsync callback forwards here with the frame time. */
     public static native void nativeDoFrame(long token, long frameTimeNanos);
@@ -1859,6 +1861,18 @@ public final class DayBridge extends DayRuntime {
             e.setText(value);
             e.setSelection(value.length());
         }
+    }
+    /** Select code points `start..end` of a text field (docs/textfield.md "Selection"). Day
+     *  counts Unicode scalar values and an EditText UTF-16 units, so each end is walked onto the
+     *  text, held to its end. The caret lands on `end`; an EditText keeps the selection while
+     *  it is not focused. */
+    public static void setTextFieldSelection(View v, int start, int end) {
+        EditText e = editTextOf(v);
+        CharSequence t = e.getText();
+        int n = Character.codePointCount(t, 0, t.length());
+        int a = Character.offsetByCodePoints(t, 0, Math.min(Math.max(start, 0), n));
+        int b = Character.offsetByCodePoints(t, 0, Math.min(Math.max(end, 0), n));
+        e.setSelection(a, b);
     }
     public static void setPlaceholder(View v, String value) {
         if (v instanceof TextInputLayout) ((TextInputLayout) v).setHint(value);
@@ -4742,6 +4756,29 @@ public final class DayBridge extends DayRuntime {
 
     public static void setContextMenuFn(final View v, final long token) {
         installContextMenu(v, (x, y) -> nativeContextMenu(token, x, y));
+    }
+
+    /** A menu button (docs/menus.md "Menu buttons"): the click asks Rust for the menu at that
+     *  moment and shows it as a PopupMenu anchored under the button, in place of the click
+     *  listener makeButton installed, so the press is never also reported as `Pressed`. A
+     *  second click while it is open rebuilds it, as a context menu's long press does. */
+    public static void setButtonMenu(final View v, final long token) {
+        final android.widget.PopupMenu[] open = { null };
+        v.setOnClickListener(anchor -> {
+            if (open[0] != null) open[0].dismiss();
+            String spec = nativeButtonMenu(token);
+            // App code may have removed the button while building its menu.
+            if (spec == null || spec.isEmpty() || !anchor.isAttachedToWindow()) return;
+            android.widget.PopupMenu popup = new android.widget.PopupMenu(
+                    anchor.getContext(), anchor, android.view.Gravity.START);
+            buildMenu(popup.getMenu(), spec);
+            if (popup.getMenu().size() == 0) return;
+            open[0] = popup;
+            popup.setOnDismissListener(dismissed -> {
+                if (open[0] == dismissed) open[0] = null;
+            });
+            popup.show();
+        });
     }
 
     public static void releaseContextMenu(View v) {

@@ -1012,6 +1012,7 @@ pub struct TextField<S: Binding<String>> {
     submit_label: day_spec::SubmitLabel,
     max_length: Option<u32>,
     enabled: Reactive<bool>,
+    select: Option<(day_reactive::Trigger, Rc<dyn Fn() -> TextSelection>)>,
 }
 
 pub fn text_field<S: Binding<String>>(value: S) -> TextField<S> {
@@ -1025,6 +1026,7 @@ pub fn text_field<S: Binding<String>>(value: S) -> TextField<S> {
         submit_label: day_spec::SubmitLabel::Return,
         max_length: None,
         enabled: Reactive::Const(true),
+        select: None,
     }
 }
 
@@ -1091,6 +1093,49 @@ impl<S: Binding<String>> TextField<S> {
         self.max_length = Some(characters);
         self
     }
+    /// Select part of the text, or place the caret, each time `trigger` fires
+    /// (docs/textfield.md "Selection"). `range` is read once the turn settles, after any text
+    /// the same turn wrote has reached the field, and counts characters (Unicode scalar
+    /// values): `..` selects everything, `3..` from the fourth character to the end, `3..3`
+    /// puts the caret after the third. Ends past the text are held to it.
+    ///
+    /// An address bar's inline completion writes the completed text and selects what the user
+    /// did not type, so the next keystroke replaces it:
+    ///
+    /// ```ignore
+    /// let complete = Trigger::new();
+    /// let typed = Signal::new(0usize);
+    /// text_field(address).select(complete, move || typed.get_untracked()..)
+    /// // on input "git": typed.set(3); address.set("github.com".into()); complete.notify();
+    /// ```
+    ///
+    /// The selection is for a focused field; fire it from the same turn that focuses the field,
+    /// or from a [`Decorate::focused`] change, to select everything on focus.
+    pub fn select<R: std::ops::RangeBounds<usize> + 'static>(
+        mut self,
+        trigger: day_reactive::Trigger,
+        range: impl Fn() -> R + 'static,
+    ) -> Self {
+        self.select = Some((
+            trigger,
+            Rc::new(move || {
+                use std::ops::Bound;
+                let r = range();
+                let start = match r.start_bound() {
+                    Bound::Included(&n) => n,
+                    Bound::Excluded(&n) => n.saturating_add(1),
+                    Bound::Unbounded => 0,
+                };
+                let end = match r.end_bound() {
+                    Bound::Included(&n) => n.saturating_add(1),
+                    Bound::Excluded(&n) => n,
+                    Bound::Unbounded => usize::MAX,
+                };
+                TextSelection::new(start, end)
+            }),
+        ));
+        self
+    }
 }
 
 impl<S: Binding<String>> Piece for TextField<S> {
@@ -1154,13 +1199,24 @@ impl<S: Binding<String>> Piece for TextField<S> {
         // Controlled input with origin-tagged writes (§4.4): the echo guard remembers the
         // last value that came from the native widget so its own change is not written back.
         let guard: Rc<RefCell<Option<String>>> = Rc::new(RefCell::new(None));
+        // The typing session's latest text, sealed on Return or focus loss (below).
+        let last: Rc<RefCell<Option<String>>> = Rc::new(RefCell::new(None));
         let v = self.value.clone();
-        let g = guard.clone();
+        let session = self.value.clone();
+        let (g, typed) = (guard.clone(), last.clone());
         bind_seeded(
             initial,
             move || v.read(),
             move |t: &String| {
                 let from_native = g.borrow_mut().take().as_deref() == Some(t.as_str());
+                if !from_native && typed.borrow_mut().take().is_some() {
+                    // An app write (an address bar's completion, Escape putting the URL back)
+                    // replaces the typing session: sealing it later would write the typed
+                    // text back over this one, and the binding's open preview session still
+                    // holds the text from before the typing. The app's write recorded its own
+                    // change; close the session so the next keystroke starts from it.
+                    session.end_preview();
+                }
                 with_tree(|tr| {
                     tr.patch(
                         node,
@@ -1173,6 +1229,7 @@ impl<S: Binding<String>> Piece for TextField<S> {
                 });
             },
         );
+        let value = self.value.clone();
         let v = self.value;
         let submit = self.on_submit;
         // Typing is a session: each keystroke is a preview (readers follow, nothing durable
@@ -1180,7 +1237,6 @@ impl<S: Binding<String>> Piece for TextField<S> {
         // coalescer. For a plain Signal binding preview defaults to write, so nothing changes
         // where no session semantics exist. Teardown seals too: navigating away from a page
         // mid-type must not leave the last burst outside the change log.
-        let last: Rc<RefCell<Option<String>>> = Rc::new(RefCell::new(None));
         {
             let (v, last) = (v.clone(), last.clone());
             day_reactive::Scope::current().on_cleanup(move || {
@@ -1235,6 +1291,32 @@ impl<S: Binding<String>> Piece for TextField<S> {
         });
         if let Some(p) = self.placeholder {
             p.bind_to(node, |t| Box::new(TextFieldPatch::Placeholder(t)), false);
+        }
+        // Selection requests (docs/textfield.md "Selection"). Each firing is a request, so the
+        // same range applies again on the next one (select-all on every focus). The range is
+        // read once the turn settles, so the text written in the same turn has reached the
+        // field first, whatever order the app wrote the two in, and it is held to that text.
+        // The patch itself is posted, as a focus request is (`Decorate::focused`): one made in
+        // the same turn lands first, and AppKit and UIKit select only in a focused field.
+        if let Some((trigger, range)) = self.select {
+            let scope = day_reactive::Scope::current();
+            day_reactive::watch(
+                move || trigger.track(),
+                move |_, _| {
+                    let (range, value) = (range.clone(), value.clone());
+                    day_reactive::at_turn_end(move || {
+                        if !scope.is_alive() {
+                            return;
+                        }
+                        let sel = range().clamped(&value.peek());
+                        day_reactive::on_main(move || {
+                            with_tree(|t| {
+                                t.patch(node, Box::new(TextFieldPatch::Select(sel)), false)
+                            })
+                        });
+                    });
+                },
+            );
         }
         node
     }

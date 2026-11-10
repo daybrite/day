@@ -601,6 +601,20 @@ pub mod keys {
         TEXT.with(|h| h.borrow().contains(&node)) && handled(node)
     }
 
+    /// The keys a focused single-line text field hands to its key handler instead of acting
+    /// on them itself (docs/textfield.md "Keys"): what an address bar needs to walk a
+    /// suggestion list and to cancel an edit. Return stays the field's submit, Tab its focus
+    /// walk, and every other key its editing.
+    pub const FIELD_KEYS: [&str; 3] = ["ArrowUp", "ArrowDown", "Escape"];
+
+    /// Whether a focused text field at `node` claims the key named `key` (web name, see
+    /// [`super::KeyEvent::key`]) pressed with `modifiers`: one of [`FIELD_KEYS`], no modifier
+    /// held, and a handler declared for the field. A backend that answers yes reports
+    /// `Event::Key` for `node` and keeps the key from the native field.
+    pub fn field_claims(node: NodeId, key: &str, modifiers: u8) -> bool {
+        modifiers == 0 && FIELD_KEYS.contains(&key) && handled(node)
+    }
+
     /// Drop both marks for a node that left the tree (day-core calls it from its removal
     /// path). Node ids are generational, so a stale id would never match a new node; this
     /// keeps the registries from growing with every rebuilt canvas.
@@ -1979,7 +1993,10 @@ pub struct KeyEvent {
     /// backends name the digit the keypress types, so a layout whose number row needs Shift for
     /// digits reports "1" with [`KeyEvent::SHIFT`] set; XAML and ArkUI read the physical key.
     /// Backends emit `Event::Key` only while no text widget has focus; a field's own editing
-    /// keys never surface here.
+    /// keys never surface here. The one exception is a single-line text field with a key
+    /// handler ([`keys::handled`] for its node): it hands "ArrowUp", "ArrowDown" and "Escape",
+    /// pressed with no modifier, to that handler instead of acting on them itself, so an
+    /// address bar can walk a suggestion list (docs/textfield.md "Keys").
     ///
     /// A piece that declared `Decorate::keyboard()` takes the full route instead: every key
     /// the platform delivers while it is focused. A key that types nothing is named by its
@@ -2398,6 +2415,23 @@ pub struct TreeMoves {
 
 /// A summon-time context-menu provider (docs/menus.md): local-point in, menu out.
 pub type ContextMenuFn = std::rc::Rc<dyn Fn(Point) -> Vec<MenuItem>>;
+
+/// Ask a menu button's provider for its menu at press time ([`Toolkit::set_button_menu`]), and
+/// answer the items to show, or `None` to show nothing: an empty menu, or a provider that
+/// removed its own button. The provider is app code; a signal it writes can rebuild the tree
+/// synchronously and release the very button being pressed. `still_registered` asks the
+/// toolkit's own registry, AFTER the provider has returned, whether the button is still the one
+/// registered for this press; a toolkit holding a raw native handle must not touch it otherwise.
+pub fn resolve_button_menu(
+    provider: &ContextMenuFn,
+    still_registered: impl FnOnce() -> bool,
+) -> Option<Vec<MenuItem>> {
+    let items = provider(Point::ZERO);
+    if items.is_empty() || !still_registered() {
+        return None;
+    }
+    Some(items)
+}
 
 /// A tree move guard's verdict (docs/tree.md). No `Retarget` yet: the drop vocabulary is
 /// already positional, so a guard that wants a different target denies and the user drops
@@ -6165,6 +6199,91 @@ pub mod props {
         },
         Placeholder(String),
         Enabled(bool),
+        /// Select a range of the field's text, or place the caret when the range is empty
+        /// (docs/textfield.md "Selection"). Sent after any [`TextFieldPatch::Text`] of the same
+        /// turn, so the range always counts the text the field now holds. A backend clamps it
+        /// against its own text with [`TextSelection::utf16`] or [`TextSelection::bytes`] and
+        /// applies it to a focused field; whether an unfocused field keeps it is the platform's
+        /// (docs/textfield.md).
+        Select(TextSelection),
+    }
+
+    /// A range of a text field's text in Unicode scalar values (Rust `char`s), the unit
+    /// [`TextFieldPatch::Select`] carries on every backend. `start..end` is half-open, and an
+    /// empty range is a caret position. The helpers clamp to the text and convert to the unit a
+    /// native field counts: UTF-16 code units (Apple, Android, Qt, WinUI, the web, ArkUI) or
+    /// bytes. GTK counts characters, which is [`TextSelection::clamped`].
+    #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+    pub struct TextSelection {
+        pub start: usize,
+        pub end: usize,
+    }
+
+    impl TextSelection {
+        /// The range from `start` to `end`, ordered so that `start <= end`.
+        pub fn new(start: usize, end: usize) -> Self {
+            TextSelection {
+                start: start.min(end),
+                end: start.max(end),
+            }
+        }
+
+        /// The range held to `text`: both ends at most its character count, `start <= end`.
+        pub fn clamped(self, text: &str) -> Self {
+            let n = text.chars().count();
+            TextSelection::new(self.start.min(n), self.end.min(n))
+        }
+
+        /// The clamped range as UTF-16 code-unit offsets into `text`: `(start, end)`.
+        pub fn utf16(self, text: &str) -> (usize, usize) {
+            let r = self.clamped(text);
+            let at = |chars: usize| -> usize {
+                text.chars().take(chars).map(char::len_utf16).sum::<usize>()
+            };
+            (at(r.start), at(r.end))
+        }
+
+        /// The clamped range as UTF-8 byte offsets into `text`: `(start, end)`, each on a
+        /// character boundary.
+        pub fn bytes(self, text: &str) -> (usize, usize) {
+            let r = self.clamped(text);
+            let at = |chars: usize| -> usize {
+                text.char_indices()
+                    .nth(chars)
+                    .map_or(text.len(), |(i, _)| i)
+            };
+            (at(r.start), at(r.end))
+        }
+    }
+
+    #[cfg(test)]
+    mod text_selection_tests {
+        use super::TextSelection;
+
+        #[test]
+        fn orders_and_clamps() {
+            assert_eq!(TextSelection::new(5, 2), TextSelection { start: 2, end: 5 });
+            let r = TextSelection::new(3, usize::MAX).clamped("github.com");
+            assert_eq!(r, TextSelection { start: 3, end: 10 });
+            let past = TextSelection::new(40, 50).clamped("git");
+            assert_eq!(past, TextSelection { start: 3, end: 3 });
+            assert_eq!(
+                TextSelection::new(0, 9).clamped(""),
+                TextSelection::default()
+            );
+        }
+
+        #[test]
+        fn converts_to_native_units() {
+            // "é" is one char, one UTF-16 unit and two bytes; "😀" is one char, two UTF-16
+            // units and four bytes.
+            let text = "aé😀b";
+            assert_eq!(TextSelection::new(1, 3).utf16(text), (1, 4));
+            assert_eq!(TextSelection::new(1, 3).bytes(text), (1, 7));
+            assert_eq!(TextSelection::new(0, usize::MAX).utf16(text), (0, 5));
+            assert_eq!(TextSelection::new(0, usize::MAX).bytes(text), (0, 8));
+            assert_eq!(TextSelection::new(4, 4).bytes(text), (8, 8));
+        }
     }
 
     /// How an image is scaled to fill its frame (§18.3). Maps to each toolkit's native scaling.
@@ -7835,6 +7954,20 @@ pub trait Toolkit: Sized + 'static {
     /// A context menu for `h`, shown on secondary-click (desktop) or long-press (mobile). Passing an
     /// empty slice removes it.
     fn set_context_menu(&mut self, _h: &Self::Handle, _node: NodeId, _items: &[MenuItem]) {}
+    /// Make the button `h` (a [`kinds::BUTTON`] node) a pull-down menu button (docs/menus.md
+    /// "Menu buttons"): its primary press (a click, a tap, the keyboard's Space or Return, the
+    /// accessibility press) asks `f` for the menu at that moment and shows it under the button
+    /// with the toolkit's own menu, instead of reporting [`Event::Pressed`]. `f` is called on
+    /// the UI thread, outside any day-core borrow, with [`Point::ZERO`] (where on the button
+    /// the press landed does not change its menu); an empty result shows nothing. Chosen items
+    /// fire [`Event::MenuAction`] as a context menu's do.
+    ///
+    /// A toolkit with no native menu to show reports [`Event::ContextMenu`] for `node` instead,
+    /// with `window` at the button's bottom-leading corner, and the pieces layer presents the
+    /// composed menu there. Called once per realized button; the release sweep reclaims `f`.
+    /// Resolve the press through [`resolve_button_menu`], which re-checks after `f` runs that
+    /// the button was not released by it. Default no-op: the button stays an inert button.
+    fn set_button_menu(&mut self, _h: &Self::Handle, _node: NodeId, _f: ContextMenuFn) {}
 
     // toolbars (docs/toolbars.md): a window's native toolbar: NSToolbar, AdwHeaderBar, QToolBar,
     // CommandBar. `h` is the window root's handle (the same handle `open_window` returned, or the
@@ -11107,5 +11240,56 @@ mod cap_list_tests {
         for (i, cap) in Cap::ALL.iter().enumerate() {
             assert_eq!(cap.ordinal(), i, "{cap:?} is out of place in Cap::ALL");
         }
+    }
+}
+
+#[cfg(test)]
+mod button_menu_tests {
+    use super::*;
+    use std::cell::Cell;
+    use std::rc::Rc;
+
+    fn action(label: &str) -> MenuItem {
+        MenuItem::Action {
+            id: None,
+            action: 1,
+            label: label.into(),
+            shortcut: None,
+            enabled: true,
+            checked: None,
+            role: None,
+            icon: None,
+        }
+    }
+
+    #[test]
+    fn a_provider_that_releases_its_button_shows_nothing() {
+        let registered = Rc::new(Cell::new(true));
+        let r = registered.clone();
+        // The provider's app code removes the button (here: unregisters it), then still answers.
+        let provider: ContextMenuFn = Rc::new(move |_| {
+            r.set(false);
+            vec![action("Open")]
+        });
+        assert!(resolve_button_menu(&provider, || registered.get()).is_none());
+    }
+
+    #[test]
+    fn a_live_button_shows_its_items_and_an_empty_menu_shows_nothing() {
+        let provider: ContextMenuFn = Rc::new(|_| vec![action("Open")]);
+        assert_eq!(
+            resolve_button_menu(&provider, || true).map(|i| i.len()),
+            Some(1)
+        );
+        let empty: ContextMenuFn = Rc::new(|_| Vec::new());
+        let mut asked = false;
+        assert!(
+            resolve_button_menu(&empty, || {
+                asked = true;
+                true
+            })
+            .is_none()
+        );
+        assert!(!asked, "an empty menu needs no registry check");
     }
 }

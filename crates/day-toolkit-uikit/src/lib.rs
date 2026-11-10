@@ -13286,6 +13286,25 @@ mod imp {
                                 tf.setPlaceholder(Some(&NSString::from_str(t)))
                             },
                             TextFieldPatch::Enabled(e) => unsafe { tf.setEnabled(*e) },
+                            // UITextInput positions count UTF-16 units. A field holds a
+                            // selection only while it edits (docs/textfield.md "Selection"),
+                            // and taking focus puts the caret at the end anyway.
+                            TextFieldPatch::Select(sel) => unsafe {
+                                if tf.isFirstResponder() {
+                                    let text = tf.text().map(|s| s.to_string()).unwrap_or_default();
+                                    let (start, end) = sel.utf16(&text);
+                                    let begin = tf.beginningOfDocument();
+                                    let at = |n: usize| {
+                                        tf.positionFromPosition_offset(&begin, n as isize)
+                                    };
+                                    if let (Some(a), Some(b)) = (at(start), at(end))
+                                        && let Some(range) =
+                                            tf.textRangeFromPosition_toPosition(&a, &b)
+                                    {
+                                        tf.setSelectedTextRange(Some(&range));
+                                    }
+                                }
+                            },
                         }
                     }
                 }
@@ -14409,6 +14428,48 @@ mod imp {
                 h.addInteraction(ProtocolObject::from_ref(&*interaction));
             }
             CTX_MENU_FNS.with(|t| t.borrow_mut().insert(key, (interaction, delegate)));
+        }
+
+        fn set_button_menu(&mut self, h: &Handle, _node: NodeId, f: day_spec::ContextMenuFn) {
+            // docs/menus.md "Menu buttons": the button's own menu is its primary action, and
+            // the one element in it is deferred and uncached, so UIKit asks the provider each
+            // time the menu opens and the entries are the current ones. Both APIs are iOS 14/15,
+            // inside the iOS 15 floor the scaffold declares.
+            let Some(btn) = h.downcast_ref::<UIButton>() else {
+                return;
+            };
+            let mtm = mtm();
+            /// The completion block UIKit hands a deferred element's provider.
+            type Completion =
+                block2::DynBlock<dyn Fn(NonNull<objc2_foundation::NSArray<UIMenuElement>>)>;
+            let provider = block2::RcBlock::new(move |done: NonNull<Completion>| {
+                // Guarded: the provider is app code. The same lowering a context menu
+                // uses; its children (separator runs as inline sections) fill the menu.
+                let items = day_spec::ffi_guard::contain(Vec::new(), || f(day_spec::Point::ZERO));
+                let children = build_ui_menu(mtm, "", &items).children();
+                // SAFETY: UIKit hands a live completion block and calls this provider
+                // on the main thread; it copies the array it is given.
+                unsafe { done.as_ref().call((NonNull::from(&*children),)) };
+            });
+            // SAFETY: the block's argument is the completion UIKit passes, used as declared.
+            let deferred = unsafe {
+                objc2_ui_kit::UIDeferredMenuElement::elementWithUncachedProvider(&provider, mtm)
+            };
+            let element: Retained<UIMenuElement> = Retained::into_super(deferred);
+            let arr = objc2_foundation::NSArray::from_retained_slice(&[element]);
+            let menu =
+                unsafe { UIMenu::menuWithTitle_children(&NSString::from_str(""), &arr, mtm) };
+            // The press opens the menu instead of reporting a tap: drop the realize-time
+            // `fire:` target so `Pressed` can never ride along.
+            unsafe {
+                btn.removeTarget_action_forControlEvents(
+                    None,
+                    None,
+                    UIControlEvents::TouchUpInside,
+                );
+            }
+            btn.setMenu(Some(&menu));
+            btn.setShowsMenuAsPrimaryAction(true);
         }
 
         fn set_context_menu(&mut self, h: &Handle, _node: NodeId, items: &[day_spec::MenuItem]) {

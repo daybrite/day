@@ -192,6 +192,9 @@ pub struct Tree<B: Toolkit> {
     /// the native root it landed on, where that differs): what the dayscript `context_menu`
     /// step reads, since the toolkit keeps its own copy in native form.
     context_menus: HashMap<RNode, ContextMenuModel>,
+    /// Each menu button's provider (`set_button_menu`), keyed by its button node: the menu its
+    /// primary press opens, which the dayscript `context_menu` step chooses from too.
+    button_menus: HashMap<RNode, day_spec::ContextMenuFn>,
     /// Count of nodes carrying an implicit `.animation` (§8.4). Gates the `resolve_anim` ancestor
     /// walk: zero ⇒ non-`with_animation` patches skip it entirely (the common, O(1) path).
     implicit_anim_count: usize,
@@ -272,6 +275,7 @@ impl<B: Toolkit> Tree<B> {
             lists: HashMap::new(),
             trees: HashMap::new(),
             context_menus: HashMap::new(),
+            button_menus: HashMap::new(),
             implicit_anim_count: 0,
         }
     }
@@ -522,6 +526,7 @@ impl<B: Toolkit> Tree<B> {
             // localized row label) outlive the list and patch freed native cells on the
             // next locale/theme change (a use-after-free on raw-pointer backends like Qt).
             self.context_menus.remove(&n);
+            self.button_menus.remove(&n);
             if let Some(list) = self.lists.remove(&n) {
                 for (_, cell) in list.cells {
                     cell.scope.dispose();
@@ -1244,6 +1249,9 @@ pub trait TreeOps {
     fn set_drop_target(&mut self, node: RNode, target: day_spec::transfer::Target);
     /// Install a summon-time context-menu provider on `node` (docs/menus.md).
     fn set_context_menu_fn(&mut self, node: RNode, f: day_spec::ContextMenuFn);
+    /// Make the button `node` a pull-down menu button whose primary press opens the menu `f`
+    /// builds (docs/menus.md "Menu buttons").
+    fn set_button_menu(&mut self, node: RNode, f: day_spec::ContextMenuFn);
     /// The context menu the app gave `node` (or its nearest ancestor that has one), as a
     /// provider; what the dayscript `context_menu` step chooses from. Returned rather than
     /// called, because a provider is app code: it may select what it summons over and flush,
@@ -3138,11 +3146,23 @@ impl<B: Toolkit> TreeOps for Tree<B> {
         }
     }
 
+    fn set_button_menu(&mut self, node: RNode, f: day_spec::ContextMenuFn) {
+        self.button_menus.insert(node, f.clone());
+        if let Some(handle) = self.nodes.get(node).and_then(|n| n.handle.clone()) {
+            self.toolkit.set_button_menu(&handle, rnode_to_id(node), f);
+        }
+    }
+
     fn context_menu_of(&mut self, node: RNode) -> Option<day_spec::ContextMenuFn> {
         // The element a script names may sit above or below the node the menu landed on (an id
-        // on a wrapper, a menu on the label inside it): the node itself, then its ancestors.
+        // on a wrapper, a menu on the label inside it): the node itself, then its ancestors. A
+        // menu button's own menu is the one its press opens, so it answers before any context
+        // menu at the same node.
         let mut cur = node;
         loop {
+            if let Some(f) = self.button_menus.get(&cur) {
+                return Some(f.clone());
+            }
             if let Some(model) = self.context_menus.get(&cur) {
                 return Some(match model {
                     ContextMenuModel::Items(items) => {

@@ -82,7 +82,7 @@ the architecture-level view and the rationale.
 | Toolkit duty conformance — which backend implements which duty (generated, CI-gated) | [docs/duty-matrix.md](docs/duty-matrix.md) | [§8.1](#81-the-toolkit-trait) |
 | Piece-vocabulary coverage — which kinds each backend renders, which piece ships which arm, every `Cap` answer (generated, CI-gated) | [docs/coverage-matrix.md](docs/coverage-matrix.md) | [§8.2](#82-the-open-renderer-registry) |
 | Dayscript recorder coverage — the step the recorder writes for every `Event` (generated, CI-gated) | [docs/recorder-matrix.md](docs/recorder-matrix.md) | [§14.6](#146-recording) |
-| menus — app menu, context menus, roles, shortcuts | [docs/menus.md](docs/menus.md) | [§8.1](#81-the-toolkit-trait) |
+| menus — app menu, context menus, menu buttons (`menu_button`), roles, shortcuts | [docs/menus.md](docs/menus.md) | [§8.1](#81-the-toolkit-trait) |
 | deep links — scheme registration, cold/warm delivery, per-platform intake, desktop single-instance forwarding, `[[shortcuts]]` and run-time launcher shortcuts (iOS, Android, HarmonyOS, web, macOS Dock menu, Windows jump list, Linux `.desktop` actions) | [docs/deep-links.md](docs/deep-links.md) | [§10.5](#105-navigation-and-presentation) |
 | toolbars — `Decorate::toolbar`, placement and column, the item vocabulary, `Symbol` icons, per-backend realization | [docs/toolbars.md](docs/toolbars.md) | [§8.1](#81-the-toolkit-trait) |
 | search — `.searchable(Search)` on a navigation surface or a `nav_stack` page, placement as a preference, scopes, completions and submission | [docs/search.md](docs/search.md) | [§8.1](#81-the-toolkit-trait) |
@@ -941,6 +941,9 @@ button(text).action(f)             // .bordered() / .prominent() / .tint(color) 
     .icon(Symbol::Play)            // native symbol; reactive symbol sources are supported
     .icon_only()                   // hide the visible title, retain its accessible name
 button(text).image(res::vectors::mark) // bundled image/vector instead of a symbol
+menu_button(text, entries | || entries) // a native pull-down: the press opens the MenuEntry
+    .icon(Symbol::More).icon_only()    //   list, built when it opens; button looks (.plain(),
+                                       //   .enabled(e), …); docs/menus.md "Menu buttons"
 toggle(on)                         // two-way bool; .enabled(e) on toggle, slider, text_field and
                                    //   picker too, constant or reactive (as on button)
 slider(value).range(0.0..=100.0)   // two-way f64; .step(…)
@@ -948,6 +951,11 @@ text_field(text).placeholder(p).on_submit(f)   // two-way String; focus via .foc
     .secure(s).read_only(r)                    // reactive: hidden characters, no edits (docs/textfield.md)
     .input_purpose(InputPurpose::Email)        // keyboard, capitalization, autofill
     .submit_label(SubmitLabel::Go).max_length(64)
+    .select(trigger, move || typed.get_untracked()..)  // select chars (or place the caret)
+                                               //   each time the Trigger fires, after the
+                                               //   turn's text lands (docs/textfield.md)
+    .on_key(f)                                 // with a handler, the field hands plain ↑ ↓ Esc
+                                               //   to the app instead of acting on them
 secure_field(text)                             // a password field: text_field + secure + Password purpose
 text_area(text).min_lines(3).max_lines(8)      // two-way String, multi-line (docs/textarea.md)
     .editable(e).selectable(s).spellcheck(sc)  // reactive attrs; Cap::Text{Editable,Selectable,SpellCheck}
@@ -2009,7 +2017,13 @@ pub trait Toolkit: Sized + 'static {
     // key nobody claimed (`day_spec::keys::handled`) keeps walking the chain. This shipped as a
     // global NSEvent monitor first, which took the arrows away from every focused list and
     // sidebar in the process. `EditOp::SelectAll` joined the edit bridge with the same
-    // responder-first routing as the clipboard trio.
+    // responder-first routing as the clipboard trio. A focused single-line text field is the
+    // one text widget on this route (2026-11, docs/textfield.md "Keys"): with a handler
+    // (`keys::field_claims`) it hands the plain ArrowUp, ArrowDown and Escape to the app and
+    // keeps them from the field (AppKit's field-editor delegate, GTK's capture-phase key
+    // controller, Qt's event filter, WinUI's PreviewKeyDown, the web's keydown), the address
+    // bar's suggestion walk; `TextFieldPatch::Select(TextSelection)` sets its selection in
+    // characters, which each backend converts to its own unit.
     fn modifiers(&mut self) -> Modifiers { Modifiers::default() }
 
     // menus (docs/menus.md)
@@ -2034,6 +2048,14 @@ pub trait Toolkit: Sized + 'static {
     // a menu dismisses its popup and releases the provider; reentrant removal and empty
     // results suppress presentation. WinUI and ArkUI still use the default dynamic-menu no-op.
     fn set_context_menu_fn(&mut self, h, node: NodeId, f: ContextMenuFn) {}
+    // Menu buttons (2026-11, docs/menus.md "Menu buttons"): the BUTTON node's primary press
+    // asks the provider then and shows the menu under the button instead of reporting
+    // `Pressed` (an NSMenu popped from the button, UIButton.menu as its primary action with
+    // an uncached deferred element, a PopoverMenu, a QMenu, a PopupMenu, a MenuFlyout, the
+    // web toolbar pull-down popover). ArkUI reports `Event::ContextMenu` at the button's
+    // bottom-leading corner and the composed presentation shows it. day-core keeps the
+    // provider per node, so the dayscript `context_menu` step chooses from it.
+    fn set_button_menu(&mut self, h, node: NodeId, f: ContextMenuFn) {}
 
     // toolbars (docs/toolbars.md): `h` is the window root's handle, so the backend walks from
     // it to the window. ONE bar per window, already composed from the window's own items and
@@ -8107,7 +8129,7 @@ The Showcase walkthrough samples after groups of screens and ends with a `1G` bu
 | `expand` | `id`, `row`, `expanded?` | disclose/collapse a tree row by its `.row_id` string — emits the same `TreeExpanded` a native disclosure does ([docs/tree.md](docs/tree.md)); omitted `expanded` = true |
 | `tree_move` | `id`, `row`, `parent?`, `index?` | move a tree row through the guard → commit seam ([docs/tree.md](docs/tree.md)): absent `parent` = the root, absent `index` = dropped ONTO the parent; a guard denial fails the step, non-retryably |
 | `menu` | `id` \| `item` \| `key`, `path?` | invoke an app-menu action. `id` names the item the app named with `MenuEntry::id` — the address that survives a locale change or a moving check mark, and the one to prefer; `item` matches a literal label, `key` a Fluent key (locale-portable; the auto Preferences/New Window items resolve by `day_preferences`/`day_new_window` even with no app menu). `path` narrows by ancestor submenu, each entry matching a literal label or a Fluent key — [docs/menus.md](docs/menus.md) |
-| `context_menu` | `id`, `item_id` \| `item` \| `key`, `path?`, `if_present?` | choose an item from the element's context menu (`.context_menu`, `.context_menu_fn`; a provider is asked at the element's origin), addressed as `menu` addresses one; `if_present` skips an absent element once the UI settles, as `tap`'s does. Day keeps each node's menu as the app gave it, so this runs the item's action the way the native choice would, without the native menu opening — [docs/menus.md](docs/menus.md) |
+| `context_menu` | `id`, `item_id` \| `item` \| `key`, `path?`, `if_present?` | choose an item from the element's context menu (`.context_menu`, `.context_menu_fn`; a provider is asked at the element's origin), or from a `menu_button`'s menu when `id` names one, addressed as `menu` addresses one; `if_present` skips an absent element once the UI settles, as `tap`'s does. Day keeps each node's menu as the app gave it, so this runs the item's action the way the native choice would, without the native menu opening — [docs/menus.md](docs/menus.md) |
 | `toolbar` | `item`, `text?` \| `key?` + `args?` \| `on?`, `submit?` | drive a toolbar item by its id (`day::search` reaches the search field inline too, where a phone's bar holds none): bare = run a button's command, `text` types into a search item (`key` types a Fluent key resolved in the run's locale instead — locale-portable, as `input` takes one) and `submit: true` then submits it as its Return key does, `on` sets a toggle. Resolves against the window's COMPOSED bar, so it reaches only what is on screen — a list pane's command needs that list showing. Goes through the same dispatch the native control fires, so it exercises the app's wiring but does NOT prove the widget drew — [docs/toolbars.md](docs/toolbars.md) |
 | `close_window` | `window` | close the secondary window opened under this key through the async confirm → teardown path ([docs/windows.md](docs/windows.md)); already-closed is a success |
 | `focus` | `id`, `focused?` | drives the REAL `Toolkit::focus` duty (keyboards engage); `focused: false` resigns ([docs/focus.md](docs/focus.md)) |
@@ -8271,6 +8293,10 @@ empty state; they do not access the root recursively. This avoids separate pthre
 keys on Android and keeps their lifetime tied to the core root. It also avoids the
 cross-target Clippy false positives on standalone const `thread_local!` declarations
 without suppressing the lint.
+`day-pieces` also shares one `tls_root!` between navigation state and the app-menu and
+Dock-menu scope slots. The menu slots hold `Copy` scope handles in cells; replacement takes
+the old handle before disposing it, so cleanup can reenter the shared store without a live
+mutable borrow. Slot initialization only constructs empty state.
 `day-toolkit-arkui` keeps all of its module state in one `tls_root!` the same way: OpenHarmony's
 musl has the same 128-key table, and the in-process WebView takes its own keys from it.
 
@@ -8761,7 +8787,9 @@ disposing signals midway through an input binding's write. The active-pump guard
 unwind, preserving panic containment. Regression:
 `queued_native_events_finish_the_current_handler_before_dispatch`.
 
-Text fields seal unfinished typing with `Binding::write_teardown`. The default commits a
+Text fields seal unfinished typing with `Binding::write_teardown`, and close it with
+`Binding::end_preview` when the app writes the bound text over it (the app's write records
+itself; `day-pieces/tests/text_field_model.rs`). The default commits a
 persistent binding's preview transaction. Plain `Signal` bindings do nothing: previews have
 already stored the final value, and scope disposal removes signal nodes before cleanup runs.
 This avoids writes into disposed signals when dismissing a sheet with an edited text field.

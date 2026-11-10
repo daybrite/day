@@ -87,3 +87,6 @@ java = ["src/DaySettingsRow.java"]
 gradle-dependencies = []
 gradle-repositories = []
 permissions = []
+
+[dev-dependencies]
+day-mock = { path = "../day-mock" }

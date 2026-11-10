@@ -67,6 +67,11 @@ When a bound control mounts and its binding already selects it, it requests focu
 an app select a field before presenting a sheet. An initial `false` or `None` does not resign
 another control's focus.
 
+A text field that should select its whole text on focus, as a browser's address bar does,
+fires its [`.select`](https://docs.rs/day-pieces/latest/day_pieces/trait.TextFieldBuilder.html#tymethod.select) trigger when the binding turns on
+([docs/textfield](textfield.md#selection)). A selection fired in the same handler that writes
+the binding is applied after the focus request.
+
 Moving between controls in the same group updates the selected key. Losing focus without a
 successor clears it. Tab and Shift-Tab traversal follows the platform's focus order; Day does
 not expose custom focus-order or dialog focus-scope builders.

@@ -1123,21 +1123,29 @@ pub(crate) struct InstalledStoreProfile {
 /// same id is skipped: it provisions no devices, so a device build signed with it will not
 /// install (`installed_store_profile` is where a pack finds it).
 pub(crate) fn installed_profile(app_id: &str) -> Option<InstalledProfile> {
-    decoded_profiles(app_id)
+    let profiles: Vec<(PathBuf, String, bool)> = decoded_profiles(app_id)
         .into_iter()
-        .find(|(_, text)| !is_store_profile(text))
-        .map(|(path, text)| InstalledProfile {
-            name: profile_string(&text, "Name"),
-            path,
+        .filter(|(_, text, _)| !is_store_profile(text))
+        .collect();
+    // A profile made for this app id first; a wildcard development profile (Xcode's "iOS Team
+    // Provisioning Profile: *") covers any id that needs no capability, which is what a
+    // development flavor with an id of its own usually is.
+    profiles
+        .iter()
+        .find(|(_, _, wildcard)| !wildcard)
+        .or_else(|| profiles.first())
+        .map(|(path, text, _)| InstalledProfile {
+            name: profile_string(text, "Name"),
+            path: path.clone(),
         })
 }
 
 /// The installed App Store profile whose app id matches `app_id`, with its signing certificate's
 /// fingerprint (`None` when the fingerprint cannot be read; the export then stays automatic).
 pub(crate) fn installed_store_profile(app_id: &str) -> Option<InstalledStoreProfile> {
-    let (path, text) = decoded_profiles(app_id)
+    let (path, text, _) = decoded_profiles(app_id)
         .into_iter()
-        .find(|(_, text)| is_store_profile(text))?;
+        .find(|(_, text, wildcard)| !wildcard && is_store_profile(text))?;
     let cert_sha1 = profile_cert_sha1(&path)?;
     Some(InstalledStoreProfile {
         name: profile_string(&text, "Name"),
@@ -1147,17 +1155,38 @@ pub(crate) fn installed_store_profile(app_id: &str) -> Option<InstalledStoreProf
     })
 }
 
-/// Every installed profile whose `application-identifier` names `app_id`, decoded.
-fn decoded_profiles(app_id: &str) -> Vec<(PathBuf, String)> {
+/// Where profiles are installed: Xcode 16 and later keep them under its UserData folder, earlier
+/// releases (and a double-clicked profile on an older macOS) under MobileDevice.
+fn profile_dirs() -> Vec<PathBuf> {
+    let Some(home) = dirs_home() else {
+        return Vec::new();
+    };
+    vec![
+        home.join("Library/Developer/Xcode/UserData/Provisioning Profiles"),
+        home.join("Library/MobileDevice/Provisioning Profiles"),
+    ]
+}
+
+/// Whether a profile's `application-identifier` value (`TEAMID.app.bundle.id`) covers `app_id`,
+/// and whether it does so through a wildcard (`TEAMID.*`, `TEAMID.org.example.*`).
+fn profile_covers(value: &str, app_id: &str) -> Option<bool> {
+    let (_, id) = value.trim().split_once('.')?;
+    if id == app_id {
+        return Some(false);
+    }
+    let prefix = id.strip_suffix('*')?;
+    app_id.starts_with(prefix).then_some(true)
+}
+
+/// Every installed profile whose `application-identifier` covers `app_id`, decoded, with whether
+/// it covers it through a wildcard.
+fn decoded_profiles(app_id: &str) -> Vec<(PathBuf, String, bool)> {
     let mut found = Vec::new();
-    let Some(dir) = dirs_home().map(|h| h.join("Library/MobileDevice/Provisioning Profiles"))
-    else {
-        return found;
-    };
-    let Ok(entries) = std::fs::read_dir(dir) else {
-        return found;
-    };
-    for entry in entries.flatten() {
+    let entries = profile_dirs()
+        .into_iter()
+        .filter_map(|dir| std::fs::read_dir(dir).ok())
+        .flat_map(|entries| entries.flatten());
+    for entry in entries {
         let path = entry.path();
         if path.extension().and_then(|e| e.to_str()) != Some("mobileprovision") {
             continue;
@@ -1182,15 +1211,65 @@ fn decoded_profiles(app_id: &str) -> Vec<(PathBuf, String)> {
         else {
             continue;
         };
-        if value
-            .trim()
-            .split_once('.')
-            .is_some_and(|(_, id)| id == app_id)
-        {
-            found.push((path, text));
+        if let Some(wildcard) = profile_covers(value, app_id) {
+            found.push((path, text, wildcard));
         }
     }
     found
+}
+
+/// The SHA-1 fingerprint (uppercase hex) of a base64 DER certificate.
+fn certificate_sha1(b64_path: &Path, der: &Path) -> Result<String, String> {
+    let b64 = std::fs::read_to_string(b64_path).map_err(|e| e.to_string())?;
+    let decoded = Command::new("base64")
+        .args(["-d"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .and_then(|mut c| {
+            use std::io::Write;
+            if let Some(mut stdin) = c.stdin.take() {
+                stdin.write_all(b64.as_bytes())?;
+            }
+            c.wait_with_output()
+        })
+        .map_err(|e| format!("base64: {e}"))?;
+    std::fs::write(der, &decoded.stdout).map_err(|e| e.to_string())?;
+    let fp = Command::new("openssl")
+        .args(["x509", "-inform", "DER", "-in"])
+        .arg(der)
+        .args(["-noout", "-fingerprint", "-sha1"])
+        .output()
+        .map_err(|e| format!("openssl: {e}"))?;
+    String::from_utf8_lossy(&fp.stdout)
+        .split('=')
+        .nth(1)
+        .map(|v| v.trim().replace(':', "").to_uppercase())
+        .ok_or_else(|| "could not read the signing certificate's fingerprint".to_string())
+}
+
+#[cfg(test)]
+mod profile_match_tests {
+    use super::profile_covers;
+
+    #[test]
+    fn exact_and_wildcard_profiles_cover_an_app_id() {
+        assert_eq!(
+            profile_covers("TEAM.org.example.app", "org.example.app"),
+            Some(false)
+        );
+        assert_eq!(profile_covers("TEAM.*", "org.example.app.dev"), Some(true));
+        assert_eq!(
+            profile_covers("TEAM.org.example.*", "org.example.app"),
+            Some(true)
+        );
+        assert_eq!(profile_covers("TEAM.org.other.*", "org.example.app"), None);
+        assert_eq!(
+            profile_covers("TEAM.org.example.app", "org.example.app.dev"),
+            None
+        );
+        assert_eq!(profile_covers("nodot", "org.example.app"), None);
+    }
 }
 
 /// An App Store profile provisions no devices and is not an enterprise (all-devices) profile.
@@ -1501,6 +1580,25 @@ fn sign_ios_bundle(project: &Project, app: &Path, prof: &InstalledProfile) -> Re
         "plutil -extract Entitlements",
     )?;
 
+    // A wildcard profile grants `TEAMID.*`; the signature names the one app it signs.
+    let ents_text = std::fs::read_to_string(&ents).map_err(|e| e.to_string())?;
+    if let Some(wild) = ents_text
+        .split("<key>application-identifier</key>")
+        .nth(1)
+        .and_then(|a| a.split("<string>").nth(1))
+        .and_then(|v| v.split("</string>").next())
+        .filter(|v| v.ends_with('*'))
+        && let Some((team, _)) = wild.split_once('.')
+    {
+        let concrete = format!("{team}.{}", apple_app_id(project, "ios-uikit"));
+        let fixed = ents_text.replacen(
+            &format!("<string>{wild}</string>"),
+            &format!("<string>{concrete}</string>"),
+            1,
+        );
+        std::fs::write(&ents, fixed).map_err(|e| e.to_string())?;
+    }
+
     // What the app declares and what the profile grants have to agree. Catching it here beats
     // shipping an app to the device that silently cannot register for push.
     if ios_wants_push(project)? {
@@ -1516,39 +1614,44 @@ fn sign_ios_bundle(project: &Project, app: &Path, prof: &InstalledProfile) -> Re
         }
     }
 
-    // The certificate the profile lists, by fingerprint.
-    let der = tmp.join("signer.der");
-    run_logged(
-        Command::new("plutil")
-            .args(["-extract", "DeveloperCertificates.0", "raw", "-o"])
-            .arg(tmp.join("signer.b64"))
-            .arg(&plist),
-        "plutil -extract DeveloperCertificates",
-    )?;
-    let b64 = std::fs::read_to_string(tmp.join("signer.b64")).map_err(|e| e.to_string())?;
-    let decoded = Command::new("base64")
-        .args(["-d"])
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .spawn()
-        .and_then(|mut c| {
-            use std::io::Write;
-            c.stdin.take().unwrap().write_all(b64.as_bytes())?;
-            c.wait_with_output()
-        })
-        .map_err(|e| format!("base64: {e}"))?;
-    std::fs::write(&der, &decoded.stdout).map_err(|e| e.to_string())?;
-    let fp = Command::new("openssl")
-        .args(["x509", "-inform", "DER", "-in"])
-        .arg(&der)
-        .args(["-noout", "-fingerprint", "-sha1"])
+    // The certificate to sign with: the first one the profile lists whose private key is in
+    // this Mac's keychain. A team profile lists every member's certificates, most of them from
+    // other machines, so the first entry is often one this Mac cannot sign with.
+    let identities = Command::new("security")
+        .args(["find-identity", "-v", "-p", "codesigning"])
         .output()
-        .map_err(|e| format!("openssl: {e}"))?;
-    let sha1 = String::from_utf8_lossy(&fp.stdout)
-        .split('=')
-        .nth(1)
-        .map(|v| v.trim().replace(':', ""))
-        .ok_or("could not read the signing certificate's fingerprint")?;
+        .map(|o| String::from_utf8_lossy(&o.stdout).to_uppercase())
+        .unwrap_or_default();
+    let mut sha1 = None;
+    for index in 0.. {
+        let b64_path = tmp.join("signer.b64");
+        let extracted = Command::new("plutil")
+            .args([
+                "-extract",
+                &format!("DeveloperCertificates.{index}"),
+                "raw",
+                "-o",
+            ])
+            .arg(&b64_path)
+            .arg(&plist)
+            .output()
+            .map_err(|e| format!("plutil: {e}"))?;
+        if !extracted.status.success() {
+            break;
+        }
+        let fingerprint = certificate_sha1(&b64_path, &tmp.join("signer.der"))?;
+        if identities.contains(&fingerprint) {
+            sha1 = Some(fingerprint);
+            break;
+        }
+    }
+    let sha1 = sha1.ok_or_else(|| {
+        format!(
+            "none of the certificates in the profile {:?} has its signing identity in this \
+             Mac's keychain",
+            prof.name
+        )
+    })?;
 
     std::fs::copy(&prof.path, app.join("embedded.mobileprovision"))
         .map_err(|e| format!("embedding the profile: {e}"))?;

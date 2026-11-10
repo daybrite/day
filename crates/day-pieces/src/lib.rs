@@ -11,6 +11,11 @@
 //! so the public API stays flat (`day_pieces::button`, `day_pieces::stack`, …) regardless of
 //! which module a piece is defined in.
 
+day_reactive::tls_root! {
+    menus: crate::menus::TlsGroupSlots,
+    nav: crate::nav::TlsGroupSlots,
+}
+
 // External-piece registration surface (§8.2): the `renderer!` macro + `fill_measure`, plus the
 // re-exports the macro expands to (so a piece needs only a `day-pieces` dependency, not linkme).
 pub mod async_image;
@@ -135,23 +140,24 @@ pub mod prelude {
         ColumnBuilder, Command, Confirm, ContentList, Corner, Cover, Decorate, Decorated, Delete,
         Drag, Draw, FileAccess, FileUrl, Form, FormSection, Grid, GridRow, HAlign, Inspector,
         IntoFocusBinding, IntoFraction, IntoImageSource, IntoReactive, IntoText, ItemSlot,
-        LabelBuilder, Labeled, Link, List, ListItem, ListItemBuilder, Loaded, MenuContent,
-        MenuEntry, Modifier, Move, NativeRef, Nav, NavContent, NavDrag, NavDrop, NavItem, NavStack,
-        NavStyle, OpenFile, OpenFiles, OpenFolder, Pan, PathBuilder, Pinch, ProgressBuilder,
-        Prompt, Reactive, Reorder, ReorderVerdict, Rotate, Route, RoutePath, RowBuilder, RowFit,
-        SaveFile, Search, SearchReveal, Sections, ShapeKind, ShapePiece, StatusItem, SwipeAction,
-        TextBuilder, VAlign, VectorWeight, When, ZStack, adaptive, alert, app_environment,
-        app_menu, arc, button, canvas, capsule, circle, column, confirm, cover, current_route,
-        divider, dock_menu, each, ellipse, environment, focused_environment, form, frame_clock,
-        grid, grid_row, image, inspector, item, items, keyed, label, labeled, line, link, list,
-        list_item, load, menu_item, menu_role, menu_separator, nav, nav_back, nav_items, nav_link,
-        nav_link_to, nav_stack, navigate, navigate_to, open_file, open_files, open_folder,
-        open_link, picker, picker_optional, polygon, progress, prompt, rectangle,
-        rounded_rectangle, route, route_param, route_params, row, save_file, scroll, section,
-        secure_field, segment, shape, shape_group, shape_group_fn, slider, spacer, spinner, split,
-        status_item, sub_menu, swipe_action, switch, text_area, text_field, toggle, toolbar_button,
-        toolbar_label, toolbar_menu, toolbar_segmented, toolbar_separator, toolbar_toggle, vector,
-        when, with_environment, zstack,
+        LabelBuilder, Labeled, Link, List, ListItem, ListItemBuilder, Loaded, MenuButton,
+        MenuButtonBuilder, MenuContent, MenuEntry, Modifier, Move, NativeRef, Nav, NavContent,
+        NavDrag, NavDrop, NavItem, NavStack, NavStyle, OpenFile, OpenFiles, OpenFolder, Pan,
+        PathBuilder, Pinch, ProgressBuilder, Prompt, Reactive, Reorder, ReorderVerdict, Rotate,
+        Route, RoutePath, RowBuilder, RowFit, SaveFile, Search, SearchReveal, Sections, ShapeKind,
+        ShapePiece, StatusItem, SwipeAction, TextBuilder, VAlign, VectorWeight, When, ZStack,
+        adaptive, alert, app_environment, app_menu, arc, button, canvas, capsule, circle, column,
+        confirm, cover, current_route, divider, dock_menu, each, ellipse, environment,
+        focused_environment, form, frame_clock, grid, grid_row, image, inspector, item, items,
+        keyed, label, labeled, line, link, list, list_item, load, menu_button, menu_item,
+        menu_role, menu_separator, nav, nav_back, nav_items, nav_link, nav_link_to, nav_stack,
+        navigate, navigate_to, open_file, open_files, open_folder, open_link, picker,
+        picker_optional, polygon, progress, prompt, rectangle, rounded_rectangle, route,
+        route_param, route_params, row, save_file, scroll, section, secure_field, segment, shape,
+        shape_group, shape_group_fn, slider, spacer, spinner, split, status_item, sub_menu,
+        swipe_action, switch, text_area, text_field, toggle, toolbar_button, toolbar_label,
+        toolbar_menu, toolbar_segmented, toolbar_separator, toolbar_toggle, vector, when,
+        with_environment, zstack,
     };
     pub use crate::{Space, TextPreset};
     // Canvas export (docs/canvas.md "Exporting"): record a drawing once, render it to a bitmap

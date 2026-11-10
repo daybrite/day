@@ -102,3 +102,7 @@ harness = false
 [[test]]
 name = "native_palette"
 harness = false
+
+[[test]]
+name = "native_text_field_select"
+harness = false

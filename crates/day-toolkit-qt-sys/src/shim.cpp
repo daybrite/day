@@ -1180,6 +1180,8 @@ void day_qt_button_set_content(void *w, const char *title, const char *icon, int
 void *day_qt_button_new(const char *title, uint64_t id, void (*cb)(uint64_t)) {
     QPushButton *b = new QPushButton(QString::fromUtf8(title));
     QObject::connect(b, &QPushButton::clicked, [b, id, cb]() {
+        // A menu button's click opens its menu (`day_qt_button_menu_fn`), not a press.
+        if (b->property("dayMenuButton").toBool()) return;
         cb(id);
         // A checkable button toggled itself on the click; Day owns the selected state
         // (`day_qt_button_set_selected`), so put back what it last asked for.
@@ -1301,7 +1303,11 @@ void *day_qt_lineedit_new(const char *text, const char *ph, uint64_t id,
 void day_qt_lineedit_set_text(void *w, const char *text) {
     QLineEdit *e = static_cast<QLineEdit *>(w);
     QString s = QString::fromUtf8(text);
-    if (e->text() != s) e->setText(s);
+    if (e->text() == s) return;
+    // Day's own write, not typing: `textChanged` fires for programmatic text too, and reporting
+    // it would hand the app its own write back as an edit (§4.4).
+    QSignalBlocker block(e);
+    e->setText(s);
 }
 void day_qt_lineedit_set_placeholder(void *w, const char *text) {
     static_cast<QLineEdit *>(w)->setPlaceholderText(QString::fromUtf8(text));
@@ -4846,6 +4852,67 @@ protected:
     }
 };
 
+// The keys a line edit with a key handler claims (docs/textfield.md "Keys"): Up, Down and
+// Escape. The callback answers whether the node claims the key; `deliver` 0 only asks (for
+// ShortcutOverride, so a claimed Escape beats a sheet's Escape shortcut), 1 also reports it.
+// A claimed press never reaches the QLineEdit.
+typedef int (*DayFieldKeyCb)(uint64_t node, const char *name, int modifiers, int deliver);
+
+class DayFieldKeyFilter : public QObject {
+public:
+    uint64_t node; DayFieldKeyCb cb;
+    DayFieldKeyFilter(uint64_t n, DayFieldKeyCb c) : node(n), cb(c) {}
+protected:
+    bool eventFilter(QObject *, QEvent *ev) override {
+        if (ev->type() != QEvent::KeyPress && ev->type() != QEvent::ShortcutOverride) return false;
+        QKeyEvent *ke = static_cast<QKeyEvent *>(ev);
+        const char *name = nullptr;
+        switch (ke->key()) {
+            case Qt::Key_Up: name = "ArrowUp"; break;
+            case Qt::Key_Down: name = "ArrowDown"; break;
+            case Qt::Key_Escape: name = "Escape"; break;
+            default: return false;
+        }
+        const int mods = day_qt_key_modifiers(ke->modifiers());
+        if (ev->type() == QEvent::ShortcutOverride) {
+            if (cb(node, name, mods, 0) == 0) return false;
+            ev->accept();
+            return true;
+        }
+        return cb(node, name, mods, 1) != 0;
+    }
+};
+
+void day_qt_lineedit_enable_field_keys(void *w, uint64_t node, DayFieldKeyCb cb) {
+    QWidget *widget = static_cast<QWidget *>(w);
+    DayFieldKeyFilter *f = new DayFieldKeyFilter(node, cb);
+    f->setParent(widget); // freed with the widget
+    widget->installEventFilter(f);
+}
+
+// Select characters `start..end` (docs/textfield.md "Selection"): Day counts Unicode scalar
+// values, QString UTF-16 units, so each end walks the text, a surrogate pair at a time, and
+// stops at its end. The caret lands on `end`. A line edit keeps the selection while unfocused.
+static int day_qt_utf16_offset(const QString &s, int chars) {
+    int i = 0;
+    while (chars > 0 && i < s.size()) {
+        const bool pair = s.at(i).isHighSurrogate() && i + 1 < s.size() && s.at(i + 1).isLowSurrogate();
+        i += pair ? 2 : 1;
+        --chars;
+    }
+    return i;
+}
+
+void day_qt_lineedit_select(void *w, int start, int end) {
+    QLineEdit *e = qobject_cast<QLineEdit *>(static_cast<QWidget *>(w));
+    if (!e)
+        return;
+    const QString text = e->text();
+    const int a = day_qt_utf16_offset(text, start);
+    const int b = day_qt_utf16_offset(text, end);
+    e->setSelection(a, b - a);
+}
+
 // StrongFocus, because a canvas has no other way in: click or tab, the same as a line edit.
 void day_qt_enable_keys(void *w, uint64_t node, DayKeyCb cb) {
     QWidget *widget = static_cast<QWidget *>(w);
@@ -5815,6 +5882,32 @@ void day_qt_context_menu_fn(void *w, uint64_t node,
                          m->setParent(widget, m->windowFlags());
                          m->popup(widget->mapToGlobal(pos));
                      });
+}
+
+// Menu buttons (docs/menus.md "Menu buttons"): the button's click (pointer, Space, the
+// accessibility press) asks `cb` for a fresh QMenu and pops it under the button, where
+// QPushButton::showMenu puts a menu it owns. The button reads as pressed while the menu is up.
+// Ownership mirrors day_qt_context_menu_fn: parented to the button with window flags kept, and
+// each open drops the previous menu.
+void day_qt_button_menu_fn(void *w, uint64_t key, void *(*cb)(uint64_t, double, double)) {
+    QPushButton *b = qobject_cast<QPushButton *>(static_cast<QWidget *>(w));
+    if (!b || b->property("dayMenuButton").toBool()) return;
+    b->setProperty("dayMenuButton", true);
+    QObject::connect(b, &QPushButton::clicked, [b, key, cb]() {
+        void *raw = cb(key, 0.0, 0.0);
+        if (!raw) return;
+        if (QMenu *old = b->findChild<QMenu *>(QStringLiteral("day_btn_menu"),
+                                              Qt::FindDirectChildrenOnly)) {
+            old->setObjectName(QString());
+            old->deleteLater();
+        }
+        QMenu *m = static_cast<QMenu *>(raw);
+        m->setObjectName(QStringLiteral("day_btn_menu"));
+        m->setParent(b, m->windowFlags());
+        b->setDown(true);
+        QObject::connect(m, &QMenu::aboutToHide, b, [b]() { b->setDown(false); });
+        m->popup(b->mapToGlobal(b->rect().bottomLeft()));
+    });
 }
 
 void day_qt_set_context_menu(void *w, void *menu) {

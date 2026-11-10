@@ -135,6 +135,7 @@ pub fn severity_of(code: &str) -> Severity {
         "day::lint::undeclared-permission",
         "day::lint::duplicate-id",
         "day::lint::vector-parse",
+        "day::lint::resource-name",
         "day::lint::vector-unreadable",
         "day::lint::store-unreadable",
         "day::lint::store-unknown-key",
@@ -1176,6 +1177,12 @@ fn collect(project: &Project) -> Vec<Finding> {
     // ships as a raster fallback on Android: worth knowing, not an error).
     lint_vectors(project, &mut findings);
 
+    // --- Resource names Android refuses ---
+    // A vector or image becomes an Android resource named for its file stem, and aapt2 refuses
+    // a Java keyword ("private is not a valid resource name") at packaging time, after the whole
+    // Rust build has run.
+    lint_resource_names(project, &mut findings);
+
     // --- daybridge (docs/bridge.md) ---
     // A Kotlin arm needs the Kotlin Gradle plugin; without it Gradle ignores the generated .kt
     // and the failure surfaces as a runtime ClassNotFoundException on a device, which is the
@@ -1514,12 +1521,23 @@ fn collect(project: &Project) -> Vec<Finding> {
                 );
             }
         }
+        let mut reads_window_options = false;
+        for r in &roots {
+            for_each_rs(r, &mut |_, src| {
+                reads_window_options |= src.contains("window_options()");
+            });
+        }
         for (k, at) in &default_keys {
             // Convention keys the framework consumes at build time, not from app source:
             // `language_name` is read by day-build's generated `res::locales::ALL` (each catalog
             // naming its own language for pickers, docs/localization.md), so no `res::str::` or
             // `tr("…")` reference exists for the scan to find.
             if k == "language_name" {
+                continue;
+            }
+            // `app_title` is the window title day-build's generated `res::window_options()`
+            // reads (docs/localization.md), and the app names the window options, not the key.
+            if k == "app_title" && reads_window_options {
                 continue;
             }
             // Permission reasons are consumed by the declaration pipeline (docs/permissions.md,
@@ -1608,7 +1626,20 @@ fn collect(project: &Project) -> Vec<Finding> {
         scan_routes_macro_keys(r, &mut declared_keys);
     }
     if !declared_keys.is_empty() {
-        let declared = texts(&declared_keys);
+        let mut declared = texts(&declared_keys);
+        // day-piece-settings answers `settings/<group>` and `about` itself once installed
+        // (docs/settings.md "Opening and routes"), whether or not the app also gives Settings
+        // a nav item.
+        let mut installs_settings = false;
+        for r in &roots {
+            for_each_rs(r, &mut |_, src| {
+                installs_settings |= src.contains("Preferences::new()")
+            });
+        }
+        if installs_settings {
+            declared.insert("settings".to_string());
+            declared.insert("about".to_string());
+        }
         let mut used_routes: Vec<(String, String, Option<Location>)> = Vec::new();
         let mut nav_calls = Vec::new();
         for r in &roots {
@@ -1977,6 +2008,92 @@ fn finish(n: usize, waived: usize, strict: bool) -> i32 {
 }
 
 /// The `resource/vectors/` checks (docs/vectors.md).
+/// Java's reserved words and literals, which Android refuses as resource names.
+const JAVA_RESERVED: &[&str] = &[
+    "abstract",
+    "assert",
+    "boolean",
+    "break",
+    "byte",
+    "case",
+    "catch",
+    "char",
+    "class",
+    "const",
+    "continue",
+    "default",
+    "do",
+    "double",
+    "else",
+    "enum",
+    "extends",
+    "false",
+    "final",
+    "finally",
+    "float",
+    "for",
+    "goto",
+    "if",
+    "implements",
+    "import",
+    "instanceof",
+    "int",
+    "interface",
+    "long",
+    "native",
+    "new",
+    "null",
+    "package",
+    "private",
+    "protected",
+    "public",
+    "return",
+    "short",
+    "static",
+    "strictfp",
+    "super",
+    "switch",
+    "synchronized",
+    "this",
+    "throw",
+    "throws",
+    "transient",
+    "true",
+    "try",
+    "void",
+    "volatile",
+    "while",
+];
+
+fn lint_resource_names(project: &Project, findings: &mut Vec<Finding>) {
+    for sub in ["resource/vectors", "resource/images"] {
+        let Ok(entries) = std::fs::read_dir(project.root.join(sub)) else {
+            continue;
+        };
+        let mut names: Vec<String> = entries
+            .flatten()
+            .filter_map(|e| e.file_name().to_str().map(str::to_string))
+            .collect();
+        names.sort();
+        for name in names {
+            let stem = name.split('.').next().unwrap_or_default();
+            if JAVA_RESERVED.contains(&stem) {
+                findings.push(
+                    Finding {
+                        code: "day::lint::resource-name",
+                        message: format!(
+                            "{sub}/{name}: `{stem}` is a Java keyword, which Android refuses as a \
+                             resource name; rename the file (`{stem}_icon`, say)"
+                        ),
+                        ..Default::default()
+                    }
+                    .maybe_located(Some(Location::head(format!("{sub}/{name}")))),
+                );
+            }
+        }
+    }
+}
+
 fn lint_vectors(project: &Project, findings: &mut Vec<Finding>) {
     let dir = project.root.join("resource/vectors");
     let Ok(entries) = std::fs::read_dir(&dir) else {
@@ -2558,6 +2675,61 @@ e = { PLATFORM() }
             .collect();
         assert_eq!(findings.len(), 1, "{findings:?}");
         assert!(findings[0].message.contains("missing"));
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// Android refuses a resource named for a Java keyword; the lint names the file.
+    #[test]
+    fn java_keyword_resource_names_are_reported() {
+        let (dir, project) = app(
+            "resource-names",
+            &[
+                (
+                    "resource/vectors/private.svg",
+                    "<svg xmlns=\"http://www.w3.org/2000/svg\"/>",
+                ),
+                (
+                    "resource/vectors/privacy.svg",
+                    "<svg xmlns=\"http://www.w3.org/2000/svg\"/>",
+                ),
+                ("resource/images/new.png", ""),
+            ],
+        );
+        let found: Vec<String> = collect(&project)
+            .into_iter()
+            .filter(|f| f.code == "day::lint::resource-name")
+            .map(|f| f.message)
+            .collect();
+        assert_eq!(found.len(), 2, "{found:?}");
+        assert!(found.iter().any(|m| m.contains("private.svg")));
+        assert!(found.iter().any(|m| m.contains("new.png")));
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// An app that installs day-piece-settings answers `settings/<group>` and `about` routes
+    /// without declaring a Settings nav item; any other undeclared route is still reported.
+    #[test]
+    fn installed_settings_declare_their_routes() {
+        let (dir, project) = app(
+            "settings-routes",
+            &[
+                (
+                    "src/lib.rs",
+                    r#"fn root() { let _p = Preferences::new().install();
+                    day::routes! { enum S { Home => "home" } } }"#,
+                ),
+                (
+                    "dayscript/settings.yaml",
+                    "flow:\n  - navigate: { route: \"settings/search\" }\n  - navigate: { route: about }\n  - navigate: { route: elsewhere }\n",
+                ),
+            ],
+        );
+        let findings: Vec<_> = collect(&project)
+            .into_iter()
+            .filter(|f| f.code == "day::lint::unknown-route")
+            .collect();
+        assert_eq!(findings.len(), 1, "{findings:?}");
+        assert!(findings[0].message.contains("elsewhere"));
         let _ = std::fs::remove_dir_all(dir);
     }
 

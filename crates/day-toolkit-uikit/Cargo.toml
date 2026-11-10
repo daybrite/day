@@ -77,6 +77,7 @@ objc2-ui-kit = { workspace = true, features = ["UIColorWell", "UIDatePicker", "U
     "UIDiffableDataSource", "NSDiffableDataSourceSectionSnapshot", "UICellAccessory",
     "UIGraphics", "UIGestureRecognizer", "UITapGestureRecognizer", "UIPanGestureRecognizer",
     "UIMenu", "UIMenuElement", "UIMenuLeaf", "UIAction", "UICommand", "UIContextMenuInteraction",
+    "UIDeferredMenuElement",
     # The window toolbar under a navigation controller's pages (docs/toolbars.md).
     "UIBarItem", "UIBarButtonItem", "UIToolbar", "UIBarButtonItemGroup",
     "UIContextMenuConfiguration", "UIInteraction", "UIKeyCommand",

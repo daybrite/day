@@ -15,10 +15,12 @@ menu narrows those choices to actions relevant to the selected content or area.
 
 Day renders menus with each toolkit's native menu machinery: [`NSMenu`](https://developer.apple.com/documentation/appkit/nsmenu), [`GtkPopoverMenu`](https://docs.gtk.org/gtk4/class.PopoverMenu.html) /
 [`GtkPopoverMenuBar`](https://docs.gtk.org/gtk4/class.PopoverMenuBar.html), [`QMenu`](https://doc.qt.io/qt-6/qmenu.html) / [`QMenuBar`](https://doc.qt.io/qt-6/qmenubar.html), [`UIMenu`](https://developer.apple.com/documentation/uikit/uimenu) (via [`UIContextMenuInteraction`](https://developer.apple.com/documentation/uikit/uicontextmenuinteraction)), Android
-`PopupMenu` / the app-bar overflow, and WinUI [`MenuFlyout`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.menuflyout) / [`MenuBar`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.menubar). There are two surfaces:
+`PopupMenu` / the app-bar overflow, and WinUI [`MenuFlyout`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.menuflyout) / [`MenuBar`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.menubar). There are three surfaces:
 
 - **Context menus**: per-Piece, shown on secondary-click (desktop) or long-press (touch), attached
   with the [`Decorate::context_menu`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.context_menu) modifier.
+- **Menu buttons**: a button whose press opens a menu, built with
+  [`menu_button`](#menu-buttons).
 - **The app menu**: the global menu bar on desktop (a toolbar menu button on the web), installed
   once with [`app_menu`](https://docs.rs/day-pieces/latest/day_pieces/fn.app_menu.html).
 
@@ -407,6 +409,78 @@ role items come back as plain menu actions (Android's app bar, web context menus
 ¹ Android editable views raise the system selection toolbar for Cut/Copy/Paste; a role in a Day menu is
 shown for parity and dispatches nothing.
 ² WinUI carries the standard accelerator; the focused [`TextBox`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.textbox) handles the keystroke itself.
+
+## Menu buttons
+
+A menu button opens its menu when pressed: the ⋯ More button beside a browser's address bar, an
+Add ▾ button, a page-actions button in a row of controls the app draws itself. A
+[`toolbar_menu`](toolbars.md) does the same job inside a window's native toolbar; a menu button
+goes anywhere a [button](buttons.md) goes.
+
+```rust
+menu_button(res::str::more(), move || {
+    vec![
+        menu_item(res::str::reader_view())
+            .id(id!(reader))
+            .checked(reader)
+            .action(move || reader.set(!reader.get())),
+        menu_item(res::str::zoom_out())
+            .id(id!(zoom_out))
+            .enabled(move || zoom.get() > 50)
+            .action(move || zoom.update(|z| *z -= 10)),
+        menu_separator(),
+        sub_menu(res::str::share(), vec![
+            menu_item(res::str::copy_link()).id(id!(copy_link)).action(copy_link),
+        ]),
+    ]
+})
+.icon(Symbol::More)
+.icon_only()
+.plain()
+.id(id!(more))
+```
+
+[`menu_button(label, entries)`](https://docs.rs/day-pieces/latest/day_pieces/fn.menu_button.html) takes a label (any text source) and the entries: a `Vec` or array
+of [`MenuEntry`] values, or a closure that builds them. The menu is built each time it opens, so
+titles, [`.checked`](#checked-items) marks and `.enabled` states are the current ones either way, and
+the closure form lets the list itself follow the app's state. The entries are the ones a context
+menu takes: checked and disabled items, separators, submenus and icons behave as they do there,
+and choosing an item runs its `.action`.
+
+The button keeps the look builders a [button](buttons.md) has: [`.icon`](https://docs.rs/day-pieces/latest/day_pieces/trait.MenuButtonBuilder.html#tymethod.icon), [`.image`](https://docs.rs/day-pieces/latest/day_pieces/trait.MenuButtonBuilder.html#tymethod.image), [`.icon_only`](https://docs.rs/day-pieces/latest/day_pieces/trait.MenuButtonBuilder.html#tymethod.icon_only),
+[`.plain`](https://docs.rs/day-pieces/latest/day_pieces/trait.MenuButtonBuilder.html#tymethod.plain), [`.bordered`](https://docs.rs/day-pieces/latest/day_pieces/trait.MenuButtonBuilder.html#tymethod.bordered), [`.compact`](https://docs.rs/day-pieces/latest/day_pieces/trait.MenuButtonBuilder.html#tymethod.compact), [`.prominent`](https://docs.rs/day-pieces/latest/day_pieces/trait.MenuButtonBuilder.html#tymethod.prominent) and [`.enabled`](https://docs.rs/day-pieces/latest/day_pieces/trait.MenuButtonBuilder.html#tymethod.enabled). It has no
+`.action`: its press opens the menu. A disabled menu button opens nothing, and neither does a
+menu whose closure removes its own button: the closure is app code, a signal it writes can
+rebuild the tree before it returns, and every toolkit checks after it returns that the button
+it was pressed on is still there ([`day_spec::resolve_button_menu`](https://docs.rs/day-spec/latest/day_spec/fn.resolve_button_menu.html)).
+
+[`.id`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.id) names the button, and each item keeps its own [`MenuEntry::id`](#naming-an-item-id). A dayscript chooses an item with
+the same step a context menu takes, which runs the item's action without the native menu
+opening:
+
+```yaml
+- context_menu: { id: more, item_id: reader }
+- context_menu: { id: more, item_id: copy_link }   # inside the Share submenu
+```
+
+Each toolkit opens its own menu, anchored under the button, from the same lowered model its
+context menus use:
+
+| Toolkit | Menu button |
+|---|---|
+| AppKit | The [`NSButton`](https://developer.apple.com/documentation/appkit/nsbutton) pops an [`NSMenu`](https://developer.apple.com/documentation/appkit/nsmenu) from its bottom-leading corner with `popUpMenuPositioningItem:atLocation:inView:`, on the mouse going down as a pull-down does, and stays highlighted while the menu tracks |
+| UIKit | The [`UIButton`](https://developer.apple.com/documentation/uikit/uibutton)'s `menu` with `showsMenuAsPrimaryAction`; its one element is an uncached [`UIDeferredMenuElement`](https://developer.apple.com/documentation/uikit/uideferredmenuelement), so UIKit asks for the entries each time the menu opens |
+| GTK | A [`GtkPopoverMenu`](https://docs.gtk.org/gtk4/class.PopoverMenu.html) under the button, pointing at its full width, as [`GtkMenuButton`](https://docs.gtk.org/gtk4/class.MenuButton.html) places one; the button reports a popup to accessibility |
+| Qt | A [`QMenu`](https://doc.qt.io/qt-6/qmenu.html) popped at the [`QPushButton`](https://doc.qt.io/qt-6/qpushbutton.html)'s bottom-left, with the button held down while it shows |
+| Android | A [`PopupMenu`](https://developer.android.com/reference/android/widget/PopupMenu) anchored to the [`MaterialButton`](https://developer.android.com/reference/com/google/android/material/button/MaterialButton) |
+| WinUI | A [`MenuFlyout`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.menuflyout) shown at the [`Button`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.button) with bottom-edge, left-aligned placement |
+| Web | The [toolbar pull-down](toolbars.md)'s popover: a `role=menu` the arrow keys walk, Escape and a press outside dismiss, and a second press on the button closes; the button carries `aria-haspopup` |
+| ArkUI | The [composed presentation](#the-composed-presentation-web) under the button, since the bound NDK has no menu to bind |
+
+On every toolkit the press opens the menu in place of the button's ordinary press, so a menu
+button never reports a tap, and Space or Return (and the accessibility press) open it too. The
+dayscript `context_menu` step runs the item's action directly and does not open the native menu;
+check the menu's appearance on the toolkit itself.
 
 ## The app menu
 

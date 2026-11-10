@@ -822,7 +822,7 @@ fn op_context_menu(items: Vec<MenuEntry>) -> impl FnOnce(Build) -> Build {
 /// other child (the composed menu's lazy mount) is layout-inert but must still be visited,
 /// because a cover lays its content out from the size the backend reports, but only if the
 /// place pass reaches it at all.
-struct OverlayHost;
+pub(crate) struct OverlayHost;
 
 impl Layout for OverlayHost {
     fn measure(

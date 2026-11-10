@@ -146,6 +146,9 @@ mod imp {
 
     day_core::tls_group! {
         static CONTEXT_MENU_FNS: day_spec::sidetable::SideTable<day_spec::ContextMenuFn> = day_spec::sidetable::SideTable::new();
+        /// Menu buttons' providers (`set_button_menu`, docs/menus.md "Menu buttons"), keyed
+        /// like `CONTEXT_MENU_FNS` by the button's global ref, so a button may carry both.
+        static BUTTON_MENU_FNS: day_spec::sidetable::SideTable<day_spec::ContextMenuFn> = day_spec::sidetable::SideTable::new();
         static TRANSFER_SOURCES: day_spec::sidetable::SideTable<day_spec::transfer::Source> = day_spec::sidetable::SideTable::new();
         static TRANSFER_TARGETS: day_spec::sidetable::SideTable<day_spec::transfer::Target> = day_spec::sidetable::SideTable::new();
 
@@ -784,6 +787,7 @@ mod imp {
             geometry: jdouble[]),
         static fn setContextMenu(v: android.view.View, spec: JString),
         static fn setContextMenuFn(v: android.view.View, token: jlong),
+        static fn setButtonMenu(v: android.view.View, token: jlong),
         static fn releaseContextMenu(v: android.view.View),
         static fn setDeferSystemGestures(on: jboolean),
         static fn setDocumentTabKeys(menu: android.view.View, keys: JString),
@@ -824,6 +828,7 @@ mod imp {
         static fn setStatusBarHidden(hidden: jboolean),
         static fn setSurface(v: android.view.View, argb: jint, has_bg: jboolean, radius_px: jfloat, clips: jboolean),
         static fn setTextField(v: android.view.View, value: JString),
+        static fn setTextFieldSelection(v: android.view.View, start: jint, end: jint),
         static fn setToggle(v: android.view.View, value: jboolean),
         static fn setTransform(v: android.view.View, tx: jfloat, ty: jfloat, sx: jfloat, sy: jfloat, rot: jfloat, dur_ms: jint, curve: jint),
         static fn setWindowSecure(node: jlong, on: jboolean),
@@ -853,6 +858,7 @@ mod imp {
             static fn nativeHandlesKeys(id: jlong) -> jboolean,
             static fn nativeHandlesText(id: jlong) -> jboolean,
             static fn nativeContextMenu(token: jlong, x: jfloat, y: jfloat) -> JString,
+            static fn nativeButtonMenu(token: jlong) -> JString,
             static fn nativeRunPosted(token: jlong),
             static fn nativeDoFrame(token: jlong, frame_time_nanos: jlong),
             static fn nativeListLen(host_id: jlong) -> jint,
@@ -987,6 +993,31 @@ mod imp {
                         y: y as f64 / density(),
                     });
                     serialize_menu(&items, &mut spec);
+                }
+                spec
+            });
+            env.new_string(spec)
+        }
+
+        fn nativeButtonMenu<'l>(
+            env: &mut Env<'l>,
+            _class: JClass<'l>,
+            token: i64,
+        ) -> Result<JString<'l>, Self::Error> {
+            let spec = day_spec::ffi_guard::contain(String::new(), || {
+                // Cloned before the call: the provider is app code and may release its button.
+                let provider = BUTTON_MENU_FNS.with(|menus| menus.get(token as usize));
+                let mut spec = String::new();
+                if let Some(provider) = provider {
+                    // The provider may remove its button; then no menu opens (docs/menus.md).
+                    let still = || {
+                        BUTTON_MENU_FNS
+                            .with(|menus| menus.get(token as usize))
+                            .is_some()
+                    };
+                    if let Some(items) = day_spec::resolve_button_menu(&provider, still) {
+                        serialize_menu(&items, &mut spec);
+                    }
                 }
                 spec
             });
@@ -4059,6 +4090,17 @@ mod imp {
                             TextFieldPatch::Enabled(e) => {
                                 bridge(|env| DayBridge::setEnabled(env, h.0.as_obj(), *e))
                             }
+                            TextFieldPatch::Select(sel) => {
+                                let at = |n: usize| n.min(i32::MAX as usize) as i32;
+                                bridge(|env| {
+                                    DayBridge::setTextFieldSelection(
+                                        env,
+                                        h.0.as_obj(),
+                                        at(sel.start),
+                                        at(sel.end),
+                                    )
+                                })
+                            }
                         }
                     }
                 }
@@ -4520,6 +4562,14 @@ mod imp {
             let key = h.0.as_obj().as_raw() as usize;
             CONTEXT_MENU_FNS.with(|menus| menus.insert(key, f));
             bridge(|env| DayBridge::setContextMenuFn(env, h.0.as_obj(), key as i64));
+        }
+
+        fn set_button_menu(&mut self, h: &AHandle, _node: NodeId, f: day_spec::ContextMenuFn) {
+            // The click opens a PopupMenu under the button (DayBridge.setButtonMenu), built from
+            // the spec the provider lowers at that moment, in place of the `Pressed` report.
+            let key = h.0.as_obj().as_raw() as usize;
+            BUTTON_MENU_FNS.with(|menus| menus.insert(key, f));
+            bridge(|env| DayBridge::setButtonMenu(env, h.0.as_obj(), key as i64));
         }
 
         fn set_context_menu(&mut self, h: &AHandle, _node: NodeId, items: &[day_spec::MenuItem]) {

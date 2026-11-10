@@ -96,6 +96,9 @@ unsafe extern "C" {
     fn day_dom_link(el: u32, owner: u32, p: *const u8, l: usize);
     fn day_dom_set_value(el: u32, v: f64);
     fn day_dom_set_checked(el: u32, on: u32);
+    /// Select characters (Unicode scalar values) `start..end` of a text field's `<input>`,
+    /// held to its value, caret at `end` (docs/textfield.md "Selection").
+    fn day_dom_field_select(el: u32, start: u32, end: u32);
     /// Text entry traits on a text field's `<input>` (docs/textfield.md): `json` is one object
     /// of attribute name to value, where an empty value removes the attribute and `type` is
     /// assigned as the property, keeping the caret. Any other element is left alone.
@@ -212,6 +215,10 @@ unsafe extern "C" {
     // The emulated app menu (docs/menus.md): the model crosses as one JSON document and the
     // shim docks a trailing menu button on the toolbar strip; an empty item list removes it.
     fn day_dom_app_menu(json: *const u8, len: usize);
+    /// Open (or, pressed again, close) a menu button's menu under the button `el` (docs/menus.md
+    /// "Menu buttons"): `json` is the item list a toolbar pull-down takes, shown by the same
+    /// popover.
+    fn day_dom_button_menu(el: u32, json: *const u8, len: usize);
     fn day_dom_navmenu_select(el: u32, idx: i32);
     fn day_dom_options(el: u32, json: *const u8, len: usize);
     fn day_dom_options_select(el: u32, idx: u32);
@@ -517,6 +524,10 @@ thread_local! {
     /// Elements the app gave an accessibility label (`set_a11y`), whose `aria-label` a button's
     /// title change must leave alone. A `SideTable`, so release sweeps it.
     static APP_NAMED: day_spec::sidetable::SideTable<()> = day_spec::sidetable::SideTable::new();
+    /// Menu button element → the provider its press opens (`set_button_menu`, docs/menus.md
+    /// "Menu buttons"). A `SideTable`, so release sweeps it.
+    static BUTTON_MENUS: day_spec::sidetable::SideTable<day_spec::ContextMenuFn> =
+        day_spec::sidetable::SideTable::new();
 }
 
 /// What a realized image was given, so a patch can rebuild its mask from the same URL and
@@ -2629,6 +2640,10 @@ impl Toolkit for Dom {
                         }
                         TextFieldPatch::Placeholder(t) => attr(el, "placeholder", t),
                         TextFieldPatch::Enabled(e) => set_enabled(el, *e),
+                        TextFieldPatch::Select(sel) => {
+                            let at = |n: usize| n.min(u32::MAX as usize) as u32;
+                            unsafe { day_dom_field_select(el, at(sel.start), at(sel.end)) }
+                        }
                     }
                 }
             }
@@ -3300,6 +3315,13 @@ impl Toolkit for Dom {
 
     fn set_app_menu(&mut self, items: &[MenuItem]) {
         install_app_menu(items);
+    }
+
+    fn set_button_menu(&mut self, h: &DomHandle, _node: NodeId, f: day_spec::ContextMenuFn) {
+        // The button's click already reaches `day_dom_event`, which opens the menu instead of
+        // reporting a press. Announce the popup the way the app menu's button does.
+        BUTTON_MENUS.with(|t| t.insert(h.0 as usize, f));
+        attr(h.0, "aria-haspopup", "menu");
     }
 
     fn set_context_menu(&mut self, h: &DomHandle, node: NodeId, _items: &[MenuItem]) {
@@ -5272,6 +5294,27 @@ pub extern "C" fn day_dom_event(el: u32, kind: u32, a: f64, b: f64, c: f64, d: f
     day_spec::ffi_guard::contain((), || day_dom_event_inner(el, kind, a, b, c, d));
 }
 
+/// A menu button's press (docs/menus.md "Menu buttons"): ask the provider now, so the entries
+/// are current, and hand them to the toolbar pull-down's popover under the button. Reduced to
+/// what the web can answer, as the app menu is. Called from the shim's click, outside any
+/// day-core borrow.
+fn open_button_menu(el: u32, f: &day_spec::ContextMenuFn) {
+    // The provider may remove this button; then no menu opens (docs/menus.md).
+    let Some(items) =
+        day_spec::resolve_button_menu(f, || BUTTON_MENUS.with(|t| t.get(el as usize)).is_some())
+    else {
+        return;
+    };
+    let items = web_menu_items(&items);
+    if items.is_empty() {
+        return;
+    }
+    let mut json = String::new();
+    menu_items_json(&mut json, &items);
+    // SAFETY: `json` outlives the call; the shim copies the string out before returning.
+    unsafe { day_dom_button_menu(el, json.as_ptr(), json.len()) };
+}
+
 fn day_dom_event_inner(el: u32, kind: u32, a: f64, b: f64, c: f64, d: f64) {
     if kind == ev::CLICK && CELL_ROWS.with(|m| m.borrow().contains_key(&el)) {
         if b != 2.0 {
@@ -5290,6 +5333,12 @@ fn day_dom_event_inner(el: u32, kind: u32, a: f64, b: f64, c: f64, d: f64) {
                 emit(node, Event::ListActivated(row));
             }
         }
+        return;
+    }
+    if kind == ev::CLICK
+        && let Some(f) = BUTTON_MENUS.with(|t| t.get(el as usize))
+    {
+        open_button_menu(el, &f);
         return;
     }
     let Some(node) = node_of(el) else { return };
@@ -5654,6 +5703,26 @@ pub extern "C" fn day_dom_canvas_key(el: u32, code: u32, modifiers: u32) -> u32 
             node,
             Event::Key(day_spec::KeyEvent::named(key, modifiers as u8)),
         );
+        1
+    })
+}
+
+/// A text field's Up, Down or Escape (docs/textfield.md "Keys"): `code` 0 is ArrowUp, 1
+/// ArrowDown, 2 Escape, `modifiers` the day mask. Returns whether the field claimed it, having
+/// reported it; the shim then keeps the browser from acting on the key.
+#[unsafe(no_mangle)]
+pub extern "C" fn day_dom_field_key(el: u32, code: u32, modifiers: u32) -> u32 {
+    day_spec::ffi_guard::contain(0, || {
+        let Some(&key) = day_spec::keys::FIELD_KEYS.get(code as usize) else {
+            return 0;
+        };
+        let Some(node) = node_of(el) else {
+            return 0;
+        };
+        if !day_spec::keys::field_claims(node, key, modifiers as u8) {
+            return 0;
+        }
+        emit(node, Event::Key(day_spec::KeyEvent::named(key, 0)));
         1
     })
 }

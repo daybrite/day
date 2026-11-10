@@ -155,6 +155,9 @@ Suppress it with [`.no_sidebar_toggle()`](https://docs.rs/day-pieces/latest/day_
 | [`toolbar_label(id, text)`](https://docs.rs/day-pieces/latest/day_pieces/fn.toolbar_label.html) | static text — a status or a caption |
 | [`toolbar_separator(id)`](https://docs.rs/day-pieces/latest/day_pieces/fn.toolbar_separator.html) | a divider between neighbors in the same placement bucket |
 
+A pull-down outside the window's toolbar, in a row of controls the app draws itself (a browser's
+address bar and its ⋯ button), is a [menu button](menus.md#menu-buttons) instead.
+
 There are no spacers. Alignment is [placement](#placement), which is a fact about what the command
 IS rather than about where it happens to sit in a list, and it survives a bar that has to fold.
 

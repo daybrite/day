@@ -1587,6 +1587,11 @@ pub trait Binding<T: 'static>: Clone + 'static {
     fn write_teardown(&self, v: T) {
         self.write_commit(v);
     }
+    /// Close an open preview session without recording it: the app wrote a value of its own over
+    /// what the gesture previewed (a text field's text replaced while being typed in), and that
+    /// write recorded its own change. The next preview starts a fresh session whose prior is
+    /// the app's value. Defaults to nothing: a plain signal keeps no session.
+    fn end_preview(&self) {}
 }
 
 impl<T: Clone + 'static> Binding<T> for Signal<T> {
@@ -1611,6 +1616,7 @@ trait ErasedBinding<T: 'static> {
     fn erased_write_preview(&self, v: T);
     fn erased_write_commit(&self, v: T);
     fn erased_write_teardown(&self, v: T);
+    fn erased_end_preview(&self);
 }
 
 impl<T: 'static, B: Binding<T>> ErasedBinding<T> for B {
@@ -1631,6 +1637,9 @@ impl<T: 'static, B: Binding<T>> ErasedBinding<T> for B {
     }
     fn erased_write_teardown(&self, v: T) {
         Binding::write_teardown(self, v)
+    }
+    fn erased_end_preview(&self) {
+        Binding::end_preview(self)
     }
 }
 
@@ -1721,6 +1730,9 @@ impl<T: 'static> Binding<T> for AnyBinding<T> {
     }
     fn write_teardown(&self, v: T) {
         self.inner().erased_write_teardown(v)
+    }
+    fn end_preview(&self) {
+        self.inner().erased_end_preview()
     }
 }
 

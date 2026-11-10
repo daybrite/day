@@ -226,6 +226,9 @@ day_core::tls_group! {
     /// View ptr → its summon-time context-menu provider (docs/menus.md). Swept on release
     /// via `day_spec::sidetable`.
     static CTX_MENU_FNS: SideTable<day_spec::ContextMenuFn> = SideTable::new();
+    /// Menu button ptr → the provider its press opens (`set_button_menu`, docs/menus.md "Menu
+    /// buttons"). Swept on release like `CTX_MENU_FNS`.
+    static BUTTON_MENUS: SideTable<day_spec::ContextMenuFn> = SideTable::new();
 
     /// NAV_MENU scroll-view ptr → (outline, data source) for patches and measure.
     static NAV_MENUS: RefCell<HashMap<usize, NavMenuEntry>> = RefCell::new(HashMap::new());
@@ -265,6 +268,39 @@ pub fn emit(id: NodeId, ev: Event) {
 
 fn ptr_of(v: &NSView) -> usize {
     (v as *const NSView).cast::<()>() as usize
+}
+
+/// Open a menu button's menu under it (docs/menus.md "Menu buttons"): asks the provider now, so
+/// the entries are the current ones, and pops the `NSMenu` from the button's bottom-leading
+/// corner, the place a pull-down `NSPopUpButton` puts its menu. The button stays highlighted
+/// while the menu tracks, as a pressed pull-down does. Guarded: the provider is app code.
+fn pop_button_menu(btn: &NSButton, f: &day_spec::ContextMenuFn) {
+    ffi_guard::contain((), || {
+        // The provider may remove this button; then no menu opens (docs/menus.md).
+        let key = ptr_of(btn);
+        let Some(items) =
+            day_spec::resolve_button_menu(f, || BUTTON_MENUS.with(|t| t.get(key)).is_some())
+        else {
+            return;
+        };
+        let menu = build_ns_menu(btn.mtm(), "", &items);
+        let bounds = btn.bounds();
+        let y = if btn.isFlipped() {
+            bounds.size.height + 2.0
+        } else {
+            -2.0
+        };
+        unsafe {
+            btn.highlight(true);
+            // Modal until the menu closes; a chosen item has queued its `MenuAction` by then.
+            menu.popUpMenuPositioningItem_atLocation_inView(
+                None,
+                objc2_foundation::NSPoint::new(0.0, y),
+                Some(btn),
+            );
+            btn.highlight(false);
+        }
+    });
 }
 
 /// An image view's rendering (`IMAGE_MODES`).
@@ -1189,6 +1225,12 @@ define_class!(
                     if slider_value_settled() {
                         emit(node, Event::ValueCommitted(value));
                     }
+                } else if let (Some(f), Some(btn)) = (
+                    BUTTON_MENUS.with(|t| t.get(ptr_of(sender))),
+                    sender.downcast_ref::<NSButton>(),
+                ) {
+                    // A menu button's press opens its menu rather than reporting a press.
+                    pop_button_menu(btn, &f);
                 } else {
                     emit(node, Event::Pressed);
                     // A push-on/push-off button toggled its state on the click; Day owns the
@@ -1231,6 +1273,37 @@ define_class!(
                     && let Ok(tf) = obj.downcast::<NSTextField>() {
                         emit(node, Event::TextChanged(unsafe { tf.stringValue() }.to_string()));
                     }
+            })
+        }
+
+        /// The field editor's commands for a text field with a key handler
+        /// (docs/textfield.md "Keys"): the plain arrows and Escape arrive as `moveUp:`,
+        /// `moveDown:` and `cancelOperation:`, which the field claims and reports as
+        /// `Event::Key`, so the caret stays put and Escape does not open the completion list.
+        /// Every other command, and these three on a field with no handler, is AppKit's.
+        #[unsafe(method(control:textView:doCommandBySelector:))]
+        fn control_do_command(
+            &self,
+            _control: &NSControl,
+            _tv: &NSTextView,
+            command: objc2::runtime::Sel,
+        ) -> objc2::runtime::Bool {
+            ffi_guard::contain(objc2::runtime::Bool::NO, || {
+                let node = self.ivars().node;
+                let key = if command == sel!(moveUp:) {
+                    "ArrowUp"
+                } else if command == sel!(moveDown:) {
+                    "ArrowDown"
+                } else if command == sel!(cancelOperation:) {
+                    "Escape"
+                } else {
+                    return objc2::runtime::Bool::NO;
+                };
+                if !day_spec::keys::field_claims(node, key, 0) {
+                    return objc2::runtime::Bool::NO;
+                }
+                emit(node, Event::Key(day_spec::KeyEvent::named(key, 0)));
+                objc2::runtime::Bool::YES
             })
         }
 
@@ -7554,6 +7627,40 @@ impl AppKit {
     }
 
     /// The `NSWindow` whose content container is `host`: a secondary window, or the primary.
+    /// What the main window's capture should show when the main window itself is hidden.
+    ///
+    /// Native document tabs (`group_windows`) move every document into its own window of an
+    /// `NSWindowTabGroup` and leave the primary window an off-screen host. A capture of that
+    /// host is an empty frame (or no frame at all), while the user sees the group's selected
+    /// tab: that window's content is the stand-in, preferring the group of the app's main
+    /// window. `None` while the primary window is on screen, or when no document window is.
+    fn shown_document_content(&self, content: &NSView) -> Option<Handle> {
+        if content.window().is_none_or(|w| w.isVisible()) {
+            return None;
+        }
+        let main = NSApplication::sharedApplication(self.mtm).mainWindow();
+        let anchor = main
+            .filter(|m| {
+                self.secondary
+                    .iter()
+                    .any(|w| std::ptr::eq(&*w.window, &**m))
+            })
+            .or_else(|| {
+                self.secondary
+                    .iter()
+                    .find(|w| w.window.isVisible())
+                    .map(|w| w.window.clone())
+            })?;
+        let shown = anchor
+            .tabGroup()
+            .and_then(|g| g.selectedWindow())
+            .unwrap_or(anchor);
+        self.secondary
+            .iter()
+            .find(|w| std::ptr::eq(&*w.window, &*shown) && w.window.isVisible())
+            .map(|w| w.content.clone())
+    }
+
     fn ns_window_for(&self, host: &Handle) -> Option<Retained<NSWindow>> {
         if let Some(w) = self
             .secondary
@@ -8886,29 +8993,33 @@ impl Toolkit for AppKit {
                 // detail pages as its items (`TabHost`).
                 let tabs = (presentation == NavPresentation::Tabs).then(|| {
                     let tv = unsafe { objc2_app_kit::NSTabView::new(mtm) };
+                    let documents = props
+                        .downcast_ref::<NavProps>()
+                        .is_some_and(|p| p.documents.is_some());
                     // Inset from the pane, the way a tab view sits in any Mac window: its
                     // tabs stand above the bezel, so flush to the top they run into the
                     // toolbar's edge, and flush to the sides the bezel hugs the sidebar. The
-                    // autoresizing mask keeps the margins as the pane resizes.
+                    // autoresizing mask keeps the margins as the pane resizes. A document host
+                    // draws no tabs and no bezel, so its pages fill the pane edge to edge.
+                    let (inset, inset_top) = if documents {
+                        (0.0, 0.0)
+                    } else {
+                        (NAV_TABVIEW_INSET, NAV_TABVIEW_INSET_TOP)
+                    };
                     let b = detail_wrap.bounds();
                     let frame = NSRect::new(
-                        NSPoint::new(NAV_TABVIEW_INSET, NAV_TABVIEW_INSET_TOP),
+                        NSPoint::new(inset, inset_top),
                         NSSize::new(
-                            (b.size.width - 2.0 * NAV_TABVIEW_INSET).max(0.0),
-                            (b.size.height - NAV_TABVIEW_INSET_TOP - NAV_TABVIEW_INSET).max(0.0),
+                            (b.size.width - 2.0 * inset).max(0.0),
+                            (b.size.height - inset_top - inset).max(0.0),
                         ),
                     );
                     unsafe {
-                        tv.setTabViewType(
-                            if props
-                                .downcast_ref::<NavProps>()
-                                .is_some_and(|p| p.documents.is_some())
-                            {
-                                objc2_app_kit::NSTabViewType::NoTabsNoBorder
-                            } else {
-                                objc2_app_kit::NSTabViewType::TopTabsBezelBorder
-                            },
-                        );
+                        tv.setTabViewType(if documents {
+                            objc2_app_kit::NSTabViewType::NoTabsNoBorder
+                        } else {
+                            objc2_app_kit::NSTabViewType::TopTabsBezelBorder
+                        });
                         tv.setFrame(frame);
                         tv.setAutoresizingMask(
                             objc2_app_kit::NSAutoresizingMaskOptions::ViewWidthSizable
@@ -10054,6 +10165,18 @@ impl Toolkit for AppKit {
                             tf.setPlaceholderString(Some(&NSString::from_str(t)))
                         },
                         TextFieldPatch::Enabled(e) => unsafe { tf.setEnabled(*e) },
+                        // A selection lives in the field editor, which a field has only while
+                        // it edits (docs/textfield.md "Selection"): an unfocused field has none
+                        // to set, and taking focus selects the whole text anyway.
+                        TextFieldPatch::Select(sel) => {
+                            if let Some(editor) = tf.currentEditor() {
+                                let (start, end) = sel.utf16(&editor.string().to_string());
+                                editor.setSelectedRange(objc2_foundation::NSRange::new(
+                                    start,
+                                    end - start,
+                                ));
+                            }
+                        }
                     }
                 }
             }
@@ -11220,6 +11343,17 @@ impl Toolkit for AppKit {
         CTX_MENU_FNS.with(|t| t.insert(ptr_of(h), f));
     }
 
+    fn set_button_menu(&mut self, h: &Handle, _node: NodeId, f: day_spec::ContextMenuFn) {
+        let Some(btn) = h.downcast_ref::<NSButton>() else {
+            return;
+        };
+        // A pull-down opens on the mouse going down, as `NSPopUpButton` does, so a press can
+        // drag straight onto an item and release there. Space and the accessibility press
+        // still arrive through `performClick:`, which sends the same action.
+        unsafe { btn.sendActionOn(objc2_app_kit::NSEventMask::LeftMouseDown) };
+        BUTTON_MENUS.with(|t| t.insert(ptr_of(h), f));
+    }
+
     fn enable_gesture(&mut self, h: &Handle, node: NodeId, kind: day_spec::GestureKind) {
         let key = ptr_of(h);
         // Pan is not a recognizer on macOS: the two-finger idiom is the trackpad SCROLL, so
@@ -11465,7 +11599,10 @@ impl Toolkit for AppKit {
 
     fn snapshot_window(&mut self) -> Result<Vec<u8>, String> {
         let content = self.content.as_ref().ok_or("no window content")?;
-        snapshot_view(content)
+        match self.shown_document_content(content) {
+            Some(shown) => snapshot_view(&shown),
+            None => snapshot_view(content),
+        }
     }
 
     /// Decode bytes into an `NSImage` (docs/images.md).
@@ -11752,7 +11889,10 @@ impl Toolkit for AppKit {
 
     fn snapshot_window_chrome(&mut self) -> Result<Vec<u8>, String> {
         let content = self.content.as_ref().ok_or("no window content")?;
-        snapshot_view_chrome(content)
+        match self.shown_document_content(content) {
+            Some(shown) => snapshot_view_chrome(&shown),
+            None => snapshot_view_chrome(content),
+        }
     }
 
     fn snapshot_window_of(&mut self, host: &Handle) -> Result<Vec<u8>, String> {

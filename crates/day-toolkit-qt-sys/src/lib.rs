@@ -214,6 +214,17 @@ unsafe extern "C" {
     ) -> *mut c_void;
     pub fn day_qt_lineedit_set_text(w: *mut c_void, text: *const c_char);
     pub fn day_qt_lineedit_set_placeholder(w: *mut c_void, text: *const c_char);
+    /// Hand Up, Down and Escape to `cb(node, name, modifiers, deliver)` before the line edit
+    /// sees them (docs/textfield.md "Keys"); a nonzero answer claims the key. `deliver` is 0
+    /// for Qt's shortcut-override question, 1 for the press itself.
+    pub fn day_qt_lineedit_enable_field_keys(
+        w: *mut c_void,
+        node: u64,
+        cb: extern "C" fn(u64, *const c_char, c_int, c_int) -> c_int,
+    );
+    /// Select characters (Unicode scalar values) `start..end`, held to the text, caret at
+    /// `end`. No-op on a widget that is not a QLineEdit.
+    pub fn day_qt_lineedit_select(w: *mut c_void, start: c_int, end: c_int);
     /// How a line edit takes its text (`Toolkit::set_input_traits`): password echo, read-only,
     /// and the input-method hints for `purpose` (0 text, 1 name, 2 email, 3 url, 4 phone,
     /// 5 number, 6 decimal, 7 username, 8 password, 9 new password, 10 one-time code). Every
@@ -715,6 +726,14 @@ unsafe extern "C" {
     pub fn day_qt_context_menu_fn(
         widget: *mut c_void,
         node: u64,
+        cb: extern "C" fn(u64, c_double, c_double) -> *mut c_void,
+    );
+    /// Menu buttons (docs/menus.md "Menu buttons"): the QPushButton `widget`'s click calls
+    /// `cb(key, 0, 0)` for a fresh QMenu* (null = show nothing this time) and pops it under the
+    /// button instead of reporting the press.
+    pub fn day_qt_button_menu_fn(
+        widget: *mut c_void,
+        key: u64,
         cb: extern "C" fn(u64, c_double, c_double) -> *mut c_void,
     );
     /// The modifier keys held right now (docs/menus.md): shift 1, primary 2, alt 4. A query,

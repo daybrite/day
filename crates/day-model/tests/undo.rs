@@ -407,3 +407,45 @@ fn a_move_and_a_delete_undo_to_their_original_rows() {
     assert_eq!(store.keys(), vec![3, 1, 2]);
     assert_eq!(store.elem(1).name().peek(), "one");
 }
+
+/// An app write over an open preview session (a text field's text replaced while typing) ends
+/// the session without a record: the app's write records itself, and the next gesture's undo
+/// returns to the app's value rather than to the text from before the typing.
+#[test]
+fn ending_a_preview_session_starts_the_next_from_the_current_value() {
+    let store = store();
+    let stack = stack_over(store);
+    let field = store.elem(1).name();
+
+    field.write_preview("ty".to_string());
+    field.write_preview("typed".to_string());
+    day_reactive::flush_sync();
+    field.write("replacement".to_string());
+    field.end_preview();
+    day_reactive::flush_sync();
+
+    field.write_preview("next".to_string());
+    field.write_commit("next".to_string());
+    day_reactive::flush_sync();
+
+    assert!(stack.undo());
+    assert_eq!(field.peek(), "replacement");
+    assert!(stack.undo());
+    assert_eq!(field.peek(), "typed");
+    assert!(
+        !stack.undo(),
+        "the abandoned preview left no record of its own"
+    );
+}
+
+#[test]
+fn ending_without_a_session_does_nothing() {
+    let store = store();
+    let stack = stack_over(store);
+    let field = store.elem(2).count();
+    field.end_preview();
+    field.write_commit(21);
+    day_reactive::flush_sync();
+    assert!(stack.undo());
+    assert_eq!(field.peek(), 20);
+}

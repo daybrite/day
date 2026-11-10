@@ -215,6 +215,9 @@ pub struct MockWidget {
     pub node: u64,
     pub text: String,
     pub placeholder: String,
+    /// A text field's last requested selection (`TextFieldPatch::Select`), in characters,
+    /// probe-visible for tests. The mock has no focus to gate it on, so it keeps every request.
+    pub selection: Option<day_spec::props::TextSelection>,
     pub value: f64,
     pub flag: bool,
     /// A cover presented as a half sheet (`CoverProps::half`): its present reports half the
@@ -368,6 +371,9 @@ pub struct MockState {
     pub context_menus: HashMap<u64, Vec<String>>,
     /// Summon-time menus, callable after releasing the probe's state borrow.
     pub context_menu_providers: HashMap<u64, day_spec::ContextMenuFn>,
+    /// Menu buttons' providers by button handle (`set_button_menu`, docs/menus.md "Menu
+    /// buttons"), callable after releasing the probe's state borrow, as a press would.
+    pub button_menus: HashMap<u64, day_spec::ContextMenuFn>,
     /// Secondary windows (docs/windows.md), in open order, probe-visible.
     pub windows: Vec<MockWindow>,
     /// `open_window` answers `Unsupported` (the cover-fallback test harness).
@@ -858,6 +864,17 @@ impl MockProbe {
             Some(sink) => sink(node, event),
             None => panic!("day-mock: no event sink installed"),
         }
+    }
+
+    /// Press the menu button with handle `button` as a toolkit does (docs/menus.md "Menu
+    /// buttons"): ask its provider, then answer the items the toolkit would show, or `None`
+    /// when the menu is empty or the provider removed the button
+    /// ([`day_spec::resolve_button_menu`]). The state borrow is released while app code runs.
+    pub fn press_menu_button(&self, button: u64) -> Option<Vec<day_spec::MenuItem>> {
+        let provider = self.state.borrow().button_menus.get(&button).cloned()?;
+        day_spec::resolve_button_menu(&provider, || {
+            self.state.borrow().button_menus.contains_key(&button)
+        })
     }
 
     // --- secondary windows (docs/windows.md) -------------------------------------------
@@ -1529,6 +1546,11 @@ impl Toolkit for MockToolkit {
                         w.enabled = *e;
                         format!("enabled={e}")
                     }
+                    TextFieldPatch::Select(r) => {
+                        let r = r.clamped(&w.text);
+                        w.selection = Some(r);
+                        format!("select={}..{}", r.start, r.end)
+                    }
                 }
             } else if let Some(p) = patch.downcast_ref::<CanvasProps>() {
                 w.ops = p.ops.clone();
@@ -1745,6 +1767,7 @@ impl Toolkit for MockToolkit {
         let mut s = self.state.borrow_mut();
         s.widgets.remove(&h.0);
         s.context_menu_providers.remove(&h.0);
+        s.button_menus.remove(&h.0);
         s.log(format!("release #{}", h.0));
     }
 
@@ -2649,6 +2672,12 @@ impl Toolkit for MockToolkit {
             .borrow_mut()
             .context_menu_providers
             .insert(h.0, f);
+    }
+
+    fn set_button_menu(&mut self, h: &MockHandle, _node: NodeId, f: day_spec::ContextMenuFn) {
+        let mut s = self.state.borrow_mut();
+        s.button_menus.insert(h.0, f);
+        s.log(format!("set_button_menu #{}", h.0));
     }
 
     fn supports_lifecycle(&self, _phase: day_spec::Lifecycle) -> bool {

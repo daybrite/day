@@ -191,6 +191,9 @@ day_core::tls_group! {
     /// Widget key → its summon-time context-menu provider (docs/menus.md).
     static CTX_MENU_FNS: RefCell<HashMap<usize, day_spec::ContextMenuFn>> =
         RefCell::new(HashMap::new());
+    /// Menu button widget key → the provider its press opens (`set_button_menu`, docs/menus.md
+    /// "Menu buttons"). Swept on release.
+    static BUTTON_MENUS: SideTable<day_spec::ContextMenuFn> = SideTable::new();
     /// Widgets that already carry the summon gesture (attach once; providers replace).
     static CTX_MENU_WIRED: RefCell<std::collections::HashSet<usize>> =
         RefCell::new(std::collections::HashSet::new());
@@ -1143,6 +1146,12 @@ fn sheet_escape() -> gtk4::EventControllerKey {
         })
     });
     keys
+}
+
+thread_local! {
+    /// A text field's text being written by Day (`TextFieldPatch::Text`): its `changed`
+    /// handler stays quiet, so the write is not reported back as typing (§4.4).
+    static FIELD_WRITE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
 fn key_name(key: gtk4::gdk::Key, state: gtk4::gdk::ModifierType) -> Option<&'static str> {
@@ -4028,19 +4037,47 @@ fn tree_entry(key: usize) -> Option<Rc<TreeEntry>> {
 
 /// Show `items` as a one-summon popover anchored at `(x, y)` on `w` — built fresh per
 /// summon (docs/menus.md "Dynamic context menus") and unparented once it closes.
-fn show_menu_popover(w: &Handle, items: &[day_spec::MenuItem], x: f64, y: f64) {
+/// Open a menu button's menu (docs/menus.md "Menu buttons"): asks the provider now, so the
+/// entries are the current ones, and shows the same `PopoverMenu` a context menu gets, pointing
+/// at the whole button from below, the way `GtkMenuButton` places its popover.
+fn pop_button_menu(w: &Handle, f: &day_spec::ContextMenuFn) {
+    // The provider may remove this button; then no menu opens (docs/menus.md).
+    let key = widget_key(w);
+    let Some(items) =
+        day_spec::resolve_button_menu(f, || BUTTON_MENUS.with(|t| t.get(key)).is_some())
+    else {
+        return;
+    };
+    let popover = menu_popover(w, &items);
+    popover.set_position(gtk4::PositionType::Bottom);
+    popover.set_pointing_to(Some(&gtk4::gdk::Rectangle::new(
+        0,
+        0,
+        w.width(),
+        w.height(),
+    )));
+    popover.popup();
+}
+
+/// A one-shot `PopoverMenu` for `items`, parented to `w` and unparented once it closes.
+fn menu_popover(w: &Handle, items: &[day_spec::MenuItem]) -> gtk4::PopoverMenu {
     let group = gtk4::gio::SimpleActionGroup::new();
     let model = build_gio_menu(items, &group);
     w.insert_action_group("daymenu", Some(&group));
     let popover = gtk4::PopoverMenu::from_model(Some(&model));
     popover.set_parent(w);
     popover.set_has_arrow(false);
-    popover.set_pointing_to(Some(&gtk4::gdk::Rectangle::new(x as i32, y as i32, 1, 1)));
     popover.connect_closed(|pop| {
         // Unparent outside the close handler — GTK is still walking the popover's state.
         let pop = pop.clone();
         gtk4::glib::idle_add_local_once(move || pop.unparent());
     });
+    popover
+}
+
+fn show_menu_popover(w: &Handle, items: &[day_spec::MenuItem], x: f64, y: f64) {
+    let popover = menu_popover(w, items);
+    popover.set_pointing_to(Some(&gtk4::gdk::Rectangle::new(x as i32, y as i32, 1, 1)));
     popover.popup();
 }
 
@@ -6108,7 +6145,16 @@ impl Toolkit for Gtk {
                 }
                 btn.set_sensitive(p.enabled);
                 set_button_selected(&btn, p.selected);
-                btn.connect_clicked(move |_| ffi_guard::contain((), || emit(id, Event::Pressed)));
+                btn.connect_clicked(move |b| {
+                    ffi_guard::contain((), || {
+                        // A menu button's press opens its menu rather than reporting a press.
+                        let key = widget_key(b.upcast_ref());
+                        match BUTTON_MENUS.with(|t| t.get(key)) {
+                            Some(f) => pop_button_menu(b.upcast_ref(), &f),
+                            None => emit(id, Event::Pressed),
+                        }
+                    })
+                });
                 wire_focus(&btn, id);
                 btn.upcast()
             }
@@ -6173,11 +6219,36 @@ impl Toolkit for Gtk {
                 entry.set_text(&p.text);
                 entry.set_placeholder_text(Some(&p.placeholder));
                 entry.connect_changed(move |e| {
+                    if FIELD_WRITE.with(std::cell::Cell::get) {
+                        return;
+                    }
                     ffi_guard::contain((), || emit(id, Event::TextChanged(e.text().to_string())))
                 });
                 entry.connect_activate(move |_| {
                     ffi_guard::contain((), || emit(id, Event::Submitted))
                 });
+                // The keys a field with a key handler claims (docs/textfield.md "Keys"), heard
+                // in the capture phase so the inner GtkText never acts on them: Up and Down
+                // would otherwise move focus to the neighboring widget.
+                let keys = gtk4::EventControllerKey::new();
+                keys.set_propagation_phase(gtk4::PropagationPhase::Capture);
+                keys.connect_key_pressed(move |_, key, _, state| {
+                    ffi_guard::contain(gtk4::glib::Propagation::Proceed, || {
+                        use gtk4::gdk::Key;
+                        let name = match key {
+                            Key::Up | Key::KP_Up => "ArrowUp",
+                            Key::Down | Key::KP_Down => "ArrowDown",
+                            Key::Escape => "Escape",
+                            _ => return gtk4::glib::Propagation::Proceed,
+                        };
+                        if !day_spec::keys::field_claims(id, name, key_modifiers(state)) {
+                            return gtk4::glib::Propagation::Proceed;
+                        }
+                        emit(id, Event::Key(day_spec::KeyEvent::named(name, 0)));
+                        gtk4::glib::Propagation::Stop
+                    })
+                });
+                entry.add_controller(keys);
                 wire_focus(&entry, id);
                 entry.upcast()
             }
@@ -7486,11 +7557,22 @@ impl Toolkit for Gtk {
                     match p {
                         TextFieldPatch::Text { text, from_native } => {
                             if !*from_native && entry.text() != text.as_str() {
+                                // Day's own write, not typing: `set_text` emits `changed` for
+                                // the deletion and again for the insertion, and reporting those
+                                // would hand the app back an empty field and then its own text.
+                                FIELD_WRITE.with(|w| w.set(true));
                                 entry.set_text(text);
+                                FIELD_WRITE.with(|w| w.set(false));
                             }
                         }
                         TextFieldPatch::Placeholder(t) => entry.set_placeholder_text(Some(t)),
                         TextFieldPatch::Enabled(e) => entry.set_sensitive(*e),
+                        // GtkEditable counts characters, Day's unit. An unfocused entry keeps
+                        // the selection, though a keyboard focus-in selects everything.
+                        TextFieldPatch::Select(sel) => {
+                            let sel = sel.clamped(&entry.text());
+                            entry.select_region(sel.start as i32, sel.end as i32);
+                        }
                     }
                 }
             }
@@ -8840,6 +8922,16 @@ impl Toolkit for Gtk {
         };
         attach(h, Some(3));
         attach(h, None);
+    }
+
+    fn set_button_menu(&mut self, h: &Handle, _node: NodeId, f: day_spec::ContextMenuFn) {
+        // Consulted by the button's `clicked` handler (realize), which covers the pointer,
+        // Space/Enter and the accessibility activate alike.
+        if h.downcast_ref::<gtk4::Button>().is_some() {
+            BUTTON_MENUS.with(|t| t.insert(widget_key(h), f));
+            // Announce it as a menu button: assistive technology says it opens a menu.
+            h.update_property(&[gtk4::accessible::Property::HasPopup(true)]);
+        }
     }
 
     fn set_context_menu(&mut self, h: &Handle, _node: NodeId, items: &[day_spec::MenuItem]) {

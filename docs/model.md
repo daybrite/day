@@ -265,8 +265,10 @@ Two consumers of the change log live here rather than in persistence, because ne
 database. **Sessions** are the write-side of `ValueChanged`/`ValueCommitted`:
 [`field.write_preview(v)`](https://docs.rs/day-model/latest/day_model/struct.Field.html#method.write_preview) updates the value and wakes this field's readers but records nothing;
 [`field.write_commit(v)`](https://docs.rs/day-model/latest/day_model/struct.Field.html#method.write_commit) seals the gesture as one record whose prior is the pre-session value;
-[`field.session()`](https://docs.rs/day-model/latest/day_model/struct.Field.html#method.session) adds [`cancel()`](https://docs.rs/day-model/latest/day_model/struct.FieldSession.html#method.cancel) (Escape restores, zero records). Bound controls drive the
-pair automatically. **[`UndoStack::new(levels)`](https://docs.rs/day-model/latest/day_model/struct.UndoStack.html#method.new)** + [`stack.watch(store)`](https://docs.rs/day-model/latest/day_model/struct.UndoStack.html#method.watch) turns the same log into
+[`field.session()`](https://docs.rs/day-model/latest/day_model/struct.Field.html#method.session) adds [`cancel()`](https://docs.rs/day-model/latest/day_model/struct.FieldSession.html#method.cancel) (Escape restores, zero records);
+[`field.end_preview()`](https://docs.rs/day-model/latest/day_model/struct.Field.html#method.end_preview) closes an open session without a record when an app write has replaced
+what it previewed (a text field's text set while the user types), so the next gesture's prior
+is the app's value. Bound controls drive all three automatically. **[`UndoStack::new(levels)`](https://docs.rs/day-model/latest/day_model/struct.UndoStack.html#method.new)** + [`stack.watch(store)`](https://docs.rs/day-model/latest/day_model/struct.UndoStack.html#method.watch) turns the same log into
 history: units are turns, inversion comes from the captured prior values (a `Delete` carries
 its row and index, so undo puts it back where it was; a `Move` its two indexes, so a reorder
 undoes too), the menu names each unit through [`set_label_resolver`](https://docs.rs/day-model/latest/day_model/struct.UndoStack.html#method.set_label_resolver) (the starter maps labels to

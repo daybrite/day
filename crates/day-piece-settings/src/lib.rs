@@ -939,6 +939,7 @@ impl Preferences {
         let presentation = presentation.unwrap_or_else(default_presentation);
         let title = title.unwrap_or_else(|| TextSource::Dyn(Rc::new(platform_word)));
         let installed = Rc::new(Installed {
+            in_nav: Default::default(),
             about,
             groups,
             presentation,
@@ -998,6 +999,9 @@ struct Installed {
     selected: Signal<String>,
     /// The pushed path in the navigation presentation.
     path: Signal<Vec<SettingsRoute>>,
+    /// The app placed the navigation presentation in its own navigation (a nav item or an
+    /// embedded page), which then owns the `settings` route.
+    in_nav: std::cell::Cell<bool>,
 }
 
 impl Installed {
@@ -1063,6 +1067,7 @@ impl Prefs {
     /// The Settings entry on every platform, menu or not: for an app that wants Settings in
     /// its sidebar on the desktop too. Most apps want [`nav_item`](Self::nav_item).
     pub fn nav_item_everywhere<K>(&self, key: impl Into<K>) -> NavItem<K> {
+        self.0.in_nav.set(true);
         let title = self.0.title.clone();
         let inst = self.0.clone();
         item(key, move || title.initial()).page(move || navigation_shell(inst.clone()))
@@ -1070,6 +1075,7 @@ impl Prefs {
     /// The navigation presentation as a piece: the destination of the nav item, or any place
     /// the app embeds settings.
     pub fn page(&self) -> AnyPiece {
+        self.0.in_nav.set(true);
         navigation_shell(self.0.clone())
     }
     /// One group's page alone (an in-reader sheet, a sidebar pane).
@@ -1140,7 +1146,12 @@ pub const NAV_KEY: &str = "settings";
 /// no [`Prefs`] handle at hand. An empty piece before [`Preferences::install`].
 pub fn page() -> AnyPiece {
     match installed() {
-        Some(inst) => navigation_shell(inst),
+        Some(inst) => {
+            // The app is placing Settings in its own navigation, which then owns the
+            // `settings` route (the phone cover controller stands aside).
+            inst.in_nav.set(true);
+            navigation_shell(inst)
+        }
         None => column(()).any(),
     }
 }
@@ -1204,6 +1215,7 @@ fn register_route_controller(inst: Rc<Installed>) {
     // here too (the starter's `navigate: settings` step runs on every target).
     let menu = day_core::capability(Cap::AppMenu) != Support::Unsupported;
     if inst.presentation != Presentation::Window && !menu {
+        register_cover_route_controller(inst);
         return;
     }
     let open_surface = day_core::open_preferences;
@@ -1245,6 +1257,50 @@ fn register_route_controller(inst: Rc<Installed>) {
         depth: 0,
         layer: Box::new(|| 0),
         active: Box::new(|| true),
+    });
+}
+
+/// The routes for a phone app with no nav host: `navigate("settings/search")` and a deep link
+/// present the Settings cover on that group, as [`open_at`] does. A fallback
+/// ([`day_core::register_nav_fallback`]): consulted only when no mounted surface accepts the
+/// route, so an app with a `settings` section of its own (built yet or not: a sidebar builds a
+/// page on its first visit) selects that section, whose Settings stack then takes the group.
+/// It also stands aside once the app has mounted Settings anywhere in its own navigation
+/// ([`Prefs::nav_item`], [`Prefs::page`], [`page`]).
+fn register_cover_route_controller(inst: Rc<Installed>) {
+    let root = inst.clone();
+    let active = inst.clone();
+    let enter = inst;
+    let _token = day_core::register_nav_fallback(day_core::NavController {
+        push: Box::new(move |route| {
+            if route == NAV_KEY {
+                open_cover(root.clone())
+            } else if route == "about" {
+                day_core::open_about()
+            } else if root.group(route).is_some() {
+                open_cover(root.clone());
+                root.path.set(vec![SettingsRoute::Group(route.to_string())]);
+                true
+            } else {
+                false
+            }
+        }),
+        pop: Box::new(|_| false),
+        current: Box::new(String::new),
+        // The rest of `settings/<group>` once `push` has opened the cover.
+        enter: Box::new(move |segment| {
+            if enter.group(segment).is_none() {
+                return false;
+            }
+            enter
+                .path
+                .set(vec![SettingsRoute::Group(segment.to_string())]);
+            true
+        }),
+        segments: Box::new(Vec::new),
+        depth: 0,
+        layer: Box::new(|| 0),
+        active: Box::new(move || !active.in_nav.get()),
     });
 }
 
@@ -2531,6 +2587,7 @@ pub mod conformance {
             .proves("day-piece-settings.row")
             .page(|| {
                 let inst = Rc::new(Installed {
+                    in_nav: Default::default(),
                     about: None,
                     groups: Vec::new(),
                     presentation: Presentation::Window,
@@ -2610,6 +2667,7 @@ pub mod conformance {
             .page(move || {
                 install_store(SharedTestStore(page_store.clone()));
                 let inst = Rc::new(Installed {
+                    in_nav: Default::default(),
                     about: None,
                     groups: vec![Group::new("general", "General").row(appearance_row())],
                     presentation: Presentation::Window,
@@ -2648,6 +2706,7 @@ pub mod conformance {
             .page(move || {
                 install_store(SharedTestStore(page_store.clone()));
                 let inst = Rc::new(Installed {
+                    in_nav: Default::default(),
                     about: None,
                     groups: vec![
                         Group::new("sound", "Sound")
@@ -2699,6 +2758,7 @@ pub mod conformance {
         Case::new()
             .page(move || {
                 let inst = Rc::new(Installed {
+                    in_nav: Default::default(),
                     about: None,
                     groups: vec![
                         Group::new("counts", "Counts")

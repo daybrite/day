@@ -2035,6 +2035,9 @@ impl<S: Source<T>, T: 'static, V: Clone + Default + 'static> Binding<V> for Fiel
     fn write_commit(&self, v: V) {
         Field::write_commit(*self, v);
     }
+    fn end_preview(&self) {
+        Field::end_preview(*self);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -2106,6 +2109,11 @@ impl<F: Source<V>, V: Clone + Default + 'static, U: Clone + 'static> Binding<U>
             notify_change(inner.path(), Vec::new, self.label, Op::Set, None, None);
         }
         PREVIEW_WRITE.with(|f| f.set(false));
+    }
+    fn end_preview(&self) {
+        let mut parts = Vec::new();
+        self.inner.components(&mut parts);
+        PREVIEWS.with(|p| p.borrow_mut().remove(&parts));
     }
     fn write_commit(&self, u: U) {
         let inner = self.inner;
@@ -2249,6 +2257,16 @@ impl<S: Source<T>, T: 'static, V: Clone + Default + 'static> Field<S, T, V> {
                 );
             }
         }
+    }
+
+    /// Close an open preview session without a record (`Binding::end_preview`): an app write
+    /// replaced what the gesture previewed and recorded its own change, so the session's
+    /// pre-gesture value no longer describes the field. The next preview captures the current
+    /// value as its prior. Without an open session this does nothing.
+    pub fn end_preview(self) {
+        let mut parts = Vec::new();
+        Source::<V>::components(self, &mut parts);
+        PREVIEWS.with(|p| p.borrow_mut().remove(&parts));
     }
 
     /// The explicit session handle, for custom pieces and programmatic gestures; bindings

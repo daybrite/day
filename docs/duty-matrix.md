@@ -50,6 +50,7 @@ implement them, and this table proves it.
 | [`set_context_menu_fn`](https://docs.rs/day-spec/latest/day_spec/trait.Toolkit.html#method.set_context_menu_fn) | · | ✓ | ✓ | ✓ | ✓ | · | ✓ | · | ✓ | ✓ |
 | [`set_app_menu`](https://docs.rs/day-spec/latest/day_spec/trait.Toolkit.html#method.set_app_menu) | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · | ✓ | ✓ |
 | [`set_context_menu`](https://docs.rs/day-spec/latest/day_spec/trait.Toolkit.html#method.set_context_menu) | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · | ✓ | ✓ |
+| [`set_button_menu`](https://docs.rs/day-spec/latest/day_spec/trait.Toolkit.html#method.set_button_menu) | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | [`edit_toolbar`](https://docs.rs/day-spec/latest/day_spec/trait.Toolkit.html#method.edit_toolbar) | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | [`update_toolbar`](https://docs.rs/day-spec/latest/day_spec/trait.Toolkit.html#method.update_toolbar) | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | [`supports_lifecycle`](https://docs.rs/day-spec/latest/day_spec/trait.Toolkit.html#method.supports_lifecycle) | · | · | ✓ | · | · | · | ✓ | ✓ | ✓ | ✓ |

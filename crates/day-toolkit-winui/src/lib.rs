@@ -307,6 +307,64 @@ fn nav_page_content_host(host_id: u64, page: NodeId) -> Option<*mut c_void> {
 }
 
 #[cfg(test)]
+mod button_menu_tests {
+    use super::*;
+
+    fn item() -> day_spec::MenuItem {
+        day_spec::MenuItem::Action {
+            id: None,
+            action: 1,
+            label: "Open".into(),
+            shortcut: None,
+            enabled: true,
+            checked: None,
+            role: None,
+            icon: None,
+        }
+    }
+
+    /// A provider that removes its own button (as `release` does when the app's signal write
+    /// rebuilds the tree) still answers items; the press must not hand the freed element on.
+    #[test]
+    fn a_provider_that_releases_its_button_opens_nothing() {
+        let (node, button) = (41_u64, 0x1000_usize);
+        let provider: day_spec::ContextMenuFn = Rc::new(move |_| {
+            BUTTON_MENUS.with(|m| m.borrow_mut().retain(|_, (b, _)| *b != button));
+            vec![item()]
+        });
+        BUTTON_MENUS.with(|m| m.borrow_mut().insert(node, (button, provider)));
+        assert_eq!(button_menu_for(node), ButtonMenu::Nothing);
+        assert_eq!(button_menu_for(node), ButtonMenu::NotAMenuButton);
+    }
+
+    /// A provider that releases its button while another button takes the same node id does
+    /// not open the menu on the replacement either: the handle must match too.
+    #[test]
+    fn a_replaced_button_is_not_the_pressed_one() {
+        let node = 42_u64;
+        let provider: day_spec::ContextMenuFn = Rc::new(move |_| {
+            let replacement: day_spec::ContextMenuFn = Rc::new(|_| Vec::new());
+            BUTTON_MENUS.with(|m| m.borrow_mut().insert(node, (0x2000, replacement)));
+            vec![item()]
+        });
+        BUTTON_MENUS.with(|m| m.borrow_mut().insert(node, (0x1000, provider)));
+        assert_eq!(button_menu_for(node), ButtonMenu::Nothing);
+        BUTTON_MENUS.with(|m| m.borrow_mut().remove(&node));
+    }
+
+    #[test]
+    fn a_live_button_shows_its_menu() {
+        let node = 43_u64;
+        let provider: day_spec::ContextMenuFn = Rc::new(|_| vec![item()]);
+        BUTTON_MENUS.with(|m| m.borrow_mut().insert(node, (0x3000, provider)));
+        assert!(
+            matches!(button_menu_for(node), ButtonMenu::Show(0x3000, items) if items.len() == 1)
+        );
+        BUTTON_MENUS.with(|m| m.borrow_mut().remove(&node));
+    }
+}
+
+#[cfg(test)]
 mod deferred_nav_size_tests {
     use super::*;
 
@@ -628,8 +686,60 @@ extern "C" fn on_link(id: u64, url: *const c_char) {
     });
 }
 
+thread_local! {
+    /// Menu buttons (`set_button_menu`, docs/menus.md "Menu buttons"): node → (button handle,
+    /// provider). The click reports only the node, and the flyout needs the element to anchor
+    /// to. Entries leave with their button in `release`.
+    static BUTTON_MENUS: RefCell<HashMap<u64, (usize, day_spec::ContextMenuFn)>> =
+        RefCell::new(HashMap::new());
+}
+
+/// What a press on node `id` does when it may be a menu button.
+#[derive(Debug, PartialEq)]
+enum ButtonMenu {
+    /// No menu is registered: an ordinary press.
+    NotAMenuButton,
+    /// A menu button whose menu is empty, or whose provider released the button.
+    Nothing,
+    /// Show these items under this (still registered) button element.
+    Show(usize, Vec<day_spec::MenuItem>),
+}
+
+/// Ask the provider for node `id`'s menu. The provider is app code: a signal it writes can
+/// rebuild the tree synchronously, and `release` then drops this button's entry and the shim
+/// frees the element. The registry is read again after the provider returns, and only a button
+/// that is still the one registered for `id` is handed back (`day_spec::resolve_button_menu`).
+fn button_menu_for(id: u64) -> ButtonMenu {
+    let Some((button, f)) = BUTTON_MENUS.with(|m| m.borrow().get(&id).cloned()) else {
+        return ButtonMenu::NotAMenuButton;
+    };
+    let still_registered =
+        || BUTTON_MENUS.with(|m| m.borrow().get(&id).is_some_and(|(b, _)| *b == button));
+    match day_spec::resolve_button_menu(&f, still_registered) {
+        Some(items) => ButtonMenu::Show(button, items),
+        None => ButtonMenu::Nothing,
+    }
+}
+
 extern "C" fn on_press(id: u64) {
-    ffi_guard::contain((), || emit(NodeId(id), Event::Pressed));
+    ffi_guard::contain((), || {
+        // A menu button's click opens its menu instead of reporting a press. The provider is
+        // app code; XAML's Click runs from the message loop, outside any day-core borrow.
+        match button_menu_for(id) {
+            ButtonMenu::NotAMenuButton => emit(NodeId(id), Event::Pressed),
+            ButtonMenu::Nothing => {}
+            ButtonMenu::Show(button, items) => {
+                let mut spec = String::new();
+                serialize_menu_xaml(&items, &mut spec);
+                // SAFETY: `button_menu_for` re-read the registry after the provider (app code)
+                // returned, and `release` drops a button's entry before the shim frees the
+                // element, so `button` is still the live element registered for this node.
+                unsafe {
+                    ffi::day_xaml_show_button_menu(button as *mut c_void, cstr(&spec).as_ptr())
+                };
+            }
+        }
+    });
 }
 extern "C" fn on_toggle(id: u64, on: c_int) {
     ffi_guard::contain((), || emit(NodeId(id), Event::ToggleChanged(on != 0)));
@@ -686,6 +796,24 @@ extern "C" fn on_key(id: u64, key: *const c_char, text: *const c_char, modifiers
         };
         emit(NodeId(id), Event::Key(event));
     });
+}
+
+/// A text field's Up, Down or Escape (docs/textfield.md "Keys"): reported, and claimed, when
+/// the field has a key handler and no modifier is held.
+extern "C" fn on_field_key(id: u64, name: *const c_char, modifiers: c_int) -> c_int {
+    ffi_guard::contain(0, || {
+        if name.is_null() {
+            return 0;
+        }
+        // SAFETY: the shim passes one of its own NUL-terminated literals.
+        let name = unsafe { CStr::from_ptr(name) }.to_string_lossy();
+        let node = NodeId(id);
+        if !day_spec::keys::field_claims(node, &name, modifiers as u8) {
+            return 0;
+        }
+        emit(node, Event::Key(day_spec::KeyEvent::named(name, 0)));
+        1
+    })
 }
 
 /// Focus callback from the shim (docs/focus.md). kind: 0 = lost, 1 = gained, 2 = submitted.
@@ -1798,6 +1926,7 @@ impl Toolkit for Xaml {
                     let Some(p) = props_of::<TextFieldProps>(kind, "xaml", props) else {
                         return placeholder_handle(kind);
                     };
+                    ffi::day_xaml_set_field_keys(on_field_key);
                     let h = ffi::day_xaml_textbox_new(
                         cstr(&p.text).as_ptr(),
                         cstr(&p.placeholder).as_ptr(),
@@ -2314,6 +2443,10 @@ impl Toolkit for Xaml {
                             TextFieldPatch::Enabled(e) => {
                                 ffi::day_xaml_set_enabled(h.0, *e as c_int)
                             }
+                            TextFieldPatch::Select(sel) => {
+                                let at = |n: usize| n.min(c_int::MAX as usize) as c_int;
+                                ffi::day_xaml_textbox_select(h.0, at(sel.start), at(sel.end));
+                            }
                         }
                     }
                 }
@@ -2359,6 +2492,7 @@ impl Toolkit for Xaml {
             unsafe { ffi::day_xaml_destroy_primary() };
         }
         let key = h.0 as usize;
+        BUTTON_MENUS.with(|m| m.borrow_mut().retain(|_, (button, _)| *button != key));
         LABEL_NODE.with(|m| m.borrow_mut().remove(&key));
         TEXT_FIELD_NODE.with(|m| m.borrow_mut().remove(&key));
         NAV_MENU_ROWS.with(|m| m.borrow_mut().remove(&key));
@@ -2999,6 +3133,11 @@ impl Toolkit for Xaml {
         let mut spec = String::new();
         serialize_menu_xaml(items, &mut spec);
         unsafe { ffi::day_xaml_set_context_menu(h.0, cstr(&spec).as_ptr()) };
+    }
+
+    fn set_button_menu(&mut self, h: &WinHandle, node: NodeId, f: day_spec::ContextMenuFn) {
+        // The click arrives through `on_press`, which opens the menu (docs/menus.md).
+        BUTTON_MENUS.with(|m| m.borrow_mut().insert(node.0, (h.0 as usize, f)));
     }
 
     fn edit_toolbar(&mut self, h: &WinHandle, ops: &[day_spec::ToolbarOp]) -> bool {

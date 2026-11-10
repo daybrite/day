@@ -38,6 +38,8 @@ fn class_for_kind(kind: Option<PieceKind>) -> &'static str {
         Some(kinds::BUTTON) => "com.google.android.material.button.MaterialButton",
         Some(kinds::SLIDER) => "com.google.android.material.slider.Slider",
         Some(kinds::DIVIDER) => "com.google.android.material.divider.MaterialDivider",
+        // `makeTextField`'s Material text box; its `getEditText()` is the editable.
+        Some(kinds::TEXT_FIELD) => "com.google.android.material.textfield.TextInputLayout",
         _ => "",
     }
 }

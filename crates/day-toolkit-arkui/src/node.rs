@@ -843,6 +843,18 @@ pub fn input_text(n: Handle) -> String {
     get_item(n, Attr::NODE_TEXT_INPUT_TEXT).map_or_else(String::new, |it| text_of(it.string))
 }
 
+/// Select part of a TextInput's text (docs/textfield.md "Selection"): `sel` counts characters,
+/// the attribute UTF-16 units of the text the input holds now.
+pub fn select_input(n: Handle, sel: day_spec::props::TextSelection) {
+    let (start, end) = sel.utf16(&input_text(n));
+    let at = |v: usize| i32v(v.min(i32::MAX as usize) as i32);
+    set_values(
+        n,
+        Attr::NODE_TEXT_INPUT_TEXT_SELECTION,
+        &[at(start), at(end)],
+    );
+}
+
 /// Text entry traits on a TextInput (docs/textfield.md): the members ArkUI has an attribute
 /// for. Every one is written on every call, so a member back at its default leaves nothing
 /// behind. Read-only has no attribute; `lib.rs` holds it through [`watch_input_edits`].

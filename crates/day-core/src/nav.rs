@@ -69,6 +69,9 @@ day_reactive::tls_slots! {
     nav;
     static NAV_STACK: RefCell<Vec<(NavToken, Rc<NavController>)>> =
         const { RefCell::new(Vec::new()) };
+    /// Surfaces consulted only when every mounted one refuses a route ([`register_nav_fallback`]).
+    static FALLBACK_NAV: RefCell<Vec<(NavToken, Rc<NavController>)>> =
+        const { RefCell::new(Vec::new()) };
     static NEXT_TOKEN: Cell<u64> = const { Cell::new(1) };
     /// A launch deep link recorded by the platform entry before `launch_with` runs: the entry
     /// point for hosts with no process environment (web-dom seeds it from the page's URL hash). The
@@ -131,14 +134,42 @@ pub fn register_nav(ctrl: NavController) -> NavToken {
     token
 }
 
+/// Install a controller that answers a route only after every surface registered with
+/// [`register_nav`] has refused it: a presentation that exists for apps whose own navigation
+/// does not show the destination (the Settings cover on a phone app with no Settings section).
+///
+/// A fallback is not part of the mounted hierarchy. It contributes nothing to
+/// [`current_route`], takes no pending segments as it registers, and never anchors ahead of an
+/// app's section of the same name, however early it registered. When it accepts the first
+/// segment of an absolute path, the remaining segments go to its own `enter`.
+/// [`unregister_nav`] removes it.
+pub fn register_nav_fallback(ctrl: NavController) -> NavToken {
+    let token = NEXT_TOKEN.with(|c| {
+        let t = c.get();
+        c.set(t + 1);
+        NavToken(t)
+    });
+    FALLBACK_NAV.with(|s| s.borrow_mut().push((token, Rc::new(ctrl))));
+    token
+}
+
+/// The fallback controllers that are currently active, in registration order.
+fn active_fallbacks() -> Vec<Rc<NavController>> {
+    let all: Vec<Rc<NavController>> =
+        FALLBACK_NAV.with(|s| s.borrow().iter().map(|(_, c)| c.clone()).collect());
+    all.into_iter().filter(|c| (c.active)()).collect()
+}
+
 /// Remove a controller whose host was disposed. No-op if already gone.
 pub fn unregister_nav(token: NavToken) {
     NAV_STACK.with(|s| s.borrow_mut().retain(|(t, _)| *t != token));
+    FALLBACK_NAV.with(|s| s.borrow_mut().retain(|(t, _)| *t != token));
 }
 
 /// Drop every controller: a fresh mount / test boot (called from tree install/uninstall).
 pub fn clear_controllers() {
     NAV_STACK.with(|s| s.borrow_mut().clear());
+    FALLBACK_NAV.with(|s| s.borrow_mut().clear());
     NEXT_TOKEN.with(|c| c.set(1));
     PENDING.with(|p| p.borrow_mut().clear());
     PARAMS.with(|p| *p.borrow_mut() = Rc::new(Vec::new()));
@@ -165,7 +196,7 @@ fn dispatch(f: impl Fn(&NavController) -> bool) -> bool {
             return true;
         }
     }
-    false
+    active_fallbacks().into_iter().any(|c| f(&c))
 }
 
 // ---------------------------------------------------------------------------
@@ -547,6 +578,24 @@ fn navigate_absolute(segments: &[String]) -> bool {
             return true;
         }
     }
+    // No mounted surface knows the first segment: offer the path to the fallbacks, each of
+    // which takes the rest of it itself.
+    for c in active_fallbacks() {
+        if (c.push)(first) {
+            while let Some(front) = PENDING.with(|p| p.borrow().first().cloned()) {
+                if !(c.enter)(&front) {
+                    break;
+                }
+                PENDING.with(|p| {
+                    let mut p = p.borrow_mut();
+                    if !p.is_empty() {
+                        p.remove(0);
+                    }
+                });
+            }
+            return true;
+        }
+    }
     PENDING.with(|p| p.borrow_mut().clear());
     false
 }
@@ -686,6 +735,79 @@ mod tests {
             parse_route("?flag").1,
             vec![("flag".to_string(), String::new())]
         );
+    }
+
+    /// A controller that accepts the keys in `knows`, logging every call it answers.
+    fn recording(
+        knows: &'static [&'static str],
+        log: &Rc<RefCell<Vec<String>>>,
+        tag: &'static str,
+    ) -> NavController {
+        let (push_log, enter_log) = (log.clone(), log.clone());
+        NavController {
+            push: Box::new(move |route| {
+                let ok = knows.contains(&route);
+                if ok {
+                    push_log.borrow_mut().push(format!("{tag} push {route}"));
+                }
+                ok
+            }),
+            pop: Box::new(|_| false),
+            current: Box::new(String::new),
+            enter: Box::new(move |segment| {
+                let ok = knows.contains(&segment);
+                if ok {
+                    enter_log
+                        .borrow_mut()
+                        .push(format!("{tag} enter {segment}"));
+                }
+                ok
+            }),
+            segments: Box::new(Vec::new),
+            depth: 0,
+            layer: Box::new(|| 0),
+            active: Box::new(|| true),
+        }
+    }
+
+    /// A fallback registered before the app's navigation still loses a route the navigation
+    /// knows, whether the path is one segment or several.
+    #[test]
+    fn a_fallback_answers_only_what_no_surface_accepts() {
+        clear_controllers();
+        let log: Rc<RefCell<Vec<String>>> = Rc::default();
+        let cover = register_nav_fallback(recording(&["settings", "search"], &log, "cover"));
+        register_nav(recording(&["home", "settings"], &log, "app"));
+
+        assert!(navigate("settings/search"));
+        assert!(navigate("settings"));
+        assert_eq!(*log.borrow(), ["app push settings", "app push settings"]);
+        log.borrow_mut().clear();
+
+        // Nothing mounted knows `search`: the fallback takes it, alone or as a path's head.
+        assert!(navigate("search"));
+        assert_eq!(*log.borrow(), ["cover push search"]);
+        log.borrow_mut().clear();
+
+        unregister_nav(cover);
+        assert!(!navigate("search"));
+        assert!(log.borrow().is_empty());
+        clear_controllers();
+    }
+
+    /// With no surface that knows the head, the fallback takes the head and then the rest of the
+    /// path, and contributes nothing to the current route.
+    #[test]
+    fn a_fallback_takes_the_whole_path() {
+        clear_controllers();
+        let log: Rc<RefCell<Vec<String>>> = Rc::default();
+        register_nav(recording(&["home"], &log, "app"));
+        register_nav_fallback(recording(&["settings", "search"], &log, "cover"));
+
+        assert!(navigate("settings/search"));
+        assert_eq!(*log.borrow(), ["cover push settings", "cover enter search"]);
+        assert!(!navigate("elsewhere/search"));
+        clear_controllers();
     }
 
     /// `REQUESTED_ROUTE` is process-global (it must be; see `request_route`), so the tests that

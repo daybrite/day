@@ -96,6 +96,9 @@ day_core::tls_group! {
     static GESTURES: RefCell<std::collections::HashSet<(usize, day_spec::GestureKind)>> =
         RefCell::new(std::collections::HashSet::new());
 
+    /// Menu button widget ptr → the provider its click opens (`set_button_menu`, docs/menus.md
+    /// "Menu buttons"). Swept on release with the widget.
+    static BUTTON_MENUS: SideTable<day_spec::ContextMenuFn> = SideTable::new();
     /// Summon-time context-menu providers by node (docs/menus.md "Dynamic context menus").
     static CTX_MENU_FNS: RefCell<HashMap<u64, day_spec::ContextMenuFn>> =
         RefCell::new(HashMap::new());
@@ -1043,6 +1046,29 @@ extern "C" fn on_context_menu_summon(
     })
 }
 
+/// A menu button was clicked (`day_qt_button_menu_fn`; `key` is its widget pointer): ask the
+/// provider now and hand Qt a fresh QMenu, or null when it answers empty.
+extern "C" fn on_button_menu(
+    key: u64,
+    _x: std::os::raw::c_double,
+    _y: std::os::raw::c_double,
+) -> *mut c_void {
+    ffi_guard::contain(std::ptr::null_mut(), || {
+        let Some(f) = BUTTON_MENUS.with(|t| t.get(key as usize)) else {
+            return std::ptr::null_mut();
+        };
+        // The provider may remove this button; then no menu opens (docs/menus.md).
+        let Some(items) = day_spec::resolve_button_menu(&f, || {
+            BUTTON_MENUS.with(|t| t.get(key as usize)).is_some()
+        }) else {
+            return std::ptr::null_mut();
+        };
+        let menu = unsafe { ffi::day_qt_menu_new() };
+        build_qt_menu(menu, &items);
+        menu
+    })
+}
+
 extern "C" fn on_press(id: u64) {
     ffi_guard::contain((), || emit(NodeId(id), Event::Pressed));
 }
@@ -1098,6 +1124,28 @@ extern "C" fn on_key(id: u64, code: c_int, modifiers: c_int) -> c_int {
             node,
             Event::Key(day_spec::KeyEvent::named(key, modifiers as u8)),
         );
+        1
+    })
+}
+
+/// A line edit's Up, Down or Escape (docs/textfield.md "Keys"): claimed, and with `deliver`
+/// reported, when the field has a key handler and no modifier is held.
+extern "C" fn on_field_key(
+    id: u64,
+    name: *const c_char,
+    modifiers: c_int,
+    deliver: c_int,
+) -> c_int {
+    ffi_guard::contain(0, || {
+        // SAFETY: the shim passes one of its own NUL-terminated literals.
+        let name = unsafe { std::ffi::CStr::from_ptr(name) }.to_string_lossy();
+        let node = NodeId(id);
+        if !day_spec::keys::field_claims(node, &name, modifiers as u8) {
+            return 0;
+        }
+        if deliver != 0 {
+            emit(node, Event::Key(day_spec::KeyEvent::named(name, 0)));
+        }
         1
     })
 }
@@ -2876,6 +2924,7 @@ impl Toolkit for Qt {
                         on_text,
                     );
                     ffi::day_qt_enable_focus(w, id.0, on_focus);
+                    ffi::day_qt_lineedit_enable_field_keys(w, id.0, on_field_key);
                     QtHandle(w)
                 }
                 Some(Builtin::Divider) => {
@@ -3541,6 +3590,10 @@ impl Toolkit for Qt {
                                 ffi::day_qt_lineedit_set_placeholder(h.0, cstr(t).as_ptr())
                             }
                             TextFieldPatch::Enabled(e) => ffi::day_qt_set_enabled(h.0, *e as c_int),
+                            TextFieldPatch::Select(sel) => {
+                                let at = |n: usize| n.min(c_int::MAX as usize) as c_int;
+                                ffi::day_qt_lineedit_select(h.0, at(sel.start), at(sel.end));
+                            }
                         }
                     }
                 }
@@ -4232,6 +4285,13 @@ impl Toolkit for Qt {
     fn set_context_menu_fn(&mut self, h: &QtHandle, node: NodeId, f: day_spec::ContextMenuFn) {
         CTX_MENU_FNS.with(|m| m.borrow_mut().insert(node.0, f));
         unsafe { ffi::day_qt_context_menu_fn(h.0, node.0, on_context_menu_summon) };
+    }
+
+    fn set_button_menu(&mut self, h: &QtHandle, _node: NodeId, f: day_spec::ContextMenuFn) {
+        BUTTON_MENUS.with(|t| t.insert(h.0 as usize, f));
+        // SAFETY: `h` is a live widget; the shim checks it is a QPushButton (qobject_cast)
+        // before connecting to its click, and parents each menu to it.
+        unsafe { ffi::day_qt_button_menu_fn(h.0, h.0 as u64, on_button_menu) };
     }
 
     fn set_context_menu(&mut self, h: &QtHandle, _node: NodeId, items: &[day_spec::MenuItem]) {

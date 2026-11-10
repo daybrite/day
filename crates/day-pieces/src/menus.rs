@@ -5,12 +5,14 @@
 //! with `app_menu`. Lowers to day_spec's toolkit-neutral `MenuItem` model and registers each
 //! item's action closure.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 use day_reactive::Scope;
 
-use crate::{IntoReactive, IntoText, Reactive, TextSource};
+use day_core::Piece;
+
+use crate::{Decorated, IntoReactive, IntoText, Reactive, TextSource};
 
 // ---------------------------------------------------------------------------
 // Menus: the app-side builder over day_spec's toolkit-neutral MenuItem model. Lowering registers
@@ -362,20 +364,20 @@ where
     }
 }
 
-thread_local! {
+day_reactive::tls_slots! { menus;
     /// The scope owning the current app-menu and dock-menu installs, so a second call replaces
     /// the first (and reclaims its bindings) instead of leaving two installers racing.
-    static APP_MENU_SCOPE: RefCell<Option<Scope>> = const { RefCell::new(None) };
-    static DOCK_MENU_SCOPE: RefCell<Option<Scope>> = const { RefCell::new(None) };
+    static APP_MENU_SCOPE: Cell<Option<Scope>> = const { Cell::new(None) };
+    static DOCK_MENU_SCOPE: Cell<Option<Scope>> = const { Cell::new(None) };
 }
 
 /// Install `source` through `install`, in a root-owned scope that replaces the previous one.
 fn install_menu(
-    slot: &'static std::thread::LocalKey<RefCell<Option<Scope>>>,
+    slot: &Cell<Option<Scope>>,
     source: MenuSource,
     install: fn(Vec<day_spec::MenuItem>),
 ) {
-    if let Some(old) = slot.with(|s| s.borrow_mut().take()) {
+    if let Some(old) = slot.take() {
         old.dispose();
     }
     let scope = Scope::root().enter(Scope::child);
@@ -391,7 +393,7 @@ fn install_menu(
             move |items: &Vec<day_spec::MenuItem>| install(items.clone()),
         );
     });
-    slot.with(|s| *s.borrow_mut() = Some(scope));
+    slot.set(Some(scope));
 }
 
 /// Install the application menu: the native menu bar on desktop, the app-bar overflow on Android,
@@ -411,7 +413,7 @@ fn install_menu(
 /// ]);
 /// ```
 pub fn app_menu<M>(menus: impl MenuContent<M>) {
-    install_menu(&APP_MENU_SCOPE, menus.into_source(), day_core::set_app_menu);
+    APP_MENU_SCOPE.with(|slot| install_menu(slot, menus.into_source(), day_core::set_app_menu));
 }
 
 /// Install the app's Dock menu (docs/menus.md "Dock menu"): the entries macOS lists when the
@@ -423,11 +425,179 @@ pub fn app_menu<M>(menus: impl MenuContent<M>) {
 /// The menu works while the app runs, so its actions are ordinary closures, unlike shortcuts,
 /// which are routes because they also launch the app.
 pub fn dock_menu<M>(entries: impl MenuContent<M>) {
-    install_menu(
-        &DOCK_MENU_SCOPE,
-        entries.into_source(),
-        day_core::set_dock_menu,
-    );
+    DOCK_MENU_SCOPE.with(|slot| install_menu(slot, entries.into_source(), day_core::set_dock_menu));
+}
+
+// ---------------------------------------------------------------------------
+// Menu buttons (docs/menus.md "Menu buttons"): a native button whose primary press opens a menu.
+// ---------------------------------------------------------------------------
+
+/// A button that opens a menu when pressed: the ⋯ More button beside a browser's address bar, an
+/// Add ▾ button, a page-actions button in a toolbar row the app draws itself. Build one with
+/// [`menu_button`].
+///
+/// It is the platform's own pull-down: an `NSButton` that pops its `NSMenu` under itself, a
+/// `UIButton` whose menu is its primary action, a `GtkMenuButton`-style popover, a `QPushButton`
+/// with a `QMenu`, a Material button with a `PopupMenu`, a WinUI `Button` with a `MenuFlyout`,
+/// and the web toolbar's pull-down popover. The entries are the same [`MenuEntry`] values a
+/// context menu takes, so checked, disabled and destructive-looking items, separators and
+/// submenus behave as they do there.
+///
+/// The button carries the piece's [`.id`](crate::Decorate::id); each item keeps its own
+/// [`MenuEntry::id`]. A dayscript `context_menu: { id: <button>, item_id: <item> }` step chooses
+/// an item, as a press and a choice would.
+pub struct MenuButton {
+    button: crate::Button,
+    entries: MenuSource,
+    enabled: Reactive<bool>,
+}
+
+/// A button that opens `entries` as a menu when pressed (docs/menus.md "Menu buttons").
+///
+/// `entries` is a `Vec` or array of [`MenuEntry`] values, or a closure that builds them. Either
+/// way the menu is built when it opens, so every title, [`checked`](MenuEntry::checked) and
+/// [`enabled`](MenuEntry::enabled) state is the current one; the closure form also lets the
+/// list itself depend on what is true at that moment.
+///
+/// ```ignore
+/// menu_button(res::str::more(), move || {
+///     vec![
+///         menu_item(res::str::reader_view())
+///             .id(id!(reader))
+///             .checked(reader)
+///             .action(move || reader.set(!reader.get())),
+///         menu_separator(),
+///         menu_item(res::str::share()).id(id!(share)).enabled(move || page.get().is_some()).action(share),
+///     ]
+/// })
+/// .icon(Symbol::More)
+/// .icon_only()
+/// .plain()
+/// .id(id!(more))
+/// ```
+pub fn menu_button<M, E>(label: impl IntoText<M>, entries: impl MenuContent<E>) -> MenuButton {
+    MenuButton {
+        button: crate::button(label),
+        entries: entries.into_source(),
+        enabled: Reactive::Const(true),
+    }
+}
+
+#[day_macros::builder(MenuButtonBuilder)]
+impl MenuButton {
+    /// Show a platform symbol beside (or, with [`icon_only`](MenuButton::icon_only), instead of)
+    /// the label, as [`Button::icon`](crate::Button::icon) does.
+    pub fn icon<M>(mut self, symbol: impl IntoReactive<day_spec::Symbol, M>) -> Self {
+        self.button = self.button.icon(symbol);
+        self
+    }
+
+    /// Show a bundled image or vector alongside the label, as
+    /// [`Button::image`](crate::Button::image) does.
+    pub fn image(mut self, name: impl Into<day_spec::ImageName>) -> Self {
+        self.button = self.button.image(name);
+        self
+    }
+
+    /// Hide the visible label when an icon is available. The label stays the accessible name
+    /// and, on desktop and web, the tooltip.
+    pub fn icon_only(mut self) -> Self {
+        self.button = self.button.icon_only();
+        self
+    }
+
+    /// A borderless button, for a toolbar row or a list accessory ([`Button::plain`](crate::Button::plain)).
+    pub fn plain(mut self) -> Self {
+        self.button = self.button.plain();
+        self
+    }
+
+    /// A contained button where the stock look is borderless ([`Button::bordered`](crate::Button::bordered)).
+    pub fn bordered(mut self) -> Self {
+        self.button = self.button.bordered();
+        self
+    }
+
+    /// No wider than its label ([`Button::compact`](crate::Button::compact)).
+    pub fn compact(mut self) -> Self {
+        self.button = self.button.compact();
+        self
+    }
+
+    /// The platform's accent-filled button ([`Button::prominent`](crate::Button::prominent)).
+    pub fn prominent(mut self) -> Self {
+        self.button = self.button.prominent();
+        self
+    }
+
+    /// Whether the button can open its menu (default `true`): a constant, a signal or a closure.
+    /// A disabled menu button is drawn disabled by the native control and opens nothing, a
+    /// dayscript `context_menu` step included.
+    pub fn enabled<M>(mut self, on: impl IntoReactive<bool, M>) -> Self {
+        let on = on.into_reactive();
+        self.button = match on.clone() {
+            Reactive::Const(v) => self.button.enabled(v),
+            Reactive::Dyn(f) => self.button.enabled(move || f()),
+        };
+        self.enabled = on;
+        self
+    }
+}
+
+impl Piece for MenuButton {
+    fn build(self, cx: &mut day_core::BuildCx) -> day_core::RNode {
+        // The same wrapper a `.context_menu` builds: the button fills it, and the composed
+        // presenter's lazy mount sits beside it for a toolkit that reports the press instead of
+        // showing a native menu (ArkUI).
+        let w = cx.layout_only(
+            Rc::new(crate::decorators::OverlayHost),
+            day_core::Flex::default(),
+            day_core::Boundary::No,
+        );
+        let mut n = w;
+        let MenuButton {
+            button,
+            entries,
+            enabled,
+        } = self;
+        cx.under(w, |cx| {
+            n = button.build(cx);
+            let provider = menu_button_provider(entries, enabled);
+            day_core::with_tree(|t| t.set_button_menu(n, provider.clone()));
+            mount_composed_menu(cx, n, provider);
+        });
+        day_core::with_tree(|t| t.forward_whole_row(w, n));
+        // Identity modifiers and the dayscript step name the button, not the wrapper.
+        n
+    }
+}
+
+/// The provider a menu button hands the toolkit: lowers the entries when the menu opens, each
+/// time into a fresh scope that the next open (or the button's teardown) disposes, the rule
+/// `.context_menu(|| …)` follows, so an often-opened menu never accumulates registrations.
+fn menu_button_provider(entries: MenuSource, enabled: Reactive<bool>) -> day_spec::ContextMenuFn {
+    let last: Rc<RefCell<Option<Scope>>> = Rc::default();
+    {
+        let last = last.clone();
+        Scope::current().on_cleanup(move || {
+            if let Some(s) = last.borrow_mut().take() {
+                s.dispose();
+            }
+        });
+    }
+    Rc::new(move |_at| {
+        if !enabled.get_untracked() {
+            return Vec::new();
+        }
+        if let Some(s) = last.borrow_mut().take() {
+            s.dispose();
+        }
+        let scope = Scope::child();
+        let entries = &entries;
+        let items = scope.enter(|| lower_menu_scoped(entries.entries()));
+        *last.borrow_mut() = Some(scope);
+        items
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -734,6 +904,42 @@ pub(crate) mod conformance {
                 d.tap("add").await?;
                 d.tap("add").await?;
                 d.context_menu("target", "Take 2").await?;
+                d.assert_text("chose", "chose 2").await
+            })
+    }
+
+    /// A menu button's menu is built when it opens, so it reflects the state at that moment,
+    /// and choosing an item runs that item's action.
+    #[day_macros::test(day_core)]
+    fn menu_button_builds_on_open() -> Case {
+        Case::new()
+            .proves_duty("set_button_menu")
+            .page(|| {
+                let count = Signal::new(0i64);
+                let chose = Signal::new(0i64);
+                column((
+                    label(move || format!("chose {}", chose.get())).id(day_core::id!(chose)),
+                    button("Add")
+                        .action(move || count.update(|n| *n += 1))
+                        .id(day_core::id!(add)),
+                    menu_button("More", move || {
+                        let n = count.get_untracked();
+                        vec![
+                            menu_item(format!("Take {n}")).action(move || chose.set(n)),
+                            menu_separator(),
+                            menu_item("Never")
+                                .enabled(false)
+                                .action(move || chose.set(-1)),
+                        ]
+                    })
+                    .icon(day_spec::Symbol::More)
+                    .id(day_core::id!(more)),
+                ))
+            })
+            .drive(|d: Drive| async move {
+                d.tap("add").await?;
+                d.tap("add").await?;
+                d.context_menu("more", "Take 2").await?;
                 d.assert_text("chose", "chose 2").await
             })
     }

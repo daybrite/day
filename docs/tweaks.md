@@ -111,7 +111,9 @@ the accessor hands you that widget's concrete class name:
   across the FFI and guard the cast instead of a blind `static_cast` (see the recipes below).
 
 Android reports the Java class its `DayBridge` factory realizes (`"android.widget.TextView"`,
-`"com.google.android.material.slider.Slider"`). The name is `""` for layout-only nodes and for
+`"com.google.android.material.slider.Slider"`, and for a text field the Material
+`"com.google.android.material.textfield.TextInputLayout"` box, whose `getEditText()` is the
+editable). The name is `""` for layout-only nodes and for
 kinds whose stored handle is a container rather than a single leaf widget.
 
 ### Conditional backings: the contract
