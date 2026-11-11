@@ -234,17 +234,22 @@ public final class DaySettingsRow extends DayFixed {
         return x;
     }
 
-    /** The text column's right edge: short of a Day child that shares its vertical band, and of
-     *  the chevron. */
+    /** The text column's trailing edge, measured from the leading edge as {@link #textLeft} is:
+     *  short of a Day child that shares its vertical band, and of the chevron. A right-to-left
+     *  row has its control on the left, so a child's distance is taken from the right there;
+     *  taking its left edge in both directions left Arabic rows a column of no width, and
+     *  their titles were never drawn. */
     private int textRight(int textTop, int textBottom) {
         int right = getWidth() - Math.round(PAD_H * density);
         if ((flags & F_CHEVRON) != 0) right -= Math.round((CHEVRON + GAP) * density);
         int gap = Math.round(GAP * density);
+        boolean rtl = getLayoutDirection() == LAYOUT_DIRECTION_RTL;
         for (int i = 0; i < getChildCount(); i++) {
             View c = getChildAt(i);
             if (c.getVisibility() == GONE) continue;
             boolean overlaps = c.getTop() < textBottom && c.getBottom() > textTop;
-            if (overlaps) right = Math.min(right, c.getLeft() - gap);
+            int near = rtl ? getWidth() - c.getRight() : c.getLeft();
+            if (overlaps) right = Math.min(right, near - gap);
         }
         return right;
     }
