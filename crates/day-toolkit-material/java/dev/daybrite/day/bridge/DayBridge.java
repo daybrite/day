@@ -3984,7 +3984,13 @@ public final class DayBridge extends DayRuntime {
                         copyStream(new java.io.FileInputStream(src), context.getContentResolver().openOutputStream(uri));
                         result = uri.toString();
                     } else {
-                        staged = java.io.File.createTempFile("day-open-", ".data", context.getCacheDir());
+                        // The copy keeps the document's own name, in a folder of its own: the
+                        // name is what `FileUrl::file_name` shows, what tells a file's type, and
+                        // what a web page receives for a file chosen in an upload form.
+                        java.io.File folder = java.io.File.createTempFile("day-open-", "", context.getCacheDir());
+                        if (!folder.delete() || !folder.mkdirs()) throw new java.io.IOException("no folder for the picked file");
+                        String name = displayName(uri).replace('/', '_').replace('\\', '_').replace('\u0000', '_');
+                        staged = new java.io.File(folder, name.isEmpty() || name.equals(".") || name.equals("..") ? "file" : name);
                         copyStream(context.getContentResolver().openInputStream(uri), new java.io.FileOutputStream(staged));
                         result = staged.getAbsolutePath();
                     }

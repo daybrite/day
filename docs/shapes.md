@@ -128,7 +128,8 @@ pointer has already moved. Drag handling does not use the tap containment test.
 
 On iOS and Android, a shape with no tap, drag, hover, context menu or key handler takes no
 touches: a tap on it reaches whatever is beneath it, so a border stroked over a row of controls
-with `.overlay(...)` leaves the controls working.
+with [`.overlay(...)`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.overlay)
+leaves the controls working.
 
 ## Toolkit implementations
 

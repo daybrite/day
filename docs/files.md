@@ -75,7 +75,7 @@ with accessors:
 | [`read`](https://docs.rs/day-pieces/latest/day_pieces/struct.FileUrl.html#method.read)` () /  `[`read_to_string`](https://docs.rs/day-pieces/latest/day_pieces/struct.FileUrl.html#method.read_to_string)`()` | the bytes / UTF-8 text (local paths; `content://` errors) |
 
 **Opened files are always readable.** Where a platform doesn't hand back a usable path, the
-toolkit materializes one first: Android copies the picked document into the app cache, and iOS
+toolkit materializes one first: Android copies the picked document into the app cache under the document's own name, and iOS
 imports it into the app sandbox. So [`open_file`](https://docs.rs/day-pieces/latest/day_pieces/fn.open_file.html)`().await?`[`.read_to_string`](https://docs.rs/day-pieces/latest/day_pieces/struct.FileUrl.html#method.read_to_string)`()` works on every
 target.
 
