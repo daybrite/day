@@ -9620,6 +9620,31 @@ mod imp {
                 resigned
             }
 
+            // A canvas that does nothing with a touch lets it through to the views beneath,
+            // as a view with no touch handling does on Android and on the desktops. UIKit would
+            // otherwise hand every touch inside the canvas to it: a shape drawn over controls,
+            // such as a border stroked over an address bar, left the bar unable to take a tap.
+            // A canvas keeps its touches when it has a gesture recognizer or an interaction
+            // (Day's taps, drags, hovers and context menus) or a key handler, which a touch
+            // focuses.
+            #[unsafe(method_id(hitTest:withEvent:))]
+            fn hit_test(
+                &self,
+                point: CGPoint,
+                event: Option<&objc2_ui_kit::UIEvent>,
+            ) -> Option<Retained<UIView>> {
+                let hit: Option<Retained<UIView>> =
+                    unsafe { msg_send![super(self), hitTest: point, withEvent: event] };
+                let this = (self as *const DayCanvasView).cast::<UIView>();
+                let is_self = hit.as_ref().is_some_and(|h| std::ptr::eq(Retained::as_ptr(h), this));
+                let recognizes = unsafe { self.gestureRecognizers() }.is_some_and(|g| g.count() > 0);
+                let interacts = unsafe { self.interactions() }.count() > 0;
+                let keys = KEY_NODES.with(|t| t.get(this as usize)).is_some_and(|node| {
+                    day_spec::ffi_guard::contain(false, || day_spec::keys::handled(node))
+                });
+                if is_self && !recognizes && !interacts && !keys { None } else { hit }
+            }
+
             // A touch focuses the canvas, the way a press does on the desktops. The gesture
             // recognizers still see it: this runs before `super`, which forwards to them.
             #[unsafe(method(touchesBegan:withEvent:))]

@@ -2614,11 +2614,12 @@ default_platform(:ios)
 
 # DAY_IPA names the artifact outright (the release workflow points it at the packed
 # artifact it downloaded). Otherwise __dir__ is <project>/build/day/store/<target>/fastlane,
-# so ../../../dist is build/day/dist — where `day pack` puts its output.
+# so ../../../dist is build/day/dist — where `day pack` puts its output. An unsigned package
+# is never picked: the store refuses one, and a signed one beside it is the one to send.
 def day_ipa
   return ENV["DAY_IPA"] unless ENV["DAY_IPA"].to_s.empty?
-  Dir[File.expand_path("../../../dist/*.ipa", __dir__)].first ||
-    UI.user_error!("no .ipa in build/day/dist — run `day pack -t ios-uikit` first")
+  Dir[File.expand_path("../../../dist/*.ipa", __dir__)].reject { |p| p.end_with?("-unsigned.ipa") }.first ||
+    UI.user_error!("no signed .ipa in build/day/dist — run `day pack -t ios-uikit` with signing set, or `day sign apply`")
 end
 
 # App Store Connect API key from the environment, so no Apple ID password is ever needed.
@@ -2744,11 +2745,12 @@ end
 
 # DAY_AAB names the artifact outright (the release workflow points it at the packed
 # artifact it downloaded), the way DAY_IPA does for iOS. Otherwise the glob under
-# build/day/dist — where `day pack` puts its output.
+# build/day/dist — where `day pack` puts its output. An unsigned bundle is never picked: Play
+# refuses one, and a signed one beside it is the one to send.
 def day_aab
   return ENV["DAY_AAB"] unless ENV["DAY_AAB"].to_s.empty?
-  Dir[File.expand_path("../../../dist/*.aab", __dir__)].first ||
-    UI.user_error!("no .aab in build/day/dist — run `day pack -t android-material` first")
+  Dir[File.expand_path("../../../dist/*.aab", __dir__)].reject { |p| p.end_with?("-unsigned.aab") }.first ||
+    UI.user_error!("no signed .aab in build/day/dist — run `day pack -t android-material` with signing set, or `day sign apply`")
 end
 
 platform :android do
@@ -3971,6 +3973,25 @@ pub fn run(project: &Project, cmd: &crate::cli::StoreCmd) -> Result<(), CliError
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Every lane's own glob passes over an unsigned package, which the store would refuse,
+    /// so a dist/ holding both kinds uploads the signed one.
+    #[test]
+    fn lanes_never_pick_an_unsigned_package() {
+        for (lanes, ext) in [
+            (apple_fastfile_text(), "ipa"),
+            (play_fastfile_text(), "aab"),
+            (mac_fastfile_text(), "pkg"),
+        ] {
+            let glob = format!(
+                "dist/*.{ext}\", __dir__)].reject {{ |p| p.end_with?(\"-unsigned.{ext}\") }}.first"
+            );
+            assert!(
+                lanes.contains(&glob),
+                "the {ext} lanes pick by glob without the reject: {lanes}"
+            );
+        }
+    }
 
     fn no_refs(_: &str) -> Result<String, String> {
         Err("no such file".into())

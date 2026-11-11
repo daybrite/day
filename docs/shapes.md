@@ -126,6 +126,10 @@ reports a `Drag` with phase, local pointer location, and cumulative translation.
 location is `location - translation`; the first reported drag event may arrive after the
 pointer has already moved. Drag handling does not use the tap containment test.
 
+On iOS and Android, a shape with no tap, drag, hover, context menu or key handler takes no
+touches: a tap on it reaches whatever is beneath it, so a border stroked over a row of controls
+with `.overlay(...)` leaves the controls working.
+
 ## Toolkit implementations
 
 Shapes use each toolkit's canvas renderer. Drawing support and export limits follow the

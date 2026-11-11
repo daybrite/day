@@ -358,6 +358,8 @@ The Fastfile finds the artifact by glob rather than by name: `day pack` names an
 device build `<stem>-ios-uikit-unsigned.ipa` and a signed one `<stem>-ios-uikit.ipa`, and a lane
 that hardcoded either would break on the day signing was configured. `<stem>` is the app's own
 (`[app] artifact` in `Day.toml`, else a slug of its title), which is the other reason for the glob.
+The glob passes over any `-unsigned` package, which the store would refuse, so a `dist/` that holds
+both an unsigned build and the signed one made from it by `day sign apply` uploads the signed one.
 
 ## In CI
 

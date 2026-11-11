@@ -411,8 +411,7 @@ public class DayTabs extends LinearLayout {
                 bar.addTab(tab, false);
             }
             syncing = false;
-            if (!titles.isEmpty())
-                select(Math.min(selected, titles.size() - 1));
+            reselect();
             return;
         }
         Menu menu = chrome instanceof NavigationBarView
@@ -447,7 +446,18 @@ public class DayTabs extends LinearLayout {
                     + "past the bottom bar's max of " + max + "; resident but with no bar item");
         }
         applyBadges();
-        if (!titles.isEmpty()) select(Math.min(selected, titles.size() - 1));
+        reselect();
+    }
+
+    /**
+     * Restore the selection after the chrome was rebuilt, kept within the destinations that
+     * exist. A destination exists once its row or its page does: a new document's page and its
+     * selection arrive before the row-title update that still lists the old rows, and clamping
+     * to those rows alone moved the selection back onto the previous page.
+     */
+    private void reselect() {
+        int count = Math.max(titles.size(), pageViews.size());
+        if (count > 0) select(Math.min(selected, count - 1));
     }
 
     /** A chrome tap: show the page, and report it unless we are the ones who moved the selection. */
