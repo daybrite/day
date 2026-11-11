@@ -994,6 +994,24 @@ pub enum ProjectCmd {
         #[arg(long, visible_alias = "persist-xcode-project")]
         persist_native_project: bool,
     },
+    /// Add an iOS or macOS app extension (widget, share, Safari, notification service, …)
+    #[command(name = "add-extension")]
+    #[command(after_help = "Docs: https://daybrite.dev/docs/how-to/app-extensions")]
+    AddExtension {
+        /// The kind of extension, such as widget or share (`--list` shows every kind)
+        #[arg(required_unless_present = "list")]
+        kind: Option<String>,
+        /// The extension's name: its target, product and Swift module (default: from the kind)
+        #[arg(long)]
+        name: Option<String>,
+        /// Build it for this platform only: ios or macos (repeatable; default: every Apple
+        /// platform the app targets that has this kind)
+        #[arg(long = "platform", value_name = "PLATFORM")]
+        platforms: Vec<String>,
+        /// List the extension kinds and exit
+        #[arg(long)]
+        list: bool,
+    },
 }
 
 #[derive(clap::Subcommand)]
@@ -1200,6 +1218,11 @@ pub struct SignApply {
     /// Apple: the entitlements to sign with (default: the profile's own)
     #[arg(long, value_name = "FILE")]
     entitlements: Option<PathBuf>,
+    /// iOS: an app extension's provisioning profile, as NAME=FILE, where NAME is the extension's
+    /// name or bundle id (repeatable; default: signing.ios.extensions.<NAME>.profile, else the
+    /// app's profile when it covers the extension)
+    #[arg(long = "extension-profile", value_name = "NAME=FILE")]
+    extension_profiles: Vec<String>,
     /// Android/HarmonyOS: the keystore to sign with (default: signing.android.keystore)
     #[arg(long, value_name = "FILE")]
     keystore: Option<PathBuf>,
@@ -1498,10 +1521,21 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
                 identity,
                 installer_identity,
                 entitlements,
+                extension_profiles,
                 keystore,
                 key_alias,
                 cert,
             } = *args;
+            let mut ext_profiles = Vec::new();
+            for spec in &extension_profiles {
+                let (name, file) = spec.split_once('=').ok_or_else(|| {
+                    CliError::usage(format!(
+                        "--extension-profile {spec:?}: expected NAME=FILE, such as \
+                         Widgets=widgets.mobileprovision"
+                    ))
+                })?;
+                ext_profiles.push((name.to_string(), PathBuf::from(file)));
+            }
             let project = meta::find_project(cli.project.as_deref()).ok();
             crate::sign::apply(
                 project.as_ref(),
@@ -1512,6 +1546,7 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
                     identity: identity.as_deref(),
                     entitlements: entitlements.as_deref(),
                     installer_identity: installer_identity.as_deref(),
+                    extension_profiles: &ext_profiles,
                 },
                 crate::sign::AndroidOverrides {
                     keystore: keystore.as_deref(),
@@ -1548,6 +1583,29 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
             )
             .map(|()| 0)
         }),
+        Cmd::Project {
+            cmd:
+                ProjectCmd::AddExtension {
+                    kind,
+                    name,
+                    platforms,
+                    list,
+                },
+        } => {
+            if list {
+                println!("{}", crate::extensions::scaffold::list());
+                return Ok(0);
+            }
+            with_project(cli.project.as_deref(), |project| {
+                crate::extensions::scaffold::add_extension(
+                    project,
+                    kind.as_deref().unwrap_or_default(),
+                    name.as_deref(),
+                    &platforms,
+                )
+                .map(|()| 0)
+            })
+        }
         Cmd::Metadata {
             json,
             schema,
@@ -3118,7 +3176,7 @@ mod error_tests {
     fn nested_commands_have_only_their_documented_spellings() {
         let tree = command();
         for (name, expected) in [
-            ("project", vec!["add-target"]),
+            ("project", vec!["add-target", "add-extension"]),
             ("icon", vec!["build", "new", "check"]),
             ("sign", vec!["check", "status", "apply"]),
             ("doctor", vec!["verify"]),

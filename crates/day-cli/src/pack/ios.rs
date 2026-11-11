@@ -161,17 +161,26 @@ pub fn pack(
     if let Some(setting) = crate::flavor::setting() {
         cmd.arg(setting);
     }
+    // App extensions keep their own deployment target and entitlements (extensions::cli_setting).
+    let has_extensions = !crate::extensions::resolve(project, crate::extensions::Os::Ios)
+        .map_err(PackError::Other)?
+        .is_empty();
     if let Some(f) = &floor {
-        cmd.arg(format!("IPHONEOS_DEPLOYMENT_TARGET={f}"));
+        cmd.arg(crate::extensions::cli_setting(
+            "IPHONEOS_DEPLOYMENT_TARGET",
+            f,
+            has_extensions,
+        ));
     }
     // `[signing.ios] entitlements` wins over the xcconfig's own setting here too, so both lanes
     // sign with the same file; Xcode resolves its variables and checks it against the profile.
     if let Some(e) = &ios.entitlements {
         let path = super::settings::interpolate(e)
             .map_err(|e| PackError::Sign(format!("signing.ios.entitlements: {e}")))?;
-        cmd.arg(format!(
-            "CODE_SIGN_ENTITLEMENTS={}",
-            project.root.join(path).display()
+        cmd.arg(crate::extensions::cli_setting(
+            "CODE_SIGN_ENTITLEMENTS",
+            &project.root.join(path).display().to_string(),
+            has_extensions,
         ));
     }
     cmd.arg("archive");
@@ -258,6 +267,21 @@ fn signed_over_profile(
             profile.name, profile.uuid
         ),
     );
+    // Each app extension is signed over its own installed App Store profile.
+    let mut extension_profiles = Vec::new();
+    for r in
+        crate::extensions::resolve(project, crate::extensions::Os::Ios).map_err(PackError::Other)?
+    {
+        let ext = crate::mobile::installed_store_profile(&r.bundle_id).ok_or_else(|| {
+            PackError::Sign(format!(
+                "no installed App Store profile covers the app extension {} ({}); create one \
+                 for that app id and install it, or remove the app's App Store profile to let \
+                 Xcode sign the archive",
+                r.bundle_id, r.name
+            ))
+        })?;
+        extension_profiles.push((r.name.clone(), ext.path));
+    }
     let unsigned = unsigned_ipa(project, target, opts, dist)?;
     let out = dist.join(super::naming::artifact_file(
         project,
@@ -277,6 +301,7 @@ fn signed_over_profile(
             // `CODE_SIGN_ENTITLEMENTS`, within what the profile grants (`sign::apply`).
             entitlements: None,
             installer_identity: None,
+            extension_profiles: &extension_profiles,
         },
         crate::sign::AndroidOverrides::default(),
         crate::sign::OhosOverrides::default(),
@@ -453,7 +478,14 @@ fn unsigned_ipa(
         cmd.arg(setting);
     }
     if let Some(f) = &floor {
-        cmd.arg(format!("IPHONEOS_DEPLOYMENT_TARGET={f}"));
+        let has_extensions = !crate::extensions::resolve(project, crate::extensions::Os::Ios)
+            .map_err(PackError::Other)?
+            .is_empty();
+        cmd.arg(crate::extensions::cli_setting(
+            "IPHONEOS_DEPLOYMENT_TARGET",
+            f,
+            has_extensions,
+        ));
     }
     run_tool(cmd.arg("build"), "xcodebuild (iphoneos, unsigned)").map_err(PackError::Other)?;
 

@@ -53,6 +53,7 @@ as `macos-gtk`, or a toolkit alone, which means that toolkit on this machine: `-
 day new                      # interactive: scaffold an app, a piece, or a part
 day new app my-app           # scaffold a new app non-interactively (--no-website: no site config; --no-github: no git repository, .gitignore or workflow)
 day project add-target android-material   # add a target to an existing app
+day project add-extension widget           # add an iOS/macOS app extension
 day localize list|add|remove # survey the project's locales, or add/remove one on every surface at once
 day prepare                  # render the derived host files (icon catalogs, mipmaps) under build/day/host (--check: CI gate)
 day open -t <target>         # prepare, then open the host project in Xcode / Android Studio / DevEco
@@ -201,6 +202,11 @@ native target) prepares and opens the selected project; `--print-path` returns i
 without opening the IDE. Edits to generated files are disposable; edit a persistent
 project when Day's configuration cannot express the customization you need.
 Apple projects require `project.xcproj`; Day does not migrate older native project layouts.
+
+Add an iOS or macOS app extension (a widget, a share extension, a Safari web extension, and
+[more](/docs/how-to/app-extensions)) with **`day project add-extension <kind>`**: it declares the
+extension in `Day.toml` and writes starter Swift under `platform/<os>/<Name>/`;
+`--list` shows every kind.
 
 Use `day sign check` to check signing configuration, or `day sign status <id>` to query a
 notarization submission. See [signing configuration](/docs/how-to/packaging#signing-configuration).

@@ -119,6 +119,27 @@ pub fn check(project: &Project) -> i32 {
             {
                 c.problems.push(format!("entitlements file missing: {e}"));
             }
+            for (name, ext) in &i.extensions {
+                if !project.manifest.extensions.iter().any(|e| &e.name == name) {
+                    c.problems.push(format!(
+                        "extensions.{name}: Day.toml declares no [[extensions]] named {name}"
+                    ));
+                }
+                for (what, file) in [
+                    ("profile", &ext.profile),
+                    ("entitlements", &ext.entitlements),
+                ] {
+                    if let Some(raw) = file {
+                        match interpolate(raw) {
+                            Ok(p) if !project.root.join(&p).exists() => c
+                                .problems
+                                .push(format!("extensions.{name}.{what} missing: {p}")),
+                            Ok(_) => {}
+                            Err(e) => c.problems.push(format!("extensions.{name}.{what}: {e}")),
+                        }
+                    }
+                }
+            }
             let triple = [
                 ("key-id", &i.key_id),
                 ("issuer", &i.issuer),
@@ -421,6 +442,9 @@ pub struct AppleOverrides<'a> {
     pub profile: Option<&'a Path>,
     pub identity: Option<&'a str>,
     pub entitlements: Option<&'a Path>,
+    /// App extension profiles, `(name or bundle id, profile)`: `--extension-profile`, or the App
+    /// Store profiles `day pack` found installed for each extension.
+    pub extension_profiles: &'a [(String, PathBuf)],
     /// The Mac App Store's installer identity, for a macOS bundle signed into a `.pkg`.
     pub installer_identity: Option<&'a str>,
 }
@@ -865,6 +889,19 @@ struct AppleMaterial {
     /// project's `CODE_SIGN_ENTITLEMENTS`), resolved and intersected with the profile at signing
     /// time. `None` = take the entitlements the profile itself grants.
     entitlements: Option<AppEntitlements>,
+    /// Each embedded app extension's material, by the extension's name (its `.appex` stem).
+    extensions: Vec<ExtensionMaterial>,
+    /// Profiles named on the command line, by extension name or bundle id.
+    extension_profiles: Vec<(String, PathBuf)>,
+}
+
+/// One app extension's signing material, from the project. The profile may be absent here and
+/// found later: on the command line, or the app's own profile when it covers the extension.
+struct ExtensionMaterial {
+    name: String,
+    profile: Option<PathBuf>,
+    /// What the extension claims, resolved and intersected with its profile at signing time.
+    entitlements: Option<AppEntitlements>,
 }
 
 /// Resolve the Apple signing material: the command line first, then `[signing.ios]`.
@@ -935,11 +972,159 @@ fn apple_material(
             None => None,
         },
     };
+    let extensions = match project {
+        Some(p) => extension_material(p, ios).map_err(CliError::sign)?,
+        None => Vec::new(),
+    };
     Ok(AppleMaterial {
         profile,
         identity,
         entitlements,
+        extensions,
+        extension_profiles: over.extension_profiles.to_vec(),
     })
+}
+
+/// The project's material for every iOS app extension it declares: `[signing.ios.extensions]`
+/// first, then the entitlements Day generates from `[[extensions]]` (docs/app-extensions.md),
+/// written into the build directory so a package can be signed without being rebuilt.
+fn extension_material(
+    project: &Project,
+    ios: Option<&crate::meta::IosSigning>,
+) -> Result<Vec<ExtensionMaterial>, String> {
+    let exts = crate::extensions::resolve(project, crate::extensions::Os::Ios)?;
+    let settings = ios_app_entitlements(project, "Release")
+        .ok()
+        .flatten()
+        .map(|e| e.settings)
+        .unwrap_or_default();
+    let mut out = Vec::new();
+    for r in exts {
+        let declared = ios.and_then(|i| i.extensions.get(&r.name));
+        let profile = match declared.and_then(|d| d.profile.as_ref()) {
+            Some(raw) => Some(
+                project.root.join(
+                    interpolate(raw)
+                        .map_err(|e| format!("signing.ios.extensions.{}.profile: {e}", r.name))?,
+                ),
+            ),
+            None => None,
+        };
+        let path = match declared.and_then(|d| d.entitlements.as_ref()) {
+            Some(raw) => project.root.join(
+                interpolate(raw)
+                    .map_err(|e| format!("signing.ios.extensions.{}.entitlements: {e}", r.name))?,
+            ),
+            None => {
+                let staged = project.root.join(r.staged_entitlements());
+                if let Some(dir) = staged.parent() {
+                    std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+                }
+                let mut bytes = Vec::new();
+                plist::Value::Dictionary(crate::extensions::entitlements(&r, &project.root)?)
+                    .to_writer_xml(&mut bytes)
+                    .map_err(|e| e.to_string())?;
+                bytes.push(b'\n');
+                crate::pieces::write_bytes_if_changed(&staged, &bytes)?;
+                staged
+            }
+        };
+        out.push(ExtensionMaterial {
+            name: r.name.clone(),
+            profile,
+            entitlements: Some(AppEntitlements {
+                path,
+                settings: settings.clone(),
+            }),
+        });
+    }
+    Ok(out)
+}
+
+/// Whether the profile at `profile` (decoded under `work`) provisions `bundle_id`.
+fn profile_covers_id(profile: &Path, bundle_id: &str, work: &Path) -> bool {
+    let decoded = work.join("covers.plist");
+    let ok = run_tool(
+        Path::new("/usr/bin/security"),
+        &[
+            "cms".into(),
+            "-D".into(),
+            "-i".into(),
+            profile.display().to_string(),
+            "-o".into(),
+            decoded.display().to_string(),
+        ],
+        &[],
+    )
+    .is_ok();
+    ok && decoded_profile_entitlements(&decoded)
+        .ok()
+        .and_then(|d| {
+            d.get("application-identifier")
+                .and_then(plist::Value::as_string)
+                .map(str::to_string)
+        })
+        .and_then(|id| crate::mobile::profile_covers(&id, bundle_id))
+        .is_some()
+}
+
+/// Sign one embedded app extension: embed its profile, sign its frameworks, then sign it with its
+/// entitlements cut down to what that profile grants.
+fn sign_apple_extension(appex: &Path, m: &AppleMaterial, work: &Path) -> Result<(), String> {
+    let name = appex
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or_default()
+        .to_string();
+    let bundle_id = crate::extensions::bundle_id_of(appex)
+        .ok_or_else(|| format!("{name}.appex has no CFBundleIdentifier"))?;
+    let own = m.extensions.iter().find(|e| e.name == name);
+    let profile = m
+        .extension_profiles
+        .iter()
+        .find(|(key, _)| key == &name || key == &bundle_id)
+        .map(|(_, p)| p.clone())
+        .or_else(|| own.and_then(|e| e.profile.clone()))
+        .or_else(|| profile_covers_id(&m.profile, &bundle_id, work).then(|| m.profile.clone()))
+        .ok_or_else(|| {
+            format!(
+                "no provisioning profile for the app extension {bundle_id} ({name}.appex): pass \
+                 --extension-profile {name}=<file>, or set [signing.ios.extensions.{name}] \
+                 profile in Day.toml (docs/app-extensions.md, \"Signing\")"
+            )
+        })?;
+    if !profile.is_file() {
+        return Err(format!(
+            "provisioning profile not found: {}",
+            profile.display()
+        ));
+    }
+    std::fs::copy(&profile, appex.join("embedded.mobileprovision"))
+        .map_err(|e| format!("embed the profile in {name}.appex: {e}"))?;
+    let ext_work = work.join(format!("ext-{name}"));
+    std::fs::create_dir_all(&ext_work).map_err(|e| e.to_string())?;
+    let decoded = profile_entitlements(&profile, &ext_work)?;
+    let granted = plist::Value::from_file(&decoded)
+        .map_err(|e| format!("read {}: {e}", decoded.display()))?
+        .into_dictionary()
+        .ok_or("the extension profile's Entitlements is not a dictionary")?;
+    let entitlements = ext_work.join("signing.entitlements");
+    write_ios_signing_entitlements(
+        &granted,
+        own.and_then(|e| e.entitlements.as_ref())
+            .filter(|e| e.path.is_file()),
+        &bundle_id,
+        &profile.display().to_string(),
+        &entitlements,
+    )?;
+    if let Ok(rd) = std::fs::read_dir(appex.join("Frameworks")) {
+        let mut inner: Vec<PathBuf> = rd.flatten().map(|e| e.path()).collect();
+        inner.sort();
+        for item in inner {
+            codesign(&item, &m.identity, None)?;
+        }
+    }
+    codesign(appex, &m.identity, Some(&entitlements))
 }
 
 /// Sign an `.ipa` (or a bare `.app`), then verify what was written before it replaces anything.
@@ -1018,7 +1203,11 @@ fn sign_apple(artifact: &Path, out: Option<&Path>, m: &AppleMaterial) -> Result<
         )?;
 
         // Inside out: a nested bundle's signature is part of what seals the bundle above it, so
-        // signing the app first would invalidate it the moment a framework is re-signed.
+        // signing the app first would invalidate it the moment a framework is re-signed. App
+        // extensions are bundles of their own, each with its profile and entitlements.
+        for appex in crate::extensions::embedded(&bundle) {
+            sign_apple_extension(&appex, m, &work)?;
+        }
         for nested in nested_code(&bundle) {
             codesign(&nested, &m.identity, None)?;
         }
@@ -1240,7 +1429,8 @@ fn app_bundle_in(payload: &Path) -> Result<PathBuf, String> {
 }
 
 /// Every nested bundle and loadable binary that must be signed before the app that contains them,
-/// deepest first.
+/// deepest first. App extensions are signed separately ([`sign_apple_extension`]), each with its
+/// own profile and entitlements.
 fn nested_code(bundle: &Path) -> Vec<PathBuf> {
     let mut found = Vec::new();
     for dir in ["Frameworks", "PlugIns"] {
@@ -1252,7 +1442,7 @@ fn nested_code(bundle: &Path) -> Vec<PathBuf> {
                 .extension()
                 .and_then(|e| e.to_str())
                 .unwrap_or_default();
-            if matches!(ext, "framework" | "appex" | "dylib" | "bundle") {
+            if matches!(ext, "framework" | "dylib" | "bundle") {
                 found.push(path);
             }
         }
@@ -2086,11 +2276,13 @@ mod apply_tests {
 
     #[test]
     fn nested_code_is_signed_from_the_inside_out() {
-        // A framework nested inside a plug-in has to be signed before the plug-in that seals it.
+        // Nested frameworks and libraries come deepest first. App extensions are not in this list:
+        // each is signed on its own, with its own profile and entitlements, before the app.
         let root = std::env::temp_dir().join(format!("day-sign-test-{}", std::process::id()));
         let plugin = root.join("PlugIns/Share.appex");
         let inner = plugin.join("Frameworks/Inner.framework");
         std::fs::create_dir_all(&inner).expect("temp bundle");
+        std::fs::create_dir_all(root.join("Extensions/Market.appex")).expect("temp bundle");
         std::fs::create_dir_all(root.join("Frameworks/Day.framework")).expect("temp bundle");
         std::fs::write(root.join("Frameworks/libday.dylib"), b"").expect("temp bundle");
         let order = nested_code(&root);
@@ -2100,7 +2292,10 @@ mod apply_tests {
             "not deepest-first: {order:?}"
         );
         assert!(order.iter().any(|p| p.ends_with("libday.dylib")));
-        assert!(order.iter().any(|p| p.ends_with("Share.appex")));
+        assert!(!order.iter().any(|p| p.ends_with("Share.appex")));
+        let appex = crate::extensions::embedded(&root);
+        assert!(appex.iter().any(|p| p.ends_with("PlugIns/Share.appex")));
+        assert!(appex.iter().any(|p| p.ends_with("Extensions/Market.appex")));
         let _ = std::fs::remove_dir_all(&root);
     }
 

@@ -87,6 +87,11 @@ pub struct Manifest {
     pub android: Android,
     #[serde(default)]
     pub harmony: Harmony,
+    /// `[[extensions]]`: app extensions built as their own targets and embedded in the iOS and
+    /// macOS apps (docs/app-extensions.md): widgets, share and notification extensions, Safari
+    /// web extensions, the MarketplaceKit extension, and the rest of [`crate::extensions::KINDS`].
+    #[serde(default)]
+    pub extensions: Vec<crate::extensions::ExtensionDecl>,
 }
 
 /// Settings that previously required an app-owned Android project. Resource overlays contain
@@ -595,6 +600,12 @@ pub struct IosSigning {
     /// ExportOptions method; default "app-store-connect".
     #[serde(default)]
     pub export_method: Option<String>,
+    /// Per app extension (`[signing.ios.extensions.<Name>]`, docs/app-extensions.md): the
+    /// profile `day sign apply` embeds in that extension and, optionally, the entitlements it
+    /// signs it with. An extension with no entry is signed over the app's profile when that
+    /// profile's app id covers the extension's (a wildcard), and refused otherwise.
+    #[serde(default)]
+    pub extensions: BTreeMap<String, ExtensionSigning>,
     /// ASC API key for `-allowProvisioningUpdates` in CI (optional locally, where the
     /// Xcode-account session signs). All three fields travel together.
     #[serde(default)]
@@ -603,6 +614,19 @@ pub struct IosSigning {
     pub issuer: Option<String>,
     #[serde(default)]
     pub key_path: Option<String>,
+}
+
+/// One app extension's signing material (`[signing.ios.extensions.<Name>]`).
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "kebab-case")]
+pub struct ExtensionSigning {
+    /// The extension's provisioning profile, relative to the project root.
+    #[serde(default)]
+    pub profile: Option<String>,
+    /// An entitlements plist to sign the extension with instead of the one Day generates from
+    /// `[[extensions]]`, relative to the project root.
+    #[serde(default)]
+    pub entitlements: Option<String>,
 }
 
 /// Android release keystore (Gradle signingConfig; .aab is jar-signed by Gradle; §16.5).

@@ -41,6 +41,20 @@
     "audience": "contributor",
     "published": false
   },
+  "internal/app-extension-candidates": {
+    "route": "/contributing/design/app-extension-candidates",
+    "source": "docs/app-extension-candidates.md",
+    "type": "explanation",
+    "audience": "contributor",
+    "status": "recommendations; none is built yet",
+    "published": false
+  },
+  "internal/app-extensions": {
+    "route": "/docs/how-to/app-extensions",
+    "source": "docs/app-extensions.md",
+    "type": "how-to",
+    "audience": "app developer"
+  },
   "internal/applications": {
     "route": "/docs/reference/applications",
     "source": "docs/applications.md",

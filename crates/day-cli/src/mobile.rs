@@ -811,12 +811,17 @@ pub fn build_macos_xcode(
         "Building",
         &format!("{} (xcodebuild {configuration}, macosx)", target.name),
     );
+    // App extensions keep their own floor, entitlements and sandbox (extensions::cli_setting).
+    let has_extensions =
+        !crate::extensions::resolve(project, crate::extensions::Os::Macos)?.is_empty();
+    let per_target =
+        |setting: &str, value: &str| crate::extensions::cli_setting(setting, value, has_extensions);
     let mut cmd = Command::new("xcodebuild");
     if let Some(path) = std::env::var_os("DAY_BUILD_TOOL_PATH") {
         cmd.arg(format!("DAY_BUILD_TOOL_PATH={}", path.to_string_lossy()));
     }
     if let Some(floor) = crate::flavor::inputs().env.get("MACOSX_DEPLOYMENT_TARGET") {
-        cmd.arg(format!("MACOSX_DEPLOYMENT_TARGET={floor}"));
+        cmd.arg(per_target("MACOSX_DEPLOYMENT_TARGET", floor));
     }
     crate::ops::apply_determinism(&mut cmd);
     crate::ops::apply_xcode_hygiene(&mut cmd);
@@ -845,15 +850,18 @@ pub fn build_macos_xcode(
         .arg(oso_prefix_setting(&project.root));
     // Day.toml is authoritative even if an older project has target-level signing settings.
     if let Some(path) = crate::sandbox::entitlements(project, profile)? {
-        cmd.arg(format!("CODE_SIGN_ENTITLEMENTS={}", path.display()))
-            .arg("CODE_SIGNING_ALLOWED=YES");
+        cmd.arg(per_target(
+            "CODE_SIGN_ENTITLEMENTS",
+            &path.display().to_string(),
+        ))
+        .arg("CODE_SIGNING_ALLOWED=YES");
     } else if project.manifest.sandbox.macos_appkit.is_some() {
-        cmd.arg("CODE_SIGN_ENTITLEMENTS=");
+        cmd.arg(per_target("CODE_SIGN_ENTITLEMENTS", ""));
     }
     if let Some(config) = &project.manifest.sandbox.macos_appkit {
-        cmd.arg(format!(
-            "ENABLE_APP_SANDBOX={}",
-            if config.enabled { "YES" } else { "NO" }
+        cmd.arg(per_target(
+            "ENABLE_APP_SANDBOX",
+            if config.enabled { "YES" } else { "NO" },
         ));
     }
     if profile == Profile::Release
@@ -1169,7 +1177,7 @@ fn profile_dirs() -> Vec<PathBuf> {
 
 /// Whether a profile's `application-identifier` value (`TEAMID.app.bundle.id`) covers `app_id`,
 /// and whether it does so through a wildcard (`TEAMID.*`, `TEAMID.org.example.*`).
-fn profile_covers(value: &str, app_id: &str) -> Option<bool> {
+pub(crate) fn profile_covers(value: &str, app_id: &str) -> Option<bool> {
     let (_, id) = value.trim().split_once('.')?;
     if id == app_id {
         return Some(false);
@@ -1384,6 +1392,11 @@ pub(crate) fn prepare_ios(project: &Project) -> Result<Option<String>, String> {
     // Day.toml [window] → the minimum-size keys day-toolkit-uikit reads back, and the iPad orientation
     // set iPadOS 26 wants declared (docs/size-classes.md).
     sync_window_keys(project)?;
+    // A widget extension with Live Activities needs the app to declare them
+    // (docs/app-extensions.md).
+    if let Some(plist) = ios_info_plist(project) {
+        crate::extensions::sync_host_info_plist(project, crate::extensions::Os::Ios, &plist)?;
+    }
     // Day.toml [[shortcuts]] → UIApplicationShortcutItems, through the same plist editor as
     // the keys above; localized titles are staged into the bundle by the `stage-strings`
     // script phase in the native host.
@@ -1460,6 +1473,8 @@ pub fn build_ios_for(
         "Building",
         &format!("{} (xcodebuild {configuration}, {sdk})", target.name),
     );
+    let has_extensions =
+        !crate::extensions::resolve(project, crate::extensions::Os::Ios)?.is_empty();
     let xcodebuild = || {
         let mut cmd = Command::new("xcodebuild");
         crate::ops::apply_determinism(&mut cmd);
@@ -1487,7 +1502,12 @@ pub fn build_ios_for(
             cmd.arg(setting);
         }
         if let Some(f) = &floor {
-            cmd.arg(format!("IPHONEOS_DEPLOYMENT_TARGET={f}"));
+            // App extensions keep their own deployment target (extensions::cli_setting).
+            cmd.arg(crate::extensions::cli_setting(
+                "IPHONEOS_DEPLOYMENT_TARGET",
+                f,
+                has_extensions,
+            ));
         }
         if physical {
             // Build unsigned and sign the bundle ourselves below. Letting xcodebuild sign means
@@ -1650,12 +1670,14 @@ fn sign_ios_bundle(
     std::fs::copy(&prof.path, app.join("embedded.mobileprovision"))
         .map_err(|e| format!("embedding the profile: {e}"))?;
 
+    // App extensions first: each is its own signed bundle, with its own provisioning profile
+    // and entitlements (docs/app-extensions.md, "Signing").
+    sign_ios_extensions(project, app, &sha1, configuration, &tmp)?;
+
     // Inside-out: nested code must be signed before the bundle that contains it (§16.5).
     let mut nested: Vec<PathBuf> = Vec::new();
-    for sub in ["Frameworks", "PlugIns"] {
-        if let Ok(rd) = std::fs::read_dir(app.join(sub)) {
-            nested.extend(rd.flatten().map(|e| e.path()));
-        }
+    if let Ok(rd) = std::fs::read_dir(app.join("Frameworks")) {
+        nested.extend(rd.flatten().map(|e| e.path()));
     }
     if let Ok(rd) = std::fs::read_dir(app) {
         nested.extend(
@@ -1697,6 +1719,103 @@ fn sign_ios_bundle(
             .arg(app),
         "codesign (app)",
     )?;
+    Ok(())
+}
+
+/// Sign every app extension embedded in a device build: its frameworks, then the extension with
+/// the installed development profile that covers its bundle id and the entitlements Day staged
+/// for it (cut down to what that profile grants). Signed with the app's identity: a device
+/// accepts an extension only when it is signed by the same team as the app around it.
+fn sign_ios_extensions(
+    project: &Project,
+    app: &Path,
+    sha1: &str,
+    configuration: &str,
+    tmp: &Path,
+) -> Result<(), String> {
+    let exts = crate::extensions::resolve(project, crate::extensions::Os::Ios)?;
+    for appex in crate::extensions::embedded(app) {
+        let file = appex
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .into_owned();
+        let bundle_id = crate::extensions::bundle_id_of(&appex)
+            .ok_or_else(|| format!("{file} has no CFBundleIdentifier"))?;
+        let prof = installed_profile(&bundle_id).ok_or_else(|| {
+            format!(
+                "no installed provisioning profile covers the app extension {bundle_id} \
+                 ({file}). Register that app id, create a development profile for it, and \
+                 install it (double-click the .mobileprovision), then retry."
+            )
+        })?;
+        std::fs::copy(&prof.path, appex.join("embedded.mobileprovision"))
+            .map_err(|e| format!("embedding the profile in {file}: {e}"))?;
+        let decoded = tmp.join(format!("{file}.profile.plist"));
+        let out = Command::new("security")
+            .args(["cms", "-D", "-i"])
+            .arg(&prof.path)
+            .arg("-o")
+            .arg(&decoded)
+            .output()
+            .map_err(|e| format!("security cms: {e}"))?;
+        if !out.status.success() {
+            return Err(format!(
+                "could not decode {}: {}",
+                prof.path.display(),
+                String::from_utf8_lossy(&out.stderr).trim()
+            ));
+        }
+        let granted = crate::sign::decoded_profile_entitlements(&decoded)?;
+        let own = crate::extensions::for_bundle(&exts, &appex).map(|r| {
+            let settings = crate::sign::ios_app_entitlements(project, configuration)
+                .ok()
+                .flatten()
+                .map(|e| e.settings)
+                .unwrap_or_default();
+            crate::sign::AppEntitlements {
+                path: project.root.join(r.staged_entitlements()),
+                settings,
+            }
+        });
+        let ents = tmp.join(format!("{file}.entitlements"));
+        crate::sign::write_ios_signing_entitlements(
+            &granted,
+            own.as_ref().filter(|e| e.path.is_file()),
+            &bundle_id,
+            &prof.name,
+            &ents,
+        )?;
+        if let Ok(rd) = std::fs::read_dir(appex.join("Frameworks")) {
+            let mut frameworks: Vec<PathBuf> = rd.flatten().map(|e| e.path()).collect();
+            frameworks.sort();
+            for item in frameworks {
+                run_logged(
+                    Command::new("codesign")
+                        .args(["--force", "--timestamp=none", "--sign", sha1])
+                        .arg(&item),
+                    &format!(
+                        "codesign {}",
+                        item.file_name().unwrap_or_default().to_string_lossy()
+                    ),
+                )?;
+            }
+        }
+        status("Signing", &format!("{file} ({})", prof.name));
+        run_logged(
+            Command::new("codesign")
+                .args([
+                    "--force",
+                    "--timestamp=none",
+                    "--sign",
+                    sha1,
+                    "--entitlements",
+                ])
+                .arg(&ents)
+                .arg(&appex),
+            &format!("codesign {file}"),
+        )?;
+    }
     Ok(())
 }
 

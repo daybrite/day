@@ -401,6 +401,10 @@ in full):
   reaches the app and package targets without editing the scaffold; ⌘R builds in Xcode need the
   deployment target raised in `DayApp.xcconfig`.
 
+App extensions (widgets, share extensions, the MarketplaceKit extension) are the app's own
+targets, declared in the app's `Day.toml` rather than contributed by a piece: see
+[docs/app-extensions](app-extensions.md).
+
 ### macOS Swift (`[package.metadata.day.macos]`)
 
 The macos-appkit leg uses the same table shape: `swift`, `swift-packages` (remote or local),

@@ -148,6 +148,7 @@ pub fn severity_of(code: &str) -> Severity {
         "day::lint::shortcut-label",
         "day::lint::app-id",
         "day::lint::xcode-project",
+        "day::lint::extension",
     ];
     if ERRORS.contains(&code) {
         Severity::Error
@@ -1151,7 +1152,9 @@ fn lint_app_ids(project: &Project, findings: &mut Vec<Finding>, manifest_src: Op
 /// Everything the rules found, in no particular order; the reporting below decides what to do
 /// with them. Split out so `--fix` can re-check after writing without re-entering the report.
 fn collect(project: &Project) -> Vec<Finding> {
-    let mut findings = crate::xcode::lint(&project.root);
+    let mut findings = crate::xcode::lint(project);
+    // --- Day.toml [[extensions]] (docs/app-extensions.md) ---
+    findings.extend(crate::extensions::lint(project));
     // The manifest as text. It parsed to reach here, but the parsed form keeps no spans, so the
     // checks below find their own value in the source to report a line.
     let manifest_src = std::fs::read_to_string(project.root.join("Day.toml")).ok();

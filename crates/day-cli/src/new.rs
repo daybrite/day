@@ -1791,7 +1791,7 @@ pub fn add_target(
             && path.ends_with("project.xcproj")
         {
             let platform = path.split('/').nth(1).unwrap();
-            initialized = crate::xcode::initialize_persistent(&project.root, platform, content)
+            initialized = crate::xcode::initialize_persistent(project, platform, content)
                 .map_err(CliError::failure)?;
             &initialized
         } else {

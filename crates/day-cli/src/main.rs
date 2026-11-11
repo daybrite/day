@@ -15,6 +15,7 @@ mod doctor;
 mod doctor_verify;
 mod documents;
 mod drive;
+mod extensions;
 mod external;
 mod flavor;
 mod git;

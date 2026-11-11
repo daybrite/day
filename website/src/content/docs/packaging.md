@@ -218,6 +218,9 @@ profile, `day sign apply` run in the project, and `day launch` on a connected iP
 
 An app with no entitlements file is signed with what the profile grants.
 
+[App extensions](/docs/how-to/app-extensions#signing) are signed the same way before the app,
+each with its own profile and the entitlements Day generates for it.
+
 ## Signing an existing package
 
 `day pack` builds and signs in one step, which is what a project's own CI wants. A distributor
@@ -273,7 +276,9 @@ came from.
 An `.ipa` (or a bare `.app`, which comes back out as an `.ipa`) takes the steps Xcode's export
 performs, spelled out because no project is present to drive it: embed the provisioning profile,
 sign every nested framework and plug-in before the bundle that contains them, sign the app, then
-repack with `ditto`.
+repack with `ditto`. Each [app extension](/docs/how-to/app-extensions#signing) gets its own
+profile: `--extension-profile <name>=<file>`, `[signing.ios.extensions.<name>] profile`, or the
+app's profile when it covers the extension's bundle id.
 
 ```sh
 day sign apply app.ipa \

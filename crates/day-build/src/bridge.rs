@@ -2757,6 +2757,11 @@ fn render_c_rust(bridge: &Bridge, arm: &Arm, crate_name: &str) -> String {
                 .into_iter()
                 .map(|(n, t)| format!("{n}: {t}")),
         );
+        // A string or bytes value arrives as a pointer the export reads inside an `unsafe`
+        // block. The export is the foreign arm's entry point, not an API Rust code calls, so
+        // clippy's advice to mark it `unsafe` does not apply; without the allow, a crate whose
+        // bridge completes with `String` fails `clippy -D warnings` on its staged targets.
+        let _ = writeln!(out, "#[allow(clippy::not_unsafe_ptr_arg_deref)]");
         let _ = writeln!(out, "#[unsafe(no_mangle)]");
         let _ = writeln!(
             out,

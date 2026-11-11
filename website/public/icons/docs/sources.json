@@ -604,6 +604,10 @@
       "url": "https://raw.githubusercontent.com/google/material-design-icons/10ecc14790612ca8fd164e3f4ffe9c16fc50d5b7/symbols/web/architecture/materialsymbolsoutlined/architecture_24px.svg",
       "sha256": "7addfae4920f49132387162ae089a66179dee3a2d442e844b0cca3aec097b36a"
     },
+    "add_to_home_screen": {
+      "url": "https://raw.githubusercontent.com/google/material-design-icons/10ecc14790612ca8fd164e3f4ffe9c16fc50d5b7/symbols/web/add_to_home_screen/materialsymbolsoutlined/add_to_home_screen_24px.svg",
+      "sha256": "edb954e4d476c762fbebefd65d003480efa5142f11efd49bfc93f4bd87b1dd67"
+    },
     "add_to_queue": {
       "url": "https://raw.githubusercontent.com/google/material-design-icons/10ecc14790612ca8fd164e3f4ffe9c16fc50d5b7/symbols/web/add_to_queue/materialsymbolsoutlined/add_to_queue_24px.svg",
       "sha256": "691a749c66130bb6756e5d0113e7a90820695376fff16f40e8669952d8fc07bb"

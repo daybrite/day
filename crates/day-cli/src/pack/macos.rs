@@ -320,6 +320,17 @@ fn sign_app(
 
     let identity = resolved_identity(project)?;
     let entitlements = crate::sandbox::entitlements(project, profile)?;
+    // An app extension carries its own entitlements (at the least the App Sandbox, without which
+    // macOS refuses to load it): the ones Day staged for it (docs/app-extensions.md).
+    let extensions = crate::extensions::resolve(project, crate::extensions::Os::Macos)?;
+    let item_entitlements = |item: &Path| -> Option<PathBuf> {
+        if item == app {
+            return entitlements.clone();
+        }
+        crate::extensions::for_bundle(&extensions, item)
+            .map(|r| project.root.join(r.staged_entitlements()))
+            .filter(|p| p.is_file())
+    };
 
     let mut nested = nested_signables(app);
     nested.push(app.to_path_buf()); // the bundle itself is signed last
@@ -330,10 +341,9 @@ fn sign_app(
             for item in &nested {
                 let mut cmd = Command::new("codesign");
                 cmd.args(["--force", "--timestamp", "--options", "runtime", "-s", id]);
-                // Entitlements apply to the main executable (via the bundle), never to dylibs.
-                if item == app
-                    && let Some(e) = &entitlements
-                {
+                // Entitlements apply to the main executable (via the bundle) and to each app
+                // extension, never to dylibs.
+                if let Some(e) = item_entitlements(item) {
                     cmd.arg("--entitlements").arg(e);
                 }
                 cmd.arg(item);
@@ -346,9 +356,7 @@ fn sign_app(
             for item in &nested {
                 let mut cmd = Command::new("codesign");
                 cmd.args(["--force", "-s", "-"]);
-                if item == app
-                    && let Some(e) = &entitlements
-                {
+                if let Some(e) = item_entitlements(item) {
                     cmd.arg("--entitlements").arg(e);
                 }
                 run_tool(cmd.arg(item), "codesign (ad-hoc)")?;
@@ -359,14 +367,15 @@ fn sign_app(
 }
 
 /// Nested code that must be signed before the bundle: dylibs and frameworks under
-/// Contents/Frameworks, plug-ins, helpers, XPC services and login items. Today's Day bundles carry
-/// none of these; the walk future-proofs piece-contributed code. Sorted, so the order (and with it
-/// any failure) is the same on every run.
+/// Contents/Frameworks, app extensions (Contents/PlugIns and Contents/Extensions), helpers, XPC
+/// services and login items. Sorted, so the order (and with it any failure) is the same on every
+/// run.
 fn nested_signables(app: &Path) -> Vec<PathBuf> {
     let mut items = Vec::new();
     for dir in [
         "Contents/Frameworks",
         "Contents/PlugIns",
+        "Contents/Extensions",
         "Contents/Helpers",
         "Contents/XPCServices",
         "Contents/Library/LoginItems",
@@ -629,6 +638,22 @@ pub(crate) fn mac_app_store_pkg(
                 "files still carry com.apple.quarantine, which App Store Connect rejects \
                  (ITMS-91109): {}",
                 quarantined.join(", ")
+            ));
+        }
+        // Each app extension in a store package embeds a Mac App Store profile of its own and
+        // claims its own application identifier, which this signer does not provision yet.
+        let extensions = crate::extensions::embedded(&bundle);
+        if !extensions.is_empty() {
+            return Err(format!(
+                "this bundle embeds app extensions ({}); `day sign apply` cannot sign a Mac App \
+                 Store package with app extensions yet. Archive and export it with Xcode \
+                 (`day open -t macos-appkit`), which provisions each extension \
+                 (docs/app-extensions.md, \"Signing\")",
+                extensions
+                    .iter()
+                    .filter_map(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()))
+                    .collect::<Vec<_>>()
+                    .join(", ")
             ));
         }
         // Inside out: a nested bundle's signature is part of what seals the bundle above it.

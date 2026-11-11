@@ -86,7 +86,11 @@ pub fn is_project_file(path: &str) -> bool {
 
 /// Derive a relocatable project from Day's template. Source/configuration files stay app-owned;
 /// the project and default CLI helper are generated under build/day/xcode/<os>/.
-fn derived_document(root: &Path, platform: &str) -> Result<ProjectDocument, String> {
+fn derived_document(
+    project: &crate::meta::Project,
+    platform: &str,
+) -> Result<ProjectDocument, String> {
+    let root = project.root.as_path();
     let template = crate::template::builtin_app()
         .into_iter()
         .find(|f| f.path == format!("platform/{platform}/DayApp.xcodeproj/project.xcproj"))
@@ -148,6 +152,16 @@ fn derived_document(root: &Path, platform: &str) -> Result<ProjectDocument, Stri
         }
     }
     configure_identity(root, platform, &mut value);
+    // App extensions (docs/app-extensions.md): a target per extension, embedded by the Runner.
+    if let Some(os) = crate::extensions::Os::from_platform(platform) {
+        let exts = crate::extensions::resolve(project, os)?;
+        crate::extensions::project::apply(
+            &mut value,
+            &exts,
+            &crate::extensions::project::DERIVED,
+            root,
+        )?;
+    }
     // GUI builds should use the same CLI that prepared the host (including VS Code's managed
     // CLI), not an older installation found by the shell wrapper's PATH fallback.
     value["build-settings"]["DAY_BIN"] = std::env::current_exe()
@@ -186,13 +200,14 @@ fn configure_identity(root: &Path, platform: &str, value: &mut serde_json::Value
     }
 }
 
-/// Initialize a newly persisted built-in host from the app's current identity and locales.
-/// Existing overrides and custom templates are never passed here.
+/// Initialize a newly persisted built-in host from the app's current identity, locales and
+/// extensions. Existing overrides and custom templates are never passed here.
 pub fn initialize_persistent(
-    root: &Path,
+    project: &crate::meta::Project,
     platform: &str,
     source: &[u8],
 ) -> Result<Vec<u8>, String> {
+    let root = project.root.as_path();
     let mut doc =
         ProjectDocument::parse(String::from_utf8(source.to_vec()).map_err(|e| e.to_string())?)
             .map_err(|e| e.to_string())?;
@@ -205,18 +220,25 @@ pub fn initialize_persistent(
         .map_err(|e| e.to_string())?;
     doc.set("/targets/0/product", value["targets"][0]["product"].clone())
         .map_err(|e| e.to_string())?;
+    if let Some(os) = crate::extensions::Os::from_platform(platform) {
+        let exts = crate::extensions::resolve(project, os)?;
+        crate::extensions::project::apply_to_document(&mut doc, &exts, root)?;
+    }
     Ok(doc.source().as_bytes().to_vec())
 }
 
 /// `day prepare --check` must not repair or write build output.
 pub fn check_generated(project: &crate::meta::Project, platform: &str) -> Result<(), String> {
+    if let Some(os) = crate::extensions::Os::from_platform(platform) {
+        crate::extensions::check_staged(project, os)?;
+    }
     if path(&project.root, platform).parent().unwrap().exists() {
         open(&path(&project.root, platform))?;
         return check_cli_shim(&project.root, platform);
     }
     check_cli_shim(&project.root, platform)?;
     let file = project_dir(&project.root, platform).join("project.xcproj");
-    let doc = derived_document(&project.root, platform)?;
+    let doc = derived_document(project, platform)?;
     if std::fs::read_to_string(&file).ok().as_deref() != Some(doc.source()) {
         return Err(format!(
             "{} is missing or stale — run `day prepare`",
@@ -229,6 +251,11 @@ pub fn check_generated(project: &crate::meta::Project, platform: &str) -> Result
 /// Select the persistent override or refresh Day-owned build output, without touching schemes
 /// and IDE user state. A deleted build directory is recreated on the next invocation.
 pub fn ensure(project: &crate::meta::Project, platform: &str) -> Result<PathBuf, String> {
+    // Every extension's Info.plist and entitlements, which its target names whether the project
+    // is generated or checked in.
+    if let Some(os) = crate::extensions::Os::from_platform(platform) {
+        crate::extensions::stage(project, os)?;
+    }
     let dir = project_dir(&project.root, platform);
     if dir == path(&project.root, platform).parent().unwrap() {
         open(&dir.join("project.xcproj"))?;
@@ -250,7 +277,7 @@ pub fn ensure(project: &crate::meta::Project, platform: &str) -> Result<PathBuf,
         }
     }
     ensure_cli_shim(&project.root, platform)?;
-    let doc = derived_document(&project.root, platform)?;
+    let doc = derived_document(project, platform)?;
     let file = dir.join("project.xcproj");
     std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
     if std::fs::read_to_string(&file).ok().as_deref() != Some(doc.source()) {
@@ -263,8 +290,9 @@ pub fn open(path: &Path) -> Result<ProjectDocument, String> {
     ProjectDocument::open(path).map_err(|e| format!("{}: {e}", path.display()))
 }
 
-pub fn lint(root: &Path) -> Vec<crate::lint::Finding> {
+pub fn lint(project: &crate::meta::Project) -> Vec<crate::lint::Finding> {
     use crate::lint::{Finding, Location};
+    let root = project.root.as_path();
     let mut findings = Vec::new();
     for platform in ["macos", "ios"] {
         let json = path(root, platform);
@@ -275,10 +303,27 @@ pub fn lint(root: &Path) -> Vec<crate::lint::Finding> {
         let document = if persistent {
             open(&json)
         } else {
-            derived_document(root, platform)
+            derived_document(project, platform)
         };
         let messages = match document {
-            Ok(doc) => validate_host(doc.project(), platform),
+            Ok(doc) => {
+                let mut problems = validate_host(doc.project(), platform);
+                // A checked-in project is never rewritten by a build, so an extension declared
+                // after it was materialized has no target there until someone adds one.
+                if persistent
+                    && let Some(os) = crate::extensions::Os::from_platform(platform)
+                    && let Ok(exts) = crate::extensions::resolve(project, os)
+                {
+                    for name in crate::extensions::project::missing_targets(doc.project(), &exts) {
+                        problems.push(format!(
+                            "Day.toml declares the extension {name}, but this checked-in project \
+                             has no {name} target; add it in Xcode, or remove the project folder \
+                             to let `day build` generate the project"
+                        ));
+                    }
+                }
+                problems
+            }
             Err(e) => vec![e],
         };
         findings.extend(messages.into_iter().map(|message| Finding {
@@ -552,6 +597,14 @@ mod tests {
             std::fs::create_dir_all(&root).unwrap();
             Self(root)
         }
+        /// A project at the fixture's root with a minimal manifest.
+        fn project(&self) -> crate::meta::Project {
+            crate::meta::Project {
+                root: self.0.clone(),
+                manifest: toml::from_str("schema = 1\n[app]\nid = 'dev.example.fixture'\n")
+                    .unwrap(),
+            }
+        }
         fn host(&self, platform: &str) -> PathBuf {
             let file = path(&self.0, platform);
             std::fs::create_dir_all(file.parent().unwrap()).unwrap();
@@ -726,7 +779,7 @@ mod tests {
         let has_catalog = |doc: &ProjectDocument| doc.source().contains("InfoPlist.xcstrings");
         for platform in ["ios", "macos"] {
             assert!(!has_catalog(
-                &derived_document(&fixture.0, platform).unwrap()
+                &derived_document(&fixture.project(), platform).unwrap()
             ));
             let catalog = fixture
                 .0
@@ -734,7 +787,7 @@ mod tests {
             std::fs::create_dir_all(catalog.parent().unwrap()).unwrap();
             std::fs::write(&catalog, "{}").unwrap();
             assert!(has_catalog(
-                &derived_document(&fixture.0, platform).unwrap()
+                &derived_document(&fixture.project(), platform).unwrap()
             ));
         }
     }
@@ -751,7 +804,7 @@ mod tests {
                 ("Runner".into(), "DayApp.app".into())
             );
         }
-        assert!(lint(&fixture.0).is_empty());
+        assert!(lint(&fixture.project()).is_empty());
     }
 
     #[test]
@@ -790,16 +843,16 @@ mod tests {
         let json = fixture.host("ios");
         let legacy = json.with_file_name("project.pbxproj");
         std::fs::write(&legacy, "// synthetic legacy fixture").unwrap();
-        let findings = lint(&fixture.0);
+        let findings = lint(&fixture.project());
         assert!(findings.is_empty());
         std::fs::write(&json, "{ invalid JSON5").unwrap();
         assert!(
-            lint(&fixture.0)
+            lint(&fixture.project())
                 .iter()
                 .any(|f| f.severity() == crate::lint::Severity::Error)
         );
         std::fs::remove_file(&json).unwrap();
-        let findings = lint(&fixture.0);
+        let findings = lint(&fixture.project());
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].severity(), crate::lint::Severity::Error);
     }
@@ -869,7 +922,7 @@ mod tests {
         value["targets"].as_array_mut().unwrap().push(duplicate);
         std::fs::write(&file, value.to_string()).unwrap();
         assert!(
-            lint(&fixture.0)
+            lint(&fixture.project())
                 .iter()
                 .any(|f| f.severity() == crate::lint::Severity::Error)
         );
@@ -877,7 +930,7 @@ mod tests {
         value["build-settings"]["SWIFT_VERSION"] = 5.into();
         std::fs::write(&file, value.to_string()).unwrap();
         assert!(
-            lint(&fixture.0)
+            lint(&fixture.project())
                 .iter()
                 .any(|f| f.severity() == crate::lint::Severity::Error)
         );
@@ -906,6 +959,6 @@ mod tests {
         ensure_strings_phase(&file).unwrap();
         assert_eq!(source, std::fs::read_to_string(&file).unwrap());
         assert_eq!(ios_deployment_targets(&fixture.0), ["18.0"]);
-        assert!(lint(&fixture.0).is_empty());
+        assert!(lint(&fixture.project()).is_empty());
     }
 }
