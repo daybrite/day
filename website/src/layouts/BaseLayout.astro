@@ -27,8 +27,16 @@ const ogImage = Astro.site ? new URL(url('og-card.png'), Astro.site).href : unde
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    {/* Shared with Rustdoc; apply the preference before paint and bind the header control. */}
-    <script is:inline data-day-theme src={url('scripts/theme.js')}></script>
+    {/* Resolve the first paint synchronously; bind controls after parsing. */}
+    <script is:inline>
+      (() => {
+        let preference;
+        try { preference = localStorage.getItem('day-theme'); } catch {}
+        document.documentElement.dataset.theme = preference === 'dark' ||
+          (preference !== 'light' && matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light';
+      })();
+    </script>
+    <script is:inline defer data-day-theme src={url('scripts/theme.js')}></script>
     <title>{fullTitle}</title>
     <meta name="description" content={description} />
     {noindex && <meta name="robots" content="noindex, nofollow" />}

@@ -27,13 +27,14 @@
     "assemble": "node scripts/assemble-gallery.mjs",
     "astro": "astro",
     "docs:check": "node scripts/docs-check.mjs",
-    "docs:test": "node --test scripts/docs-check.test.mjs scripts/target-labels.test.mjs scripts/api-links.test.mjs scripts/api-reference-coverage.test.mjs scripts/doc-dependency-versions.test.mjs",
+    "docs:test": "node --test scripts/docs-check.test.mjs scripts/target-labels.test.mjs scripts/api-links.test.mjs scripts/api-reference-coverage.test.mjs scripts/doc-dependency-versions.test.mjs scripts/dev-search.test.mjs scripts/hero-theme.test.mjs",
     "docs:architecture": "npm run docs:versions && node scripts/check-content-routes.mjs && node scripts/check-sidebar-icons.mjs && node --test scripts/content-routes.test.mjs && npm run tutorials:check",
     "docs:api-references": "node scripts/check-api-references.mjs",
     "tutorials:check": "node --test scripts/tutorials.test.mjs",
     "docs:versions": "node scripts/check-doc-dependency-versions.mjs",
     "copy:review": "node authoring/copy-review/start.mjs",
-    "copy:review:test": "python3 -B -m unittest discover -s authoring/copy-review -p \"test_*.py\""
+    "copy:review:test": "python3 -B -m unittest discover -s authoring/copy-review -p \"test_*.py\"",
+    "interactions:test": "node --test scripts/interactions.test.mjs"
   },
   "dependencies": {
     "@astrojs/markdown-remark": "^7.2.3",

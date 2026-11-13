@@ -72,20 +72,21 @@ export async function assembleHeroShots(opts = {}) {
     const row = app?.shots.find(shot => shot.id === pick.shot);
     const captures = row?.byColumn.find(column => column.column === pick.platform)?.captures;
     // An unthemed capture is valid for the light/default slide. Never substitute it for dark.
-    const light = captures?.['light|en'] ?? captures?.['light|default'] ?? captures?.['default|en'];
+    const light = pick.darkOnly ? undefined :
+      captures?.['light|en'] ?? captures?.['light|default'] ?? captures?.['default|en'];
     const dark = captures?.['dark|en'] ?? captures?.['dark|default'];
     return { ...pick, label: app?.label, light, dark };
   });
   // Changes to the reviewed selection or its published URLs invalidate the generated pool.
-  const key = createHash('sha256').update(JSON.stringify(['curated-v2-theme-dimensions', candidates])).digest('hex');
+  const key = createHash('sha256').update(JSON.stringify(['curated-v3-independent-themes', candidates])).digest('hex');
   if (!opts.refresh && existsSync(manifestPath)) {
     try {
       const cached = JSON.parse(readFileSync(manifestPath, 'utf8'));
       if (cached.key === key && cached.shots?.length && cached.shots.every(s =>
-        existsSync(join(WEBSITE_ROOT, 'public', s.src)) &&
+        (s.src || s.srcDark) && (!s.src || existsSync(join(WEBSITE_ROOT, 'public', s.src))) &&
         (!s.srcDark || existsSync(join(WEBSITE_ROOT, 'public', s.srcDark))))) {
         log(`reusing ${cached.shots.length} reviewed hero shots`);
-        return { count: cached.shots.length, manifestPath };
+        return { count: cached.shots.length, lightCount: cached.shots.filter(s => s.src).length, darkCount: cached.shots.filter(s => s.srcDark).length, manifestPath };
       }
     } catch { /* Rebuild a missing or incomplete cache. */ }
   }
@@ -100,34 +101,41 @@ export async function assembleHeroShots(opts = {}) {
   const files = new Map();
   for (const pick of candidates) {
     const platform = galleryConfig.platforms.find(p => p.id === pick.platform);
-    const bytes = await obtain(pick.light);
-    if (!platform || !bytes || !(await isContentful(bytes))) {
-      console.warn(`[hero] unavailable reviewed capture: ${pick.app}/${pick.platform}/${pick.shot}`);
+    if (!platform) {
+      console.warn(`[hero] unavailable reviewed capture: ${pick.app}/${pick.platform}/${pick.shot} (unknown platform)`);
       continue;
     }
     const stem = `${pick.app}-${pick.platform}-${pick.shot}`;
-    const light = await normalize(bytes), filename = `${stem}.webp`;
-    files.set(filename, light.data);
     const toolkit = CAROUSEL_TOOLKIT[pick.platform] ?? platform.toolkit;
     const entry = {
-      src: `hero/${filename}`, width: light.width, height: light.height,
       app: pick.app, label: pick.label, shot: pick.shot, framed: !!pick.framed,
       gallery: `gallery/${pick.app}#${pick.shot}`,
       os: platform.os, toolkit, accent: pick.platform,
       alt: `${pick.label} on ${platform.os} with ${toolkit}`,
     };
-    const darkBytes = await obtain(pick.dark);
-    if (darkBytes && await isContentful(darkBytes) && await isDark(darkBytes)) {
-      const dark = await normalize(darkBytes);
-      // Captured window decorations can differ slightly in size across appearances.
-      // Keep each image's actual dimensions; the carousel stage stays fixed in CSS.
-      const filename = `${stem}-dark.webp`;
-      files.set(filename, dark.data);
-      entry.srcDark = `hero/${filename}`;
-      entry.widthDark = dark.width;
-      entry.heightDark = dark.height;
+    for (const theme of ['light', 'dark']) {
+      if (theme === 'light' && pick.darkOnly) continue;
+      const capture = pick[theme];
+      let reason;
+      const bytes = await obtain(capture);
+      if (!capture) reason = 'no published capture';
+      else if (!bytes) reason = 'download failed';
+      else if (!(await isContentful(bytes))) reason = 'blank or invalid image';
+      else if (theme === 'dark' && !(await isDark(bytes))) reason = 'image is predominantly light';
+      if (reason) {
+        console.warn(`[hero] excluded ${theme} capture: ${pick.app}/${pick.platform}/${pick.shot} (${reason})`);
+        continue;
+      }
+      const image = await normalize(bytes);
+      const filename = `${stem}${theme === 'dark' ? '-dark' : ''}.webp`;
+      files.set(filename, image.data);
+      // Each theme is independent, including its actual window dimensions.
+      if (theme === 'dark') Object.assign(entry, {
+        srcDark: `hero/${filename}`, widthDark: image.width, heightDark: image.height,
+      });
+      else Object.assign(entry, { src: `hero/${filename}`, width: image.width, height: image.height });
     }
-    shots.push(entry);
+    if (entry.src || entry.srcDark) shots.push(entry);
   }
   // Keep the previous files until their replacements are ready.
   rmSync(outDir, { recursive: true, force: true });
@@ -135,8 +143,9 @@ export async function assembleHeroShots(opts = {}) {
   for (const [file, bytes] of files) writeFileSync(join(outDir, file), bytes);
   mkdirSync(dirname(manifestPath), { recursive: true });
   writeFileSync(manifestPath, JSON.stringify({ key, shots }, null, 2) + '\n');
-  log(`verified ${shots.length} light/default screenshots, ${shots.filter(s => s.srcDark).length} dark screenshots from ${new Set(shots.map(s => s.app)).size} apps`);
-  return { count: shots.length, manifestPath };
+  const lightCount = shots.filter(s => s.src).length, darkCount = shots.filter(s => s.srcDark).length;
+  log(`verified ${lightCount} light/default screenshots, ${darkCount} dark screenshots from ${new Set(shots.map(s => s.app)).size} apps`);
+  return { count: shots.length, lightCount, darkCount, manifestPath };
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

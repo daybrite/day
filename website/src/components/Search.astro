@@ -1,75 +1,32 @@
 ---
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: CC-BY-SA-4.0
+import { res } from '../generated/strings.mjs';
 import { url } from '../lib/site';
 // Pagefind indexes the built site (`pagefind --site dist` in the build script) into /pagefind/.
-// Its UI is generated at build time, so search works in production and `preview`, not `dev`.
+// Dev serves the latest built index through integrations/dev-search.mjs.
 const pagefindJs = url('pagefind/pagefind-ui.js');
 const pagefindCss = url('pagefind/pagefind-ui.css');
 ---
-<button type="button" class="search-trigger" data-search-open aria-label="Search" aria-keyshortcuts="Meta+K Control+K">
+<button type="button" class="search-trigger" data-search-open aria-label={res.str.search()} aria-keyshortcuts="Meta+K Control+K">
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
     <circle cx="11" cy="11" r="7" /><path d="M21 21l-4.3-4.3" />
   </svg>
-  <span class="st-text">Search</span>
+  <span class="st-text">{res.str.search()}</span>
 </button>
 
-<dialog class="search-modal" data-search-dialog aria-label="Search the site" data-pagefind-ignore>
+<dialog class="search-modal" data-search-dialog aria-label={res.str.search_title()} closedby="any" data-pagefind-js={pagefindJs} data-pagefind-css={pagefindCss} data-pagefind-ignore>
+  <form method="dialog" class="search-close"><button autofocus aria-label={res.str.close()}>{res.str.close()}</button></form>
+  <p role="status" data-search-status hidden></p>
+  <button type="button" data-search-retry hidden>{res.str.retry()}</button>
   <div class="search-panel">
     <div id="pagefind-search" data-search-mount></div>
   </div>
 </dialog>
 
-<script is:inline define:vars={{ pagefindJs, pagefindCss }}>
-  (() => {
-    const dialog = document.querySelector('[data-search-dialog]');
-    const mount = document.querySelector('[data-search-mount]');
-    if (!dialog || !mount) return;
-    let loaded = false;
-
-    function load() {
-      if (loaded) return Promise.resolve();
-      loaded = true;
-      return new Promise((resolve) => {
-        const css = document.createElement('link');
-        css.rel = 'stylesheet';
-        css.href = pagefindCss;
-        document.head.appendChild(css);
-        const js = document.createElement('script');
-        js.src = pagefindJs;
-        js.onload = () => {
-          // eslint-disable-next-line no-undef
-          new PagefindUI({ element: mount, showSubResults: true, showImages: false, resetStyles: false });
-          resolve();
-        };
-        js.onerror = () => {
-          mount.innerHTML =
-            '<p class="search-unavailable">The search index is built at deploy time. Run a production build (<code>scripts/website.sh preview</code>) to try it locally.</p>';
-          resolve();
-        };
-        document.body.appendChild(js);
-      });
-    }
-
-    async function open() {
-      await load();
-      if (!dialog.open) dialog.showModal();
-      setTimeout(() => dialog.querySelector('input')?.focus(), 40);
-    }
-    const close = () => dialog.open && dialog.close();
-
-    document.querySelectorAll('[data-search-open]').forEach((b) => b.addEventListener('click', open));
-    document.addEventListener('keydown', (e) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
-        e.preventDefault();
-        dialog.open ? close() : open();
-      }
-    });
-    // Click on the backdrop (outside the panel) closes; Esc is handled natively by <dialog>.
-    dialog.addEventListener('click', (e) => {
-      if (e.target === dialog) close();
-    });
-  })();
+<script>
+  import { initSearch } from '../lib/search-client.mjs';
+  initSearch();
 </script>
 
 <style>
@@ -118,6 +75,7 @@ const pagefindCss = url('pagefind/pagefind-ui.css');
     background: rgba(4, 7, 14, 0.55);
     backdrop-filter: blur(4px);
   }
+  .search-close { display: flex; justify-content: flex-end; margin-bottom: 12px; }
   .search-unavailable { color: var(--muted); font-size: 0.92rem; margin: 6px 2px; }
 
   @media (max-width: 620px) {

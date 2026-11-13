@@ -17,6 +17,7 @@ import { tutorialRecipe as recipe } from '../lib/tutorial-data';
   <noscript><p>JavaScript is disabled. Instructions for all three platforms appear below.</p></noscript>
 </div>
 <script>
+  import { initClipboard } from '../lib/clipboard.mjs';
   import { initialPlatform, tutorialLink, validPlatform } from '../lib/tutorial-platform.mjs';
   const controls = [...document.querySelectorAll<HTMLInputElement>('input[name="tutorial-platform"]')];
   const storageKey = 'day-tutorial-platform';
@@ -39,17 +40,7 @@ import { tutorialRecipe as recipe } from '../lib/tutorial-data';
       try { localStorage.setItem(storageKey, platform); } catch { /* Selection still works. */ }
     }
   }
-  if (navigator.clipboard) document.querySelectorAll<HTMLButtonElement>('[data-copy-text]').forEach(button => {
-    button.hidden = false;
-    button.addEventListener('click', async () => {
-      const original = button.textContent;
-      try {
-        await navigator.clipboard.writeText(decodeURIComponent(button.dataset.copyText!));
-        button.textContent = 'Copied';
-      } catch { button.textContent = 'Select the code to copy'; }
-      window.setTimeout(() => { button.textContent = original; }, 1800);
-    });
-  });
+  initClipboard();
   const initial = initialPlatform(location.href, saved, navigator);
   if (initial) select(initial);
   controls.forEach(control => control.addEventListener('change', () => select(control.value, true)));

@@ -259,35 +259,8 @@ function richInstall(text: string): (string | { code: string })[] {
         var win = document.getElementById('qs-win');
         if (win) win.checked = true;
       }
-
-      // Copy to clipboard, with the button itself as the confirmation — a checkmark and "Copied",
-      // reverted after a moment. `navigator.clipboard` needs a secure context, so the whole
-      // control is REMOVED when it is unavailable rather than left to fail on click: a copy
-      // button that silently does nothing is worse than no copy button.
-      var buttons = document.querySelectorAll('.qs-copy');
-      if (!navigator.clipboard) {
-        buttons.forEach(function (b) { b.remove(); });
-        return;
-      }
-      buttons.forEach(function (button) {
-        var label = button.querySelector('.qs-copy-label');
-        var idle = label.textContent;
-        var timer;
-        button.addEventListener('click', function () {
-          navigator.clipboard.writeText(button.dataset.cmd).then(function () {
-            button.classList.add('is-copied');
-            label.textContent = 'Copied';
-            clearTimeout(timer);
-            timer = setTimeout(function () {
-              button.classList.remove('is-copied');
-              label.textContent = idle;
-            }, 2000);
-          });
-        });
-      });
     })();
   </script>
-
 
 </BaseLayout>
 

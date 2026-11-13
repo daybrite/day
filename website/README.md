@@ -204,6 +204,11 @@ scripts/website.sh preview  # build, then serve the production output
 
 Or directly with npm inside `website/`: `npm install`, then `npm run dev` / `npm run build`.
 
+Local search uses the Pagefind index from the latest `npm run build`. The dev server serves
+that bundle from `dist/pagefind/`; run a build once on a fresh checkout and rebuild after
+content changes to refresh search results. Rebuilding the index does not require restarting
+the dev server.
+
 `npm run build` builds the site. It publishes no Rust API reference: every API link goes to
 docs.rs. After a build, `npm run docs:api` checks those links against rustdoc built the way docs.rs
 builds it; that needs the Rust toolchain, jq, and Python 3 in addition to Node.js.
@@ -299,8 +304,8 @@ installers into the site. A failed metadata request produces explicit package pl
 
 `/gallery` shows the screenshot carousels for the apps in `gallery.config.mjs`.
 `/gallery/<app>` compares the same screens across captured platforms, languages, and themes.
-The landing page uses `HeroCarousel.astro` to rotate through Day Showcase captures with their
-platform shells, captions, and matching dark captures where available. Each slide links directly
+The landing page uses `HeroCarousel.astro` to rotate through reviewed app captures with their
+platform shells, captions, and available theme variants. Each slide links directly
 to its screenshot row in the gallery.
 
 `integrations/gallery.mjs` runs `scripts/assemble-gallery.mjs` and `scripts/hero-shots.mjs` before
@@ -309,11 +314,14 @@ every dev/build. Gallery indexes come from the apps’ published sites, with sav
 images remain hosted by their apps; the hero downloads and caches its images under `public/hero/`.
 The landing carousel uses the reviewed app/screen/toolkit selections in `hero.config.mjs`.
 Each slide links to its own gallery row and names its app. Set `framed: true` for captures
-that already contain desktop window chrome. Review the actual images before changing a pick;
+that already contain desktop window chrome. Set `darkOnly: true` for an additional dark-mode
+selection without adding it to the light rotation. Review the actual images before changing a pick;
 missing selections are logged, with no automatic substitution of another screen. The build
-accepts light or unthemed captures and verified matching dark captures, creates compact WebP
+accepts light or unthemed captures and independently verified dark captures, creates compact WebP
 images, and invalidates the cache when selections or published URLs change. Dark mode rotates
 only through verified dark captures; apps with no dark capture remain in the light rotation.
+The build logs both theme counts and the reason for each excluded capture when regenerating
+the pool. A capture labeled dark is rejected if the actual image is predominantly light.
 Each variant retains its own dimensions, including small differences in native window chrome.
 The client decodes the requested images before switching and keeps the current app when it is
 available in the new theme. Run `node --test scripts/hero-theme.test.mjs` for selection checks.

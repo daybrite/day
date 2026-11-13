@@ -1,5 +1,6 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: CC-BY-SA-4.0
+import { res } from '../src/generated/strings.mjs';
 import { readRecipe, platformIds, resolveStep, validateLessonSource } from '../src/lib/tutorials.mjs';
 
 /** Expand Markdown step references from the same recipe consumed by CI. */
@@ -32,7 +33,7 @@ export default function tutorialSteps() {
             {type:'inlineCode', value:s.path}, {type:'text', value:':'},
           ]}] : [];
           const copy = s.kind === 'note' ? [] : [{type:'html', value:
-            `<button type="button" class="tutorial-copy" data-copy-text="${encodeURIComponent(s.body)}" hidden>Copy ${s.kind === 'file' ? 'code' : 'commands'}</button>`}];
+            `<button type="button" class="tutorial-copy" data-copy-text="${encodeURIComponent(s.body)}" hidden>${s.kind === 'file' ? res.str.copy_code() : res.str.copy_commands()}</button>`}];
           const content = s.kind === 'note'
             ? { type: 'paragraph', children: [{type:'text', value:s.body}] }
             : { type: 'code', lang: s.kind === 'file' ? s.language : s.shell === 'powershell' ? 'powershell' : 'sh', value:s.body.replace(/\n$/, '') };

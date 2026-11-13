@@ -491,9 +491,14 @@ a.tier-badge:hover {
 .doc-body a.gloss:hover,
 .doc-body a.gloss:focus-visible { text-decoration-color: var(--brand); }
 .gloss-pop {
-  position: absolute;
+  position: fixed;
+  inset: auto;
+  margin: 0;
+  box-sizing: border-box;
+  max-height: calc(100dvh - 24px);
+  overflow: auto;
   z-index: 60;
-  max-width: 340px;
+  max-width: min(340px, calc(100vw - 24px));
   padding: 12px 14px;
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -542,3 +547,11 @@ a.tier-badge:hover {
 code[data-pf] > .doc-target-icon { margin-right: 0.3em; }
 
 .doc-target-icon[data-pf] { color: color-mix(in srgb, var(--pf) 65%, var(--text)); }
+
+@supports (position-anchor: --term) and (position-area: bottom) {
+  .gloss-pop { position-area: bottom span-right; position-try-fallbacks: flip-block, flip-inline, flip-block flip-inline; margin: 8px 0; }
+}
+dialog:modal { overscroll-behavior: contain; }
+dialog::backdrop { overscroll-behavior: contain; overflow: hidden; }
+
+.copy-status { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }

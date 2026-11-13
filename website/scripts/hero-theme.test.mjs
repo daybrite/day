@@ -17,3 +17,10 @@ test('theme changes use the actual dimensions of each capture', () => {
   assert.deepEqual(heroCapture(shot, 'dark'), { src: 'dark.webp', width: 1000, height: 661 });
   assert.equal(heroCapture(shot, 'light').height, 658);
 });
+
+
+test('reviewed dark-only selections stay out of light mode', () => {
+  const shot = { srcDark: 'dark-only.webp', widthDark: 460, heightDark: 1000 };
+  assert.equal(heroCapture(shot, 'light'), null);
+  assert.deepEqual(heroCapture(shot, 'dark'), { src: 'dark-only.webp', width: 460, height: 1000 });
+});

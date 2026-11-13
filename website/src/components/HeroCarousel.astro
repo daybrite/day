@@ -4,15 +4,16 @@
 // Auto-advancing carousel of reviewed gallery screenshots from Day apps,
 // cross-fading, with the platform name + toolkit animating in below each image. The pool is built
 // (and every image verified non-blank) at build time by scripts/hero-shots.mjs. Each slide carries
-// its light capture plus, where CI produced one, the matching dark capture; the site theme picks
-// which shows. Slides without a verified dark capture appear only in the light rotation.
+// its available captures; reviewed dark-only selections complement apps without dark captures.
+// Only verified images for the current theme appear in its rotation.
+import { res } from '../generated/strings.mjs';
 import { url } from '../lib/site';
 import DeviceShell from './DeviceShell.astro';
 import PlatformIcon from './PlatformIcon.astro';
 import shotsData from '../data/hero-shots.json';
 
 const shots: {
-  src: string;
+  src?: string;
   srcDark?: string;
   shot?: string;
   app: string;
@@ -31,36 +32,37 @@ const shots: {
 
 // The caption's mark changes with the slide, and the slide order is decided in the browser, so
 // every platform in the pool is rendered once here (hidden) for the controller to copy from.
+const initial = Math.max(0, shots.findIndex(s => s.src));
 const accents = [...new Set(shots.map((s) => s.accent))];
 ---
 {shots.length > 0 && (
-  <figure class="hero-carousel" data-hero-carousel aria-roledescription="carousel" aria-label="Day apps running natively on each platform">
+  <figure class="hero-carousel" data-hero-carousel aria-roledescription={res.str.carousel()} aria-label={res.str.hero_label()}>
     {/* The frame links to the gallery, anchored at the row for the screen currently showing —
         the controller retargets the href on every image change. */}
-    <a class="hc-link" data-hc-link href={url(shots[0].gallery)} aria-label={`See ${shots[0].label} in the gallery`}>
+    <a class="hc-link" data-hc-link href={url(shots[initial].gallery)} aria-label={res.str.see_gallery().replace('{app}', shots[initial].label)}>
       <div class="hc-stage">
         <div class="hc-glow" aria-hidden="true" data-hc-glow></div>
         {shots.map((s, i) => (
-          <div class:list={['hc-slide', { 'is-active': i === 0 }]}>
+          <div aria-hidden={i !== initial} class:list={['hc-slide', { 'is-active': i === initial }]}>
             {/* Use the gallery's device shell unless the capture already includes window chrome. */}
             {s.framed ? <div class="hc-capture">
-              <img class="hc-img" src={url(s.src)} alt={s.alt} width={s.width} height={s.height}
-                decoding="async" loading={i < 3 ? 'eager' : 'lazy'}
-                data-src-light={url(s.src)} data-src-dark={s.srcDark ? url(s.srcDark) : undefined}
+              <img class="hc-img" src={i === initial && s.src ? url(s.src) : undefined} alt={s.alt} width={s.width} height={s.height}
+                decoding="async" loading="eager" fetchpriority={i === initial ? 'high' : 'low'}
+                data-src-light={s.src ? url(s.src) : undefined} data-src-dark={s.srcDark ? url(s.srcDark) : undefined}
                 data-width-light={s.width} data-height-light={s.height}
                 data-width-dark={s.widthDark} data-height-dark={s.heightDark}
                 data-shot={s.shot} data-gallery={url(s.gallery)} data-app={s.label}
                 data-os={s.os} data-toolkit={s.toolkit} data-accent={s.accent} />
-            </div> : <DeviceShell platform={s.accent} title={s.label} w={s.width} h={s.height}>
+            </div> : <DeviceShell platform={s.accent} title={s.label} w={s.width ?? s.widthDark} h={s.height ?? s.heightDark}>
               <img
                 class="hc-img"
-                src={url(s.src)}
+                src={i === initial && s.src ? url(s.src) : undefined}
                 alt={s.alt}
                 width={s.width ?? 1000}
                 height={s.height ?? 750}
                 decoding="async"
-                loading={i < 3 ? 'eager' : 'lazy'}
-                data-src-light={url(s.src)}
+                loading="eager" fetchpriority={i === initial ? 'high' : 'low'}
+                data-src-light={s.src ? url(s.src) : undefined}
                 data-src-dark={s.srcDark ? url(s.srcDark) : undefined}
                 data-width-light={s.width} data-height-light={s.height}
                 data-width-dark={s.widthDark} data-height-dark={s.heightDark}
@@ -82,14 +84,14 @@ const accents = [...new Set(shots.map((s) => s.accent))];
         shuffled order for this visit is known. */}
     <div class="hc-track" data-hc-track>
       {shots.map(s => (
-        <a class="hc-seg" data-hc-seg href={url(s.gallery)} aria-label={`Show ${s.label} on ${s.os}`}><span class="hc-bar"><i></i></span></a>
+        <a class="hc-seg" data-hc-seg hidden={!s.src} href={url(s.gallery)} aria-label={res.str.show_platform().replace('{app}', s.label).replace('{os}', s.os).replace('{toolkit}', s.toolkit)}><span class="hc-bar"><i></i></span></a>
       ))}
     </div>
     <div class="hc-icons" data-hc-icons aria-hidden="true">
       {accents.map((a) => <span data-icon-for={a}><PlatformIcon id={a} /></span>)}
     </div>
     <figcaption class="hc-caption" data-hc-caption>
-      <span class="hc-app" data-hc-app>{shots[0].label}</span>
+      <span class="hc-app" data-hc-app>{shots[initial].label}</span>
       <span class="hc-plat">
         <span class="hc-icon" data-hc-icon aria-hidden="true"></span>
         <b class="hc-os" data-hc-os></b>
@@ -141,6 +143,9 @@ const accents = [...new Set(shots.map((s) => s.accent))];
   }
   .hc-capture { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; }
   .hc-capture img { max-width: 100%; max-height: 100%; width: auto; height: auto; object-fit: contain; border-radius: 8px; box-shadow: 0 26px 60px -24px rgba(0, 0, 0, .45); }
+  /* Tablet targets have no synthetic shell. Constrain their bare image in both dimensions,
+     just as a framed capture is constrained, without changing phone or window sizing. */
+  .hc-slide > .hc-img { max-width: 100%; max-height: 100%; width: auto; height: auto; object-fit: contain; border-radius: 8px; box-shadow: 0 26px 60px -24px rgba(0, 0, 0, .45); }
   .hc-app { color: var(--muted); font-size: .85rem; }
   .hc-slide.is-active { opacity: 1; transform: scale(1); }
   /* Window shells size themselves from --shell-h + the capture's aspect (see .hc-stage), so
@@ -157,14 +162,19 @@ const accents = [...new Set(shots.map((s) => s.accent))];
   }
 
   /* Story-style segmented progress / index. Each dash is a link, so it needs a hit area a
-     pointer can actually catch: the anchor is padded to ~21px tall and the track pulls that
+     pointer can actually catch: the anchor is padded to 25px tall and the track pulls that
      padding back out with a negative margin, leaving the layout exactly where it was. */
-  .hc-track { display: flex; gap: 4px; padding: 0 2px; margin: -9px 0; }
+  .hc-track {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(24px, 1fr));
+    column-gap: 4px;
+    padding: 0 2px; margin: -11px 0;
+  }
   .hc-seg {
     flex: 1;
     display: flex;
     align-items: center;
-    padding: 9px 0;
+    padding: 11px 0;
     cursor: pointer;
   }
   .hc-seg:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; border-radius: 3px; }
@@ -201,24 +211,15 @@ const accents = [...new Set(shots.map((s) => s.accent))];
   :global(html[data-theme=light]) .hc-os { color: color-mix(in srgb, var(--hc-accent, var(--text)) 70%, var(--text)); }
   .hc-toolkit { color: var(--muted); font-size: 0.95rem; font-variant-numeric: tabular-nums; }
 
-  /* Caption re-animates on each change (JS toggles .hc-rise). */
-  .hc-rise .hc-os, .hc-rise .hc-toolkit, .hc-rise .hc-icon { animation: hc-rise 0.5s ease both; }
-  /* No stagger. A delay on one of two baseline-aligned words reads as a baseline error for the
-     whole half-second it is catching up, which is most of what the eye sees between changes. */
-  @keyframes hc-rise {
-    from { opacity: 0; transform: translateY(8px); }
-    to { opacity: 1; transform: translateY(0); }
-  }
-
   @media (prefers-reduced-motion: reduce) {
     .hc-slide { transition: opacity 0.2s linear; transform: none; }
     .hc-slide.is-active { transform: none; }
     .hc-seg.is-active i { animation: none; transform: scaleX(1); }
-    .hc-rise .hc-os, .hc-rise .hc-toolkit, .hc-rise .hc-icon { animation: none; }
   }
 </style>
 
 <script>
+  import { res } from '../generated/strings.mjs';
   import { heroCapture } from '../lib/hero-theme.mjs';
 
   // Carousel controller: shuffle the verified pool (so each visit differs), cross-fade the images,
@@ -242,7 +243,7 @@ const accents = [...new Set(shots.map((s) => s.accent))];
     if (imgs.length === 0) return;
 
     const INTERVAL = 3400;
-    const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const reduce = window.matchMedia('(prefers-reduced-motion: reduce)');
 
     // Fisher–Yates shuffle of the display order.
     let order = imgs.map((_, i) => i);
@@ -287,17 +288,23 @@ const accents = [...new Set(shots.map((s) => s.accent))];
       }
     }
 
+    // The server-rendered image is already prioritized; do not discard that work at startup.
+    // Rotate the ring to preserve the platform spacing established above.
+    const first = order.indexOf(Math.max(0, imgs.findIndex(img => img.dataset.srcLight)));
+    order = [...order.slice(first), ...order.slice(0, first)];
     const fullOrder = [...order];
     const captures = imgs.map(img => ({
       src: img.dataset.srcLight, srcDark: img.dataset.srcDark,
       width: Number(img.dataset.widthLight), height: Number(img.dataset.heightLight),
       widthDark: Number(img.dataset.widthDark), heightDark: Number(img.dataset.heightDark),
     }));
-    let themeRevision = 0;
+    let renderRevision = 0;
+    let theme: 'light' | 'dark' = 'light';
     const decoded = new Map<string, Promise<boolean>>();
-    function preload(src: string) {
+    function preload(src: string, priority: 'high' | 'low' = 'low') {
       if (!decoded.has(src)) {
         const image = new Image();
+        image.fetchPriority = priority;
         image.src = src;
         decoded.set(src, image.decode().then(() => true, () => { decoded.delete(src); return false; }));
       }
@@ -307,8 +314,31 @@ const accents = [...new Set(shots.map((s) => s.accent))];
     let pos = 0;
     let timer: ReturnType<typeof setInterval> | undefined;
 
-    function render(p: number) {
+    async function render(p: number) {
+      const request = ++renderRevision;
       const idx = order[p];
+      if (idx === undefined) return;
+      root!.setAttribute('aria-busy', 'true');
+      const capture = heroCapture(captures[idx], theme)!;
+      const loaded = await preload(capture.src!, 'high');
+      if (request !== renderRevision) return;
+      if (!loaded) {
+        order = order.filter(i => i !== idx);
+        updateSegments();
+        root!.hidden = !order.length;
+        root!.setAttribute('aria-busy', 'false');
+        if (order.length) { pos = p % order.length; void render(pos); }
+        return;
+      }
+      imgs[idx].src = capture.src!;
+      imgs[idx].width = capture.width!;
+      imgs[idx].height = capture.height!;
+      const shell = imgs[idx].closest<HTMLElement>('.sh-win');
+      shell?.toggleAttribute('data-dark', theme === 'dark');
+      shell?.style.setProperty('--ar', String(capture.width! / capture.height!));
+      root!.dataset.heroTheme = theme;
+      root!.setAttribute('data-hero-ready', '');
+      root!.setAttribute('aria-busy', 'false');
       const img = imgs[idx];
       const accent = `var(--pf-${img.dataset.accent ?? 'macos'})`;
       root!.style.setProperty('--hc-accent', accent);
@@ -318,7 +348,7 @@ const accents = [...new Set(shots.map((s) => s.accent))];
       // transitions `color`, so it glides between platforms in step with the cross-fade).
       root!.closest<HTMLElement>('.hero')?.style.setProperty('--hero-accent', accent);
 
-      slides.forEach((sl, i) => sl.classList.toggle('is-active', i === idx));
+      slides.forEach((sl, i) => { sl.classList.toggle('is-active', i === idx); sl.setAttribute('aria-hidden', String(i !== idx)); });
 
       // Progress segments track position within the shuffled order.
       segs.forEach((seg, i) => {
@@ -329,7 +359,7 @@ const accents = [...new Set(shots.map((s) => s.accent))];
       // Each screenshot links to its app's exact gallery row.
       if (link && img.dataset.gallery) {
         link.href = img.dataset.gallery;
-        link.setAttribute('aria-label', `See ${img.dataset.app} in the gallery`);
+        link.setAttribute('aria-label', res.str.see_gallery().replace('{app}', img.dataset.app ?? ''));
       }
       if (appEl) appEl.textContent = img.dataset.app ?? '';
 
@@ -339,20 +369,25 @@ const accents = [...new Set(shots.map((s) => s.accent))];
       }
       if (osEl) osEl.textContent = img.dataset.os ?? '';
       if (tkEl) tkEl.textContent = img.dataset.toolkit ?? '';
-      // Restart the caption entrance animation.
-      if (caption) {
-        caption.classList.remove('hc-rise');
-        void caption.offsetWidth; // reflow so the animation replays
-        caption.classList.add('hc-rise');
-      }
+      // WAAPI restarts without forcing layout and respects changes to motion preferences.
+      caption?.getAnimations({ subtree: true }).forEach(animation => animation.cancel());
+      if (!reduce.matches) caption?.animate([
+        { opacity: 0, transform: 'translateY(8px)' },
+        { opacity: 1, transform: 'translateY(0)' },
+      ], { duration: 500, easing: 'ease' });
+      // Only the next capture is decoded speculatively; unrelated images cannot delay this one.
+      const next = order[(p + 1) % order.length];
+      if (next !== idx) void preload(heroCapture(captures[next], theme)!.src!);
+      start();
     }
 
     function advance() {
+      stop();
       pos = (pos + 1) % order.length;
       render(pos);
     }
     function start() {
-      if (reduce || timer || order.length < 2 || document.hidden || root!.matches(':hover')) return;
+      if (reduce.matches || timer || order.length < 2 || document.hidden || root!.matches(':hover, :focus-within') || root!.getAttribute('aria-busy') === 'true') return;
       timer = setInterval(advance, INTERVAL);
     }
     function stop() {
@@ -361,6 +396,14 @@ const accents = [...new Set(shots.map((s) => s.accent))];
 
     // Clicking the frame follows its link to the gallery row for the current screen (no
     // click-to-advance — hover already pauses, and the timer keeps cycling otherwise).
+    root.addEventListener('focusin', stop);
+    root.addEventListener('focusout', event => {
+      if (!root.contains(event.relatedTarget as Node)) queueMicrotask(start);
+    });
+    reduce.addEventListener('change', () => {
+      caption?.getAnimations({ subtree: true }).forEach(animation => animation.cancel());
+      reduce.matches ? stop() : start();
+    });
     root.addEventListener('mouseenter', stop);
     root.addEventListener('mouseleave', start);
     document.addEventListener('visibilitychange', () => (document.hidden ? stop() : start()));
@@ -373,7 +416,7 @@ const accents = [...new Set(shots.map((s) => s.accent))];
         if (seg.hidden) return;
         const img = imgs[order[i]];
         if (seg instanceof HTMLAnchorElement && img.dataset.gallery) seg.href = img.dataset.gallery;
-        seg.setAttribute('aria-label', `Show ${img.dataset.app} · ${img.dataset.os} ${img.dataset.toolkit}`);
+        seg.setAttribute('aria-label', res.str.show_platform().replace('{app}', img.dataset.app ?? '').replace('{os}', img.dataset.os ?? '').replace('{toolkit}', img.dataset.toolkit ?? ''));
       });
     }
     segs.forEach((seg, i) => {
@@ -396,34 +439,18 @@ const accents = [...new Set(shots.map((s) => s.accent))];
       seg.addEventListener('focus', jump);
     });
 
-    async function applyTheme() {
-      const request = ++themeRevision;
-      const theme = document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light';
+    function applyTheme() {
       const previous = order[pos];
       stop();
-      root!.setAttribute('aria-busy', 'true');
-      const eligible = fullOrder.filter(i => heroCapture(captures[i], theme));
-      const loaded = await Promise.all(eligible.map(i => preload(heroCapture(captures[i], theme)!.src!)));
-      if (request !== themeRevision) return;
-      order = eligible.filter((_, i) => loaded[i]);
+      ++renderRevision;
+      theme = document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light';
+      order = fullOrder.filter(i => heroCapture(captures[i], theme));
       root!.hidden = order.length === 0;
-      for (const i of order) {
-        const capture = heroCapture(captures[i], theme)!;
-        imgs[i].src = capture.src!;
-        imgs[i].width = capture.width!;
-        imgs[i].height = capture.height!;
-        const shell = imgs[i].closest<HTMLElement>('.sh-win');
-        shell?.toggleAttribute('data-dark', theme === 'dark');
-        shell?.style.setProperty('--ar', String(capture.width! / capture.height!));
-      }
-      updateSegments();
-      // Keep the current app when it has a capture for the new theme.
-      pos = Math.max(0, order.indexOf(previous));
-      root!.dataset.heroTheme = theme;
-      root!.setAttribute('data-hero-ready', '');
+      root!.removeAttribute('data-hero-ready');
       root!.setAttribute('aria-busy', 'false');
-      if (order.length) render(pos);
-      start();
+      updateSegments();
+      pos = Math.max(0, order.indexOf(previous));
+      if (order.length) void render(pos);
     }
     const observer = new MutationObserver(() => {
       if (root!.isConnected) applyTheme();
@@ -433,7 +460,6 @@ const accents = [...new Set(shots.map((s) => s.accent))];
     applyTheme();
   }
 
-  // Run now and on Astro client-side view transitions.
+  // This site uses full document navigation.
   initHeroCarousel();
-  document.addEventListener('astro:page-load', initHeroCarousel);
 </script>

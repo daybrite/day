@@ -35,8 +35,8 @@ export default function gallery() {
         if (stale.length) logger.warn(`app(s) shown from a cached index: ${stale.join(', ')}`);
         // Build the front-page hero carousel pool from the just-assembled gallery (falling back to
         // the live gallery for local previews). Only verified, non-blank screenshots are admitted.
-        const { count } = await assembleHeroShots({ quiet: true });
-        logger.info(`hero carousel: ${count} verified screenshot(s)`);
+        const { count, lightCount, darkCount } = await assembleHeroShots({ quiet: true });
+        logger.info(`hero carousel: ${lightCount} light/default and ${darkCount} dark screenshot(s)`);
         // Publishing still requires the Showcase index for /showcase and its gallery, plus
         // a nonempty hero pool. The carousel can include other apps independently.
         //
