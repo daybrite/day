@@ -7,7 +7,6 @@ use crate::{Method, Request, Response};
 /// Origin-supplied validators for one stored URL/representation. Keep these with the body:
 /// a 304 has no replacement body. `ETags` are opaque, including quotes and the `W/` prefix.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-#[must_use]
 pub struct CacheValidators {
     pub etag: Option<String>,
     pub last_modified: Option<String>,
@@ -22,6 +21,7 @@ impl CacheValidators {
     /// Learn validators after successfully storing a 2xx representation, or merge those on
     /// a 304 with the existing ones. Other statuses leave the cached validators unchanged.
     /// A new 2xx without validators clears old ones; they described the previous body.
+    #[must_use]
     pub fn updated(&self, response: &Response) -> Self {
         let etag = response.header("etag").and_then(valid).map(str::to_owned);
         let modified = response

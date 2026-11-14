@@ -11,7 +11,6 @@ use crate::{format_decimal_in, format_percent_in};
 /// accepted. Grouped input must match the locale's grouping. Percent input may omit its sign:
 /// `40` and `40%` both mean `0.4`. Scientific notation, currency and units are not accepted.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[must_use]
 pub struct NumberFormat {
     percent: bool,
     fraction_digits: usize,
@@ -35,6 +34,7 @@ impl NumberFormat {
     }
 
     /// Display this many fraction digits (at most 20). Parsing retains entered precision.
+    #[must_use]
     pub const fn fraction_digits(mut self, digits: usize) -> Self {
         self.fraction_digits = if digits > 20 { 20 } else { digits };
         self

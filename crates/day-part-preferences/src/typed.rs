@@ -185,7 +185,6 @@ fn with_store<R>(f: impl FnOnce(&dyn Store) -> R) -> R {
 /// The signal behind it is created on the UI thread on first use, seeded from the store (or
 /// the default when the key is absent or unparsable), and lives for the process. `Pref` is
 /// `Copy`, so a row or a closure takes it by value.
-#[must_use]
 pub struct Pref<T: PrefValue> {
     key: &'static str,
     default: fn() -> T,
@@ -219,6 +218,7 @@ impl<T: PrefValue> Pref<T> {
     /// ignored for this run (the signal seeds from the default), so a `day launch --env` run
     /// and every CI variant loop stay deterministic whatever an earlier run persisted. Writes
     /// still persist.
+    #[must_use]
     pub const fn env(mut self, var: &'static str) -> Self {
         self.env = Some(var);
         self

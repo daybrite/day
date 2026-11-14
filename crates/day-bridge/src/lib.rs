@@ -154,7 +154,6 @@ impl<T: Send + 'static> Done<T> {
 /// ever completing (the call never went out). Dropping it cancels the wait (a late completion
 /// then finds nothing) and runs the cancel hook the generated code attached, when the
 /// declaration named a cancel arm.
-#[must_use]
 pub struct Completion<T: Send + 'static> {
     rx: day_async::Oneshot<Result<T, Error>>,
     token: u64,
@@ -164,6 +163,7 @@ pub struct Completion<T: Send + 'static> {
 
 impl<T: Send + 'static> Completion<T> {
     /// Run `f` when this future is dropped before completing: the generated cancel arm.
+    #[must_use]
     pub fn on_cancel(mut self, f: impl FnOnce() + Send + 'static) -> Self {
         self.on_drop = Some(Box::new(f));
         self

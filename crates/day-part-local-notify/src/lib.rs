@@ -142,7 +142,6 @@ impl std::error::Error for NotifyError {}
 /// Register every channel before posting to it. Registration is idempotent, and on Android the
 /// importance is fixed the first time (see [`Importance`]).
 #[derive(Clone, Debug)]
-#[must_use]
 pub struct Channel {
     id: String,
     name: String,
@@ -163,12 +162,14 @@ impl Channel {
     }
 
     /// The user-visible channel name (Android shows it in the app's notification settings).
+    #[must_use]
     pub fn name(mut self, name: impl Into<String>) -> Channel {
         self.name = name.into();
         self
     }
 
     /// Whether notifications on this channel play a sound.
+    #[must_use]
     pub fn sound(mut self, on: bool) -> Channel {
         self.sound = on;
         self
@@ -208,7 +209,6 @@ impl Channel {
 /// receiver runs in a fresh process), so the content cannot be a signal or a closure. This is the
 /// one place Day's reactivity does not reach (docs/notify.md).
 #[derive(Clone, Debug)]
-#[must_use]
 pub struct Notification {
     id: Option<NotifId>,
     title: String,
@@ -238,18 +238,21 @@ impl Notification {
     }
 
     /// The body text.
+    #[must_use]
     pub fn body(mut self, body: impl Into<String>) -> Notification {
         self.body = body.into();
         self
     }
 
     /// A subtitle, where the platform has one (Apple). Ignored elsewhere.
+    #[must_use]
     pub fn subtitle(mut self, subtitle: impl Into<String>) -> Notification {
         self.subtitle = subtitle.into();
         self
     }
 
     /// The channel to post on (default: `"default"`). Register it first.
+    #[must_use]
     pub fn channel(mut self, channel: impl Into<String>) -> Notification {
         self.channel = channel.into();
         self
@@ -258,6 +261,7 @@ impl Notification {
     /// The Day route to navigate to when the notification is tapped (docs/navigation.md). Delivered
     /// through `day_core::request_route`, so it works whether the tap wakes a running app or cold
     /// starts the process.
+    #[must_use]
     pub fn route(mut self, route: impl Into<String>) -> Notification {
         self.route = route.into();
         self
@@ -265,24 +269,28 @@ impl Notification {
 
     /// A custom small-icon name, where the platform supports one ([`Capabilities::icon`]). On
     /// Android this resolves as a drawable resource name; elsewhere it is ignored.
+    #[must_use]
     pub fn icon(mut self, icon: impl Into<String>) -> Notification {
         self.icon = icon.into();
         self
     }
 
     /// The app-icon badge count to show ([`Capabilities::badge`]).
+    #[must_use]
     pub fn badge(mut self, count: u32) -> Notification {
         self.badge = Some(count);
         self
     }
 
     /// A stable id, so a later post with the same id replaces this notification.
+    #[must_use]
     pub fn id(mut self, id: NotifId) -> Notification {
         self.id = Some(id);
         self
     }
 
     /// When to fire (default [`Trigger::Now`]).
+    #[must_use]
     pub fn trigger(mut self, trigger: Trigger) -> Notification {
         self.trigger = trigger;
         self

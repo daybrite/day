@@ -5,7 +5,6 @@
 //! Everything is in points (density-independent); backends convert to device pixels (§7.9).
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
-#[must_use]
 pub struct Point {
     pub x: f64,
     pub y: f64,
@@ -18,13 +17,13 @@ impl Point {
         Point { x, y }
     }
     #[inline]
+    #[must_use]
     pub fn offset(self, dx: f64, dy: f64) -> Self {
         Point::new(self.x + dx, self.y + dy)
     }
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
-#[must_use]
 pub struct Size {
     pub width: f64,
     pub height: f64,
@@ -40,6 +39,7 @@ impl Size {
         Size { width, height }
     }
     #[inline]
+    #[must_use]
     pub fn max(self, other: Size) -> Size {
         Size::new(self.width.max(other.width), self.height.max(other.height))
     }
@@ -52,7 +52,6 @@ impl Size {
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
-#[must_use]
 pub struct Rect {
     pub origin: Point,
     pub size: Size,
@@ -105,9 +104,11 @@ impl Rect {
         )
     }
     #[inline]
+    #[must_use]
     pub fn inset(&self, d: f64) -> Rect {
         self.inset_by(Insets::all(d))
     }
+    #[must_use]
     pub fn inset_by(&self, i: Insets) -> Rect {
         Rect::new(
             self.origin.x + i.leading,
@@ -136,7 +137,6 @@ impl Rect {
 /// `(a·p.x + c·p.y + tx, b·p.x + d·p.y + ty)`. Used by canvas transform ops for shape
 /// rotate/scale/offset; every native 2-D context concatenates it onto its CTM identically.
 #[derive(Clone, Copy, Debug, PartialEq)]
-#[must_use]
 pub struct Affine {
     pub a: f64,
     pub b: f64,
@@ -193,6 +193,7 @@ impl Affine {
     }
     /// `self` applied first, then `other` (row-vector product `self · other`).
     #[inline]
+    #[must_use]
     pub fn then(self, o: Affine) -> Affine {
         Affine {
             a: self.a * o.a + self.b * o.c,
@@ -359,7 +360,6 @@ impl Insets {
 
 /// sRGB color, 0.0–1.0 components. Semantic theme tokens (§6.3) resolve to these in the backend.
 #[derive(Clone, Copy, Debug, PartialEq)]
-#[must_use]
 pub struct Color {
     pub r: f64,
     pub g: f64,
@@ -486,6 +486,7 @@ impl Color {
 
     /// The same color at a different opacity: what a picker's alpha slider produces, and what
     /// tinting a surface down to a wash needs (`palette.with_alpha(0.14)`).
+    #[must_use]
     pub fn with_alpha(self, a: f64) -> Color {
         Color { a, ..self }
     }
@@ -575,6 +576,7 @@ impl Color {
     /// hue-space blend (red→green sweeps through yellow) rather than the muddy RGB straight line,
     /// used by the canvas / self-driven animation path (native widget color animation interpolates
     /// in the toolkit's own space).
+    #[must_use]
     pub fn lerp_hsl(self, to: Color, t: f64) -> Color {
         let (h0, s0, l0) = self.to_hsl();
         let (h1, s1, l1) = to.to_hsl();

@@ -18,7 +18,6 @@ use day_spec::{Color, Font, FontWeight, RunStyle, TextRun};
 /// which matters because the editor's background is the platform's and changes with the theme
 /// while the runs do not.
 #[derive(Clone, Debug, PartialEq)]
-#[must_use]
 pub struct Palette {
     /// The style plain text takes: the font every run is set in (monospace by default) and the
     /// color unclaimed text keeps (`None` = the platform's label color).
@@ -56,11 +55,13 @@ impl Default for Palette {
 
 impl Palette {
     /// The same colors over a proportional base font, for prose-like documents.
+    #[must_use]
     pub fn proportional(mut self) -> Self {
         self.base.font.monospace = false;
         self
     }
     /// The base font the runs scale against (default `Body`).
+    #[must_use]
     pub fn base_font(mut self, font: Font) -> Self {
         let monospace = self.base.font.monospace;
         self.base = RunStyle::plain(font);

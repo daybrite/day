@@ -205,7 +205,6 @@ impl IntoFuture for Confirm {
 }
 
 /// A single-line text prompt. Resolves to `Some(text)` on OK, `None` on cancel/dismiss.
-#[must_use]
 pub struct Prompt {
     title: String,
     message: Option<String>,
@@ -228,22 +227,27 @@ pub fn prompt<M>(title: impl IntoText<M>) -> Prompt {
 }
 
 impl Prompt {
+    #[must_use]
     pub fn message<M>(mut self, m: impl IntoText<M>) -> Self {
         self.message = Some(m.into_text().initial());
         self
     }
+    #[must_use]
     pub fn placeholder<M>(mut self, p: impl IntoText<M>) -> Self {
         self.placeholder = p.into_text().initial();
         self
     }
+    #[must_use]
     pub fn initial<M>(mut self, v: impl IntoText<M>) -> Self {
         self.initial = v.into_text().initial();
         self
     }
+    #[must_use]
     pub fn ok_label<M>(mut self, label: impl IntoText<M>) -> Self {
         self.ok = label.into_text().initial();
         self
     }
+    #[must_use]
     pub fn cancel_label<M>(mut self, label: impl IntoText<M>) -> Self {
         self.cancel = label.into_text().initial();
         self

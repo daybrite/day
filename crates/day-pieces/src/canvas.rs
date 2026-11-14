@@ -549,7 +549,6 @@ impl Drawing {
 /// let pdf = doc.render().await?;
 /// ```
 #[derive(Clone, Debug, Default, PartialEq)]
-#[must_use]
 pub struct PdfDocument {
     pages: Vec<Drawing>,
     info: day_spec::PdfInfo,
@@ -562,18 +561,21 @@ impl PdfDocument {
     }
 
     /// Append `drawing` as the next page, at the drawing's size.
+    #[must_use]
     pub fn page(mut self, drawing: Drawing) -> Self {
         self.pages.push(drawing);
         self
     }
 
     /// The document title. Android's writer has no metadata API and ignores it.
+    #[must_use]
     pub fn title(mut self, title: impl Into<String>) -> Self {
         self.info.title = Some(title.into());
         self
     }
 
     /// The document author. Android's writer ignores it, as it does the title.
+    #[must_use]
     pub fn author(mut self, author: impl Into<String>) -> Self {
         self.info.author = Some(author.into());
         self

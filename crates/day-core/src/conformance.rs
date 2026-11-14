@@ -461,7 +461,6 @@ type Body = Rc<dyn Fn(Drive) -> Pin<Box<dyn Future<Output = TestResult>>>>;
 /// Built by a `#[day::test]` function each time the test runs, so the signals a page and its
 /// drive share are fresh per run; the registry names it after that function.
 #[derive(Clone)]
-#[must_use]
 pub struct Case {
     name: String,
     kind: TestKind,
@@ -505,33 +504,39 @@ impl Case {
     }
     /// How long the case may take, page and drive together, before it fails as timed out.
     /// Unset, the run's default applies (30 s, or what `day test --case-timeout` says).
+    #[must_use]
     pub fn timeout(mut self, secs: f64) -> Self {
         self.timeout_secs = Some(secs);
         self
     }
     /// The piece kind this case is the proof of (`kinds::BUTTON`); a pass marks the kind
     /// on this toolkit in the coverage tables.
+    #[must_use]
     pub fn proves(mut self, kind: &str) -> Self {
         self.proves.push(format!("kind:{kind}"));
         self
     }
     /// The capability this case proves.
+    #[must_use]
     pub fn proves_cap(mut self, cap: Cap) -> Self {
         self.proves.push(format!("cap:{cap:?}"));
         self
     }
     /// The `Decorate` modifier this case proves (`"padding"`).
+    #[must_use]
     pub fn proves_modifier(mut self, modifier: &str) -> Self {
         self.proves.push(format!("modifier:{modifier}"));
         self
     }
     /// The toolkit duty this case proves (`"set_input_traits"`).
+    #[must_use]
     pub fn proves_duty(mut self, duty: &str) -> Self {
         self.proves.push(format!("duty:{duty}"));
         self
     }
     /// A capability the case needs; where the toolkit answers `Unsupported` the case is
     /// skipped with that reason rather than failed. The one way a case adapts to a toolkit.
+    #[must_use]
     pub fn requires(mut self, cap: Cap) -> Self {
         self.requires.push(cap);
         self
@@ -539,6 +544,7 @@ impl Case {
     /// A piece's own support the case needs (`day_piece_map::support`), named for the skip
     /// reason: where it answers `Unsupported` the case is skipped, as for [`Case::requires`].
     /// For a piece realized only where its platform ships the widget.
+    #[must_use]
     pub fn requires_support(mut self, what: &str, support: fn() -> day_spec::Support) -> Self {
         self.requires_support.push((what.to_owned(), support));
         self
@@ -552,11 +558,13 @@ impl Case {
             .map(|(what, _)| what.clone())
     }
     /// The page the app shows for this case; any piece.
+    #[must_use]
     pub fn page<P: crate::Piece>(mut self, page: impl Fn() -> P + 'static) -> Self {
         self.page = Some(Rc::new(move || AnyPiece::new(page())));
         self
     }
     /// A capture taken before the drive runs, once the page is shown.
+    #[must_use]
     pub fn shot(mut self, name: &str) -> Self {
         self.shots.push(name.into());
         self
@@ -564,6 +572,7 @@ impl Case {
     /// The drive: an async body over a [`Drive`], awaiting each step so the app's main loop
     /// runs between them (a transition settles, a capture paints) as it does between a
     /// script's steps.
+    #[must_use]
     pub fn drive<F>(mut self, body: impl Fn(Drive) -> F + 'static) -> Self
     where
         F: Future<Output = TestResult> + 'static,
@@ -572,6 +581,7 @@ impl Case {
         self
     }
     /// [`Case::drive`] under the name a headless test reads better with.
+    #[must_use]
     pub fn run<F>(self, body: impl Fn(Drive) -> F + 'static) -> Self
     where
         F: Future<Output = TestResult> + 'static,

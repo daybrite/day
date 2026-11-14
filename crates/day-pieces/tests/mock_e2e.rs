@@ -1218,7 +1218,7 @@ fn each_rerun_without_a_reorder_leaves_the_native_children_alone() {
         column((each(
             day_pieces::items(
                 move || {
-                    let _ = bump.get(); // the coarse read the order does not depend on
+                    bump.track(); // the coarse read the order does not depend on
                     items.get()
                 },
                 |t: &(u64, String)| t.0,

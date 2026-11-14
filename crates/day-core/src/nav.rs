@@ -132,7 +132,6 @@ day_reactive::tls_slots! {
 /// If an absolute navigation left unconsumed segments, the new surface consumes as many leading
 /// ones as it accepts; this is how `navigate("mail/inbox/msg-42")` reaches a stack that only
 /// mounts once the "mail" switch has taken effect.
-#[must_use]
 pub fn register_nav(ctrl: NavController) -> NavToken {
     let token = NEXT_TOKEN.with(|c| {
         let t = c.get();
@@ -176,7 +175,6 @@ pub fn register_nav(ctrl: NavController) -> NavToken {
 /// app's section of the same name, however early it registered. When it accepts the first
 /// segment of an absolute path, the remaining segments go to its own `enter`.
 /// [`unregister_nav`] removes it.
-#[must_use]
 pub fn register_nav_fallback(ctrl: NavController) -> NavToken {
     let token = NEXT_TOKEN.with(|c| {
         let t = c.get();
@@ -631,7 +629,6 @@ pub(crate) fn launch_deeplink() -> Option<String> {
 /// * A trailing `?name=value&…` carries [`route_params`] to the destination builders.
 ///
 /// False = no mounted surface recognized the (first) segment.
-#[must_use]
 pub fn navigate(route: &str) -> bool {
     let (segments, params) = parse_route(route);
     PENDING.with(|p| p.borrow_mut().clear());

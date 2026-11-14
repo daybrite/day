@@ -12,7 +12,6 @@ pub const TIME_KIND: &str = "day.piece.timepicker";
 /// A civil (zoneless) calendar date, proleptic Gregorian. Ordered chronologically; `Display` and
 /// [`DayDate::parse_iso`] speak ISO-8601 (`YYYY-MM-DD`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-#[must_use]
 pub struct DayDate {
     pub year: i32,
     pub month: u8,
@@ -141,6 +140,7 @@ impl DayDate {
     }
 
     /// This date limited to the inclusive `[min, max]` range (either bound optional).
+    #[must_use]
     pub fn clamped(self, min: Option<DayDate>, max: Option<DayDate>) -> Self {
         let mut d = self;
         if let Some(min) = min

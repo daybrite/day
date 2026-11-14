@@ -33,7 +33,6 @@ pub fn install(default: &str, locales: &[(&str, &str)]) {
 
 /// A localized text source: `label(tr("greeting").arg("name", name))` (§12.2).
 #[derive(Clone)]
-#[must_use]
 pub struct LocalizedText {
     key: String,
     catalog: Option<&'static Catalog>,
@@ -85,6 +84,7 @@ macro_rules! locales {
 }
 
 impl LocalizedText {
+    #[must_use]
     pub fn arg<M>(mut self, name: &str, value: impl IntoFArg<M>) -> Self {
         self.args.push((name.to_owned(), value.into_farg()));
         self

@@ -950,7 +950,6 @@ pub fn toolbar_model() -> Vec<ToolbarItem> {
 /// the toolkit has no pane to toggle there. The item's action makes this call, and dayscript's
 /// `toolbar:` step presses the item like any other, so a walkthrough drives the same path a
 /// click does (docs/toolbars.md).
-#[must_use]
 pub fn toggle_sidebar(host: RNode) -> bool {
     with_tree(|t| t.toggle_sidebar(host))
 }

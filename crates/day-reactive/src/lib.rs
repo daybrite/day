@@ -925,7 +925,6 @@ pub fn on_main_delayed(ms: u32, f: impl FnOnce() + Send + 'static) {
 
 /// Ownership scope for signals/effects (§4.3). `Copy` handle; not `Send`.
 #[derive(Clone, Copy, PartialEq, Eq)]
-#[must_use]
 pub struct Scope {
     key: ScopeKey,
     _not_send: PhantomData<*const ()>,
@@ -951,6 +950,7 @@ impl Scope {
         Scope::current().create_child()
     }
 
+    #[must_use]
     pub fn create_child(self) -> Scope {
         let key = with_rt(|rt| {
             let depth = rt.scopes.get(self.key).map_or(1, |s| s.depth + 1);

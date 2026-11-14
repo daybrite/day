@@ -445,7 +445,6 @@ pub fn frame_consumer_count() -> usize {
 #[doc(hidden)]
 pub mod native {
     use super::{FrameCallback, FrameStamp, NATIVE_CALLBACKS};
-    #[must_use]
     pub fn register(cb: FrameCallback) -> u64 {
         NATIVE_CALLBACKS.with(|c| {
             let mut c = c.borrow_mut();

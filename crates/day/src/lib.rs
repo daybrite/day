@@ -438,7 +438,6 @@ pub use day_core::{TextMetricsCacheStats, clear_text_metrics_cache, text_metrics
 
 /// The request built by [`window_image`].
 #[derive(Clone, Copy, Debug)]
-#[must_use]
 pub struct WindowImage {
     chrome: bool,
 }
@@ -447,6 +446,7 @@ impl WindowImage {
     /// Include the window's chrome: title bar, toolbar, whatever the platform draws around
     /// the content. A backend with nothing to add (or no way to separate the two) answers with
     /// the content capture rather than failing.
+    #[must_use]
     pub fn chrome(mut self) -> Self {
         self.chrome = true;
         self

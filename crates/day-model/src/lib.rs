@@ -1847,7 +1847,6 @@ impl<T: Identified + 'static> Store<Keyed<T>> {
     /// # Panics
     ///
     /// Panics if a thread panicked while holding the store's lock.
-    #[must_use]
     pub fn depopulate_many(self, keys: &[u64]) -> usize {
         if keys.is_empty() {
             return 0;

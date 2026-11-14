@@ -26,7 +26,6 @@ use crate::{Color, Font, FontSpec, FontWeight, TextRun, runs_are_valid};
 /// and because a wavy underline is how an app draws its diagnostics (a spelling or grammar
 /// mark of its own making) without fighting the platform's checker for the same pixels.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
-#[must_use]
 pub enum Underline {
     #[default]
     None,
@@ -43,6 +42,7 @@ impl Underline {
         self != Underline::None
     }
     /// The toolbar's on/off toggle: `Single` when turning it on, `None` when off.
+    #[must_use]
     pub fn toggled(self) -> Self {
         if self.is_on() {
             Underline::None

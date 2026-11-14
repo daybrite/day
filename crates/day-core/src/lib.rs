@@ -1233,7 +1233,6 @@ pub fn clear_text_metrics_cache() {
 /// there (around 29 µs a call on AppKit, which builds an `NSString` and an attribute dictionary
 /// every time), and a drawing measures the same handful of strings on every frame it records. A
 /// repeat costs a hash of the key and nothing else.
-#[must_use]
 pub fn measure_text(text: &str, size: f64, font: &day_spec::CanvasFont) -> day_spec::TextMetrics {
     if let Some(m) = TEXT_METRICS.with(|c| {
         let mut c = c.borrow_mut();

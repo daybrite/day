@@ -1057,12 +1057,10 @@ pub struct Prefs(Rc<Installed>);
 impl Prefs {
     /// Open-or-focus the surface: the window on desktop; on mobile, select the nav item when
     /// one is mounted, else present the navigation presentation as a cover.
-    #[must_use]
     pub fn open(&self) -> bool {
         open()
     }
     /// Open and select a group (`"updates"`), optionally a row (`"updates/check"`).
-    #[must_use]
     pub fn open_at(&self, route: &str) -> bool {
         open_at(route)
     }
@@ -1127,7 +1125,6 @@ fn installed() -> Option<Rc<Installed>> {
 }
 
 /// Open-or-focus the installed settings surface (see [`Prefs::open`]).
-#[must_use]
 pub fn open() -> bool {
     let Some(inst) = installed() else {
         log::warn!("day-piece-settings: open() before Preferences::install()");
@@ -1184,7 +1181,6 @@ pub fn group_page_of(id: &str) -> AnyPiece {
 }
 
 /// Open the surface at a group route (`"updates"`, `"updates/check"`).
-#[must_use]
 pub fn open_at(route: &str) -> bool {
     let Some(inst) = installed() else {
         return false;

@@ -95,7 +95,6 @@ pub enum Availability {
 
 /// What a person is asked to do, and how the dialog may let them do it.
 #[derive(Clone, Debug, PartialEq, Eq)]
-#[must_use]
 pub struct Prompt {
     reason: String,
     fallback_title: Option<String>,
@@ -121,6 +120,7 @@ impl Prompt {
     /// The label of the button that leads away from the biometric. With the device credential
     /// allowed it is the "use passcode" button (Apple), with it refused it is the negative button
     /// that dismisses the dialog (Android), and the platforms with no such button ignore it.
+    #[must_use]
     pub fn fallback_title(mut self, title: impl Into<String>) -> Self {
         self.fallback_title = Some(title.into());
         self
@@ -130,6 +130,7 @@ impl Prompt {
     /// to pass. `true` by default, and what most apps want: a person whose finger is wet can still
     /// get in. `false` asks for a biometric only; a device with none enrolled then fails with
     /// [`BiometricError::NotEnrolled`]. Windows Hello decides this itself and ignores the flag.
+    #[must_use]
     pub fn device_credential(mut self, allowed: bool) -> Self {
         self.device_credential = allowed;
         self
@@ -139,6 +140,7 @@ impl Prompt {
     /// challenge it is given (32 bytes at most) and a key bound to the same challenge accepts that
     /// token once; `day-part-keychain` passes the challenge its keystore produced. Every other
     /// platform ignores the challenge and returns an empty token.
+    #[must_use]
     pub fn challenge(mut self, challenge: impl Into<Vec<u8>>) -> Self {
         self.challenge = challenge.into();
         self

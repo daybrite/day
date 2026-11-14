@@ -388,7 +388,6 @@ pub fn resolve_presentation(req: u64, result: PresentResult) {
 /// natively. Scripted requests never enter the toolkit. The native
 /// dismissal's own completion event finds nothing pending and is a no-op. False = no such
 /// pending request.
-#[must_use]
 pub fn respond_presentation(req: u64, result: PresentResult) -> bool {
     let native = PENDING.with(|p| p.borrow().get(&req).map(|entry| entry.native));
     let Some(native) = native else {

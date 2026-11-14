@@ -39,7 +39,6 @@ pub enum TickPosition {
 
 /// The tick configuration: how many marks, whether values snap to them, where they draw.
 #[derive(Clone, Copy, Debug)]
-#[must_use]
 pub struct Tickmarks {
     pub count: u32,
     pub snap: bool,
@@ -55,10 +54,12 @@ impl Tickmarks {
             position: TickPosition::Below,
         }
     }
+    #[must_use]
     pub fn snap(mut self, snap: bool) -> Self {
         self.snap = snap;
         self
     }
+    #[must_use]
     pub fn position(mut self, position: TickPosition) -> Self {
         self.position = position;
         self

@@ -29,7 +29,6 @@ struct State {
 }
 impl Fence {
     /// Start once; repeated polls of the same revision must not request another frame.
-    #[must_use]
     pub fn begin(&self, revision: u32) -> bool {
         let mut s = self.0.borrow_mut();
         if s.revision == Some(revision) {

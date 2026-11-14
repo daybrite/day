@@ -489,7 +489,6 @@ impl MockProbe {
         s.log.clear();
         s.measure_calls = 0;
     }
-    #[must_use]
     pub fn measure_calls(&self) -> usize {
         self.state.borrow().measure_calls
     }

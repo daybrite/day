@@ -1285,7 +1285,6 @@ pub enum GestureKind {
 /// Ctrl on GTK/Qt/XAML) so one declaration reads correctly everywhere. `key` is a single character
 /// (`"s"`, `"."`) or a named key (`"Return"`, `"Delete"`, `"Left"`, `"F1"`).
 #[derive(Clone, Debug, PartialEq, Eq, Default)]
-#[must_use]
 pub struct Shortcut {
     pub key: String,
     /// ⌘ (Apple) / Ctrl (elsewhere). The conventional command modifier.
@@ -1313,14 +1312,17 @@ impl Shortcut {
             ..Default::default()
         }
     }
+    #[must_use]
     pub fn shift(mut self) -> Shortcut {
         self.shift = true;
         self
     }
+    #[must_use]
     pub fn alt(mut self) -> Shortcut {
         self.alt = true;
         self
     }
+    #[must_use]
     pub fn control(mut self) -> Shortcut {
         self.control = true;
         self
@@ -3931,7 +3933,6 @@ impl Cursor {
 /// `preferredScreenEdgesDeferringSystemGestures`; on Android any non-empty set enters
 /// swipe-to-reveal immersive mode (the closest platform analogue).
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
-#[must_use]
 pub struct Edges(pub u8);
 
 impl Edges {
@@ -3946,6 +3947,7 @@ impl Edges {
     pub fn contains(self, other: Edges) -> bool {
         self.0 & other.0 == other.0
     }
+    #[must_use]
     pub fn union(self, other: Edges) -> Edges {
         Edges(self.0 | other.0)
     }
@@ -4051,7 +4053,6 @@ fn spring_step(response: f64, damping: f64, t: f64) -> f64 {
 /// samples `curve` via [`Curve::fraction`]. Threaded through `Toolkit::update`/`set_frame`/
 /// `set_opacity`/`set_transform`.
 #[derive(Clone, Copy, Debug, PartialEq)]
-#[must_use]
 pub struct AnimSpec {
     pub duration_ms: u32,
     pub delay_ms: u32,
@@ -4115,17 +4116,20 @@ impl AnimSpec {
         }
     }
     /// Delay before the animation starts (builder).
+    #[must_use]
     pub fn delay(mut self, ms: u32) -> Self {
         self.delay_ms = ms;
         self
     }
     /// Repeat `count` extra times (builder); `autoreverse` ping-pongs each cycle.
+    #[must_use]
     pub fn repeat(mut self, count: u32, autoreverse: bool) -> Self {
         self.repeat = count;
         self.autoreverse = autoreverse;
         self
     }
     /// Repeat forever (builder), e.g. a pulsing indicator.
+    #[must_use]
     pub fn repeat_forever(mut self, autoreverse: bool) -> Self {
         self.repeat = u32::MAX;
         self.autoreverse = autoreverse;
@@ -4284,7 +4288,6 @@ pub struct NativeSnapshot {
 // ---------------------------------------------------------------------------
 
 #[derive(Clone, Debug, PartialEq)]
-#[must_use]
 pub enum Shape {
     Rect(Rect),
     RoundedRect(Rect, f64),
@@ -4336,6 +4339,7 @@ impl Shape {
     /// What a [`Stamp`] means by "the template translated by one point", and the one definition of
     /// it: a backend builds each copy of a batch with this rather than reaching for its own
     /// platform transform, so every toolkit stamps to the same coordinates.
+    #[must_use]
     pub fn translated(&self, dx: f64, dy: f64) -> Shape {
         let r = |r: &Rect| {
             Rect::new(
@@ -4453,7 +4457,6 @@ impl Path {
 /// does when two radii on one side would overlap, which is what a caller animating a radius or
 /// drawing a short bar needs to not think about.
 #[derive(Clone, Copy, Debug, PartialEq, Default)]
-#[must_use]
 pub struct CornerRadii {
     pub top_left: f64,
     pub top_right: f64,
@@ -4537,6 +4540,7 @@ impl CornerRadii {
     /// more than that side, every radius is scaled down by the same factor until none overlap.
     /// Scaling all four together keeps the corners in proportion, where clamping each one alone
     /// would turn a pill into a lopsided shape.
+    #[must_use]
     pub fn fitted(self, size: Size) -> Self {
         let clean = |r: f64| if r.is_finite() && r > 0.0 { r } else { 0.0 };
         let [tl, tr, br, bl] = self.to_array().map(clean);
@@ -5424,7 +5428,6 @@ pub fn parse_font_list(s: &str) -> Vec<FontFamilyInfo> {
 /// weight override, an italic flag, and the tabular-figures request. Backends resolve this to one
 /// native font.
 #[derive(Clone, Copy, Debug, PartialEq)]
-#[must_use]
 pub struct FontSpec {
     pub style: Font,
     pub weight: Option<FontWeight>,
@@ -5502,6 +5505,7 @@ impl FontSpec {
         FontSpec::from(style)
     }
     /// This descriptor at a different relative size (see [`FontSpec::scale`]).
+    #[must_use]
     pub fn scaled(mut self, scale: f64) -> Self {
         self.scale = scale;
         self
@@ -6346,7 +6350,6 @@ pub mod props {
     /// native field counts: UTF-16 code units (Apple, Android, Qt, WinUI, the web, ArkUI) or
     /// bytes. GTK counts characters, which is [`TextSelection::clamped`].
     #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-    #[must_use]
     pub struct TextSelection {
         pub start: usize,
         pub end: usize,
@@ -6362,6 +6365,7 @@ pub mod props {
         }
 
         /// The range held to `text`: both ends at most its character count, `start <= end`.
+        #[must_use]
         pub fn clamped(self, text: &str) -> Self {
             let n = text.chars().count();
             TextSelection::new(self.start.min(n), self.end.min(n))
@@ -9118,7 +9122,6 @@ pub enum WindowTabbing {
 pub type AppLocales = (&'static str, &'static [(&'static str, &'static str)]);
 
 #[derive(Clone, Debug)]
-#[must_use]
 pub struct WindowOptions {
     pub title: String,
     pub size: Size,
@@ -9192,42 +9195,50 @@ pub struct WindowOptions {
 impl WindowOptions {
     /// The window title. Replaces a [`title_fn`](Self::title_fn) set earlier (the generated
     /// `res::window_options()` sets one), so the last title named wins.
+    #[must_use]
     pub fn title(mut self, title: impl Into<String>) -> Self {
         self.title = title.into();
         self.title_fn = None;
         self
     }
     /// The content size the window opens at (desktop; phones fill the screen).
+    #[must_use]
     pub fn size(mut self, width: f64, height: f64) -> Self {
         self.size = Size::new(width, height);
         self
     }
     /// The smallest content size the user can resize to.
+    #[must_use]
     pub fn min_size(mut self, width: f64, height: f64) -> Self {
         self.min_size = Some(Size::new(width, height));
         self
     }
     /// The largest content size the user can resize to (`Cap::WindowGeometry`).
+    #[must_use]
     pub fn max_size(mut self, width: f64, height: f64) -> Self {
         self.max_size = Some(Size::new(width, height));
         self
     }
     /// Create and mount the window without showing it; see [`Self::start_hidden`].
+    #[must_use]
     pub fn start_hidden(mut self) -> Self {
         self.start_hidden = true;
         self
     }
     /// Size the window to its content once built; see [`Self::size_to_fit`].
+    #[must_use]
     pub fn size_to_fit(mut self) -> Self {
         self.size_to_fit = true;
         self
     }
     /// The app's display name for the application menu and About; see [`Self::app_name`].
+    #[must_use]
     pub fn app_name(mut self, name: impl Into<String>) -> Self {
         self.app_name = Some(name.into());
         self
     }
     /// The app's locale catalog, as `res::locales::{DEFAULT, CATALOG}`; see [`Self::locales`].
+    #[must_use]
     pub fn locales(
         mut self,
         default: &'static str,
@@ -9237,56 +9248,67 @@ impl WindowOptions {
         self
     }
     /// The title, computed once the catalog is installed; see [`Self::title_fn`].
+    #[must_use]
     pub fn title_fn(mut self, f: fn() -> String) -> Self {
         self.title_fn = Some(f);
         self
     }
     /// The app's version, for Day's exit line; see [`Self::version`].
+    #[must_use]
     pub fn version(mut self, version: impl Into<String>) -> Self {
         self.version = Some(version.into());
         self
     }
     /// macOS window tabbing for this window; see [`Self::tabbing`].
+    #[must_use]
     pub fn tabbing(mut self, tabbing: WindowTabbing) -> Self {
         self.tabbing = tabbing;
         self
     }
     /// The window's frame; see [`Self::chrome`].
+    #[must_use]
     pub fn chrome(mut self, chrome: WindowChrome) -> Self {
         self.chrome = chrome;
         self
     }
     /// What shows behind the content; see [`Self::background`].
+    #[must_use]
     pub fn background(mut self, background: WindowBackground) -> Self {
         self.background = background;
         self
     }
     /// No drop shadow, for a transparent or shaped window; see [`Self::shadow`].
+    #[must_use]
     pub fn no_shadow(mut self) -> Self {
         self.shadow = false;
         self
     }
     /// A window the user cannot resize; see [`Self::resizable`].
+    #[must_use]
     pub fn fixed_size(mut self) -> Self {
         self.resizable = false;
         self
     }
     /// Where the window opens; see [`Self::placement`].
+    #[must_use]
     pub fn placement(mut self, placement: WindowPlacement) -> Self {
         self.placement = placement;
         self
     }
     /// Remember and restore this window's frame under `key`; see [`Self::remember_frame`].
+    #[must_use]
     pub fn remember_frame(mut self, key: impl Into<String>) -> Self {
         self.remember_frame = Some(key.into());
         self
     }
     /// The logical window this opens; see [`Self::key`].
+    #[must_use]
     pub fn key(mut self, key: impl Into<String>) -> Self {
         self.key = Some(key.into());
         self
     }
     /// The kind of window; see [`Self::kind`].
+    #[must_use]
     pub fn kind(mut self, kind: WindowKind) -> Self {
         self.kind = kind;
         self

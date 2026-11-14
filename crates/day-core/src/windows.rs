@@ -586,7 +586,7 @@ pub(crate) fn focused_root() -> RNode {
 /// and after the last window is gone.
 #[must_use]
 pub fn focused_scope() -> Option<Scope> {
-    let _ = focus_revision().get();
+    focus_revision().track();
     WINDOWS.with(|w| {
         let windows = w.borrow();
         // A dismissing window is no longer the command target, even while its content stays
@@ -607,7 +607,7 @@ pub fn focused_scope() -> Option<Scope> {
 /// fires during the presentation (a focus change, a redraw) resolves to the window it belongs
 /// to rather than to a sheet that never had one (docs/state.md).
 pub(crate) fn focused_scope_chain() -> Vec<Scope> {
-    let _ = focus_revision().get();
+    focus_revision().track();
     WINDOWS.with(|w| {
         let windows = w.borrow();
         let initial = INITIAL_WINDOW.with(std::cell::Cell::get);
@@ -1401,7 +1401,6 @@ pub fn register_new_window_for<P: Piece>(group: &str, build: impl Fn() -> P + 's
 /// Open another window of tab group `group` (the backend's `newWindowForTab:` path for a window
 /// whose tabbing names a group). Uses the group's registered builder, else the app's New Window
 /// builder; `None` when neither exists.
-#[must_use]
 pub fn open_new_window_for_group(group: &str) -> Option<WindowHandle> {
     let action = TAB_NEW.with(|g| {
         g.borrow()

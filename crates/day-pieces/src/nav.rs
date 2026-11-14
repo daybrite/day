@@ -31,7 +31,6 @@ use crate::*;
 /// * A trailing `?name=value&…` carries [`route_params`] to the destination builders.
 ///
 /// False = no surface recognized the (first) segment.
-#[must_use]
 pub fn navigate(path: &str) -> bool {
     day_core::navigate(path)
 }
@@ -193,7 +192,6 @@ pub fn route_title_text<M>(title: impl crate::IntoText<M>) -> String {
 /// `route(&Section::Stack).then(&Drill::Item { id: 42 }).param("hint", "linked")` encodes to
 /// `"stack/item-42?hint=linked"`; [`RoutePath::navigate`] it, or hand it to [`nav_link_to`].
 #[derive(Clone, Debug, Default)]
-#[must_use]
 pub struct RoutePath {
     segments: Vec<String>,
     params: Vec<(String, String)>,
@@ -209,11 +207,13 @@ pub fn route(first: &impl Route) -> RoutePath {
 
 impl RoutePath {
     /// Append the next-inner segment.
+    #[must_use]
     pub fn then(mut self, next: &impl Route) -> Self {
         self.segments.push(next.key());
         self
     }
     /// Append a query param (the destination reads it via [`route_param`]).
+    #[must_use]
     pub fn param(mut self, name: &str, value: impl std::fmt::Display) -> Self {
         self.params.push((name.to_string(), value.to_string()));
         self
@@ -224,7 +224,6 @@ impl RoutePath {
         day_core::encode_route(&self.segments, &self.params)
     }
     /// Navigate to this path. False = no surface recognized the first segment.
-    #[must_use]
     pub fn navigate(&self) -> bool {
         day_core::navigate(&self.to_route())
     }
@@ -1651,7 +1650,7 @@ fn reorder_sidebar<K: Route, S: Binding<K>>(
         }
     })
     .selected_rows(move || {
-        let _ = selection_revision.get();
+        selection_revision.track();
         selected()
             .iter()
             .position(|r| {

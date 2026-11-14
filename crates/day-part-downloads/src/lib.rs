@@ -67,7 +67,6 @@ impl std::fmt::Display for DownloadId {
 #[derive(Clone, Debug)]
 // The web's manager opens nothing, so it reads no download.
 #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
-#[must_use]
 pub struct Download {
     request: Request,
     dest: PathBuf,
@@ -94,18 +93,21 @@ impl Download {
 
     /// The length the finished file must have. It also lets the manager check free space before
     /// the transfer starts.
+    #[must_use]
     pub fn expect_len(mut self, len: u64) -> Self {
         self.expected_len = Some(len);
         self
     }
 
     /// The SHA-256 the finished file must have, as hex.
+    #[must_use]
     pub fn expect_sha256(mut self, hex: &str) -> Self {
         self.sha256 = Some(hex.trim().to_ascii_lowercase());
         self
     }
 
     /// How many times a transient failure is retried before the download fails. Default 5.
+    #[must_use]
     pub fn retries(mut self, retries: u32) -> Self {
         self.retries = retries;
         self
@@ -113,6 +115,7 @@ impl Download {
 
     /// The first backoff; each retry doubles it, up to a minute. Default one second. A server's
     /// `Retry-After` wins.
+    #[must_use]
     pub fn retry_delay(mut self, delay: Duration) -> Self {
         self.retry_delay = delay;
         self
@@ -121,6 +124,7 @@ impl Download {
     /// Ask the OS to run the transfer, so it can outlive the app, where
     /// [`Downloads::system_tier`] offers one. Elsewhere the download runs in the app and its
     /// progress reports [`Tier::InApp`].
+    #[must_use]
     pub fn in_background(mut self, background: bool) -> Self {
         self.background = background;
         self

@@ -241,7 +241,6 @@ type TrustHandler = dyn Fn(&ServerTrust, TrustReply) + Send + Sync;
 
 /// Which servers a client trusts beyond the platform's own evaluation.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-#[must_use]
 pub struct Trust {
     pins: Vec<(String, Option<[u8; 32]>)>,
 }
@@ -256,6 +255,7 @@ impl Trust {
     /// `sha256/<base64>` as [`ServerTrust::pins`] prints it. `*.example.com` covers every
     /// subdomain. Several pins for one host accept any of them, which is how a key rotation
     /// ships. A malformed pin matches nothing, so its host fails closed.
+    #[must_use]
     pub fn pin(mut self, host: impl Into<String>, pin: &str) -> Trust {
         self.pins
             .push((host.into().to_ascii_lowercase(), parse_pin(pin)));
