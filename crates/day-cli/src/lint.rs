@@ -971,6 +971,183 @@ fn apply_fixes(project: &Project, findings: &[Finding], allow: &[String]) -> usi
     applied
 }
 
+/// The Clippy lints every Day app enables on top of Clippy's defaults, as the body of a
+/// `[lints.clippy]` table: each entry with the comment that says what it is for.
+///
+/// This file is the one place the list lives. `day new app` writes it into the scaffold's
+/// `Cargo.toml` verbatim, and the `clippy-baseline` rule below holds a project's manifest to it,
+/// with a `--fix` that adds what is absent. So adding or removing a default lint is one edited
+/// line there, and existing apps pick an addition up from `day lint --fix`.
+pub const APP_CLIPPY_LINTS: &str = include_str!("app-lints.toml");
+
+/// The `clippy.toml` the scaffold writes beside that table: the settings the lints above rely on,
+/// such as the exemption that lets a test `unwrap()`.
+const APP_CLIPPY_CONF: &str = include_str!("../templates/app/clippy.toml");
+
+/// What a Clippy level in a manifest says: `"warn"`, or `{ level = "warn", priority = -1 }`.
+fn clippy_level(item: &toml_edit::Item) -> Option<&str> {
+    item.as_str()
+        .or_else(|| item.get("level").and_then(toml_edit::Item::as_str))
+}
+
+/// Hold a manifest's Clippy table to [`APP_CLIPPY_LINTS`]. Returns the report and, when every
+/// gap is an absent line, the manifest with those lines added.
+///
+/// A stricter table passes: a lint at `deny`, or the whole `pedantic` group beside the list. The
+/// group is not a substitute for it, though; these lints belong to Clippy's `restriction` group,
+/// which `pedantic` does not turn on. A lint the manifest sets to `allow` is reported and left
+/// alone, because someone wrote that line on purpose.
+fn clippy_baseline(manifest: &str) -> Option<(String, Option<String>)> {
+    let mut doc = manifest.parse::<toml_edit::DocumentMut>().ok()?;
+    let baseline = APP_CLIPPY_LINTS.parse::<toml_edit::DocumentMut>().ok()?;
+    // A member that inherits takes its workspace's table. A scaffolded app is its own workspace
+    // root, so that table is in this file; one whose root is elsewhere is that root's to check.
+    let inherits = doc
+        .get("lints")
+        .and_then(|lints| lints.get("workspace"))
+        .and_then(toml_edit::Item::as_bool)
+        == Some(true);
+    if inherits && doc.get("workspace").is_none() {
+        return None;
+    }
+    let path: &[&str] = if inherits {
+        &["workspace", "lints", "clippy"]
+    } else {
+        &["lints", "clippy"]
+    };
+    let header = format!("[{}]", path.join("."));
+    let current = path
+        .iter()
+        .try_fold(doc.as_item(), |item, key| item.get(key));
+    let (mut absent, mut off) = (Vec::new(), Vec::new());
+    for (name, _) in baseline.iter() {
+        match current.and_then(|table| table.get(name)).map(clippy_level) {
+            None => absent.push(name),
+            Some(Some("warn" | "deny" | "forbid")) => {}
+            Some(_) => off.push(name),
+        }
+    }
+    if absent.is_empty() && off.is_empty() {
+        return None;
+    }
+    let mut gaps = Vec::new();
+    if !absent.is_empty() {
+        gaps.push(format!(
+            "leaves out Day's default app lints: {}",
+            absent.join(", ")
+        ));
+    }
+    if !off.is_empty() {
+        gaps.push(format!("turns off: {}", off.join(", ")));
+    }
+    let message = format!(
+        "Cargo.toml: {header} {} — each belongs there at \"warn\" or stricter",
+        gaps.join("; and ")
+    );
+    if absent.is_empty() {
+        return Some((message, None));
+    }
+    // Add the absent lines, each with its comment, to the table (created when there is none).
+    let mut table = doc.as_table_mut();
+    for (depth, key) in path.iter().enumerate() {
+        let made = !table.contains_key(key);
+        let Some(next) = table
+            .entry(key)
+            .or_insert_with(toml_edit::table)
+            .as_table_mut()
+        else {
+            // An inline or dotted table: reported, and left for a person to edit.
+            return Some((message, None));
+        };
+        // A table made on the way down prints no header of its own.
+        if made && depth + 1 < path.len() {
+            next.set_implicit(true);
+        }
+        table = next;
+    }
+    for name in &absent {
+        if let Some((key, item)) = baseline.as_table().get_key_value(name) {
+            table.insert_formatted(key, item.clone());
+        }
+    }
+    Some((message, Some(doc.to_string())))
+}
+
+/// Hold a project's `clippy.toml` to [`APP_CLIPPY_CONF`]: every setting the scaffold writes is
+/// present, whatever its value. Returns the report and the file with the absent settings added.
+fn clippy_conf(existing: Option<&str>) -> Option<(String, String)> {
+    let wanted = APP_CLIPPY_CONF.parse::<toml_edit::DocumentMut>().ok()?;
+    let Some(existing) = existing else {
+        let keys: Vec<&str> = wanted.iter().map(|(key, _)| key).collect();
+        return Some((
+            format!(
+                "clippy.toml is missing; the default app lints rely on its settings: {}",
+                keys.join(", ")
+            ),
+            APP_CLIPPY_CONF.to_string(),
+        ));
+    };
+    let mut doc = existing.parse::<toml_edit::DocumentMut>().ok()?;
+    let absent: Vec<&str> = wanted
+        .iter()
+        .map(|(key, _)| key)
+        .filter(|key| !doc.contains_key(key))
+        .collect();
+    if absent.is_empty() {
+        return None;
+    }
+    for name in &absent {
+        if let Some((key, item)) = wanted.as_table().get_key_value(name) {
+            doc.as_table_mut().insert_formatted(key, item.clone());
+        }
+    }
+    Some((
+        format!(
+            "clippy.toml leaves out settings the default app lints rely on: {}",
+            absent.join(", ")
+        ),
+        doc.to_string(),
+    ))
+}
+
+/// The app's Clippy policy: `Cargo.toml` carries the default lints and `clippy.toml` their
+/// settings (docs/cli.md, "The default app lints").
+fn lint_clippy(project: &Project, findings: &mut Vec<Finding>) {
+    let Ok(manifest) = std::fs::read_to_string(project.root.join("Cargo.toml")) else {
+        return;
+    };
+    if let Some((message, fixed)) = clippy_baseline(&manifest) {
+        findings.push(Finding {
+            code: "clippy-baseline",
+            message,
+            location: Some(Location::head("Cargo.toml")),
+            fix: fixed.map(|contents| Fix {
+                title: "Add Day's default app lints".into(),
+                file: "Cargo.toml".into(),
+                contents,
+            }),
+        });
+    }
+    // Clippy reads `clippy.toml` or `.clippy.toml`; the settings only matter beside the lints.
+    let conf = ["clippy.toml", ".clippy.toml"]
+        .into_iter()
+        .find(|name| project.root.join(name).is_file());
+    let existing = conf.and_then(|name| std::fs::read_to_string(project.root.join(name)).ok());
+    if let Some((message, contents)) = clippy_conf(existing.as_deref()) {
+        let file = conf.unwrap_or("clippy.toml");
+        findings.push(Finding {
+            code: "clippy-config",
+            message,
+            location: Some(Location::head(file)),
+            fix: Some(Fix {
+                title: "Add the settings the default app lints rely on".into(),
+                file: file.into(),
+                contents,
+            }),
+        });
+    }
+}
+
 /// The Apple host projects' `Info.plist`: does it still pin values Day.toml owns?
 ///
 /// `day new` baked the app's name and URL scheme into that file as literals until 2026-09, so a
@@ -1175,6 +1352,10 @@ fn collect(project: &Project) -> Vec<Finding> {
     // --- platform/{ios,macos}/Runner/Info.plist ---
     // Identity Day.toml owns, pinned in a file that predates the build setting for it.
     lint_apple_plists(project, &mut findings);
+
+    // --- Cargo.toml [lints.clippy] and clippy.toml ---
+    // The short list of Clippy lints every Day app keeps on, whatever else its table says.
+    lint_clippy(project, &mut findings);
 
     // --- resource/vectors/ (docs/vectors.md) ---
     // Parse every vector source and surface the problems a device test would otherwise find
@@ -2403,6 +2584,65 @@ mod tests {
         assert!(core_catalog_keys().contains("day_ok"));
     }
 
+    /// The scaffold's own manifest passes, a stricter table passes, and `--fix` adds exactly the
+    /// lines that are absent, leaving a deliberate `allow` where it is.
+    #[test]
+    fn the_clippy_baseline_accepts_stricter_tables_and_fills_in_absent_lints() {
+        let package = "[package]\nname = \"demo\"\n";
+        let scaffold = format!("{package}\n[lints.clippy]\n{APP_CLIPPY_LINTS}");
+        assert!(clippy_baseline(&scaffold).is_none());
+
+        // `pedantic` beside the list, and a lint raised to `deny`, are both stricter.
+        let stricter = scaffold.replace(
+            "unwrap_used = \"warn\"",
+            "unwrap_used = { level = \"deny\", priority = 1 }\npedantic = \"warn\"",
+        );
+        assert!(clippy_baseline(&stricter).is_none());
+
+        // No table at all: every lint is absent, and the fix writes one that then passes.
+        let (message, fixed) = clippy_baseline(package).expect("a finding");
+        assert!(message.contains("[lints.clippy] leaves out"), "{message}");
+        let fixed = fixed.expect("a fix");
+        assert!(fixed.starts_with(package), "{fixed}");
+        assert!(fixed.contains("[lints.clippy]\n# Debugging"), "{fixed}");
+        assert!(!fixed.contains("[lints]\n"), "{fixed}");
+        assert!(clippy_baseline(&fixed).is_none());
+
+        // `pedantic` alone does not turn these on; the fix keeps what the table already says.
+        let pedantic = format!("{package}\n[lints.clippy]\npedantic = \"warn\"\n\n[workspace]\n");
+        let fixed = clippy_baseline(&pedantic).and_then(|f| f.1).expect("a fix");
+        assert!(fixed.contains("pedantic = \"warn\"\n"), "{fixed}");
+        assert!(fixed.ends_with("[workspace]\n"), "{fixed}");
+        assert!(clippy_baseline(&fixed).is_none());
+
+        // An inherited table is checked where it lives, and one set to `allow` is not rewritten.
+        let inherited = format!(
+            "{package}\n[lints]\nworkspace = true\n\n[workspace.lints.clippy]\n{}",
+            APP_CLIPPY_LINTS.replace("todo = \"warn\"", "todo = \"allow\"")
+        );
+        let (message, fixed) = clippy_baseline(&inherited).expect("a finding");
+        assert!(
+            message.contains("[workspace.lints.clippy] turns off: todo"),
+            "{message}"
+        );
+        assert!(fixed.is_none());
+        // A member of a workspace rooted elsewhere is that root's to check.
+        assert!(clippy_baseline(&format!("{package}\n[lints]\nworkspace = true\n")).is_none());
+    }
+
+    /// The scaffold's clippy.toml passes; a project's own file keeps its settings and gains ours.
+    #[test]
+    fn the_clippy_settings_are_added_beside_a_projects_own() {
+        assert!(clippy_conf(Some(APP_CLIPPY_CONF)).is_none());
+        let (_, created) = clippy_conf(None).expect("a finding");
+        assert_eq!(created, APP_CLIPPY_CONF);
+        let own = "doc-valid-idents = [\"DayScript\", \"..\"]\n";
+        let (message, fixed) = clippy_conf(Some(own)).expect("a finding");
+        assert!(message.contains("allow-unwrap-in-tests"), "{message}");
+        assert!(fixed.starts_with(own), "{fixed}");
+        assert!(clippy_conf(Some(&fixed)).is_none());
+    }
+
     /// The id rule reports once per platform that cannot build it, and stays quiet when the
     /// manifest overrides the id for those platforms.
     #[test]
@@ -2832,11 +3072,16 @@ e = { PLATFORM() }
         let dir = std::env::temp_dir().join(format!("day-lint-{name}-{}", std::process::id()));
         std::fs::remove_dir_all(&dir).ok();
         std::fs::create_dir_all(&dir).expect("mkdir");
+        // The manifest and Clippy settings a scaffold has, so the Clippy rules are quiet.
         std::fs::write(
             dir.join("Cargo.toml"),
-            "[package]\nname = \"a\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+            format!(
+                "[package]\nname = \"a\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n\
+                 [lints.clippy]\n{APP_CLIPPY_LINTS}"
+            ),
         )
         .expect("Cargo.toml");
+        std::fs::write(dir.join("clippy.toml"), APP_CLIPPY_CONF).expect("clippy.toml");
         std::fs::write(
             dir.join("Day.toml"),
             "schema = 1\n[app]\nid = \"dev.example.a\"\ntargets = [\"macos-appkit\"]\n",

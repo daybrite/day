@@ -749,6 +749,25 @@ wrote (trimming stray whitespace around a store text kept in its own file).
 Anything that would need a decision, or that would add text you did not write, reports and waits
 for you. A code you passed to `--allow` is never rewritten.
 
+### The default app lints
+
+`day new` writes a short `[lints.clippy]` table into the app's `Cargo.toml`, on top of Clippy's
+defaults, and a `clippy.toml` that exempts tests:
+
+| Lint | What it reports |
+|---|---|
+| `dbg_macro`, `todo`, `unimplemented` | debugging and placeholder macros left in the code |
+| `undocumented_unsafe_blocks` | an `unsafe` block with no `// SAFETY:` comment |
+| `unwrap_used` | `unwrap()` outside tests, which ends the app with no explanation |
+
+`day lint` checks that the table still carries each of them at `warn` or stricter
+(`clippy-baseline`) and that `clippy.toml` has the settings they rely on (`clippy-config`).
+`day lint --fix` adds whatever is absent, so an app picks up a lint added in a later Day release
+with one command. A stricter table passes, including Clippy's `pedantic` group beside the list.
+The group does not replace the list, because it does not include these lints. A lint you set to
+`allow` is reported and left as you wrote it; pass `--allow clippy-baseline` to let that stand
+under `--strict`.
+
 `day lint --json` emits a versioned envelope instead of the report (every finding with its place,
 its severity, and its fix); the
 [VS Code extension](https://github.com/daybrite/day-vscode) draws its

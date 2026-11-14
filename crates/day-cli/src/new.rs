@@ -1523,6 +1523,7 @@ const DEMO_KEEPS: &[&str] = &[
     "Cargo.toml",
     "Day.toml",
     "build.rs",
+    "clippy.toml",
     ".gitignore",
     "src/main.rs",
     "resource/icons/",
@@ -1621,6 +1622,11 @@ fn template_context(
     // The resource-constant codegen helper the app's build.rs calls (§18.5), from the same source
     // (git / version / local path) as the `day` dep so it resolves identically.
     ctx.insert("day_build_dep", deps.dep("day-build", ""));
+    // The body of `[lints.clippy]`: the list `day lint` holds every app's manifest to.
+    ctx.insert(
+        "app_clippy_lints",
+        crate::lint::APP_CLIPPY_LINTS.to_string(),
+    );
     // Settings supplies the starter's appearance and language controls.
     ctx.insert("day_piece_deps", deps.dep("day-piece-settings", ""));
     ctx.insert(

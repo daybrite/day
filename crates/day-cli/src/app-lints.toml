@@ -1,0 +1,9 @@
+# Debugging and placeholder macros do not ship.
+dbg_macro = "warn"
+todo = "warn"
+unimplemented = "warn"
+# Every `unsafe` block states why it is sound in a `// SAFETY:` comment.
+undocumented_unsafe_blocks = "warn"
+# `unwrap()` aborts the app with no explanation. Return the error, or use `expect("…")` with the
+# invariant that makes the failure impossible. Tests are exempt (clippy.toml).
+unwrap_used = "warn"

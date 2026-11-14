@@ -82,7 +82,10 @@ impl Tint {
 fn any<T: Copy, L>(options: &[(T, L)]) -> T {
     use std::hash::BuildHasher;
     let n = std::collections::hash_map::RandomState::new().hash_one(());
-    options[n as usize % options.len()].0
+    // Reduce in `u64` first: the remainder is below `options.len()`, so it fits a `usize` on
+    // every target, including 32-bit web builds.
+    let index = usize::try_from(n % options.len() as u64).unwrap_or(0);
+    options[index].0
 }
 
 /// An app setting, shown in Settings: <https://daybrite.dev/docs/how-to/guide-storage>

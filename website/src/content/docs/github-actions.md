@@ -91,8 +91,10 @@ commit. The run summary says which Day it built. To build exactly what `Cargo.lo
 
 Open the repository's **Actions** tab and select a run. The jobs execute in this order:
 
-1. **Preflight** checks formatting and prepares the build matrix. `preflight-checks: fmt clippy check test`
-   also enables the other Rust checks; only `fmt` runs by default.
+1. **Preflight** checks formatting and prepares the build matrix. `preflight-checks` selects the
+   Rust checks from `fmt`, `clippy`, `check` and `test`. The workflow's default is `fmt` alone; the
+   `ci.yml` that `day new` writes sets `fmt, clippy, test`, so a Clippy warning or a failing test
+   stops the run before any target builds.
 2. **Build jobs** run `day lint`, build, package and execute the selected dayscripts. Each selected
    locale/theme combination runs separately. Mobile targets use phone and tablet profiles by default.
 3. **Release and deployment jobs** consume the packages and screenshots after the required builds succeed.

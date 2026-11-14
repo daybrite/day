@@ -61,6 +61,10 @@ jobs:
       scripts: auto
       locales: all
       themes: light dark
+      # Before any target builds, one runner checks formatting, runs Clippy with every warning
+      # an error (the `[lints.clippy]` table in Cargo.toml says which lints are on), and runs
+      # the tests.
+      preflight-checks: fmt, clippy, test
       # The web build, served from this repository's GitHub Pages on a push to the default branch
       # and on a version tag, with the project site website/site.toml describes around it. Set
       # Settings → Pages → Source to "GitHub Actions" once, and allow `v*` tags under

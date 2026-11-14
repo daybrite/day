@@ -60,10 +60,13 @@ Use examples with the API supported by this project's Day dependency version. Ch
 Run `cargo fmt --all`, `cargo fmt --all -- --check`, `cargo test`, and
 `cargo clippy --all-targets -- -D warnings`. Run `day lint` and build the affected targets.
 
-`Cargo.toml` turns on Clippy's `pedantic` group, and every warning is an error in CI. Fix a
-finding in the code rather than adding `#[allow(...)]`. Where the lint is wrong for one site,
-use `#[expect(clippy::<lint>, reason = "…")]` on the narrowest item with a specific reason.
-Leave the `[lints.clippy]` table as it is unless the project's owner asks for a change.
+`Cargo.toml` adds a short list of Clippy lints to the defaults, and every warning is an error in
+CI. The list covers `unwrap()` outside tests, `unsafe` without a `// SAFETY:` comment, and
+leftover `dbg!`, `todo!` and `unimplemented!`. Fix a finding in the code rather than adding
+`#[allow(...)]`. Where the lint is wrong for one site, use
+`#[expect(clippy::<lint>, reason = "…")]` on the narrowest item with a specific reason. Do not
+remove lints from the `[lints.clippy]` table unless the project's owner asks for a change;
+`day lint` reports a default lint that is missing, and `day lint --fix` adds it.
 Run the walkthrough with `day launch -t <target> --script dayscript/demo.yaml` and inspect the
 screenshots of changed screens. Use `day drive -t <target> --steps-json '[…]'` to inspect a
 running app. Available Day MCP tools provide equivalent launch and drive operations.

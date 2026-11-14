@@ -108,6 +108,8 @@ day-build = { path = "../../crates/day-build" }
         put(private / f'resource/locales/en/{filename}.ftl', found[-1] + '\n')
 
     helpers = '''#![allow(dead_code, unused_imports, unused_variables)]
+// Excerpts show a piece or a getter as a bare statement; the pages they come from use the value.
+#![allow(unused_must_use)]
 // Synthetic supporting types and functions for integration-fragment compilation.
 use day::prelude::*;
 use day_core::{LayoutOps, RNode};

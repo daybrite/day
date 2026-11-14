@@ -263,6 +263,10 @@ mod tests {
             "day_build_dep",
             "day-build = { version = \"0.0.0\" }".to_string(),
         );
+        m.insert(
+            "app_clippy_lints",
+            crate::lint::APP_CLIPPY_LINTS.to_string(),
+        );
         m.insert("targets_toml", "\"macos-appkit\"".to_string());
         // The same targets unquoted, for a workflow input (new.rs `targets_list`), with the CLI
         // that workflow installs and whether it deploys the web build (new.rs `template_context`).

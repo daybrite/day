@@ -273,11 +273,13 @@ day drive -t <target> --steps-json …  # drive a running app (see below)
 day mcp-server                        # serve all of the above as MCP tools (stdio)
 ```
 
-A scaffolded project's `Cargo.toml` turns on Clippy's `pedantic` group, and its CI treats every
-warning as an error. Run `cargo clippy --all-targets -- -D warnings` before finishing a change
+A scaffolded project's `Cargo.toml` adds a short list of Clippy lints to the defaults:
+`unwrap()` outside tests, `unsafe` without a `// SAFETY:` comment, and leftover `dbg!`, `todo!`
+and `unimplemented!`. Its CI treats every warning as an error. Run `cargo clippy --all-targets -- -D warnings` before finishing a change
 and fix each finding in the code. Where a lint is wrong for one site, use
 `#[expect(clippy::<lint>, reason = "…")]` on the narrowest item; do not add `#[allow(...)]` or
-edit the `[lints.clippy]` table.
+remove lints from the `[lints.clippy]` table. `day lint` reports a default lint that is missing
+from the table, and `day lint --fix` adds it.
 
 ## Verifying your work (dayscript)
 
